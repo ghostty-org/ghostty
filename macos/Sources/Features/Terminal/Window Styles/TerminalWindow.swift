@@ -222,7 +222,7 @@ class TerminalWindow: NSWindow {
 
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
-        if tabBarView != nil {
+        if nativeTabStripIsVisible {
             tabBarDidAppear()
         } else {
             tabBarDidDisappear()
@@ -261,7 +261,9 @@ class TerminalWindow: NSWindow {
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
-        guard !(terminalController?.supportsSidebar == true && isTabBar(childViewController)) else { return }
+        if isTabBar(childViewController) {
+            childViewController.isHidden = terminalController?.supportsSidebar == true
+        }
         super.addTitlebarAccessoryViewController(childViewController)
 
         // Tab bar is attached as a titlebar accessory view controller (layout bottom). We
@@ -269,7 +271,8 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
-            tabBarDidAppear()
+            if childViewController.isHidden { tabBarDidDisappear() } else { tabBarDidAppear() }
+            omgTabChrome?.schedule()
         }
     }
 
@@ -286,6 +289,19 @@ class TerminalWindow: NSWindow {
     /// This identifier is attached to the tab bar view controller when we detect it being
     /// added.
     static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
+
+    var nativeTabStripIsVisible: Bool {
+        styleMask.contains(.titled) &&
+            titlebarAccessoryViewControllers.contains { isTabBar($0) && !$0.isHidden }
+    }
+
+    func setNativeTabStripHidden(_ hidden: Bool) {
+        guard styleMask.contains(.titled) else { return }
+        for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) && accessory.isHidden != hidden {
+            accessory.isHidden = hidden
+        }
+        if nativeTabStripIsVisible { tabBarDidAppear() } else { tabBarDidDisappear() }
+    }
 
     var hasMoreThanOneTabs: Bool {
         /// accessing ``tabGroup?.windows`` here

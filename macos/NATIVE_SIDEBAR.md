@@ -5,6 +5,13 @@ is the thin bridge into the existing terminal layout; the mounted sidebar
 subtree contains no SwiftUI hosting view. The horizontal tab strip remains
 Ghostty's native implementation.
 
+Native tab-strip visibility uses `NSTitlebarAccessoryViewController.isHidden`.
+AppKit still installs and owns the accessory; vertical mode collapses it to zero
+height. Do not reject native tab-bar installation or repeatedly call
+`toggleTabBar` to hide a multi-tab group: AppKit can continue reporting the group
+as having a tab bar, producing a feedback loop. `nativeTabStripIsVisible` reports
+the actual accessory presentation independently of that group state.
+
 ## Ownership
 
 `NSWindowTabGroup.windows` is the canonical order. TerminalController and

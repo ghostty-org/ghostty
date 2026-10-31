@@ -5,6 +5,73 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalLiveTabLayoutTests {
+    @Test func tabChromeSettlesAfterCreationAndRepeatedDirectionChanges() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        source.showWindow(nil)
+        let second = try fixture.tab(parent: source)
+        let window = try #require(source.window as? TerminalWindow)
+        let other = try #require(second.window as? TerminalWindow)
+        for mode in [Ghostty.Config.MacOSTabLayout.horizontal, .vertical, .horizontal, .vertical] {
+            fixture.coordinator.requestTabLayout(mode, from: source)
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(window.nativeTabStripIsVisible == (mode == .horizontal))
+            other.makeKeyAndOrderFront(nil)
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(other.nativeTabStripIsVisible == (mode == .horizontal))
+        }
+        let chrome = try #require(other.omgTabChrome)
+        try await Task.sleep(for: .milliseconds(300))
+        let refreshes = chrome.refreshCount
+        let toggles = chrome.visibilityChangeCount
+        var cpuStart = timespec()
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpuStart)
+        try await Task.sleep(for: .milliseconds(300))
+        var cpuEnd = timespec()
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpuEnd)
+        let cpuSeconds = Double(cpuEnd.tv_sec - cpuStart.tv_sec) + Double(cpuEnd.tv_nsec - cpuStart.tv_nsec) / 1_000_000_000
+        print("Tab chrome idle: \(chrome.refreshCount - refreshes) refreshes, \(chrome.visibilityChangeCount - toggles) toggles, \(cpuSeconds)s CPU / 0.3s")
+        #expect(chrome.refreshCount - refreshes < 5)
+        #expect(chrome.visibilityChangeCount == toggles)
+        #expect(other.titlebarSeparatorStyle == .none)
+    }
+
+    @Test func splitPreviewKeepsItsWidthInAnActualPopover() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        let actions = NativeActionPopoverController(entries: (0..<4).map { index in
+            .action("Pane \(index)", symbol: "terminal") {}
+        })
+        let panel = NativeTabPanePreviewController(controller: source, actions: actions)
+        let anchor = NSView(frame: .init(x: 0, y: 0, width: 26, height: 26))
+        let window = NSWindow(contentRect: .init(x: 200, y: 200, width: 400, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        let popover = NSPopover()
+        defer { popover.close(); window.close() }
+        popover.animates = false
+        popover.contentViewController = panel
+        popover.contentSize = panel.preferredContentSize
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxX)
+        try await Task.sleep(for: .milliseconds(150))
+        panel.view.layoutSubtreeIfNeeded()
+        #expect(abs(panel.view.bounds.width - 320) < 1)
+        #expect(panel.view.bounds.height < 410)
+        #expect(panel.surface.diagram?.bounds.width == 320)
+        #expect(panel.surface.scroll?.documentView?.bounds.width ?? 0 > 280)
+        #expect(panel.surface.scroll?.documentView?.bounds.height ?? 0 > 100)
+        if let image = NSImage(data: panel.view.dataWithPDF(inside: panel.view.bounds)),
+           let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+           let png = bitmap.representation(using: .png, properties: [:]) {
+            try png.write(to: URL(fileURLWithPath: "/tmp/omg-fixed-pane-preview.png"))
+        }
+    }
+
     @Test func horizontalTabsUseNativeAgentStatusAndSharedPresentation() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
@@ -88,7 +155,7 @@ struct TerminalLiveTabLayoutTests {
         #expect(controller.supportsSidebar)
         #expect(controller.sidebarIsShowing)
         #expect(controller.window === window && window.contentView === content)
-        #expect(window.tabGroup?.isTabBarVisible != true)
+        #expect((window as? TerminalWindow)?.nativeTabStripIsVisible == false)
         #expect(!controller.horizontalWorkspaceInTitlebar)
         fixture.coordinator.requestTabLayout(.horizontal, from: controller)
         try await Task.sleep(for: .milliseconds(100))

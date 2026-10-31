@@ -33,7 +33,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
     private let createButton = NativeActionControl()
     private let content = NSView()
     private let queryField = OMGNativeSearchField()
-    private let moveTitle = NSTextField(wrappingLabelWithString: "")
+    private let moveTitle = NSTextField(labelWithString: "")
     private let table = TerminalWorkspaceTableView()
     private let scroll = NSScrollView()
     private let footer = NSTextField(labelWithString: "")
@@ -122,6 +122,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         createButton.setAccessibilityIdentifier("workspace.create")
         header.addArrangedSubview(backButton)
         header.addArrangedSubview(titleLabel)
+        header.addArrangedSubview(moveTitle)
         header.addArrangedSubview(NSView())
         header.addArrangedSubview(createButton)
 
@@ -136,6 +137,9 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         moveTitle.heightAnchor.constraint(equalToConstant: 18).isActive = true
         moveTitle.textColor = .secondaryLabelColor
         moveTitle.font = .systemFont(ofSize: 11)
+        moveTitle.lineBreakMode = .byTruncatingMiddle
+        moveTitle.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace"))
         column.resizingMask = .autoresizingMask
@@ -245,6 +249,7 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         titleLabel.stringValue = title
         backButton.isHidden = model.page == .switcher
         createButton.isHidden = model.page != .switcher
+        moveTitle.isHidden = model.page != .move
         createButton.isEnabled = model.canCreate && !model.isPerforming
         errorLabel.stringValue = model.error ?? model.store.saveError ?? ""
         errorLabel.isHidden = errorLabel.stringValue.isEmpty
@@ -254,11 +259,8 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
             if queryField.currentEditor() == nil, queryField.stringValue != model.query {
                 queryField.stringValue = model.query
             }
-            moveTitle.stringValue = WorkspaceL10n.text(
-                "Move “\(model.movingTabTitle)” to…",
-                "将“\(model.movingTabTitle)”移动到…"
-            )
-            moveTitle.isHidden = model.page != .move
+            moveTitle.stringValue = model.movingTabTitle
+            moveTitle.toolTip = model.movingTabTitle
             footer.stringValue = model.filtered.isEmpty && !model.query.isEmpty
                 ? WorkspaceL10n.text("No workspaces match.", "没有匹配的工作区。")
                 : WorkspaceL10n.text("↑ ↓ Choose  ·  Return Confirm  ·  Esc Back",
@@ -324,7 +326,6 @@ final class TerminalWorkspacePickerController: NSViewController, NSSearchFieldDe
         pageStack.translatesAutoresizingMaskIntoConstraints = false
         switch model.page {
         case .switcher, .move:
-            if model.page == .move { pageStack.addArrangedSubview(moveTitle) }
             queryField.translatesAutoresizingMaskIntoConstraints = false
             pageStack.addArrangedSubview(queryField)
             pageStack.addArrangedSubview(scroll)

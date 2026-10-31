@@ -63,6 +63,7 @@ final class TerminalWorkspaceHeaderButton: NativeActionControl {
     private let attentionView = NSView()
     private weak var controller: TerminalController?
     private var activate: (() -> Void)?
+    private var symbolName: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -117,8 +118,12 @@ final class TerminalWorkspaceHeaderButton: NativeActionControl {
                    activate: @escaping () -> Void) {
         self.controller = controller
         wantsLayer = true
-        titleLabel.stringValue = state.name
-        symbolView.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: nil)
+        let sizeChanged = titleLabel.stringValue != state.name || attentionView.isHidden == state.needsAttention
+        if titleLabel.stringValue != state.name { titleLabel.stringValue = state.name }
+        if symbolName != state.symbol {
+            symbolName = state.symbol
+            symbolView.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: nil)
+        }
         symbolView.contentTintColor = state.tint
         attentionView.isHidden = !state.needsAttention
         setPresentationActive(false)
@@ -129,8 +134,10 @@ final class TerminalWorkspaceHeaderButton: NativeActionControl {
         setAccessibilityHelp(state.shortcut.isEmpty ? nil : state.shortcut)
         self.activate = activate
         controller.workspacePopover.update(anchor: self)
-        needsLayout = true
-        invalidateIntrinsicContentSize()
+        if sizeChanged {
+            needsLayout = true
+            invalidateIntrinsicContentSize()
+        }
     }
 
     override func viewDidMoveToWindow() {

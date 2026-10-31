@@ -20,10 +20,15 @@ final class TerminalTabChromeController {
     private weak var observedLayout: VerticalTabWindowLayoutState?
     private var layoutSubscription: AnyCancellable?
     private var layoutMode: Ghostty.Config.MacOSTabLayout?
+    private weak var observedGroup: NSWindowTabGroup?
+    private var groupObservations: [NSKeyValueObservation] = []
+    private(set) var refreshCount = 0
+    private(set) var visibilityChangeCount = 0
 
     init(controller: TerminalController, window: TerminalWindow) {
         self.controller = controller
         self.window = window
+        window.titlebarSeparatorStyle = .none
         let stack = NSStackView(views: [workspace, sidebar, newTab])
         stack.orientation = .horizontal
         stack.distribution = .gravityAreas
@@ -57,6 +62,7 @@ final class TerminalTabChromeController {
         }
         controller.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subscriptions)
         controller.workspaceCoordinator.store.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subscriptions)
+        controller.workspaceCoordinator.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subscriptions)
         OhMyGhosttySettings.shared.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subscriptions)
         if let activities = (NSApp.delegate as? AppDelegate)?.tabActivities {
             activities.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subscriptions)
@@ -95,6 +101,10 @@ final class TerminalTabChromeController {
 
     func refresh() {
         guard !stopped, let controller, controller.isAvailableForWorkspace, let window else { return }
+        refreshCount += 1
+        // A newly created tab has not joined its destination yet. Reading
+        // tabGroup here builds a throwaway native group and its titlebar.
+        guard !controller.workspaceTabAttachmentIsPending else { return }
         // Borderless fullscreen has no titlebar; even reading its accessory list
         // raises an AppKit exception. Restore chrome after the style returns.
         guard window.styleMask.contains(.titled) else {
@@ -106,6 +116,18 @@ final class TerminalTabChromeController {
         if observedLayout !== controller.tabLayoutState {
             observedLayout = controller.tabLayoutState
             layoutSubscription = controller.tabLayoutState.objectWillChange.sink { [weak self] _ in self?.schedule() }
+        }
+        let group = window.tabGroup
+        if observedGroup !== group {
+            groupObservations.removeAll()
+            observedGroup = group
+            if let group {
+                groupObservations = [
+                    group.observe(\.selectedWindow) { [weak self] _, _ in self?.schedule() },
+                    group.observe(\.windows) { [weak self] _, _ in self?.schedule() },
+                    group.observe(\.isTabBarVisible) { [weak self] _, _ in self?.schedule() },
+                ]
+            }
         }
         let horizontal = controller.tabLayout == .horizontal
         let usesLeading = horizontal || !(window is VerticalTabsTerminalWindow)
@@ -121,8 +143,10 @@ final class TerminalTabChromeController {
         sidebar.isHidden = horizontal
         newTab.isHidden = horizontal
         icon.isHidden = !horizontal
-        workspace.configure(.resolve(controller: controller, activities: (NSApp.delegate as? AppDelegate)?.tabActivities),
-                            controller: controller) { [weak controller] in controller?.workspaceSwitcherIsPresented.toggle() }
+        if horizontal {
+            workspace.configure(.resolve(controller: controller, activities: (NSApp.delegate as? AppDelegate)?.tabActivities),
+                                controller: controller) { [weak controller] in controller?.workspaceSwitcherIsPresented.toggle() }
+        }
         let available = max(56, min(160, window.frame.width - 160))
         let desiredWidth = horizontal ? workspace.fittingSize(proposedWidth: available).width : 56
         (leading.view as? NativeTabChromeAccessory)?.setWidth(desiredWidth)
@@ -136,17 +160,28 @@ final class TerminalTabChromeController {
                 window.installInspectorToggle(controller: controller, registry: app.inspectorRegistry)
             }
         }
-        // AppKit owns the strip. Change visibility after the layout intent is committed.
-        if window.isVisible, !controller.workspacePresentationIsParked,
+        // A multi-tab group cannot hide its bar through toggleTabBar. Collapse
+        // the native accessory instead, keeping AppKit's group bookkeeping intact.
+        window.setNativeTabStripHidden(!horizontal)
+        if (group?.selectedWindow ?? window) === window,
+           window.isVisible, !controller.workspacePresentationIsParked,
            window.tabbingMode != .disallowed,
            !controller.workspaceCoordinator.isChanging,
            !(controller.fullscreenStyle?.isFullscreen == true && controller.fullscreenStyle?.supportsTabs == false),
            !controller.workspaceCoordinator.native.transitioningWindows.contains(controller.windowSessionID) {
-            let visible = window.tabGroup?.isTabBarVisible == true
-            if horizontal != visible { window.toggleTabBar(nil) }
+            let visible = group?.isTabBarVisible == true
+            if horizontal && !visible {
+                visibilityChangeCount += 1
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    context.allowsImplicitAnimation = false
+                    window.toggleTabBar(nil)
+                }
+            }
         }
-        let selected = (window.tabGroup?.selectedWindow ?? window) === window
-        let index = (window.tabGroup?.windows.firstIndex(of: window) ?? 0) + 1
+        guard horizontal else { return }
+        let selected = (group?.selectedWindow ?? window) === window
+        let index = (group?.windows.firstIndex(of: window) ?? 0) + 1
         guard let value = TerminalTabPresentationResolver.resolve(controller, index: index, selected: selected,
             activities: (NSApp.delegate as? AppDelegate)?.tabActivities) else { return }
         icon.previewEdge = horizontal ? .maxY : .maxX
@@ -192,6 +227,7 @@ final class TerminalTabChromeController {
         subscriptions.removeAll()
         surfaceSubscriptions.removeAll()
         layoutSubscription = nil
+        groupObservations.removeAll()
     }
 }
 
@@ -208,6 +244,7 @@ private final class NativeTabChromeAccessory: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var intrinsicContentSize: NSSize { .init(width: desiredWidth, height: 28) }
     func setWidth(_ width: CGFloat) {
+        guard desiredWidth != width || frame.size != NSSize(width: width, height: 28) else { return }
         if desiredWidth != width {
             desiredWidth = width
             invalidateIntrinsicContentSize()

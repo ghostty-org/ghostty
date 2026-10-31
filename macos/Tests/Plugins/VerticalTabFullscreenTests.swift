@@ -165,13 +165,12 @@ struct VerticalTabFullscreenTests {
         let sibling = try #require(TerminalController.newTab(app, from: targetWindow, withBaseConfig: config))
         controllers.append(sibling)
         try await Task.sleep(for: .milliseconds(150))
-        let nativeApp = try #require(app.app)
-        let extraPane = Ghostty.SurfaceView(nativeApp, baseConfig: config)
-        target.surfaceTree = .init(root: .split(.init(direction: .horizontal, ratio: 0.4,
-            left: .leaf(view: targetSurface), right: .leaf(view: extraPane))), zoomed: nil)
-        target.focusedSurface = extraPane
-        target.tabLayoutState.setSidebarVisible(false)
         targetWindow.makeKeyAndOrderFront(nil)
+        let extraPane = try #require(target.newSplit(at: targetSurface, direction: .right, baseConfig: config))
+        target.tabLayoutState.setSidebarVisible(false)
+        try await Task.sleep(for: .milliseconds(150))
+        try #require(targetWindow.firstResponder === extraPane,
+                     "The new pane must own actual keyboard focus before workspace switching")
         coordinator.didActivate(target)
         try #require(coordinator.switchWorkspace(to: source.workspaceID, from: target) === source)
         let sourceLayout = source.tabLayoutState

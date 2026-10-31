@@ -8,6 +8,25 @@ struct TerminalWorkspaceAppearanceTests {
         (view as? T).map { [$0] } ?? view.subviews.flatMap { find(type, in: $0) }
     }
 
+    @Test func movePageKeepsSearchAtTheSamePosition() async throws {
+        let fixture = try TerminalWorkspaceManagementTests.Fixture()
+        defer { fixture.close() }
+        let picker = TerminalWorkspacePickerController(model: fixture.model)
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 360, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = picker
+        defer { window.contentViewController = nil; window.close() }
+        picker.view.layoutSubtreeIfNeeded()
+        let search = try #require(find(NSSearchField.self, in: picker.view).first)
+        let before = search.convert(search.bounds, to: picker.view)
+        fixture.model.beginMove()
+        try await Task.sleep(for: .milliseconds(50))
+        picker.view.layoutSubtreeIfNeeded()
+        #expect(search.convert(search.bounds, to: picker.view) == before)
+        #expect(picker.preferredContentSize == NSSize(width: 360, height: 500))
+    }
+
     @Test func rowActionsAlignAtTheTrailingEdgeAndHoverDoesNotSelect() throws {
         let fixture = try TerminalWorkspaceManagementTests.Fixture()
         defer { fixture.close() }

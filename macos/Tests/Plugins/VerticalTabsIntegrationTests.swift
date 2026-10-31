@@ -726,9 +726,7 @@ struct VerticalTabsIntegrationTests {
         #expect(controllers.allSatisfy { controller in
             (controller.window as? VerticalTabsTerminalWindow)?.nativeTabBarIsSuppressed == true
         })
-        #expect(controllers.compactMap {
-            ($0.window as? VerticalTabsTerminalWindow)?.nativeTabBarRejectionCount
-        }.reduce(0, +) > 0)
+        #expect((tabGroup.selectedWindow as? TerminalWindow)?.nativeTabStripIsVisible == false)
 
         tabGroup.selectedWindow = initialWindow
         try await Task.sleep(for: .milliseconds(150))

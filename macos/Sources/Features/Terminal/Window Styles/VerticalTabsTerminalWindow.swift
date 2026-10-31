@@ -8,7 +8,6 @@ final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
 
     private let sidebarToggleAccessory = NSTitlebarAccessoryViewController()
     private var sidebarToggleWidthConstraint: NSLayoutConstraint?
-    private(set) var nativeTabBarRejectionCount = 0
 
     override func awakeFromNib() {
         super.awakeFromNib()
@@ -62,18 +61,6 @@ final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
         }
     }
 
-    override func addTitlebarAccessoryViewController(
-        _ childViewController: NSTitlebarAccessoryViewController
-    ) {
-        // AppKit creates this controller before displaying its horizontal tab strip.
-        // Keep the NSWindowTabGroup, but never let the strip enter our view hierarchy.
-        guard terminalController?.tabLayout == .horizontal || !isTabBar(childViewController) else {
-            nativeTabBarRejectionCount += 1
-            return
-        }
-        super.addTitlebarAccessoryViewController(childViewController)
-    }
-
     var sidebarToggleIsInstalled: Bool {
         titlebarAccessoryViewControllers.contains(sidebarToggleAccessory)
     }
@@ -111,7 +98,7 @@ final class VerticalTabsTerminalWindow: TransparentTitlebarTerminalWindow {
     }
 
     var nativeTabBarIsSuppressed: Bool {
-        !titlebarAccessoryViewControllers.contains(where: isTabBar) && tabBarView == nil
+        !nativeTabStripIsVisible
     }
 }
 
