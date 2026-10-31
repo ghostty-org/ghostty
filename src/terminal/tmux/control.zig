@@ -213,34 +213,30 @@ pub const Parser = struct {
             self.buffer.clearRetainingCapacity();
             return null;
         } else if (std.mem.eql(u8, cmd, "%output")) cmd: {
-            var re = oni.Regex.init(
-                "^%output %([0-9]+) (.+)$",
-                .{ .capture_group = true },
-                oni.Encoding.utf8,
-                oni.Syntax.default,
-                null,
-            ) catch |err| {
-                log.warn("regex init failed error={}", .{err});
-                return error.RegexError;
-            };
-            defer re.deinit();
-
-            var region = re.search(line, .{}) catch |err| {
-                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+            // `%output %<pane> <data>`. The data is whatever the pane wrote,
+            // with only bytes below 32 and `\` escaped, so it is not
+            // necessarily valid UTF-8 and is taken verbatim to the end of
+            // the line.
+            //
+            // Slice `line` rather than using `cutPrefix` so that the data
+            // keeps the mutability of the parser buffer it points into.
+            const prefix = "%output %";
+            if (!std.mem.startsWith(u8, line, prefix)) {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            }
+            const rest = line[prefix.len..];
+            const split = std.mem.findScalar(u8, rest, ' ') orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
                 break :cmd;
             };
-            defer region.deinit();
-            const starts = region.starts();
-            const ends = region.ends();
+            const id = parseDecimalId(rest[0..split]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+            const data = rest[split + 1 ..];
 
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
-            const data = line[@intCast(starts[2])..@intCast(ends[2])];
-
-            // Important: do not clear buffer here since name points to it
+            // Important: do not clear buffer here since data points to it
             self.state = .idle;
             return .{ .output = .{ .pane_id = id, .data = data } };
         } else if (std.mem.eql(u8, cmd, "%session-changed")) cmd: {
@@ -843,6 +839,66 @@ test "tmux output" {
     try testing.expect(n == .output);
     try testing.expectEqual(42, n.output.pane_id);
     try testing.expectEqualStrings("foo bar baz", n.output.data);
+}
+
+test "tmux output with invalid UTF-8" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    // tmux does not escape bytes at or above 0x80, so pane output reaches
+    // us as whatever bytes the application wrote.
+    for ("%output %42 a\xff\xc3b") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("a\xff\xc3b", n.output.data);
+}
+
+test "tmux output with empty data" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 ") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("", n.output.data);
+}
+
+test "tmux output rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%output %1111111111111111111111 foo";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux output rejects malformed lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const lines: []const []const u8 = &.{
+        "%output",
+        "%output %42",
+        "%output 42 foo",
+        "%output % foo",
+        "%output %4x2 foo",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(try c.put('\n') == null);
+        try testing.expect(c.state == .idle);
+    }
 }
 
 test "tmux session-changed" {
