@@ -17,6 +17,18 @@ def run(args, **kwargs):
     subprocess.run(args, cwd=ROOT, check=True, **kwargs)
 
 
+def sign_adhoc(paths):
+    """Re-sign copied Mach-O files after load-command edits.
+
+    install_name_tool and lipo invalidate the linker's ad-hoc signature, and
+    Apple silicon refuses to execute a Mach-O whose pages no longer match it.
+    The installing script runs these artifacts before the app bundle is signed,
+    so they must carry a usable signature here.
+    """
+    for path in paths:
+        run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', str(path)])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', required=True, type=Path)
@@ -98,6 +110,7 @@ def main():
                     dependency = line.strip().split(' (')[0]
                     if 'libghostty-vt' in dependency:
                         run(['/usr/bin/install_name_tool', '-change', dependency, '@rpath/' + library.name, str(destination/'omgd')])
+                sign_adhoc([destination/library.name, destination/'omgd'])
             files = [{'name': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
                      for p in sorted(destination.iterdir()) if p.name != 'manifest.json' and p.is_file()]
             (destination/'manifest.json').write_text(json.dumps({'revision': revision, 'platform': name, 'files': files}, indent=2)+'\n')
@@ -109,6 +122,7 @@ def main():
             if path.name == 'manifest.json': continue
             run(['/usr/bin/lipo', '-create', str(output/'macos-aarch64'/path.name),
                  str(output/'macos-x86_64'/path.name), '-output', str(output/path.name)])
+            sign_adhoc([output/path.name])
     shutil.copy2(ROOT/'dist/macos/session-runtime-askpass.sh', output/'askpass')
     (output/'askpass').chmod(0o755)
     (output/'revision').write_text(revision+'\n')
