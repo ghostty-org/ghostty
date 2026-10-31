@@ -3780,7 +3780,36 @@ pub fn eraseLine(
     );
 }
 
-/// Erase the display.
+/// Erase the display (ED, `CSI Ps J`). The mode picks what is erased:
+///
+///   - `below`: from the cursor to the end of the screen.
+///   - `above`: from the start of the screen to the cursor.
+///   - `complete`: the whole screen. See "Clearing at a prompt" below.
+///   - `scrollback`: the scrollback history. The screen is left as is.
+///   - `scroll_complete`: moves the screen contents into scrollback,
+///     then clears the screen. This is a Kitty extension (`CSI 22 J`).
+///
+/// Protected cells are kept if `protected_req` is true, or if the most
+/// recent protection mode was ISO (set by SPA, `ESC V`).
+///
+/// Clearing at a prompt: on the primary screen, a `complete` erase acts
+/// like `scroll_complete` when the last non-blank row is a shell prompt.
+/// This keeps the previous command output in scrollback when the user
+/// presses Ctrl+L at a prompt. Shells usually send `CSI H CSI 2 J`, so
+/// the cursor is already at the top and its position can't be used to
+/// tell whether a prompt is showing. Instead, prompt rows are found
+/// using semantic prompt marks (OSC 133). A screen that has never
+/// received OSC 133 prompt or input marks has no prompt rows, so the
+/// erase is a plain clear. See #905.
+///
+/// For example, with a shell that marks its prompts:
+///
+/// ```
+/// ESC ] 133 ; A ESC \ $ ESC ] 133 ; B ESC \   (prompt, then input starts)
+/// ESC [ H ESC [ 2 J                           (Ctrl+L: scrolls, then clears)
+/// ```
+///
+/// Without the OSC 133 sequences, the same `CSI H CSI 2 J` just clears.
 pub fn eraseDisplay(
     self: *Terminal,
     mode: csi.EraseDisplay,
@@ -3814,13 +3843,17 @@ pub fn eraseDisplay(
         },
 
         .complete => {
-            // If we're on the primary screen and our last non-empty row is
-            // a prompt, then we do a scroll_complete instead. This is a
-            // heuristic to get the generally desirable behavior that ^L
-            // at a prompt scrolls the screen contents prior to clearing.
-            // Most shells send `ESC [ H ESC [ 2 J` so we can't just check
-            // our current cursor position. See #905
-            if (self.screens.active_key == .primary) at_prompt: {
+            // Scroll first if the last non-blank row is a prompt. See
+            // "Clearing at a prompt" in the doc comment.
+            //
+            // The `seen` check matters for speed. Without it, every erase
+            // walks up from the bottom row and reads each cell of each
+            // blank row looking for text. Programs that redraw by clearing
+            // the screen often would pay that cost on every frame, even
+            // though no row can be a prompt.
+            if (self.screens.active_key == .primary and
+                self.screens.active.semantic_prompt.seen)
+            at_prompt: {
                 // Go from the bottom of the active up and see if we're
                 // at a prompt.
                 const active_br = self.screens.active.pages.getBottomRight(
@@ -17806,10 +17839,13 @@ test "Terminal: eraseDisplay complete ignores stale prompt on recycled row" {
     try t.printString("hello");
 
     // Mark row 1 as a prompt row and then discard it with a region
-    // scroll, recycling its storage as the blank bottom row.
+    // scroll, recycling its storage as the blank bottom row. Set `seen`
+    // as OSC 133 would, or eraseDisplay skips the prompt check entirely
+    // and this test passes without testing anything.
     t.screens.active.pages.getCell(
         .{ .active = .{ .y = 1 } },
     ).?.row.semantic_prompt = .prompt;
+    t.screens.active.semantic_prompt.seen = true;
     t.setTopAndBottomMargin(2, 3);
     t.setCursorPos(3, 1);
     try t.linefeed();
@@ -17841,6 +17877,63 @@ test "Terminal: eraseDisplay complete at prompt not on last row scrolls" {
     try t.semanticPrompt(.init(.end_prompt_start_input));
 
     // What bash/zsh send for clear-screen
+    t.setCursorPos(1, 1);
+    t.eraseDisplay(.complete, false);
+
+    try testing.expect(t.screens.active.pages.total_rows > t.screens.active.pages.rows);
+}
+
+test "Terminal: eraseDisplay complete at input-only prompt scrolls" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 10, .rows = 15 });
+    defer t.deinit(alloc);
+
+    // Command output, then a shell that only emits OSC 133;B (input
+    // start) and never 133;A. Rows typed after the input mark are
+    // marked as prompt continuations on linefeed, so a full erase must
+    // still scroll before clearing.
+    for (0..10) |_| {
+        try t.printString("x");
+        t.carriageReturn();
+        try t.linefeed();
+    }
+    try t.semanticPrompt(.init(.end_prompt_start_input));
+    try t.printString("echo hi");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("more");
+
+    t.setCursorPos(1, 1);
+    t.eraseDisplay(.complete, false);
+
+    try testing.expect(t.screens.active.pages.total_rows > t.screens.active.pages.rows);
+}
+
+test "Terminal: eraseDisplay complete at input prompt copied from alt screen scrolls" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 10, .rows = 15 });
+    defer t.deinit(alloc);
+
+    for (0..10) |_| {
+        try t.printString("x");
+        t.carriageReturn();
+        try t.linefeed();
+    }
+
+    // The only OSC 133 is seen on the alternate screen. Leaving it with
+    // mode 1047 copies the cursor, including its input content, back to
+    // the primary screen, so rows typed there are prompt continuations.
+    try t.switchScreenMode(.@"1047", true);
+    try t.semanticPrompt(.init(.end_prompt_start_input));
+    try t.switchScreenMode(.@"1047", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
+    try t.printString("echo hi");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("more");
+
     t.setCursorPos(1, 1);
     t.eraseDisplay(.complete, false);
 
