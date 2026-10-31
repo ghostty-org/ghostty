@@ -603,6 +603,16 @@ fn actionCommands(action: Action.Key) []const Command {
 
         .set_window_theme => comptime &.{
             .{
+                .action = .{ .set_window_theme = .config },
+                .title = i18n.N_("Switch to Configured Appearance"),
+                .description = i18n.N_("Use the application appearance from the configuration."),
+            },
+            .{
+                .action = .{ .set_window_theme = .system },
+                .title = i18n.N_("Switch to System Appearance"),
+                .description = i18n.N_("Use the system application appearance for this session."),
+            },
+            .{
                 .action = .{ .set_window_theme = .dark },
                 .title = i18n.N_("Switch to Dark Appearance"),
                 .description = i18n.N_("Use a dark application appearance for this session."),
@@ -611,11 +621,6 @@ fn actionCommands(action: Action.Key) []const Command {
                 .action = .{ .set_window_theme = .light },
                 .title = i18n.N_("Switch to Light Appearance"),
                 .description = i18n.N_("Use a light application appearance for this session."),
-            },
-            .{
-                .action = .{ .set_window_theme = .system },
-                .title = i18n.N_("Switch to System Appearance"),
-                .description = i18n.N_("Use the system application appearance for this session."),
             },
         },
 

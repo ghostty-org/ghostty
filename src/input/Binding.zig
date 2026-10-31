@@ -721,9 +721,16 @@ pub const Action = union(enum) {
 
     /// Set the application window theme for this session.
     ///
-    /// This does not modify the configuration and remains in effect until
-    /// another `set_window_theme` action or the application restarts.
-    /// Valid values are `dark`, `light`, and `system`.
+    /// This does not modify the configuration. The selected theme remains in
+    /// effect across configuration reloads, including changes to `window-theme`,
+    /// until another `set_window_theme` action or the application restarts.
+    ///
+    /// Valid values:
+    ///
+    ///   * `config` - Return to the configured `window-theme`.
+    ///   * `system` - Use the system theme.
+    ///   * `dark` - Use the dark theme.
+    ///   * `light` - Use the light theme.
     ///
     /// On macOS, the `transparent` and `tabs` values of `macos-titlebar-style`
     /// match the titlebar to the terminal background color instead.
@@ -1226,9 +1233,10 @@ pub const Action = union(enum) {
     };
 
     pub const WindowTheme = enum {
+        config,
+        system,
         dark,
         light,
-        system,
     };
 
     fn parseEnum(comptime T: type, value: []const u8) !T {

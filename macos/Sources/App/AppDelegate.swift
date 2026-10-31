@@ -18,15 +18,15 @@ class AppDelegate: NSObject,
     )
 
     enum Appearance {
+        case system
         case dark
         case light
-        case system
 
         var nsAppearance: NSAppearance? {
             switch self {
+            case .system: nil
             case .dark: NSAppearance(named: .darkAqua)
             case .light: NSAppearance(named: .aqua)
-            case .system: nil
             }
         }
     }
@@ -916,7 +916,8 @@ class AppDelegate: NSObject,
     }
 
     /// Temporarily override the configured application appearance for this session.
-    func setAppearance(_ appearance: Appearance) {
+    /// A nil appearance restores the configured appearance.
+    func setAppearance(_ appearance: Appearance?) {
         appearanceOverride = appearance
         syncAppearance(config: ghostty.config)
 

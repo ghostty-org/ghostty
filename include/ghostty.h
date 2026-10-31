@@ -871,9 +871,10 @@ typedef struct {
 
 // apprt.action.WindowTheme
 typedef enum {
+  GHOSTTY_ACTION_WINDOW_THEME_CONFIG,
+  GHOSTTY_ACTION_WINDOW_THEME_SYSTEM,
   GHOSTTY_ACTION_WINDOW_THEME_DARK,
   GHOSTTY_ACTION_WINDOW_THEME_LIGHT,
-  GHOSTTY_ACTION_WINDOW_THEME_SYSTEM,
 } ghostty_action_window_theme_e;
 
 // apprt.action.OpenUrlKind

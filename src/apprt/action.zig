@@ -626,9 +626,10 @@ pub const SecureInput = enum(c_int) {
 };
 
 pub const WindowTheme = enum(c_int) {
+    config,
+    system,
     dark,
     light,
-    system,
 
     test "ghostty.h WindowTheme" {
         try lib.checkGhosttyHEnum(WindowTheme, "GHOSTTY_ACTION_WINDOW_THEME_");

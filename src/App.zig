@@ -464,9 +464,10 @@ pub fn performAction(
             .app,
             .set_window_theme,
             switch (v) {
+                .config => .config,
+                .system => .system,
                 .dark => .dark,
                 .light => .light,
-                .system => .system,
             },
         ),
         .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),

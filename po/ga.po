@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-31 10:35-0400\n"
+"POT-Creation-Date: 2026-10-31 13:33-0400\n"
 "PO-Revision-Date: 2026-02-18 14:32+0000\n"
 "Last-Translator: Aindriú Mac Giolla Eoin <aindriu80@yahoo.com>\n"
 "Language-Team: Irish <gaeilge-gnulinux@lists.sourceforge.net>\n"
@@ -129,7 +129,7 @@ msgid "New Tab"
 msgstr "Táb nua"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:631
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "Dún táb"
 
@@ -147,7 +147,7 @@ msgid "New Window"
 msgstr "Fuinneog nua"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:648
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "Dún fuinneog"
 
@@ -202,7 +202,7 @@ msgstr "Cigire teirminéil"
 msgid "About Ghostty"
 msgstr "Maidir le Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:720
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "Scoir"
 
@@ -230,7 +230,7 @@ msgstr "Athlódáil an chumraíocht chun an teachtaireacht seo a thaispeáint ar
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2163
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "Cealaigh"
 
@@ -262,27 +262,27 @@ msgstr "Fág bán chun an teideal réamhshocraithe a athbhunú."
 msgid "OK"
 msgstr "Ceart go leor"
 
-#: src/apprt/gtk/class/application.zig:1747
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "Chuir an córas an ceangal eochrach ar ceal."
 
-#: src/apprt/gtk/class/application.zig:1749
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "Dhiúltaigh an córas an ceangal eochrach."
 
-#: src/apprt/gtk/class/application.zig:1761
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "Níl ceangal eochrach uilíoch inúsáidte"
 
-#: src/apprt/gtk/class/application.zig:2159
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "Easpórtáil imeachtaí I/O teirminéil"
 
-#: src/apprt/gtk/class/application.zig:2162
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "Easpórtáil"
 
-#: src/apprt/gtk/class/application.zig:2665
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "Comhad cumraíochta á chur in eagar"
 
@@ -1031,153 +1031,161 @@ msgid "Reload the config file."
 msgstr "Athlódáil an comhad cumraíochta."
 
 #: src/input/command.zig:607
-msgid "Switch to Dark Appearance"
+msgid "Switch to Configured Appearance"
 msgstr ""
 
 #: src/input/command.zig:608
-msgid "Use a dark application appearance for this session."
+msgid "Use the application appearance from the configuration."
 msgstr ""
 
 #: src/input/command.zig:612
-msgid "Switch to Light Appearance"
-msgstr ""
-
-#: src/input/command.zig:613
-msgid "Use a light application appearance for this session."
-msgstr ""
-
-#: src/input/command.zig:617
 msgid "Switch to System Appearance"
 msgstr ""
 
-#: src/input/command.zig:618
+#: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
 msgstr ""
 
-#: src/input/command.zig:624
+#: src/input/command.zig:617
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "Dún an teirminéal"
 
-#: src/input/command.zig:625
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "Dún an teirminéal reatha."
 
-#: src/input/command.zig:632
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "Dún an táb reatha."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "Dún na táib eile"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "Dún gach táb san fhuinneog seo seachas an ceann reatha."
 
-#: src/input/command.zig:641
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "Dún na táib ar dheis"
 
-#: src/input/command.zig:642
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "Dún na táib uile ar dheis an chinn reatha."
 
-#: src/input/command.zig:649
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "Dún an fhuinneog reatha."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "Dún gach fuinneog"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "Dún na fuinneoga uile."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "Scoránaigh uasmhéadú"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "Scoránaigh staid uasmhéadaithe na fuinneoige reatha."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "Scoránaigh lánscáileán"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Scoránaigh staid lánscáileáin na fuinneoige reatha."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "Scoránaigh maisiúcháin na fuinneoige"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "Scoránaigh na maisiúcháin fuinneoige."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "Scoránaigh snámh ar barr"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "Scoránaigh an staid snáimh ar barr don fhuinneog reatha."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "Scoránaigh ionchur slán"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "Scoránaigh an mód ionchuir shláin."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "Scoránaigh tuairisciú luiche"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr "Scoránaigh tuairisciú imeachtaí luiche chuig feidhmchláir teirminéil. "
 
-#: src/input/command.zig:696
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "Scoránaigh teimhneacht an chúlra"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr "Scoránaigh teimhneacht chúlra fuinneoige a bhí trédhearcach ar dtús."
 
-#: src/input/command.zig:702
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "Lorg nuashonruithe"
 
-#: src/input/command.zig:703
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "Lorg nuashonruithe ar an bhfeidhmchlár."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "Cealaigh"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "Cealaigh an gníomh deireanach."
 
-#: src/input/command.zig:714
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "Athdhéan"
 
-#: src/input/command.zig:715
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "Athdhéan an gníomh deireanach a cealaíodh."
 
-#: src/input/command.zig:721
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "Scoir an feidhmchlár."
 
-#: src/input/command.zig:727
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "Cuir Ghosttín i do teirminéal."
