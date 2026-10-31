@@ -7,6 +7,107 @@ import Testing
 
 @MainActor
 struct AgentHistoryInspectorTests {
+    @Test func revisitingHistoryKeepsTheLoadedTranscript() async throws {
+        let registry = InspectorRegistry()
+        let session = AgentHistorySession(agent: .pi, conversationID: AgentConversationID("retained")!,
+            title: "Existing", workingDirectory: "/tmp", updatedAt: Date(), sourcePath: "/tmp/session", isActive: false)
+        var reads = 0
+        let provider = BuiltInAgentHistoryInspectorProvider(registry: registry, sessionLoader: { [session] },
+            transcriptLoader: { session in
+                reads += 1
+                return .init(sessionID: session.id, messages: [], wasTruncated: false)
+            })
+        try provider.register()
+        let context = InspectorPaneContext(tabID: UUID(), surfaceID: nil, title: "Test", workingDirectory: "/tmp")
+        let pane = BuiltInAgentHistoryInspectorProvider.paneID
+        registry.presentationDidChange(to: pane, context: context)
+        try await Task.sleep(for: .milliseconds(30))
+        registry.performAction(paneID: pane, action: .init(context: context, kind: .selectAgentHistorySession(id: session.id)))
+        try await Task.sleep(for: .milliseconds(30))
+        registry.presentationDidChange(to: nil, context: context)
+        try await Task.sleep(for: .milliseconds(30))
+        registry.presentationDidChange(to: pane, context: context)
+        try await Task.sleep(for: .milliseconds(30))
+        guard case .agentHistory(let content) = registry.content(for: pane, context: context) else {
+            Issue.record("Missing history content"); return
+        }
+        #expect(content.selectedSessionID == session.id)
+        #expect(content.transcript != nil && !content.isLoadingTranscript)
+        #expect(reads == 1)
+    }
+
+    @Test func remoteDiscoveryAppliesRangeBeforeReadingHeaders() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (id, days) in [("recent-session", 1), ("old-session", 180)] {
+            let file = root.appendingPathComponent(".pi/agent/sessions/project/2026-01-01_\(id).jsonl")
+            try writeJSONL([
+                ["type": "session", "id": id, "cwd": "/repo"],
+                ["type": "message", "message": ["role": "user", "content": id]],
+            ], to: file)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-Double(days) * 86400)],
+                                                 ofItemAtPath: file.path)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let rootLiteral = try #require(String(data: encoder.encode(root.path), encoding: .utf8))
+        let access = AgentHistoryRemoteAccess(alias: "fixture") { command in
+            let script = command.replacingOccurrences(of: "os.path.expanduser('~')", with: rootLiteral)
+            let result = try await GitProcessRunner().run(executablePath: "/bin/sh", arguments: ["-c", script],
+                workingDirectory: root.path, maxOutputBytes: 100_000, timeout: 5)
+            guard result.isSuccess, let text = String(data: result.stdout, encoding: .utf8) else {
+                throw AgentHistoryRemoteError.unavailable
+            }
+            return text
+        }
+        let recent = try await access.discoverSessions(relativeRoots: [".pi/agent/sessions"], maximumSessions: 100,
+                                                       updatedAfter: AgentHistoryTimeFilter.quarter.cutoff())
+        #expect(recent.count == 1)
+        #expect(recent.first?.file.path.contains("recent-session") == true)
+        let all = try await access.discoverSessions(relativeRoots: [".pi/agent/sessions"], maximumSessions: 100)
+        #expect(all.count == 2)
+    }
+
+    @Test func recentScanSkipsOldHeadersWithoutDiscardingCachedHistory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = root.appendingPathComponent("cache.json")
+        for (id, days) in [("recent-session", 1), ("old-session", 180)] {
+            let file = root.appendingPathComponent("project/2026-01-01_\(id).jsonl")
+            try writeJSONL([
+                ["type": "session", "id": id, "cwd": "/repo"],
+                ["type": "message", "message": ["role": "user", "content": id]],
+            ], to: file)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-Double(days) * 86400)],
+                                                 ofItemAtPath: file.path)
+        }
+        let all = await AgentHistoryStore.load(agents: [.pi], rootURLs: [.pi: root], cacheURL: cache)
+        #expect(all.count == 2)
+        let recent = await AgentHistoryStore.load(agents: [.pi], rootURLs: [.pi: root], cacheURL: cache,
+                                                  updatedAfter: AgentHistoryTimeFilter.quarter.cutoff())
+        #expect(recent.map(\.conversationID.rawValue) == ["recent-session"])
+        let cached = await AgentHistoryStore.loadCached(cacheURL: cache)
+        #expect(cached.count == 2)
+    }
+
+    @Test func requestingAllHistoryExpandsTheHostCacheOnce() async throws {
+        let registry = InspectorRegistry()
+        var loads = 0
+        let provider = BuiltInAgentHistoryInspectorProvider(registry: registry, sessionLoader: { loads += 1; return [] })
+        try provider.register()
+        let context = InspectorPaneContext(tabID: UUID(), surfaceID: nil, title: "Test", workingDirectory: "/tmp")
+        let pane = BuiltInAgentHistoryInspectorProvider.paneID
+        registry.presentationDidChange(to: pane, context: context)
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(loads == 1)
+        registry.performAction(paneID: pane, action: .init(context: context, kind: .setAgentHistoryTimeRange(.any)))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(loads == 2)
+        registry.performAction(paneID: pane, action: .init(context: context, kind: .setAgentHistoryTimeRange(.year)))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(loads == 2)
+    }
+
     @Test func discoversCompressedCodexArchives() async throws {
         let zstd = ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
@@ -102,6 +203,10 @@ struct AgentHistoryInspectorTests {
         #expect(state.includes(session("/elsewhere", 10 * day), currentDirectory: "/repo", now: now))
         #expect(state.narrowsSessions)
         state.reset()
+        #expect(state.time == .quarter)
+        #expect(state.narrowsSessions)
+        #expect(!state.includes(session(nil, 400 * day), currentDirectory: "/repo", now: now))
+        state.time = .any
         #expect(!state.narrowsSessions)
         #expect(state.includes(session(nil, 400 * day), currentDirectory: "/repo", now: now))
     }

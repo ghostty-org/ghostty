@@ -202,7 +202,7 @@ final class BuiltInFilesInspectorProvider {
             create(name: name, directory: true, context: context)
 
         case .createPortForward, .openPortForward, .copyPortForward,
-             .removePortForward, .refreshAgentHistory,
+             .removePortForward, .refreshAgentHistory, .setAgentHistoryTimeRange,
              .selectAgentHistorySession, .clearAgentHistorySelection,
              .resumeAgentHistorySession, .forkAgentHistorySession,
              .jumpToHistoryItem,

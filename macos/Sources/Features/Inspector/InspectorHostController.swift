@@ -156,9 +156,12 @@ final class InspectorHostController: NSViewController {
         let paneID = selected.flatMap { registry.descriptor(id: $0) == nil ? nil : $0 } ?? registry.entries.first?.id
         if selected != paneID { layoutState.selectInspectorPane(paneID) }
         let visible = requestedPresentation && layoutState.isInspectorVisible &&
-            view.window != nil && !view.isHiddenOrHasHiddenAncestor
+            view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor &&
+            !terminal.workspacePresentationIsParked &&
+            (view.window?.tabGroup?.selectedWindow == nil || view.window?.tabGroup?.selectedWindow === view.window)
         registry.presentationDidChange(to: visible ? paneID : nil, context: context)
         deck.reconcile(tabID: context.tabID, availableIDs: Set(registry.entries.map(\.id)))
+        guard visible else { return }
         view.layer?.backgroundColor = NSColor(backgroundColor.opacity(backgroundOpacity)).cgColor
         updateNavigation()
         view.needsLayout = true
@@ -175,6 +178,8 @@ final class InspectorHostController: NSViewController {
 
 private final class InspectorAttachmentView: NSView {
     var attachmentChanged: (() -> Void)?
+    private var windowObservers: [NSObjectProtocol] = []
+    deinit { windowObservers.forEach(NotificationCenter.default.removeObserver) }
     override func viewDidHide() {
         super.viewDidHide()
         attachmentChanged?()
@@ -185,6 +190,16 @@ private final class InspectorAttachmentView: NSView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers = []
+        if let window {
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                         NSWindow.didChangeOcclusionStateNotification] {
+                windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.attachmentChanged?() }
+                })
+            }
+        }
         attachmentChanged?()
     }
 }

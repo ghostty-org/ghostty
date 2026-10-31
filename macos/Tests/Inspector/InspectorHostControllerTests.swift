@@ -5,6 +5,59 @@ import Testing
 
 @MainActor
 struct InspectorHostControllerTests {
+    @Test(arguments: [BuiltInFilesInspectorProvider.paneID, BuiltInGitInspectorProvider.paneID])
+    func titleChangesDoNotRestartLocationDrivenProviders(pane: String) throws {
+        let registry = InspectorRegistry()
+        var events: [InspectorPaneLifecycleEvent] = []
+        try registry.registerCorePane(.init(id: pane, title: "Test", systemImage: "doc",
+            source: .coreFeature("test"), preferredWidth: 320, minimumWidth: 176),
+            content: { _ in .fields([]) }, lifecycle: { events.append($0) })
+        let tab = UUID(), surface = UUID()
+        for index in 0..<20 {
+            registry.presentationDidChange(to: pane, context: .init(tabID: tab, surfaceID: surface,
+                title: "Title \(index)", workingDirectory: "/repo"))
+        }
+        #expect(events.count == 1)
+        registry.presentationDidChange(to: pane, context: .init(tabID: tab, surfaceID: surface,
+            title: "Title", workingDirectory: "/other"))
+        #expect(events.count == 3)
+    }
+
+    @Test func inactiveNativeTabsDoNotPresentOrLoadInspectorProviders() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        for _ in 0..<7 { _ = try fixture.tab(parent: first) }
+        let state = VerticalTabWindowLayoutState(isSidebarVisible: false, isInspectorVisible: true)
+        let registry = InspectorRegistry()
+        let paneID = BuiltInGitInspectorProvider.paneID
+        var presented: Set<UUID> = []
+        try registry.registerCorePane(.init(id: paneID, title: "Test", systemImage: "doc",
+            source: .coreFeature("test"), preferredWidth: 320, minimumWidth: 176),
+            content: { _ in .fields([]) }, lifecycle: { event in
+                switch event {
+                case .appeared(let context): presented.insert(context.tabID)
+                case .disappeared(let context): presented.remove(context.tabID)
+                }
+            })
+        let hosts = fixture.controllers.map { terminal in
+            let host = InspectorHostController(controller: terminal, layoutState: state, registry: registry)
+            host.configure(isPresented: true, backgroundColor: .clear, backgroundOpacity: 0, environment: EnvironmentValues())
+            host.view.frame = .init(x: 0, y: 0, width: 320, height: 400)
+            terminal.window?.contentView?.addSubview(host.view)
+            return host
+        }
+        defer { hosts.forEach { $0.stop(); $0.view.removeFromSuperview() } }
+        for terminal in [first, fixture.controllers[5], first] {
+            terminal.window?.makeKeyAndOrderFront(nil)
+            try await Task.sleep(for: .milliseconds(100))
+            let previouslyEligible = hosts.filter { $0.view.window != nil && !$0.view.isHiddenOrHasHiddenAncestor }.count
+            print("Inspector visibility: attached=\(hosts.count), previous-rule=\(previouslyEligible), active=\(presented.count)")
+            #expect(presented == [terminal.tabSessionID])
+            #expect(hosts.filter { !$0.deck.hosts.isEmpty }.count <= 2)
+        }
+    }
+
     @Test(arguments: [Ghostty.Config.MacOSTabLayout.vertical, .horizontal])
     func nativeOwnerCoalescesUpdatesAndStopsPresentationOnHideAndDetach(mode: Ghostty.Config.MacOSTabLayout) async throws {
         let app = try #require(NSApp.delegate as? AppDelegate)
@@ -42,6 +95,7 @@ struct InspectorHostControllerTests {
         host.view.frame = ancestor.bounds
         ancestor.addSubview(host.view)
         window.contentView = ancestor
+        window.orderFront(nil)
         try await Task.sleep(for: .milliseconds(60))
         #expect(events.count == 1)
         #expect(state.selectedInspectorPaneID == paneID)

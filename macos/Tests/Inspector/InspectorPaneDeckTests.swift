@@ -33,6 +33,7 @@ struct InspectorPaneDeckTests {
         }
         for id in ["files", "git", "agent", "info"] { show(id); try await Task.sleep(for: .milliseconds(70)) }
         let originals = container.hosts
+        let originalFrame = window.frame
         func findTable(_ view: NSView) -> GitHoverTableView? {
             (view as? GitHoverTableView) ?? view.subviews.lazy.compactMap(findTable).first
         }
@@ -45,6 +46,7 @@ struct InspectorPaneDeckTests {
                 durations.append(Date().timeIntervalSince(start) * 1000)
                 #expect(container.hosts[id] === originals[id])
                 #expect(container.hosts.values.filter { !$0.isHidden }.count == 1)
+                #expect(window.isVisible && window.frame == originalFrame)
             }
         }
         #expect(container.hosts.count == 4)

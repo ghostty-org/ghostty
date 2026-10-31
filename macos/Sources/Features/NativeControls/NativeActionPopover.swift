@@ -105,6 +105,7 @@ final class NativeActionPopoverController: NSViewController {
                     line.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
                 } else if case .action = entry {
                     let button = NativePopoverOptionControl()
+                    button.showsKeyboardFocusBorder = false
                     button.alignment = .left
                     button.onPress = { [weak self] in self?.onSelect?(index) }
                     button.onNavigation = { [weak self] event in self?.navigate(event) ?? false }

@@ -33,7 +33,19 @@ enum InspectorPaneDeck {
                 hosts[paneID] = host
                 addSubview(host)
             }
-            for (id, host) in hosts { host.isHidden = id != paneID }
+            if selectedID != paneID, let incoming = hosts[paneID] {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    context.allowsImplicitAnimation = false
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    defer { CATransaction.commit() }
+                    incoming.isHidden = false
+                    incoming.layoutSubtreeIfNeeded()
+                    incoming.displayIfNeeded()
+                    for (id, host) in hosts where id != paneID { host.isHidden = true }
+                }
+            }
             selectedID = paneID
         }
     }

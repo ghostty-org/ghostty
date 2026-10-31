@@ -185,6 +185,7 @@ enum InspectorPaneActionKind: Equatable, Sendable {
     case copyPortForward(id: String)
     case removePortForward(id: String)
     case refreshAgentHistory
+    case setAgentHistoryTimeRange(AgentHistoryTimeFilter)
     case selectAgentHistorySession(id: String)
     case clearAgentHistorySelection
     case resumeAgentHistorySession(id: String)
@@ -525,11 +526,11 @@ final class InspectorRegistry: ObservableObject {
         let next = paneID.map { PresentedPane(paneID: $0, context: context) }
         guard presentedPanes[hostID] != next else { return }
         if let previous = presentedPanes[hostID], let next,
-           next.paneID == BuiltInGitInspectorProvider.paneID,
+           [BuiltInGitInspectorProvider.paneID, BuiltInFilesInspectorProvider.paneID].contains(next.paneID),
            previous.paneID == next.paneID,
            previous.context.hasSameLocation(as: context) {
             // Retain current metadata for the eventual disappearance without
-            // cancelling repository work when only the terminal title changes.
+            // cancelling repository/file work for terminal title updates.
             presentedPanes[hostID] = next
             return
         }

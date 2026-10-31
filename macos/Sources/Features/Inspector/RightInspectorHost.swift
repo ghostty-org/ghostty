@@ -679,7 +679,7 @@ enum AgentHistoryTimeFilter: String, CaseIterable, Sendable {
 struct AgentHistoryFilterState: Equatable, Sendable {
     var agent: SupportedAgent?
     var directory: AgentHistoryDirectoryFilter = .any
-    var time: AgentHistoryTimeFilter = .any
+    var time: AgentHistoryTimeFilter = .quarter
     var grouping: AgentHistoryGroupingMode = .none
     var ordering: AgentHistoryOrderingMode = .recentlyUpdated
 
@@ -697,6 +697,15 @@ struct AgentHistoryFilterState: Equatable, Sendable {
         currentDirectory: String?,
         now: Date = Date()
     ) -> Bool {
+        includes(session, currentDirectory: currentDirectory, cutoff: time.cutoff(now: now))
+    }
+
+    func filtered(_ sessions: [AgentHistorySession], currentDirectory: String?, now: Date = Date()) -> [AgentHistorySession] {
+        let cutoff = time.cutoff(now: now)
+        return sessions.filter { includes($0, currentDirectory: currentDirectory, cutoff: cutoff) }
+    }
+
+    private func includes(_ session: AgentHistorySession, currentDirectory: String?, cutoff: Date?) -> Bool {
         if let agent, session.agent != agent { return false }
         if directory == .currentTree {
             guard let root = Self.normalizedPath(currentDirectory),
@@ -706,7 +715,7 @@ struct AgentHistoryFilterState: Equatable, Sendable {
             let prefix = root == "/" ? "/" : root + "/"
             guard value == root || value.hasPrefix(prefix) else { return false }
         }
-        if let cutoff = time.cutoff(now: now), session.updatedAt < cutoff { return false }
+        if let cutoff, session.updatedAt < cutoff { return false }
         return true
     }
 
@@ -746,13 +755,12 @@ private struct InspectorAgentHistoryView: View {
     private var scopedSessions: [AgentHistorySession] {
         var scope = filter
         scope.agent = nil
-        return history.sessions.filter { scope.includes($0, currentDirectory: currentDirectory) }
+        return scope.filtered(history.sessions, currentDirectory: currentDirectory)
     }
 
     private var availableAgents: [SupportedAgent] {
-        SupportedAgent.allCases.filter { agent in
-            scopedSessions.contains { $0.agent == agent }
-        }
+        let present = Set(scopedSessions.map(\.agent))
+        return SupportedAgent.allCases.filter { present.contains($0) }
     }
 
     private var filteredAndOrderedSessions: [AgentHistorySession] {
@@ -879,7 +887,10 @@ private struct InspectorAgentHistoryView: View {
                 strings: strings,
                 currentDirectory: currentDirectory,
                 searchChanged: { query = $0 },
-                filterChanged: { filter = $0 }
+                filterChanged: {
+                    filter = $0
+                    perform(.setAgentHistoryTimeRange($0.time))
+                }
             )
             .frame(height: 28)
             .padding(.horizontal, InspectorContentMetrics.leadingInset)
@@ -930,12 +941,20 @@ private struct InspectorAgentHistoryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { scheduleSessionSearch(query, immediately: true) }
+        .onAppear {
+            perform(.setAgentHistoryTimeRange(filter.time))
+            scheduleSessionSearch(query, immediately: true)
+        }
+        .onChange(of: history.hostLabel) { _ in perform(.setAgentHistoryTimeRange(filter.time)) }
         .onChange(of: query) { value in
             visibleSessionCount = 60
             scheduleSessionSearch(value)
         }
         .onChange(of: history.sessions.count) { _ in
+            scheduleSessionSearch(query, immediately: true)
+        }
+        .onChange(of: filter) { _ in
+            visibleSessionCount = 60
             scheduleSessionSearch(query, immediately: true)
         }
         .onDisappear { searchTask?.cancel() }
@@ -1000,7 +1019,7 @@ private struct InspectorAgentHistoryView: View {
             isSearching = false
             return
         }
-        let sessions = history.sessions
+        let sessions = filter.filtered(history.sessions, currentDirectory: currentDirectory)
         isSearching = true
         searchTask = Task {
             if !immediately {

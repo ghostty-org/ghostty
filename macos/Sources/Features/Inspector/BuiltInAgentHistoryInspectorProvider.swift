@@ -26,8 +26,8 @@ final class BuiltInAgentHistoryInspectorProvider {
     }
 
     private let registry: InspectorRegistry
-    private let sessionLoader: SessionLoader
-    private let remoteSessionLoader: RemoteSessionLoader
+    private let sessionLoader: SessionLoader?
+    private let remoteSessionLoader: RemoteSessionLoader?
     private let transcriptLoader: TranscriptLoader
     private let sessionResumer: SessionResumer
     private let sessionForker: SessionForker
@@ -36,6 +36,8 @@ final class BuiltInAgentHistoryInspectorProvider {
     }
     private var presentedSessionCache: [String: (activeIDs: Set<String>, sessions: [AgentHistorySession])] = [:]
     private var loadingHosts: Set<String> = []
+    private var fullHistoryHosts: Set<String> = []
+    private var loadedFullHistoryHosts: Set<String> = []
     private var loadTasks: [UUID: Task<Void, Never>] = [:]
     private var transcriptTasks: [UUID: Task<Void, Never>] = [:]
     private var tabStates: [UUID: TabState] = [:]
@@ -44,17 +46,8 @@ final class BuiltInAgentHistoryInspectorProvider {
 
     init(
         registry: InspectorRegistry,
-        sessionLoader: @escaping SessionLoader = {
-            await AgentHistoryStore.load(
-                maximumSessions: Int(OhMyGhosttySettings.shared.agentHistoryLimit)
-            )
-        },
-        remoteSessionLoader: @escaping RemoteSessionLoader = { access in
-            await AgentHistoryStore.loadRemote(
-                access: access,
-                maximumSessions: Int(OhMyGhosttySettings.shared.agentHistoryLimit)
-            )
-        },
+        sessionLoader: SessionLoader? = nil,
+        remoteSessionLoader: RemoteSessionLoader? = nil,
         transcriptLoader: @escaping TranscriptLoader = {
             await AgentHistoryStore.transcript(for: $0)
         },
@@ -151,8 +144,9 @@ final class BuiltInAgentHistoryInspectorProvider {
                 tabStates[context.tabID] = state
             }
             publish(context)
-            if sessionsByHost[hostKey] == nil && !loadingHosts.contains(hostKey) {
-                loadOnDemand(context: context)
+            loadOnDemand(context: context)
+            if let id = state.selectedSessionID, state.transcript == nil, !state.isLoadingTranscript {
+                selectSession(id, context: context)
             }
         case .disappeared(let context):
             presentedContexts.removeValue(forKey: context.tabID)
@@ -161,9 +155,7 @@ final class BuiltInAgentHistoryInspectorProvider {
                       presentedContexts[context.tabID] == nil else { return }
                 transcriptTasks[context.tabID]?.cancel()
                 transcriptTasks.removeValue(forKey: context.tabID)
-                if presentedContexts.isEmpty {
-                    tabStates.removeAll()
-                }
+                tabStates[context.tabID]?.isLoadingTranscript = false
             }
         }
     }
@@ -171,6 +163,11 @@ final class BuiltInAgentHistoryInspectorProvider {
     private func handle(_ action: InspectorPaneAction) {
         let hostKey = hostKey(for: action.context)
         switch action.kind {
+        case .setAgentHistoryTimeRange(let range):
+            if range == .any || range == .year {
+                fullHistoryHosts.insert(hostKey)
+                loadOnDemand(context: action.context)
+            }
         case .refreshAgentHistory:
             reload(context: action.context)
         case .selectAgentHistorySession(let id):
@@ -196,7 +193,8 @@ final class BuiltInAgentHistoryInspectorProvider {
 
     private func loadOnDemand(context: InspectorPaneContext, refresh: Bool = false) {
         let hostKey = hostKey(for: context)
-        if !refresh, sessionsByHost[hostKey] != nil {
+        if !refresh, sessionsByHost[hostKey] != nil,
+           !fullHistoryHosts.contains(hostKey) || loadedFullHistoryHosts.contains(hostKey) {
             publish(context)
             return
         }
@@ -214,16 +212,16 @@ final class BuiltInAgentHistoryInspectorProvider {
         }
 
         let taskID = UUID()
+        let cutoff = fullHistoryHosts.contains(hostKey) ? nil : AgentHistoryTimeFilter.quarter.cutoff()
+        let limit = Int(OhMyGhosttySettings.shared.agentHistoryLimit)
         loadTasks[taskID] = Task { [weak self] in
             guard let self else { return }
+            let loaded: [AgentHistorySession]
             if let alias = isSSH {
                 let access = AgentHistoryRemoteAccess(alias: alias)
-                let loaded = await remoteSessionLoader(access)
-                guard !Task.isCancelled else { return }
-                sessionsByHost[hostKey] = loaded
-                loadingHosts.remove(hostKey)
-                loadTasks.removeValue(forKey: taskID)
-                publishPresentedContexts()
+                if let remoteSessionLoader { loaded = await remoteSessionLoader(access) } else {
+                    loaded = await AgentHistoryStore.loadRemote(access: access, maximumSessions: limit, updatedAfter: cutoff)
+                }
             } else {
                 // Paint once. A provisional cached list made the session count
                 // jump whenever the authoritative scan disagreed with it.
@@ -232,12 +230,19 @@ final class BuiltInAgentHistoryInspectorProvider {
                     loadTasks.removeValue(forKey: taskID)
                     return
                 }
-                let refreshed = await sessionLoader()
-                guard !Task.isCancelled else { return }
-                sessionsByHost[hostKey] = refreshed
-                loadingHosts.remove(hostKey)
-                loadTasks.removeValue(forKey: taskID)
-                publishPresentedContexts()
+                if let sessionLoader { loaded = await sessionLoader() } else {
+                    loaded = await AgentHistoryStore.load(maximumSessions: limit, updatedAfter: cutoff)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            sessionsByHost[hostKey] = loaded
+            if cutoff == nil { loadedFullHistoryHosts.insert(hostKey) }
+            loadingHosts.remove(hostKey)
+            loadTasks.removeValue(forKey: taskID)
+            publishPresentedContexts()
+            if cutoff != nil, fullHistoryHosts.contains(hostKey),
+               let visible = presentedContexts.values.first(where: { self.hostKey(for: $0) == hostKey }) {
+                loadOnDemand(context: visible)
             }
         }
     }

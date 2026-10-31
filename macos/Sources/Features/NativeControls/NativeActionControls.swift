@@ -81,6 +81,7 @@ struct NativeMenuButton: NSViewRepresentable {
 class NativeActionControl: NSButton, NSMenuDelegate {
     private static weak var hoveredControl: NativeActionControl?
     var showsHover = true { didSet { needsDisplay = true } }
+    var showsKeyboardFocusBorder = true
     var onPress: (() -> Void)?
     var contextEntries: [NativeMenuEntry] = []
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
@@ -216,6 +217,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     var effectiveFill: NSColor {
         if !isEnabled { return actionStyle == .plain ? .clear : theme.controlFill }
         if isMenuOpen || (isHighlighted && NativePointerLocation.contains(self)) { return theme.selectedFill }
+        if !showsKeyboardFocusBorder, window?.firstResponder === self { return theme.hoverFill }
         if actionStyle == .prominent { return theme.accent.withAlphaComponent(isHovered ? 0.32 : 0.23) }
         if isHovered && showsHover { return theme.hoverFill }
         return actionStyle == .bordered ? theme.controlFill : .clear
@@ -239,7 +241,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         effectiveFill.setFill()
         shape.fill()
-        if actionStyle != .plain || isMenuOpen || window?.firstResponder === self {
+        if actionStyle != .plain || isMenuOpen || (showsKeyboardFocusBorder && window?.firstResponder === self) {
             (isEnabled && (isMenuOpen || window?.firstResponder === self)
                 ? theme.accent.withAlphaComponent(0.55) : theme.border).setStroke()
             shape.lineWidth = 0.5

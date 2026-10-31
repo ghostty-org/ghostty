@@ -84,14 +84,16 @@ enum AgentHistoryStore {
         agents: [SupportedAgent] = SupportedAgent.allCases,
         rootURLs: [SupportedAgent: URL] = [:],
         maximumSessions: Int = AgentHistoryStore.maximumSessions,
-        cacheURL: URL? = nil
+        cacheURL: URL? = nil,
+        updatedAfter: Date? = nil
     ) async -> [AgentHistorySession] {
         let diskTask = Task.detached(priority: .utility) {
             scan(
                 agents: agents,
                 rootURLs: rootURLs,
                 maximumSessions: maximumSessions,
-                cacheURL: cacheURL
+                cacheURL: cacheURL,
+                updatedAfter: updatedAfter
             )
         }
         return await withTaskCancellationHandler(
@@ -137,13 +139,15 @@ enum AgentHistoryStore {
     static func loadRemote(
         access: AgentHistoryRemoteAccess,
         agents: [SupportedAgent] = SupportedAgent.allCases,
-        maximumSessions: Int = AgentHistoryStore.maximumSessions
+        maximumSessions: Int = AgentHistoryStore.maximumSessions,
+        updatedAfter: Date? = nil
     ) async -> [AgentHistorySession] {
         let diskTask = Task.detached(priority: .utility) {
             await scanRemote(
                 access: access,
                 agents: agents,
-                maximumSessions: maximumSessions
+                maximumSessions: maximumSessions,
+                updatedAfter: updatedAfter
             )
         }
         return await withTaskCancellationHandler(
@@ -323,7 +327,8 @@ enum AgentHistoryStore {
         agents: [SupportedAgent],
         rootURLs: [SupportedAgent: URL],
         maximumSessions: Int,
-        cacheURL: URL? = nil
+        cacheURL: URL? = nil,
+        updatedAfter: Date? = nil
     ) -> [AgentHistorySession] {
         guard maximumSessions > 0 else { return [] }
         let resolvedCacheURL = cacheURL ?? defaultCacheURL()
@@ -337,6 +342,7 @@ enum AgentHistoryStore {
         }()
 
         var candidates: [Candidate] = []
+        var candidatePaths: Set<String> = []
         var inspectedFiles = 0
 
         for agent in agents where !Task.isCancelled {
@@ -366,6 +372,9 @@ enum AgentHistoryStore {
                           ]),
                           values.isRegularFile == true,
                           values.isSymbolicLink != true else { continue }
+                    candidatePaths.insert(url.path)
+                    let modified = values.contentModificationDate ?? values.creationDate ?? .distantPast
+                    if let updatedAfter, modified < updatedAfter { continue }
 
                     let filenameID: AgentConversationID?
                     if let pattern = source.entryPattern {
@@ -393,7 +402,6 @@ enum AgentHistoryStore {
 
         candidates.sort { $0.updatedAt > $1.updatedAt }
         var sessionsByID: [String: AgentHistorySession] = [:]
-        let candidatePaths = Set(candidates.map { $0.url.path })
         let originalCacheCount = diskCache.entries.count
         diskCache.entries = diskCache.entries.filter { path, entry in
             !agents.contains(entry.session.agent) || candidatePaths.contains(path)
@@ -419,13 +427,17 @@ enum AgentHistoryStore {
         }
         if !needsParse.isEmpty {
             let lock = NSLock()
-            DispatchQueue.concurrentPerform(iterations: needsParse.count) { offset in
-                guard !Task.isCancelled else { return }
-                let index = needsParse[offset]
-                let session = session(from: candidates[index])
-                lock.lock()
-                parsedSessions[index] = session
-                lock.unlock()
+            // Bound decompression/JSON workers, and check the parent task's
+            // cancellation between batches (GCD workers have no Swift task).
+            for start in stride(from: 0, to: needsParse.count, by: 2) {
+                guard !Task.isCancelled else { break }
+                DispatchQueue.concurrentPerform(iterations: min(2, needsParse.count - start)) { offset in
+                    let index = needsParse[start + offset]
+                    let session = session(from: candidates[index])
+                    lock.lock()
+                    parsedSessions[index] = session
+                    lock.unlock()
+                }
             }
         }
 
@@ -467,7 +479,7 @@ enum AgentHistoryStore {
                 sessionsByID[session.id] = session
             }
         }
-        return Array(sessionsByID.values.sorted { lhs, rhs in
+        return Array(sessionsByID.values.filter { session in updatedAfter.map { session.updatedAt >= $0 } ?? true }.sorted { lhs, rhs in
             if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
             return lhs.id < rhs.id
         }.prefix(maximumSessions))
@@ -807,7 +819,8 @@ enum AgentHistoryStore {
     nonisolated private static func scanRemote(
         access: AgentHistoryRemoteAccess,
         agents: [SupportedAgent],
-        maximumSessions: Int
+        maximumSessions: Int,
+        updatedAfter: Date? = nil
     ) async -> [AgentHistorySession] {
         guard maximumSessions > 0, !Task.isCancelled else { return [] }
 
@@ -821,12 +834,14 @@ enum AgentHistoryStore {
 
         guard let chunks = try? await access.discoverSessions(
             relativeRoots: roots,
-            maximumSessions: maximumSessions
+            maximumSessions: maximumSessions,
+            updatedAfter: updatedAfter
         ) else { return [] }
 
         var sessionsByID: [String: AgentHistorySession] = [:]
         for chunk in chunks.sorted(by: { $0.file.modifiedAt > $1.file.modifiedAt }) {
             guard !Task.isCancelled, sessionsByID.count < maximumSessions else { break }
+            if let updatedAfter, chunk.file.modifiedAt < updatedAfter { continue }
             let records = headerRecords(from: chunk.headerData)
             guard !records.isEmpty else { continue }
 

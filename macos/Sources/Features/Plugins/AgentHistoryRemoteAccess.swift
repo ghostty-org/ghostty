@@ -60,15 +60,17 @@ struct AgentHistoryRemoteAccess: Sendable {
     /// or exit with a non-zero status.
     func discoverSessions(
         relativeRoots: [String],
-        maximumSessions: Int
+        maximumSessions: Int,
+        updatedAfter: Date? = nil
     ) async throws -> [AgentHistoryRemoteChunk] {
         let safeRoots = relativeRoots.filter { !$0.isEmpty && !$0.contains("'") }
         guard !safeRoots.isEmpty else { return [] }
         let boundedLimit = min(max(maximumSessions, 1), AgentHistoryStore.maximumSessions)
         let rootsJSON = String(data: try JSONEncoder().encode(safeRoots), encoding: .utf8)!
         let script = """
-        python3 - \(Self.shellQuote(rootsJSON)) \(boundedLimit) <<'OMG_HISTORY_PY'
+        python3 - \(Self.shellQuote(rootsJSON)) \(boundedLimit) \(updatedAfter.map { String($0.timeIntervalSince1970) } ?? "-inf") <<'OMG_HISTORY_PY'
         import json, os, sqlite3, sys
+        minimum_modified = float(sys.argv[3])
 
         def read_zstd_prefix(path, limit=256 * 1024):
             try:
@@ -120,6 +122,8 @@ struct AgentHistoryRemoteAccess: Sendable {
                         path = os.path.join(root, ident + '.db')
                         if not os.path.isfile(path) or modified is None:
                             continue
+                        if (float(modified) if float(modified) > 0 else os.path.getmtime(path)) < minimum_modified:
+                            continue
                         workspaces = json.loads(uris) if uris else []
                         cwd = next((unquote(urlparse(uri).path) for uri in workspaces if uri.startswith('file://')), '')
                         records = [dict(type='session', id=ident, title=title or preview, cwd=cwd)]
@@ -141,6 +145,8 @@ struct AgentHistoryRemoteAccess: Sendable {
                         continue
                     try:
                         stat = os.stat(path)
+                        if stat.st_mtime < minimum_modified:
+                            continue
                         candidates.append((stat.st_mtime, path, stat.st_size))
                     except OSError:
                         pass

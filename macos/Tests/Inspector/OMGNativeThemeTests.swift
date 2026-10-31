@@ -35,6 +35,9 @@ struct OMGNativeThemeTests {
         }
         let options = buttons(in: controller.view)
         #expect(options.count == 2)
+        #expect(options.allSatisfy { !$0.showsKeyboardFocusBorder })
+        controller.focusFirstOption()
+        #expect(options[0].effectiveFill == options[0].theme.hoverFill)
         #expect(controller.view is OMGNativeSurfaceView)
         options[1].performClick(nil)
         #expect(picker.indexOfSelectedItem == 1)

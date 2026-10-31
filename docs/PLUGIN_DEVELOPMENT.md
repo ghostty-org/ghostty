@@ -1764,12 +1764,22 @@ Agent-history resume accepts only a host-discovered,
 `AgentConversationID`-validated local session whose manifest declares
 allowlisted resume arguments; it focuses a matching live Surface or creates a
 new typed resume tab. Agent-history metadata uses a versioned mtime cache and
-bounded configurable count. When focused on a Pane with an active SSH session,
+bounded configurable count. The default time range is the last three calendar
+months. Local and SSH discovery skip older file timestamps before reading or
+decompressing transcript headers; local enumeration still checks file metadata.
+Local parsing uses at most two workers and checks cancellation between batches.
+Choosing All or Year sends the built-in `setAgentHistoryTimeRange` action and
+expands the shared host cache once; narrower ranges and search filter that cache.
+A limited scan preserves older valid metadata cache entries for later expansion.
+When focused on a Pane with an active SSH session,
 Agent History automatically switches scope to the remote host using batch SSH
 queries and displays remote agent conversations; focusing a local Pane returns
 to local history. Registration starts no scan, timer, watcher, or
-helper process; appeared loads cached rows and runs one cancellable refresh,
-while disappearing from every tab cancels outstanding work. Search emits
+helper process; appearance reuses the host cache or starts one cancellable scan.
+An already-started metadata scan may finish into the shared cache after hiding.
+Transcript reads are cancelled on disappearance and resumed on return when needed;
+loaded transcripts and selection remain tab-owned until close or scope change.
+Search emits
 metadata matches, cached previews, and then progressive full-body matches;
 transcript parsing streams in background tasks, while the host renders rows
 through a reusable AppKit table. Port creation accepts only a valid 1...65535 port or bounded `host:port` and is
@@ -2088,7 +2098,13 @@ session set instead of allocating it separately for every tab.
 The trailing Inspector retains visited native pane views within the current tab,
 so Files/Agent History/Git/Info switches hide and reveal existing views rather
 than rebuilding large trees. Only the selected pane receives provider lifecycle;
-hidden views cannot receive input or automatically paginate. Cache entries are
+hidden views cannot receive input or automatically paginate. Only a visible
+window selected in its native tab group can present an Inspector provider;
+attached views in inactive tabs and parked workspaces do not start provider work.
+Files and Git preserve their lifecycle on title-only updates at
+the same location. Switching panes prepares the incoming view before hiding the
+outgoing view, without disabling screen updates for the whole application.
+Cache entries are
 removed when their pane is unregistered or the owning tab changes. This cache
 does not own or rebuild terminal surfaces or PTYs.
 
