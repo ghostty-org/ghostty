@@ -263,12 +263,27 @@ fn addLinuxAppResources(
     // How the files below launch Ghostty. See -Dinstalled-exe-path.
     const exe = cfg.installed_exe_path orelse "ghostty";
 
+    // The D-Bus object path that GApplication exports its API on. This has
+    // to match `application_path_from_appid` in GLib exactly, which prefixes
+    // a "/" and then turns every "." into "/" and every "-" into "_".
+    const obj_path = obj_path: {
+        const buf = try b.allocator.alloc(u8, app_id.len + 1);
+        buf[0] = '/';
+        for (app_id, buf[1..]) |src, *dst| dst.* = switch (src) {
+            '.' => '/',
+            '-' => '_',
+            else => src,
+        };
+        break :obj_path buf;
+    };
+
     // Variables used by the templates.
     // Fields are nullable since unused fields trigger a build failure.
     const Variables = struct {
         NAME: ?[]const u8 = null,
         APPID: ?[]const u8 = null,
         GHOSTTY: ?[]const u8 = null,
+        OBJPATH: ?[]const u8 = null,
     };
 
     // The templates that we will process. The templates are in
@@ -331,6 +346,17 @@ fn addLinuxAppResources(
             b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml.in"),
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
             .{ .NAME = name, .APPID = app_id },
+        });
+
+        // GNOME Shell search provider so that open terminals show up in
+        // the overview search.
+        try ts.append(b.allocator, .{
+            b.path("dist/linux/search-provider.ini.in"),
+            b.fmt(
+                "share/gnome-shell/search-providers/{s}.search-provider.ini",
+                .{app_id},
+            ),
+            .{ .APPID = app_id, .OBJPATH = obj_path },
         });
 
         break :templates try ts.toOwnedSlice(b.allocator);

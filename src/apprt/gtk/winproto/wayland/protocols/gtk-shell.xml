@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  gtk_shell1 is the private protocol between GTK and Mutter. This is
+  gdk/wayland/protocol/gtk-shell.xml from GTK 4.22.4, which is the same
+  file as src/wayland/protocol/gtk-shell.xml in Mutter 50.4, with only this
+  comment added. GTK is licensed under the LGPL-2.1-or-later.
+
+  Ghostty only uses notify_launch; see winproto/wayland.zig.
+-->
+<protocol name="gtk">
+
+  <interface name="gtk_shell1" version="7">
+    <description summary="gtk specific extensions">
+      gtk_shell is a protocol extension providing additional features for
+      clients implementing it.
+    </description>
+
+    <enum name="capability">
+      <entry name="global_app_menu" value="1"/>
+      <entry name="global_menu_bar" value="2"/>
+      <entry name="desktop_icons" value="3"/>
+    </enum>
+
+    <event name="capabilities">
+      <arg name="capabilities" type="uint"/>
+    </event>
+
+    <request name="get_gtk_surface">
+      <arg name="gtk_surface" type="new_id" interface="gtk_surface1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="set_startup_id">
+      <arg name="startup_id" type="string" allow-null="true"/>
+    </request>
+
+    <request name="system_bell">
+      <arg name="surface" type="object" interface="gtk_surface1" allow-null="true"/>
+    </request>
+
+    <!-- Version 3 additions -->
+    <request name="notify_launch" since="3">
+      <arg name="startup_id" type="string"/>
+    </request>
+
+    <!-- Version 6 does not add new API, but asserts that surface offsets are implemented -->
+  </interface>
+
+  <interface name="gtk_surface1" version="7">
+    <request name="set_dbus_properties">
+      <arg name="application_id" type="string" allow-null="true"/>
+      <arg name="app_menu_path" type="string" allow-null="true"/>
+      <arg name="menubar_path" type="string" allow-null="true"/>
+      <arg name="window_object_path" type="string" allow-null="true"/>
+      <arg name="application_object_path" type="string" allow-null="true"/>
+      <arg name="unique_bus_name" type="string" allow-null="true"/>
+    </request>
+
+    <request name="set_modal"/>
+    <request name="unset_modal"/>
+
+    <request name="present">
+      <arg name="time" type="uint"/>
+    </request>
+
+    <!-- Version 2 additions -->
+
+    <enum name="state">
+      <entry name="tiled" value="1"/>
+
+      <entry name="tiled_top" value="2" since="2" />
+      <entry name="tiled_right" value="3" since="2" />
+      <entry name="tiled_bottom" value="4" since="2" />
+      <entry name="tiled_left" value="5"  since="2" />
+    </enum>
+
+    <enum name="edge_constraint" since="2">
+      <entry name="resizable_top" value="1"/>
+      <entry name="resizable_right" value="2"/>
+      <entry name="resizable_bottom" value="3"/>
+      <entry name="resizable_left" value="4"/>
+    </enum>
+
+    <event name="configure">
+      <arg name="states" type="array"/>
+    </event>
+
+    <event name="configure_edges" since="2">
+      <arg name="constraints" type="array"/>
+    </event>
+
+    <!-- Version 3 additions -->
+    <request name="request_focus" since="3">
+      <arg name="startup_id" type="string" allow-null="true"/>
+    </request>
+
+    <!-- Version 4 additions -->
+    <request name="release" type="destructor" since="4"/>
+
+    <!-- Version 5 additions -->
+    <enum name="gesture" since="5">
+      <entry name="double_click" value="1"/>
+      <entry name="right_click" value="2"/>
+      <entry name="middle_click" value="3"/>
+    </enum>
+
+    <enum name="error" since="5">
+      <entry name="invalid_gesture" value="0"/>
+    </enum>
+
+    <request name="titlebar_gesture" since="5">
+      <arg name="serial" type="uint"/>
+      <arg name="seat" type="object" interface="wl_seat"/>
+      <arg name="gesture" type="uint" enum="gesture"/>
+    </request>
+
+    <!-- Version 6 does not add new API, but asserts that surface offsets are implemented -->
+
+    <request name="set_a11y_properties" since="7">
+      <arg name="a11y_dbus_name" type="string" />
+      <arg name="toplevel_object_path" type="string" />
+    </request>
+  </interface>
+
+</protocol>
