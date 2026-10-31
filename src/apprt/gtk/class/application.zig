@@ -180,7 +180,7 @@ pub const Application = extern struct {
         config: *Config,
 
         /// The application window theme selected for this session.
-        window_theme_override: ?apprt.action.WindowTheme = null,
+        window_theme_override: apprt.action.WindowTheme = .config,
 
         /// State and logic for the underlying windowing protocol.
         winproto: winprotopkg.App,
@@ -1001,7 +1001,7 @@ pub const Application = extern struct {
             \\
         );
 
-        if (priv.window_theme_override == null) switch (window_theme) {
+        if (priv.window_theme_override == .config) switch (window_theme) {
             .ghostty => try writer.print(
                 \\:root {{
                 \\  --ghostty-fg: rgb({d},{d},{d});
@@ -1425,17 +1425,22 @@ pub const Application = extern struct {
 
     fn syncStyleManager(self: *Self, config: *const CoreConfig) void {
         self.as(adw.Application).getStyleManager().setColorScheme(
-            switch (config.@"window-theme") {
-                .auto, .ghostty => auto: {
-                    const lum = config.background.toTerminalRGB().perceivedLuminance();
-                    break :auto if (lum > 0.5)
-                        .prefer_light
-                    else
-                        .prefer_dark;
+            switch (self.private().window_theme_override) {
+                .config => switch (config.@"window-theme") {
+                    .auto, .ghostty => auto: {
+                        const lum = config.background.toTerminalRGB().perceivedLuminance();
+                        break :auto if (lum > 0.5)
+                            .prefer_light
+                        else
+                            .prefer_dark;
+                    },
+                    .system => .prefer_light,
+                    .dark => .force_dark,
+                    .light => .force_light,
                 },
                 .system => .prefer_light,
-                .dark => .force_dark,
                 .light => .force_light,
+                .dark => .force_dark,
             },
         );
     }
@@ -2240,9 +2245,7 @@ const Action = struct {
             .surface => |core| core.rt_surface.surface.setConfig(config_obj),
             .app => {
                 self.setConfig(config_obj);
-                if (self.private().window_theme_override == null) {
-                    self.syncStyleManager(new_config);
-                }
+                self.syncStyleManager(new_config);
             },
         }
     }
@@ -2800,12 +2803,9 @@ const Action = struct {
         self: *Application,
         theme: apprt.action.WindowTheme,
     ) void {
-        self.private().window_theme_override = theme;
-        self.as(adw.Application).getStyleManager().setColorScheme(switch (theme) {
-            .system => .prefer_light,
-            .light => .force_light,
-            .dark => .force_dark,
-        });
+        const priv = self.private();
+        priv.window_theme_override = theme;
+        self.syncStyleManager(priv.config.get());
 
         // The style manager only notifies on an effective scheme change, so
         // the runtime CSS must be reloaded directly.

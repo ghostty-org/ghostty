@@ -464,6 +464,7 @@ pub fn performAction(
             .app,
             .set_window_theme,
             switch (v) {
+                .config => .config,
                 .system => .system,
                 .light => .light,
                 .dark => .dark,

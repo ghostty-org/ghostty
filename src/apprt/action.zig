@@ -626,6 +626,7 @@ pub const SecureInput = enum(c_int) {
 };
 
 pub const WindowTheme = enum(c_int) {
+    config,
     system,
     light,
     dark,

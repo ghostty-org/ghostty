@@ -2403,6 +2403,8 @@ extension Ghostty {
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
 
             switch theme {
+            case GHOSTTY_ACTION_WINDOW_THEME_CONFIG:
+                appDelegate.setAppearance(nil)
             case GHOSTTY_ACTION_WINDOW_THEME_SYSTEM:
                 appDelegate.setAppearance(.system)
             case GHOSTTY_ACTION_WINDOW_THEME_LIGHT:

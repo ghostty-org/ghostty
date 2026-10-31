@@ -128,7 +128,7 @@ msgid "New Tab"
 msgstr "Tab mới"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:631
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "Đóng Tab"
 
@@ -146,7 +146,7 @@ msgid "New Window"
 msgstr "Cửa sổ mới"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:648
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "Đóng cửa sổ"
 
@@ -202,7 +202,7 @@ msgstr "Bộ kiểm tra Terminal"
 msgid "About Ghostty"
 msgstr "Về Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:720
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "Thoát"
 
@@ -230,7 +230,7 @@ msgstr "Tải lại cấu hình để hiển thị lại thông báo này"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2163
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "Hủy"
 
@@ -262,27 +262,27 @@ msgstr "Để trống để khôi phục tiêu đề mặc định."
 msgid "OK"
 msgstr "Đồng ý"
 
-#: src/apprt/gtk/class/application.zig:1747
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "Tổ hợp phím đã bị hệ thống thu hồi."
 
-#: src/apprt/gtk/class/application.zig:1749
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "Tổ hợp phím đã bị hệ thống từ chối."
 
-#: src/apprt/gtk/class/application.zig:1761
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "Tổ hợp phím toàn cục không khả dụng"
 
-#: src/apprt/gtk/class/application.zig:2159
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "Xuất các sự kiện I/O của terminal"
 
-#: src/apprt/gtk/class/application.zig:2162
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "Xuất"
 
-#: src/apprt/gtk/class/application.zig:2665
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "Đang chỉnh sửa tệp cấu hình"
 
@@ -1002,155 +1002,163 @@ msgid "Reload the config file."
 msgstr "Tải lại tệp cấu hình."
 
 #: src/input/command.zig:607
-msgid "Switch to System Appearance"
+msgid "Switch to Configured Appearance"
 msgstr ""
 
 #: src/input/command.zig:608
-msgid "Use the system application appearance for this session."
+msgid "Use the application appearance from the configuration."
 msgstr ""
 
 #: src/input/command.zig:612
-msgid "Switch to Light Appearance"
+msgid "Switch to System Appearance"
 msgstr ""
 
 #: src/input/command.zig:613
-msgid "Use a light application appearance for this session."
+msgid "Use the system application appearance for this session."
 msgstr ""
 
 #: src/input/command.zig:617
-msgid "Switch to Dark Appearance"
+msgid "Switch to Light Appearance"
 msgstr ""
 
 #: src/input/command.zig:618
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
 msgid "Use a dark application appearance for this session."
 msgstr ""
 
-#: src/input/command.zig:624
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "Đóng Terminal"
 
-#: src/input/command.zig:625
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "Đóng terminal hiện tại."
 
-#: src/input/command.zig:632
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "Đóng tab hiện tại."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "Đóng các Tab khác"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "Đóng tất cả các tab trong cửa sổ này ngoại trừ tab hiện tại."
 
-#: src/input/command.zig:641
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "Đóng các Tab bên phải"
 
-#: src/input/command.zig:642
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "Đóng tất cả các tab ở phía bên phải tab hiện tại."
 
-#: src/input/command.zig:649
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "Đóng cửa sổ hiện tại."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "Đóng tất cả cửa sổ"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "Đóng tất cả các cửa sổ đang mở."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "Bật/Tắt phóng to cửa sổ"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "Bật hoặc tắt chế độ phóng to của cửa sổ hiện tại."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "Bật/Tắt toàn màn hình"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Bật hoặc tắt chế độ toàn màn hình của cửa sổ hiện tại."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "Bật/Tắt trang trí cửa sổ"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "Ẩn hoặc hiện viền và thanh tiêu đề của cửa sổ."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "Bật/Tắt ghim trên cùng"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "Bật hoặc tắt chế độ luôn hiển thị trên cùng của cửa sổ."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "Bật/Tắt nhập liệu an toàn"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "Bật hoặc tắt chế độ nhập liệu an toàn."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "Bật/Tắt báo cáo chuột"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "Bật hoặc tắt việc gửi sự kiện thao tác chuột tới các ứng dụng chạy trong "
 "terminal."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "Bật/Tắt độ mờ nền"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr "Bật hoặc tắt độ mờ (độ trong suốt) của nền cửa sổ ban đầu."
 
-#: src/input/command.zig:702
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "Kiểm tra bản cập nhật"
 
-#: src/input/command.zig:703
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "Kiểm tra xem có bản cập nhật mới cho ứng dụng hay không."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "Hoàn tác"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "Hoàn tác hành động gần nhất."
 
-#: src/input/command.zig:714
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "Làm lại"
 
-#: src/input/command.zig:715
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "Làm lại hành động vừa hoàn tác."
 
-#: src/input/command.zig:721
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "Thoát ứng dụng."
 
-#: src/input/command.zig:727
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "Mang một chút Ghostty vào terminal của bạn."
