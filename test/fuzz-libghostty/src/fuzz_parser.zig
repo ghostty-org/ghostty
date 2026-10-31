@@ -11,5 +11,7 @@ pub export fn zig_fuzz_test(
 ) callconv(.c) void {
     var p: ghostty_vt.Parser = .init();
     defer p.deinit();
-    for (buf[0..@intCast(len)]) |byte| _ = p.next(byte);
+    for (buf[0..@intCast(len)]) |byte| {
+        std.mem.doNotOptimizeAway(p.next(byte));
+    }
 }
