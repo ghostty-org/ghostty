@@ -3611,17 +3611,23 @@ fn rowWillBeShifted(
 ) void {
     const cells = row.cells.ptr(page.memory.ptr);
 
-    // If our scrolling region includes the rightmost column then we
-    // need to turn any spacer heads in to normal empty cells, since
-    // once we move them they no longer correspond with soft-wrapped
-    // wide characters.
+    // With left or right margins, rows are only partly moved. If the
+    // region includes the rightmost column, any spacer heads need to
+    // become normal empty cells, since once we move them they no
+    // longer correspond with soft-wrapped wide characters.
     //
     // If it contains either of the 2 leftmost columns, then the wide
     // characters in the first column which may be associated with a
     // spacer head will be either moved or cleared, so we also need
     // to turn the spacer heads in to empty cells in that case.
-    if (self.scrolling_region.right == self.cols - 1 or
-        self.scrolling_region.left < 2)
+    //
+    // A full-width shift moves whole rows, so spacer heads stay with
+    // their wide characters. resetRowWrap clears them where it breaks
+    // a wrap.
+    const left_right = self.scrolling_region.left > 0 or
+        self.scrolling_region.right < self.cols - 1;
+    if (left_right and (self.scrolling_region.right == self.cols - 1 or
+        self.scrolling_region.left < 2))
     {
         const end_cell: *Cell = &cells[page.size.cols - 1];
         if (end_cell.wide == .spacer_head) {
@@ -3656,6 +3662,25 @@ fn rowWillBeShifted(
         right_cell.wide = .narrow;
         tail_cell.wide = .narrow;
     }
+}
+
+/// Reset the soft-wrap state of the row at `pin`, like
+/// Screen.cursorResetWrap but for an arbitrary row.
+fn resetRowWrap(pin: ?PageList.Pin) void {
+    const p = pin orelse return;
+    const row = p.rowAndCell().row;
+    if (!row.wrap) return;
+    row.wrap = false;
+    p.markDirty();
+
+    if (p.down(1)) |next| {
+        next.rowAndCell().row.wrap_continuation = false;
+        next.markDirty();
+    }
+
+    const cells = p.node.page().getCells(row);
+    const end = &cells[cells.len - 1];
+    if (end.wide == .spacer_head) end.wide = .narrow;
 }
 
 /// Renew every live page generation in an inclusive range before a full-width
@@ -3771,14 +3796,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             self.rowWillBeShifted(cur_p.node.page(), cur_row);
             self.rowWillBeShifted(off_p.node.page(), off_row);
 
-            // If our scrolling region is full width, then we unset wrap.
-            if (!left_right) {
-                off_row.wrap = false;
-                cur_row.wrap = false;
-                off_row.wrap_continuation = false;
-                cur_row.wrap_continuation = false;
-            }
-
             const src_p = off_p;
             const src_row = off_row;
             const dst_p = cur_p;
@@ -3851,6 +3868,15 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         y -= 1;
         // Move our pin up to the next row.
         if (cur_p.up(1)) |p| cur_p.* = p;
+    }
+
+    // Rows that moved together keep their soft wraps. Reset the row
+    // above the region, which is now followed by a blank row, and the
+    // bottom row, whose next row was pushed out of the region.
+    if (!left_right) {
+        const top = self.screens.active.cursor.page_pin.*;
+        resetRowWrap(top.up(1));
+        resetRowWrap(top.down(rem - 1));
     }
 }
 
@@ -3939,14 +3965,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
             self.rowWillBeShifted(cur_p.node.page(), cur_row);
             self.rowWillBeShifted(off_p.node.page(), off_row);
 
-            // If our scrolling region is full width, then we unset wrap.
-            if (!left_right) {
-                off_row.wrap = false;
-                cur_row.wrap = false;
-                off_row.wrap_continuation = false;
-                cur_row.wrap_continuation = false;
-            }
-
             const src_p = off_p;
             const src_row = off_row;
             const dst_p = cur_p;
@@ -4019,6 +4037,17 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
         y += 1;
         // Move our pin down to the next row.
         if (cur_p.down(1)) |p| cur_p.* = p;
+    }
+
+    // Rows that moved together keep their soft wraps. Reset the row
+    // above the region, whose next row was deleted, and the last moved
+    // row, which is now followed by a blank row.
+    if (!left_right) {
+        const top = self.screens.active.cursor.page_pin.*;
+        resetRowWrap(top.up(1));
+        if (adjusted_count < rem) {
+            resetRowWrap(top.down(rem - adjusted_count - 1));
+        }
     }
 }
 
@@ -13335,12 +13364,12 @@ test "Terminal: deleteLines wide character spacer head" {
 
     // Delete the top line
     // +-----+
-    // |BBBB | < Non-wrapped
-    // |WWCCC| < Non-wrapped
+    // |BBBB*| < Wrapped
+    // |WWCCC| < Non-wrapped (continued)
     // |     | < Non-wrapped
     // +-----+
-    // This should convert the spacer head to
-    // a regular empty cell, and un-set wrap.
+    // The wrapped rows move together, so the
+    // spacer head and wrap are kept.
     t.setCursorPos(1, 1);
     t.deleteLines(1);
 
@@ -13350,7 +13379,7 @@ test "Terminal: deleteLines wide character spacer head" {
         const unwrapped_str = try t.plainStringUnwrapped(testing.allocator);
         defer testing.allocator.free(unwrapped_str);
         try testing.expectEqualStrings("BBBB\n\u{1F600}CCC", str);
-        try testing.expectEqualStrings("BBBB\n\u{1F600}CCC", unwrapped_str);
+        try testing.expectEqualStrings("BBBB\u{1F600}CCC", unwrapped_str);
     }
 }
 
@@ -19733,4 +19762,41 @@ test "Terminal: resize grows rows while viewport is scrolled up, cursor not at b
     // the viewport stays scrolled up.
     try t.resize(alloc, .{ .cols = 5, .rows = 6 });
     try testing.expect(t.screens.active.pages.viewport == .pin);
+}
+
+test "Terminal: insertLines preserves wrap of rows shifted together" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 4, .cols = 3 });
+    defer t.deinit(alloc);
+
+    try t.printString("ABCDE");
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(1, 1);
+    t.insertLines(1);
+
+    const str = try t.plainStringUnwrapped(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("\nABCDE", str);
+}
+
+test "Terminal: deleteLines preserves wrap of rows shifted together" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .rows = 4, .cols = 3 });
+    defer t.deinit(alloc);
+
+    try t.print('1');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("ABCDE");
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(1, 1);
+    t.deleteLines(1);
+
+    const str = try t.plainStringUnwrapped(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("ABCDE", str);
 }
