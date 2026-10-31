@@ -490,7 +490,10 @@ pub fn decode(
     // `seen` is derived state. Only resident prompt metadata participates
     // because omitted history is outside the restored Screen model.
     result.semantic_prompt.seen = seen: {
-        if (result.cursor.semantic_content == .prompt) break :seen true;
+        // A cursor in prompt or input content counts even when no row is
+        // marked yet, because the next linefeed marks a row as a prompt
+        // continuation. See `SemanticPrompt.seen`.
+        if (result.cursor.semantic_content != .output) break :seen true;
 
         var node = result.pages.getTopLeft(.screen).node;
         while (true) {

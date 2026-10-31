@@ -98,12 +98,24 @@ pub const Dirty = packed struct {
 };
 
 pub const SemanticPrompt = struct {
-    /// This is flipped to true when any sort of semantic content is
-    /// seen. In particular, this is set to true only when a `prompt` type
-    /// is ever set on our cursor.
+    /// Whether this screen has ever had semantic prompt content (OSC 133)
+    /// that can mark rows as prompts.
     ///
-    /// This is used to optimize away semantic content operations if we know
-    /// we've never seen them.
+    /// This starts as false and becomes true the first time the cursor
+    /// enters prompt or input content. That happens through
+    /// `cursorSetSemanticContent`, or through `cursorCopy` when the copied
+    /// cursor is already in prompt or input content. Resetting the screen
+    /// sets it back to false.
+    ///
+    /// Rows are only marked as prompts while the cursor is in prompt or
+    /// input content. So when this is false, no row on the screen is a
+    /// prompt, and code that searches for prompt rows can skip the search.
+    /// For example, `Terminal.eraseDisplay` uses this to avoid scanning
+    /// the screen for a prompt on every full-screen erase.
+    ///
+    /// Code that marks rows as prompts in some new way must also set this
+    /// to true. Otherwise, code that relies on this flag, such as
+    /// `Terminal.eraseDisplay`, will not notice those rows.
     seen: bool,
 
     /// This is set on any `cl` or `click_events` option set on the
@@ -482,6 +494,9 @@ pub fn reset(self: *Screen) void {
 ///
 ///   - Screen dimensions
 ///   - Screen data (cell state, etc.) for the region
+///   - Semantic prompt state (`semantic_prompt`), so that prompt-aware
+///     operations such as a full-screen erase behave the same on the
+///     clone as on the original
 ///
 /// Anything not mentioned above is NOT copied. Some of this is for
 /// very good reason:
@@ -640,6 +655,7 @@ pub fn clone(
         .no_scrollback = self.no_scrollback,
         .cursor = cursor,
         .selection = sel,
+        .semantic_prompt = self.semantic_prompt,
         .dirty = self.dirty,
     };
     result.assertIntegrity();
@@ -1490,6 +1506,9 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
     const old = self.cursor;
     self.cursor = other;
     errdefer self.cursor = old;
+
+    // copied prompt or input content can mark rows on this screen as prompts
+    if (other.semantic_content != .output) self.semantic_prompt.seen = true;
 
     // Keep our old style ID so it can be properly cleaned up below.
     self.cursor.style_id = old.style_id;
@@ -3018,6 +3037,13 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
 /// Modify the semantic content type of the cursor. This should
 /// be preferred over setting it manually since it handles all the
 /// proper accounting.
+///
+/// Setting `prompt` or `input` content also sets `semantic_prompt.seen`,
+/// since both can mark rows as prompts. A `prompt` marks the cursor's
+/// row right away. `input` marks each new row the cursor moves to by
+/// linefeed. For example, a shell that only sends OSC 133;B before the
+/// user's input, and never OSC 133;A, still produces prompt rows once
+/// the input spans more than one line.
 pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
     prompt: osc.semantic_prompt.PromptKind,
     output,
@@ -3032,6 +3058,9 @@ pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
         },
 
         .input => |clear| {
+            // Rows that follow are marked as prompt continuations on
+            // linefeed (see Terminal.index).
+            self.semantic_prompt.seen = true;
             cursor.semantic_content = .input;
             cursor.semantic_content_clear_eol = switch (clear) {
                 .clear_explicit => false,
@@ -6562,6 +6591,22 @@ test "Screen: clone" {
     }
     try testing.expectEqual(@as(usize, 5), s2.cursor.x);
     try testing.expectEqual(@as(usize, 1), s2.cursor.y);
+}
+
+test "Screen: clone copies semantic prompt state" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    var s2 = try s.clone(io, alloc, .{ .active = .{} }, null);
+    defer s2.deinit();
+    try testing.expect(s2.semantic_prompt.seen);
+    try testing.expectEqual(s.semantic_prompt.click, s2.semantic_prompt.click);
 }
 
 test "Screen: clone partial" {
