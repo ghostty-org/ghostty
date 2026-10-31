@@ -288,9 +288,14 @@ _ghostty_deferred_init() {
     # We use 133;P instead of 133;A to avoid fresh-line behavior which would
     # disrupt the display since the prompt has already been drawn. We also
     # emit 133;B to mark the input area, which is needed for click-to-move.
+    # Powerlevel10k can emit its own marks through prompt expansion, so they
+    # aren't necessarily literal bytes in PS1. In that case a fallback initial
+    # mark here would replace the start of its multiline prompt with the input
+    # row, leaving the earlier rows outside the region cleared on resize.
     (( $+functions[_ghostty_zle_line_init] )) || _ghostty_zle_line_init() { builtin true; }
     functions[_ghostty_zle_line_init]="
-        if [[ \$PS1 != *$'%{\\e]133;A'* ]]; then
+        if [[ \$PS1 != *$'%{\\e]133;A'* ]] &&
+           (( ! \${_POWERLEVEL9K_TERM_SHELL_INTEGRATION:-0} )); then
             builtin print -nu \$_ghostty_fd '\\e]133;P;k=i\\a\\e]133;B\\a'
         fi
     "${functions[_ghostty_zle_line_init]}
