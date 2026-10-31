@@ -164,6 +164,7 @@ fn step(comptime mode: Mode) *const fn (*anyopaque) Benchmark.Error!void {
 fn processRows(self: *ShaperRows, comptime mode: Mode) !void {
     const rows = self.state.row_data.items(.cells);
     for (0..self.opts.iterations) |_| {
+        defer self.shaper.endFrame();
         for (rows) |cells| {
             var it = self.shaper.runIterator(.{
                 .grid = self.grid,
