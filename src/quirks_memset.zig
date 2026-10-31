@@ -67,13 +67,13 @@ comptime {
     //   3. Weak COFF builds fatally error because MSVC's linker
     //      errors when two identical linked symbols exist. MSVC has
     //      CRT which links so we don't need this there anyways.
-    //   4. When targeting MSVC with libc linked, use the CRT's memset
-    //      to avoid a duplicate symbol with libvcruntime.
+    //   4. When targeting MSVC, use the CRT's memset to avoid a
+    //      duplicate symbol with libvcruntime.
     const enabled =
         std.simd.suggestVectorLength(u8) != null and
         builtin.target.ofmt != .c and
         !(linkage == .weak and builtin.target.ofmt == .coff) and
-        !(builtin.target.abi == .msvc and builtin.link_libc);
+        builtin.target.abi != .msvc;
 
     if (enabled) @export(&memset, .{
         .name = "memset",

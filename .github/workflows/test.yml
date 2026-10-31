@@ -971,12 +971,8 @@ jobs:
       - name: Build libghostty-vt
         run: zig build -Demit-lib-vt
 
-      - name: Build libghostty-vt (x86_64-windows-msvc)
-        run: zig build -Demit-lib-vt -Dtarget=x86_64-windows-msvc
-
-      # Duplicate symbols (e.g. memset) can show up without SIMD.
-      - name: Build libghostty-vt (x86_64-windows-msvc, no SIMD)
-        run: zig build -Demit-lib-vt -Dtarget=x86_64-windows-msvc -Dsimd=false
+      - name: Test libghostty-vt (x86_64-windows-msvc)
+        run: zig build test-lib-vt -Dtarget=x86_64-windows-msvc
 
       - name: Test static linking
         working-directory: example/c-vt-static

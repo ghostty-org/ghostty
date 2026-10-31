@@ -7,6 +7,7 @@ const CombineArchivesStep = @import("CombineArchivesStep.zig");
 const Config = @import("Config.zig");
 const LibsystemOverrideStep = @import("LibsystemOverrideStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const WindowsCrt = @import("WindowsCrt.zig");
 const LipoStep = @import("LipoStep.zig");
 const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
 
@@ -85,14 +86,6 @@ pub fn initShared(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyLib {
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
-
     const lib = b.addLibrary(.{
         .name = "ghostty",
         .linkage = .dynamic,
@@ -110,41 +103,11 @@ pub fn initShared(
     });
     _ = try deps.add(lib);
 
-    // On Windows with MSVC, building a DLL requires the full CRT library
-    // chain. linkLibC() (called via deps.add) provides msvcrt.lib, but
-    // that references symbols in vcruntime.lib and ucrt.lib. Zig's library
-    // search paths include the MSVC lib dir and the Windows SDK 'um' dir,
-    // but not the SDK 'ucrt' dir where ucrt.lib lives.
+    // Building an MSVC DLL requires the full CRT library chain.
     if (deps.config.target.result.os.tag == .windows and
         deps.config.target.result.abi == .msvc)
     {
-        // The CRT initialization code in msvcrt.lib calls __vcrt_initialize
-        // and __acrt_initialize, which are in the static CRT libraries.
-        lib.root_module.linkSystemLibrary("libvcruntime", dynamic_link_opts);
-
-        // ucrt.lib is in the Windows SDK 'ucrt' dir. Detect the SDK
-        // installation and add the UCRT library path.
-        const arch = deps.config.target.result.cpu.arch;
-        const sdk = std.zig.WindowsSdk.find(b.allocator, b.graph.io, arch, &b.graph.environ_map) catch null;
-        if (sdk) |s| {
-            if (s.windows10sdk) |w10| {
-                const arch_str: []const u8 = switch (arch) {
-                    .x86_64 => "x64",
-                    .x86 => "x86",
-                    .aarch64 => "arm64",
-                    else => "x64",
-                };
-                const ucrt_lib_path = b.allocator.print(
-                    "{s}\\Lib\\{s}\\ucrt\\{s}",
-                    .{ w10.path, w10.version, arch_str },
-                ) catch null;
-
-                if (ucrt_lib_path) |path| {
-                    lib.root_module.addLibraryPath(.{ .cwd_relative = path });
-                }
-            }
-        }
-        lib.root_module.linkSystemLibrary("libucrt", dynamic_link_opts);
+        try WindowsCrt.link(b, lib);
     }
 
     // Get our debug symbols
