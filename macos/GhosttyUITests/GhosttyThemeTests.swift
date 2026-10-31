@@ -183,12 +183,23 @@ final class GhosttyThemeTests: GhosttyCustomConfigCase {
         // Changing window-theme also preserves the session override.
         try updateConfig("""
         title=\(windowTitle)
-        window-theme=system
+        window-theme=dark
         macos-titlebar-style=native
         """)
         app.typeKey(",", modifierFlags: [.command, .shift])
         try await Task.sleep(for: .seconds(0.5))
         try assertTitlebarAppearance(.light, for: app)
+
+        // A light system appearance distinguishes this from the system override.
+        XCUIDevice.shared.appearance = .light
+        try await Task.sleep(for: .seconds(0.5))
+
+        app.menuItems["Command Palette"].firstMatch.click()
+        app.buttons
+            .containing(NSPredicate(format: "label CONTAINS[c] 'Switch to Configured Appearance'"))
+            .firstMatch.click()
+        try await Task.sleep(for: .seconds(0.5))
+        try assertTitlebarAppearance(.dark, for: app)
     }
 
     @MainActor

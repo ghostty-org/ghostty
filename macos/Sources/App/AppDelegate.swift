@@ -916,7 +916,8 @@ class AppDelegate: NSObject,
     }
 
     /// Temporarily override the configured application appearance for this session.
-    func setAppearance(_ appearance: Appearance) {
+    /// A nil appearance restores the configured appearance.
+    func setAppearance(_ appearance: Appearance?) {
         appearanceOverride = appearance
         syncAppearance(config: ghostty.config)
 
