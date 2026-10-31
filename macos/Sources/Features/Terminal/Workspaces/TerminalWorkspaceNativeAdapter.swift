@@ -58,7 +58,9 @@ final class TerminalWorkspaceNativeAdapter {
         observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
                 guard let window = note.object as? NSWindow else { return }
-                self?.transitions.removeValue(forKey: ObjectIdentifier(window))
+                if let host = self?.transitions.removeValue(forKey: ObjectIdentifier(window))?.host {
+                    self?.scheduleTransitionCompletion(in: host)
+                }
             }
         })
     }
@@ -139,7 +141,7 @@ final class TerminalWorkspaceNativeAdapter {
             for member in group.members {
                 guard let window = member.window else { return false }
                 member.cancelWorkspacePendingPresentation()
-                if let outgoing, !window.styleMask.contains(.fullScreen) {
+                if let outgoing, !window.styleMask.contains(.fullScreen), window.frame != outgoing.frame {
                     window.setFrame(outgoing.frame, display: false)
                 }
                 if window !== anchor && anchor.tabGroup?.windows.contains(window) != true {
@@ -156,6 +158,9 @@ final class TerminalWorkspaceNativeAdapter {
         for group in groups where !group.visible {
             for member in group.members {
                 guard let window = member.window else { continue }
+                // Already parked groups are not part of this handoff. Even
+                // reading tabGroup can recreate AppKit's discarded tab stack.
+                if member.workspacePresentationIsParked && !window.isVisible { continue }
                 member.cancelWorkspacePendingPresentation()
                 // Removing the sole member creates an empty native window
                 // stack which AppKit can later reuse when entering fullscreen.

@@ -114,19 +114,18 @@ final class TerminalWorkspacePickerModel: ObservableObject {
             guard !isPerforming else { return }
             isPerforming = true
             error = nil
-            dismiss { [self] in
-                coordinator.requestWorkspaceSwitch(to: id, from: controller) { [weak self] outcome in
-                    guard let self else { return }
-                    self.isPerforming = false
-                    switch outcome {
-                    case .committed, .superseded: self.reset()
-                    case .failed:
-                        self.error = self.coordinator.operationError ?? WorkspaceL10n.text(
-                            "The workspace could not be opened.", "未能打开工作区。")
-                        self.reopen()
-                    }
+            let ready = coordinator.prepareWorkspaceSwitch(to: id, from: controller) { [weak self] outcome in
+                guard let self else { return }
+                self.isPerforming = false
+                switch outcome {
+                case .committed, .superseded: self.reset()
+                case .failed:
+                    self.error = self.coordinator.operationError ?? WorkspaceL10n.text(
+                        "The workspace could not be opened.", "未能打开工作区。")
+                    self.reopen()
                 }
             }
+            if let ready { dismiss(ready) }
         }
     }
 

@@ -24,6 +24,12 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     private var quitting = false
     private var applying = false
     private var deferredSwitches: [UUID: UUID] = [:]
+    private var scheduledSwitches = Set<UUID>()
+    private struct SwitchDismissal {
+        let token: UUID
+        let source: UUID
+    }
+    private var switchDismissals: [UUID: SwitchDismissal] = [:]
     enum SwitchOutcome: Equatable { case committed, superseded, failed }
     private var deferredSwitchCompletions: [UUID: (SwitchOutcome) -> Void] = [:]
     private var deferredTabLayouts: [UUID: Ghostty.Config.MacOSTabLayout] = [:]
@@ -54,16 +60,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         sessions?.coordinator = self
         self.native.transitionCompleted = { [weak self] host in
             guard let self else { return }
-            let completion = self.deferredSwitchCompletions.removeValue(forKey: host)
-            if let target = self.deferredSwitches.removeValue(forKey: host),
-               let record = self.store.snapshot.windows?[host],
-               let selected = record.groups[record.currentWorkspace]?.selected,
-               let source = self.liveControllers.first(where: { $0.tabSessionID == selected }) {
-                let targetController = self.switchWorkspace(to: target, from: source)
-                completion?(targetController == nil ? .failed : .committed)
-            } else {
-                completion?(.superseded)
-            }
+            self.scheduleWorkspaceSwitch(in: host)
             if let mode = self.deferredTabLayouts.removeValue(forKey: host),
                let source = self.liveControllers.first(where: { $0.windowSessionID == host }) {
                 self.requestTabLayout(mode, from: source)
@@ -219,6 +216,9 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     func didActivate(_ controller: TerminalController) {
         guard !applying, !restoring, !quitting, controller.isAvailableForWorkspace,
               controller.window?.isVisible == true else { return }
+        // Native focus notifications from the outgoing fullscreen stack are
+        // observations, not a newer command than a queued picker/key request.
+        guard deferredSwitches[controller.windowSessionID] == nil else { return }
         if store.snapshot.isParked(controller.tabSessionID) {
             if let current = liveControllers.first(where: {
                 $0.windowSessionID == controller.windowSessionID && !store.snapshot.isParked($0.tabSessionID)
@@ -247,14 +247,16 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func didClose(_ controller: TerminalController) {
-        guard !quitting, !applying else { return }
+        guard !quitting else { return }
+        let host = controller.windowSessionID
+        if switchDismissals[host]?.source == controller.tabSessionID { cancelWorkspaceSwitch(in: host) }
+        guard !applying else { return }
         registry.removeValue(forKey: controller.tabSessionID)
         retainedParked.removeValue(forKey: controller.tabSessionID)
-        let host = controller.windowSessionID
-        if !liveControllers.contains(where: { $0.windowSessionID == host && !$0.workspacePresentationIsParked }) {
-            deferredSwitches.removeValue(forKey: host)
+        let hostClosed = !liveControllers.contains { $0.windowSessionID == host && !$0.workspacePresentationIsParked }
+        if hostClosed {
+            cancelWorkspaceSwitch(in: host)
             deferredTabLayouts.removeValue(forKey: host)
-            deferredSwitchCompletions.removeValue(forKey: host)?(.superseded)
         }
         revision &+= 1
         if !restoring { sessions.capture() }
@@ -272,7 +274,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         for slot in 0...min(9, store.workspaces.count) {
             guard let shortcut = OMGKeyboardShortcut(storageValue: store.shortcut(slot: slot)), shortcut.matches(event) else { continue }
             if slot == 0 { controller.workspaceSwitcherIsPresented.toggle() } else {
-                switchWorkspace(to: store.workspaces[slot - 1].id, from: controller)
+                requestWorkspaceSwitch(to: store.workspaces[slot - 1].id, from: controller) { _ in }
             }
             return true
         }
@@ -300,16 +302,65 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     /// Management UI waits for the committed result rather than treating a queued request as failure.
     func requestWorkspaceSwitch(to id: UUID, from source: TerminalController,
                                 completion: @escaping (SwitchOutcome) -> Void) {
-        if switchWorkspace(to: id, from: source) != nil {
-            completion(.committed)
-        } else if source.isAvailableForWorkspace,
-                  native.transitioningWindows.contains(source.windowSessionID),
-                  deferredSwitches[source.windowSessionID] == id {
-            deferredSwitchCompletions[source.windowSessionID] = completion
-            operationError = nil
-        } else {
+        guard let ready = prepareWorkspaceSwitch(to: id, from: source, completion: completion) else { return }
+        source.workspaceSwitcherIsPresented = false
+        source.workspacePopover.close(after: ready)
+    }
+
+    /// Register the intent before closing the picker. A late popover callback
+    /// can release its own request, but cannot replace a newer keyboard intent.
+    func prepareWorkspaceSwitch(to id: UUID, from source: TerminalController,
+                                completion: @escaping (SwitchOutcome) -> Void) -> (() -> Void)? {
+        guard !quitting, source.isAvailableForWorkspace, store.workspaces.contains(where: { $0.id == id }) else {
             completion(.failed)
+            return nil
         }
+        let host = source.windowSessionID
+        let dismissal = UUID()
+        let superseded = deferredSwitchCompletions.removeValue(forKey: host)
+        deferredSwitches[host] = id
+        deferredSwitchCompletions[host] = completion
+        switchDismissals[host] = SwitchDismissal(token: dismissal, source: source.tabSessionID)
+        operationError = nil
+        superseded?(.superseded)
+        guard switchDismissals[host]?.token == dismissal else { return nil }
+        return { [weak self] in
+            guard let self, self.switchDismissals[host]?.token == dismissal else { return }
+            self.switchDismissals.removeValue(forKey: host)
+            self.scheduleWorkspaceSwitch(in: host)
+        }
+    }
+
+    private func scheduleWorkspaceSwitch(in host: UUID) {
+        guard deferredSwitches[host] != nil, scheduledSwitches.insert(host).inserted else { return }
+        // Input delivery and AppKit's nested window callbacks may submit several
+        // intents before presentation is safe. Only the latest one is applied.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scheduledSwitches.remove(host)
+            guard !self.quitting, !self.applying, self.switchDismissals[host] == nil,
+                  !self.native.transitioningWindows.contains(host),
+                  let target = self.deferredSwitches.removeValue(forKey: host) else { return }
+            let completion = self.deferredSwitchCompletions.removeValue(forKey: host)
+            let record = self.store.snapshot.windows?[host]
+            let selected = record?.groups[record?.currentWorkspace ?? self.store.defaultID]?.selected
+            // The key event may still name the outgoing tab. Resolve the source
+            // from committed host state instead of reactivating that old window.
+            let candidates = self.liveControllers.filter { $0.windowSessionID == host }
+            guard let source = candidates.first(where: { $0.tabSessionID == selected }) ??
+                    candidates.first(where: { !$0.workspacePresentationIsParked }) else {
+                completion?(.superseded)
+                return
+            }
+            let destination = self.switchWorkspace(to: target, from: source)
+            completion?(destination == nil ? .failed : .committed)
+        }
+    }
+
+    private func cancelWorkspaceSwitch(in host: UUID) {
+        deferredSwitches.removeValue(forKey: host)
+        switchDismissals.removeValue(forKey: host)
+        deferredSwitchCompletions.removeValue(forKey: host)?(.superseded)
     }
 
     private func switchWorkspace(to id: UUID, from source: TerminalController,
@@ -325,6 +376,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         // Every new valid request supersedes the older intent for this host,
         // including "stay here" and requests arriving before a queued drain.
         deferredSwitches.removeValue(forKey: source.windowSessionID)
+        switchDismissals.removeValue(forKey: source.windowSessionID)
         deferredSwitchCompletions.removeValue(forKey: source.windowSessionID)?(.superseded)
         if source.workspaceID == id {
             operationError = nil
@@ -469,6 +521,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         updateRetention()
         revision &+= 1
         sessions.capture()
+        for host in deferredSwitches.keys { scheduleWorkspaceSwitch(in: host) }
         for host in hosts where !native.transitioningWindows.contains(host) {
             if let mode = deferredTabLayouts.removeValue(forKey: host),
                let source = liveControllers.first(where: { $0.windowSessionID == host && !$0.workspacePresentationIsParked }) {
@@ -630,6 +683,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         quitting = true
         let completions = Array(deferredSwitchCompletions.values)
         deferredSwitches.removeAll()
+        switchDismissals.removeAll()
         deferredTabLayouts.removeAll()
         deferredSwitchCompletions.removeAll()
         completions.forEach { $0(.superseded) }

@@ -248,7 +248,6 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
         if let action {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let controller = self.controller, controller.isAvailableForWorkspace else { return }
-                controller.window?.makeKeyAndOrderFront(nil)
                 action()
             }
         } else if management?.isPerforming != true {

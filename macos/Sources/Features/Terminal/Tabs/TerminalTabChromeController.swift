@@ -100,7 +100,8 @@ final class TerminalTabChromeController {
     }
 
     func refresh() {
-        guard !stopped, let controller, controller.isAvailableForWorkspace, let window else { return }
+        guard !stopped, let controller, !controller.workspacePresentationIsParked,
+              controller.isAvailableForWorkspace, let window else { return }
         refreshCount += 1
         // A newly created tab has not joined its destination yet. Reading
         // tabGroup here builds a throwaway native group and its titlebar.

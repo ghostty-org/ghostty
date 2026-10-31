@@ -5,6 +5,32 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalLiveTabLayoutTests {
+    @Test func parkedTabChromeIgnoresGlobalChangesAndRefreshesWhenReactivated() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        source.showWindow(nil)
+        let sourceWindow = try #require(source.window)
+        let sourceChrome = try #require((sourceWindow as? TerminalWindow)?.omgTabChrome)
+        let activeID = fixture.store.defaultID
+        let target = try #require(fixture.coordinator.createWorkspace(
+            name: "Chrome notification target", symbol: "house", color: "blue", from: source
+        ))
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(source.workspacePresentationIsParked)
+        let parkedRefreshCount = sourceChrome.refreshCount
+        for _ in 0..<5 {
+            fixture.store.updatePresentation(for: target.workspaceID) { $0.inspectorWidth += 1 }
+        }
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(sourceChrome.refreshCount == parkedRefreshCount)
+        _ = fixture.coordinator.switchWorkspace(to: activeID, from: target)
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(!source.workspacePresentationIsParked)
+        #expect(sourceChrome.refreshCount > parkedRefreshCount)
+        #expect(sourceChrome.refreshCount < parkedRefreshCount + 6)
+    }
+
     @Test func nativeTabCreationTimingsInBothDirections() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
