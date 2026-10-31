@@ -4644,6 +4644,50 @@ test "selection_adjust mutates snapshot end" {
     try testing.expectEqual(@as(u16, 1), sel.end.toPin().?.x);
 }
 
+test "selection_adjust word uses default boundaries" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "foo:bar baz", 11);
+
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &end_ref));
+
+    var sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    // ':' is a default boundary codepoint, so the first word ends at
+    // the second 'o'.
+    try testing.expectEqual(Result.success, selection_c.adjust(t, &sel, .word_right));
+    try testing.expectEqual(@as(u16, 0), sel.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 2), sel.end.toPin().?.x);
+
+    try testing.expectEqual(Result.success, selection_c.adjust(t, &sel, .word_right));
+    try testing.expectEqual(@as(u16, 0), sel.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 6), sel.end.toPin().?.x);
+
+    try testing.expectEqual(Result.success, selection_c.adjust(t, &sel, .word_left));
+    try testing.expectEqual(@as(u16, 0), sel.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 4), sel.end.toPin().?.x);
+}
+
 test "selection_order and selection_ordered" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(

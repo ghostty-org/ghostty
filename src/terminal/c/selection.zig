@@ -330,7 +330,11 @@ pub fn adjust(
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel_ptr = selection orelse return .invalid_value;
     var sel = sel_ptr.toZig() orelse return .invalid_value;
-    sel.adjust(t.screens.active, adjustment);
+    sel.adjust(
+        t.screens.active,
+        adjustment,
+        &selection_codepoints.default_word_boundaries,
+    );
     sel_ptr.* = .fromZig(sel);
     return .success;
 }
