@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 VISUAL_DESKTOP_TEST = "GhosttyTests/VerticalTabsIntegrationTests/appKitTabGroupDrivesVerticalTabsWithoutRecreatingSurfaces()"
 LINK_HOVER_DESKTOP_TEST = "GhosttyTests/TerminalLinkHoverTests/commandHoverRemainsStable()"
 QUICK_INPUT_DESKTOP_TEST = "GhosttyTests/QuickInputFooterMouseTests"
+WORKSPACE_POPOVER_DESKTOP_TEST = (
+    "GhosttyTests/TerminalWorkspacePopoverSwitchTests/"
+    "nativeFullscreenMouseSelectionClosesAndSwitchesWithoutAnotherKey()"
+)
 DESKTOP_TESTS = {
     "GhosttyTests/VerticalTabMouseTests",
     "GhosttyTests/VerticalTabFullscreenTests",
@@ -22,6 +26,7 @@ DESKTOP_TESTS = {
     QUICK_INPUT_DESKTOP_TEST,
     VISUAL_DESKTOP_TEST,
     LINK_HOVER_DESKTOP_TEST,
+    WORKSPACE_POPOVER_DESKTOP_TEST,
     "GhosttyTests/TerminalWorkspacePresentationTests/clickingWorkspaceButtonOpensItsNativePopover()",
 }
 
@@ -96,7 +101,8 @@ class PlannerTests(unittest.TestCase):
         for test in ["GhosttyTests/VerticalTabMouseTests", "GhosttyTests/VerticalTabMouseTests/mouseSelectionKeepsWorkingAcrossNativeWindows",
                      "GhosttyTests/VerticalTabFullscreenTests",
                      VISUAL_DESKTOP_TEST, VISUAL_DESKTOP_TEST[:-2],
-                     LINK_HOVER_DESKTOP_TEST, LINK_HOVER_DESKTOP_TEST[:-2], QUICK_INPUT_DESKTOP_TEST]:
+                     LINK_HOVER_DESKTOP_TEST, LINK_HOVER_DESKTOP_TEST[:-2], QUICK_INPUT_DESKTOP_TEST,
+                     WORKSPACE_POPOVER_DESKTOP_TEST, WORKSPACE_POPOVER_DESKTOP_TEST[:-2]]:
             with self.subTest(test=test), self.assertRaisesRegex(ValueError, "requires --include-desktop-tests"):
                 self.plan(only_testing=[test])
             self.assertEqual(self.plan(only_testing=[test], include_desktop=True)["only_testing"], [test])

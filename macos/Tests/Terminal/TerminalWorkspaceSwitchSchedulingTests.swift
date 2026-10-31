@@ -61,11 +61,13 @@ struct TerminalWorkspaceSwitchSchedulingTests {
         let latest = try #require(fixture.store.create(name: "Latest", symbol: "briefcase", color: "mint"))
         let parked = try #require(fixture.coordinator.switchWorkspace(to: parkedID, from: source))
         _ = try #require(fixture.coordinator.switchWorkspace(to: source.workspaceID, from: parked))
-        try #require(parked.workspacePresentationIsParked && parked.window?.isVisible == false)
+        try #require(parked.workspacePresentationIsParked)
+        try #require(parked.window?.tabGroup?.selectedWindow !== parked.window)
         let generation = parked.workspacePresentationGeneration
         _ = try #require(fixture.coordinator.switchWorkspace(to: latest, from: source))
         #expect(parked.workspacePresentationGeneration == generation)
-        #expect(parked.window?.isVisible == false)
+        #expect(parked.workspacePresentationIsParked)
+        #expect(parked.window?.tabGroup?.selectedWindow !== parked.window)
     }
 
     @Test func closingATransitionWindowDoesNotLeaveItsHostQueueWaitingForever() async throws {
@@ -186,7 +188,8 @@ struct TerminalWorkspaceSwitchSchedulingTests {
         try await Task.sleep(for: .milliseconds(100))
         #expect(outcome == .committed)
         #expect(fixture.store.snapshot.windows?[source.windowSessionID]?.currentWorkspace == latest)
-        #expect(old.window?.isVisible == false)
+        #expect(old.workspacePresentationIsParked)
+        #expect(old.window?.tabGroup?.selectedWindow !== old.window)
     }
 
     @Test func pickerWaitsForQueuedSwitchWithoutShowingAFailure() async throws {

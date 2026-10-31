@@ -330,6 +330,7 @@ extension NSApplication {
     /// All terminal controllers in front-to-back order.
     fileprivate var orderedTerminalControllers: [BaseTerminalController] {
         NSApp.orderedWindows.compactMap { $0.windowController as? BaseTerminalController }
+            .filter { ($0 as? TerminalController)?.workspacePresentationIsParked != true }
     }
 
     /// Identifies the primary tab controller for a window's tab group.
@@ -341,6 +342,9 @@ extension NSApplication {
     /// For tabbed windows, "primary" is currently the first controller in the
     /// tab group's ordered windows list.
     fileprivate func primaryTerminalController(for controller: BaseTerminalController) -> BaseTerminalController? {
+        if let terminal = controller as? TerminalController {
+            return terminal.workspaceTabWindows.compactMap { $0.windowController as? BaseTerminalController }.first
+        }
         guard let window = controller.window else { return nil }
         guard let tabGroup = window.tabGroup else { return controller }
 

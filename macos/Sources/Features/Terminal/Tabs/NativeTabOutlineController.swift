@@ -304,7 +304,7 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
             .action("Rename Tab…", symbol: "pencil") { [weak tab] in tab?.promptTabTitle() },
             .separator,
             .action("Move Tab to New Window", symbol: "macwindow",
-                    enabled: (tab.window?.tabGroup?.windows.count ?? 1) > 1) { [weak tab] in
+                    enabled: (tab.workspaceTabWindows.count) > 1) { [weak tab] in
                 guard let window = tab?.window else { return }
                 NSApp.sendAction(NSSelectorFromString("moveTabToNewWindow:"), to: window, from: nil)
             },
@@ -431,15 +431,15 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
             guard group.title == nil else { return nil }
             children = roots
         }
+        let workspaceWindows = configuration.controller.workspaceTabWindows
         guard index <= children.count,
-              let windows = configuration.controller.window?.tabGroup?.windows,
               let sourceWindow = source.controller.window,
-              windows.contains(sourceWindow) else { return nil }
-        // Presentation indexes are one-based shortcut labels. Resolve the
-        // stable target against the current native order at validation/commit.
+              workspaceWindows.contains(sourceWindow) else { return nil }
+        // Drop indexes are relative to the current workspace's projected list,
+        // even when AppKit's retained native group contains other workspaces.
         let target = index < children.count ? children[index] : children.last
         guard let targetWindow = target?.tab?.controller.window,
-              let targetIndex = windows.firstIndex(of: targetWindow) else { return nil }
+              let targetIndex = workspaceWindows.firstIndex(of: targetWindow) else { return nil }
         return (source.controller, targetIndex + (index == children.count ? 1 : 0))
     }
 

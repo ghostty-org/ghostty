@@ -210,10 +210,13 @@ final class TerminalWorkspaceSessionStore {
                     guard let selected = members.first(where: { $0.tabSessionID == group.selected }) ?? members.first else { continue }
                     let layout = selected.tabLayoutState
                     layout.bindWorkspace(workspace.id, store: workspaces)
+                    let tabLayout = record.tabLayout.flatMap(Ghostty.Config.MacOSTabLayout.init(rawValue:))
+                        ?? selected.tabLayout
                     let visible = record.currentWorkspace == workspace.id
                     for member in members { member.workspacePresentationIsParked = !visible; member.tabLayoutState = layout }
                     if let frame = record.frame { selected.window?.setFrame(frame, display: false); selected.window?.constrainToScreen() }
-                    groups.append(.init(members: members, selected: selected, visible: visible, layout: layout, scrollOffset: group.scrollOffset))
+                    groups.append(.init(members: members, selected: selected, tabLayout: tabLayout,
+                        visible: visible, layout: layout, scrollOffset: group.scrollOffset))
                 }
             }
             if !runtime.native.apply(groups, previous: [], focus: groups.first(where: \.visible)?.selected) {

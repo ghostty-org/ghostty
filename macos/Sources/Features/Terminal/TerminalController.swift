@@ -90,16 +90,20 @@ struct VerticalTabWindowGroupSnapshot {
         self.windowSessionID = controller.windowSessionID
         self.workspaceGroupID = controller.workspaceGroupID
         let window = controller.window
+        let workspaceWindows = controller.workspaceTabWindows
         if let group = window?.tabGroup,
-           group.windows.count > 1,
+           workspaceWindows.count > 1,
            let window,
-           let index = group.windows.firstIndex(of: window) {
-            let members = group.windows.compactMap {
+           let index = workspaceWindows.firstIndex(of: window) {
+            let members = workspaceWindows.compactMap {
                 $0.windowController as? TerminalController
             }
             self.memberSessionIDs = members.map(\.tabSessionID)
             self.index = index
-            self.selectedSessionID = (group.selectedWindow?.windowController as? TerminalController)?
+            let selectedWindow = group.selectedWindow.flatMap {
+                workspaceWindows.contains($0) ? $0 : nil
+            } ?? window
+            self.selectedSessionID = (selectedWindow.windowController as? TerminalController)?
                 .tabSessionID ?? controller.tabSessionID
         } else {
             self.memberSessionIDs = []
@@ -171,7 +175,7 @@ struct VerticalTabWindowGroupSnapshot {
             controller.workspaceCoordinator.store.transaction {
                 $0.register(controller.tabSessionID, owner: .init(window: windowSessionID, workspace: workspaceID, group: workspaceGroupID))
             }
-            controller.window?.tabbingIdentifier = "omg.window.\(windowSessionID).workspace.\(workspaceID)"
+            controller.window?.tabbingIdentifier = controller.workspaceCoordinator.nativeTabbingIdentifier(for: controller)
         }
         if let group = restoration.group {
             if window.tabGroup !== group || !group.windows.contains(window) {
@@ -182,10 +186,26 @@ struct VerticalTabWindowGroupSnapshot {
                       window.tabGroup === group,
                       group.windows.contains(window) else { return false }
             }
-            guard group.windows.indices.contains(index) else { return false }
-            if group.windows[index] !== window {
+            guard let anchor = restoration.memberControllers.first(where: { $0 !== restoration.controller }) else {
+                return false
+            }
+            let currentActiveWindows = anchor.workspaceTabWindows
+            guard currentActiveWindows.count == memberSessionIDs.count,
+                  let currentIndex = currentActiveWindows.firstIndex(of: window) else { return false }
+            let remainingActive = currentActiveWindows.filter { $0 !== window }
+            if currentIndex != index {
                 group.removeWindow(window)
-                group.insertWindow(window, at: index)
+                let physicalDestination: Int
+                if remainingActive.indices.contains(index) {
+                    guard let targetIndex = group.windows.firstIndex(of: remainingActive[index]) else { return false }
+                    physicalDestination = targetIndex
+                } else if let lastActive = remainingActive.last,
+                          let lastIndex = group.windows.firstIndex(of: lastActive) {
+                    physicalDestination = lastIndex + 1
+                } else {
+                    physicalDestination = group.windows.count
+                }
+                group.insertWindow(window, at: physicalDestination)
             }
             group.setGhosttyTerminalShellLayoutState(layoutState)
             for controller in restoration.memberControllers {
@@ -193,11 +213,13 @@ struct VerticalTabWindowGroupSnapshot {
                 controller.tabLayoutState = layoutState
             }
             guard let selectedWindow = restoration.selectedWindow,
-                  group.windows.contains(selectedWindow) else { return false }
+                  group.windows.contains(selectedWindow),
+                  (selectedWindow.windowController as? TerminalController)?.workspaceID == workspaceID else { return false }
             group.selectedWindow = selectedWindow
+            let restoredWindows = anchor.workspaceTabWindows
             return window.tabGroup === group &&
-                group.windows.indices.contains(index) &&
-                group.windows[index] === window &&
+                restoredWindows.count == memberSessionIDs.count &&
+                restoredWindows[index] === window &&
                 group.selectedWindow === selectedWindow
         }
 
@@ -316,6 +338,29 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The real AppKit tabs in this controller's tab group, in display order.
     private(set) var tabControllers: [TerminalController] = []
+
+    /// The tabs exposed to actions in this workspace. Retained vertical tab
+    /// groups can also contain parked windows from other workspaces.
+    var workspaceTabWindows: [NSWindow] {
+        guard let window else { return [] }
+        let nativeWindows = window.tabGroup?.windows ?? [window]
+        guard tabLayout == .vertical || workspaceCoordinator.usesRetainedNativeTabs(in: windowSessionID) else {
+            return nativeWindows
+        }
+        return nativeWindows.filter {
+            ($0.windowController as? TerminalController)?.workspaceID == workspaceID
+        }
+    }
+
+    private var workspaceSelectedTabWindow: NSWindow? {
+        let windows = workspaceTabWindows
+        guard !windows.isEmpty else { return nil }
+        if let selected = window?.tabGroup?.selectedWindow, windows.contains(selected) {
+            return selected
+        }
+        if let window, windows.contains(window) { return window }
+        return windows.first
+    }
 
     /// The selected tab controller identity.
     private(set) var selectedTabID: ObjectIdentifier? {
@@ -1067,7 +1112,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     func refreshWorkspaceTabs() {
-        window?.tabbingIdentifier = "omg.window.\(windowSessionID).workspace.\(workspaceID)"
+        window?.tabbingIdentifier = workspaceCoordinator.nativeTabbingIdentifier(for: self)
         invalidateRestorableState()
         setupTabObservation()
     }
@@ -2416,7 +2461,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
         guard let targetWindow = controller.window,
-              NSApp.windows.contains(where: { $0 === targetWindow }) else { return }
+              NSApp.windows.contains(where: { $0 === targetWindow }),
+              controller.workspaceID == workspaceID,
+              workspaceTabWindows.contains(targetWindow) else { return }
         // Native selection can expose the destination before refreshTabs moves
         // the shared sidebar into it. Commit both within one screen update.
         NSDisableScreenUpdates()
@@ -2459,8 +2506,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @discardableResult
     func reorderTab(_ controller: TerminalController, toInsertionIndex insertionIndex: Int) -> Bool {
         guard let tabGroup = window?.tabGroup,
-              let movedWindow = controller.window else { return false }
-        let windows = tabGroup.windows
+              let movedWindow = controller.window,
+              controller.workspaceID == workspaceID else { return false }
+        let windows = workspaceTabWindows
         guard let sourceIndex = windows.firstIndex(of: movedWindow) else { return false }
 
         var reordered = windows
@@ -2472,22 +2520,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         )
         reordered.insert(movedWindow, at: destination)
         guard reordered != windows else { return false }
+        let remainingActive = windows.filter { $0 !== movedWindow }
+        let physicalWindowsAfterRemoval = tabGroup.windows.filter { $0 !== movedWindow }
+        let physicalDestination: Int
+        if remainingActive.indices.contains(destination) {
+            guard let targetWindowIndex = physicalWindowsAfterRemoval.firstIndex(of: remainingActive[destination]) else {
+                return false
+            }
+            physicalDestination = targetWindowIndex
+        } else if let lastActive = remainingActive.last,
+                  let lastActiveIndex = physicalWindowsAfterRemoval.firstIndex(of: lastActive) {
+            physicalDestination = lastActiveIndex + 1
+        } else {
+            physicalDestination = physicalWindowsAfterRemoval.count
+        }
 
         tabLayoutState.setOrderingMode(.manual)
-        // Like Ghostty's move_tab path, move only the requested window. Applying
-        // the whole permutation can detach every intervening window on a drag.
-        let selectedWindow = tabGroup.selectedWindow
+        let selectedWindow = tabGroup.selectedWindow.flatMap {
+            windows.contains($0) ? $0 : window
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             tabGroup.removeWindow(movedWindow)
-            tabGroup.insertWindow(movedWindow, at: destination)
+            tabGroup.insertWindow(movedWindow, at: physicalDestination)
         }
         if let selectedWindow, tabGroup.windows.contains(selectedWindow) {
             tabGroup.selectedWindow = selectedWindow
         }
         movedWindow.invalidateRestorableState()
         Self.refreshTabs(in: tabGroup)
-        return tabGroup.windows == reordered
+        return workspaceTabWindows == reordered
     }
 
     func setTabGroupingMode(_ mode: GhosttyTabGroupingMode) {
@@ -2513,7 +2575,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ordering: GhosttyTabOrderingMode? = nil
     ) {
         guard let tabGroup = window?.tabGroup else { return }
-        let controllers = tabGroup.windows.compactMap {
+        let activeWindows = workspaceTabWindows
+        let controllers = activeWindows.compactMap {
             $0.windowController as? TerminalController
         }
         let groups = GhosttyTabOrganizationModel().groups(
@@ -2522,28 +2585,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ordering: ordering ?? tabLayoutState.orderingMode
         )
         let windows = groups.flatMap(\.tabs).compactMap(\.controller.window)
-        guard windows.count == tabGroup.windows.count else { return }
+        guard windows.count == activeWindows.count else { return }
         applyCanonicalTabOrder(windows, in: tabGroup)
     }
 
     private func applyCanonicalTabOrder(_ windows: [NSWindow], in tabGroup: NSWindowTabGroup) {
-        guard windows != tabGroup.windows else { return }
-        let selectedWindow = tabGroup.selectedWindow
+        let activeWindows = workspaceTabWindows
+        guard windows != activeWindows else { return }
+        let selectedWindow = tabGroup.selectedWindow.flatMap {
+            activeWindows.contains($0) ? $0 : window
+        }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
-            for (index, candidate) in windows.enumerated() {
-                guard tabGroup.windows.indices.contains(index),
-                      tabGroup.windows[index] !== candidate else { continue }
+            for (logicalIndex, candidate) in windows.enumerated() {
+                let currentActiveWindows = workspaceTabWindows
+                guard currentActiveWindows.indices.contains(logicalIndex) else { break }
+                let currentWindow = currentActiveWindows[logicalIndex]
+                guard currentWindow !== candidate,
+                      tabGroup.windows.contains(candidate),
+                      tabGroup.windows.contains(currentWindow) else { continue }
                 tabGroup.removeWindow(candidate)
-                tabGroup.insertWindow(candidate, at: index)
+                guard let physicalIndex = tabGroup.windows.firstIndex(of: currentWindow) else { continue }
+                tabGroup.insertWindow(candidate, at: physicalIndex)
             }
         }
 
         if let selectedWindow, tabGroup.windows.contains(selectedWindow) {
             tabGroup.selectedWindow = selectedWindow
         }
-        for candidate in tabGroup.windows {
+        for candidate in workspaceTabWindows {
             candidate.invalidateRestorableState()
         }
         Self.refreshTabs(in: tabGroup)
@@ -2614,9 +2685,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                       in: destinationGroup
                   ),
                   let plan = VerticalTabMoveTransactionPlan(
-                      sourceIndexAfterAttach: destinationGroup.windows.firstIndex(of: sourceWindow),
+                      sourceIndexAfterAttach: destinationController.workspaceTabWindows.firstIndex(of: sourceWindow),
                       insertionIndex: insertionIndex,
-                      tabCount: destinationGroup.windows.count
+                      tabCount: destinationController.workspaceTabWindows.count
                   ) else {
                 _ = Self.restoreSinglePaneMove(
                     descriptor: descriptor,
@@ -2631,8 +2702,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 toInsertionIndex: plan.insertionIndex
             )
             guard plan.validates(
-                actualIndex: destinationGroup.windows.firstIndex(of: sourceWindow),
-                tabCount: destinationGroup.windows.count
+                actualIndex: destinationController.workspaceTabWindows.firstIndex(of: sourceWindow),
+                tabCount: destinationController.workspaceTabWindows.count
             ) else {
                 _ = Self.restoreSinglePaneMove(
                     descriptor: descriptor,
@@ -2711,9 +2782,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                   in: destinationGroup
               ),
               let plan = VerticalTabMoveTransactionPlan(
-                  sourceIndexAfterAttach: destinationGroup.windows.firstIndex(of: newWindow),
+                  sourceIndexAfterAttach: destinationController.workspaceTabWindows.firstIndex(of: newWindow),
                   insertionIndex: insertionIndex,
-                  tabCount: destinationGroup.windows.count
+                  tabCount: destinationController.workspaceTabWindows.count
               ) else {
             Self.discardMovedPaneTab(newController)
             Self.restoreSurfaceTree(
@@ -2736,8 +2807,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         Self.refreshTabs(in: destinationGroup)
         destinationController.selectVerticalTab(newController)
         guard plan.validates(
-            actualIndex: destinationGroup.windows.firstIndex(of: newWindow),
-            tabCount: destinationGroup.windows.count
+            actualIndex: destinationController.workspaceTabWindows.firstIndex(of: newWindow),
+            tabCount: destinationController.workspaceTabWindows.count
         ), destinationGroup.selectedWindow === newWindow else {
             Self.discardMovedPaneTab(newController)
             Self.restoreSurfaceTree(
@@ -2770,9 +2841,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         placement: VerticalTabDropPolicy.Placement,
         in tabGroup: NSWindowTabGroup
     ) -> Int? {
-        if placement == .end { return tabGroup.windows.count }
+        let activeWindows = workspaceTabWindows
+        if placement == .end { return activeWindows.count }
         guard let destinationWindow = destinationController.window,
-              let destinationIndex = tabGroup.windows.firstIndex(of: destinationWindow) else {
+              tabGroup.windows.contains(destinationWindow),
+              let destinationIndex = activeWindows.firstIndex(of: destinationWindow) else {
             return nil
         }
         return VerticalTabDropPolicy.insertionIndex(
@@ -3144,7 +3217,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         let tabGroup = window.tabGroup
-        let windows = tabGroup?.windows ?? [window]
+        let windows = workspaceTabWindows
         let controllers = windows.compactMap {
             $0.windowController as? TerminalController
         }.filter { !$0.tabPresentationIsClosing }
@@ -3189,6 +3262,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     static func refreshTabs(in tabGroup: NSWindowTabGroup?) {
         guard let tabGroup, !TerminalWorkspacePresentation.isChanging else { return }
+        if let selected = tabGroup.selectedWindow?.windowController as? TerminalController,
+           selected.workspacePresentationIsParked {
+            return
+        }
         pendingTabRefreshes.removeValue(forKey: ObjectIdentifier(tabGroup))?.cancel()
         let controllers = tabGroup.windows.compactMap { $0.windowController as? TerminalController }
             .filter { !$0.tabPresentationIsClosing && !$0.workspacePresentationIsParked }
@@ -3487,7 +3564,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let insertionParent: NSWindow = if parentController.tabLayout == .vertical,
             surfaceTree == nil,
             let pendingID = parentController.tabLayoutState.pendingSelectedTabID,
-            let pendingWindow = parent.tabGroup?.windows.first(where: {
+            let pendingWindow = parentController.workspaceTabWindows.first(where: {
                 ($0.windowController as? TerminalController).map(ObjectIdentifier.init) == pendingID
             }) {
             pendingWindow
@@ -3537,7 +3614,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case "end":
                 // If we already have a tab group and we want the new tab to open at the end,
                 // then we use the last window in the tab group as the parent.
-                if let last = parent.tabGroup?.windows.last {
+                if let last = parentController.workspaceTabWindows.last {
                     addedToTabGroup = last.addTabbedWindowSafely(
                         window,
                         ordered: .above
@@ -3894,7 +3971,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // More than 1 window means we have tabs and we're closing a tab
-        if window?.tabGroup?.windows.count ?? 0 > 1 {
+        if workspaceTabWindows.count > 1 {
             if withConfirmation {
                 closeTab(nil)
             } else {
@@ -3917,10 +3994,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard EditorWorkspaceStore.shared.prepareToClose(tabIDs: [tabSessionID], window: window, retry: { [weak self] in
             self?.closeTabImmediately(registerRedo: registerRedo)
         }) else { return }
+        let wasWorkspaceParked = workspacePresentationIsParked
+        var activeWindows = workspaceTabWindows
+        if !wasWorkspaceParked, activeWindows.count <= 1,
+           workspaceCoordinator.usesRetainedNativeTabs(in: windowSessionID),
+           !workspaceCoordinator.isolateWorkspaceTabs(from: self) {
+            return
+        }
+        activeWindows = workspaceTabWindows
         if let root = surfaceTree.root, !SessionRuntimeClose.close(root) { return }
         workspaceCoordinator.forget(self)
         guard let tabGroup = window.tabGroup,
-                tabGroup.windows.count > 1 else {
+              tabGroup.windows.count > 1 else {
             closeWindowImmediately()
             return
         }
@@ -3950,19 +4035,30 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Remove the row before AppKit exposes the successor window. Otherwise
         // its sidebar first selects the successor at the old row position.
-        let remaining = tabGroup.windows.filter { $0 !== window }
-        let nextWindow: NSWindow? = if tabGroup.selectedWindow === window {
-            remaining[min(tabGroup.windows.firstIndex(of: window) ?? 0, remaining.count - 1)]
+        let activeIndex = activeWindows.firstIndex(of: window) ?? 0
+        let remaining = activeWindows.filter { $0 !== window }
+        let selectedWindow = tabGroup.selectedWindow
+        let selectedWindowIsActive = selectedWindow.map { remaining.contains($0) } ?? false
+        let chooseActiveSuccessor = (selectedWindow.map { $0 === window } ?? false) ||
+            !selectedWindowIsActive
+        let nextWindow = if chooseActiveSuccessor, !remaining.isEmpty {
+            remaining[min(activeIndex, remaining.count - 1)]
         } else {
-            tabGroup.selectedWindow
+            selectedWindow.flatMap {
+                !wasWorkspaceParked ||
+                    ($0.windowController as? TerminalController)?.workspaceID == workspaceID
+                    ? $0 : nil
+            }
         }
+        let nextController = nextWindow?.windowController as? TerminalController
         tabPresentationIsClosing = true
         tabLayoutState.updateTabs(
             remaining.compactMap { $0.windowController as? TerminalController },
-            selectedID: (nextWindow?.windowController as? TerminalController).map(ObjectIdentifier.init)
+            selectedID: nextController.flatMap { $0.workspaceID == workspaceID ? ObjectIdentifier($0) : nil }
         )
-        if tabGroup.selectedWindow === window {
-            (nextWindow?.windowController as? TerminalController)?.prepareTabPresentation(from: window)
+        if !wasWorkspaceParked, chooseActiveSuccessor, let nextWindow {
+            (nextWindow.windowController as? TerminalController)?.prepareTabPresentation(from: window)
+            tabGroup.selectedWindow = nextWindow
         }
         window.close()
         // Do not leave the newly visible window rendering the pre-close rows
@@ -3970,10 +4066,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         Self.refreshTabs(in: tabGroup)
     }
 
-    private func closeOtherTabsImmediately() {
+    func closeOtherTabsImmediately() {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup else { return }
-        guard tabGroup.windows.count > 1 else { return }
+        let activeWindows = workspaceTabWindows
+        guard activeWindows.count > 1 else { return }
 
         // Start an undo grouping
         if let undoManager {
@@ -3984,7 +4081,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Iterate through all tabs except the current one.
-        for window in tabGroup.windows where window != self.window {
+        for window in activeWindows where window !== self.window {
             // We ignore any non-terminal tabs. They don't currently exist and we can't
             // properly undo them anyways so I'd rather ignore them and get a bug report
             // later if and when we introduce non-terminal tabs.
@@ -4019,12 +4116,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    private func closeTabsOnTheRightImmediately() {
+    func closeTabsOnTheRightImmediately() {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup else { return }
-        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+        let activeWindows = workspaceTabWindows
+        guard let currentIndex = activeWindows.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        let tabsToClose = activeWindows.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
         undoManager?.beginUndoGrouping()
@@ -4065,19 +4163,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         workspaceCoordinator.savePresentation()
         workspaceCoordinator.sessions.capture()
         guard let window = window else { return }
-        let editorTabIDs = (window.tabGroup?.windows ?? [window]).compactMap {
+        let editorTabIDs = workspaceTabWindows.compactMap {
             ($0.windowController as? TerminalController)?.tabSessionID
         }
         guard EditorWorkspaceStore.shared.prepareToClose(tabIDs: editorTabIDs, window: window, retry: { [weak self] in
             self?.closeWindowImmediately()
         }) else { return }
+        if !workspacePresentationIsParked,
+           workspaceCoordinator.usesRetainedNativeTabs(in: windowSessionID),
+           !workspaceCoordinator.isolateWorkspaceTabs(from: self) {
+            return
+        }
+        let activeWindows = workspaceTabWindows
 
         cancelPendingInitialPresentation()
 
         registerUndoForCloseWindow()
 
-        if let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
-            tabGroup.windows.forEach { window in
+        if let tabGroup = window.tabGroup, activeWindows.count > 1 {
+            activeWindows.forEach { window in
                 // Clear out the surfacetree to ensure there is no undo state.
                 // This prevents unnecessary undos registered since AppKit may
                 // process them on later ticks so we can't just disable undo registration.
@@ -4101,7 +4205,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // If we don't have a tab group or we don't have multiple tabs, then
         // do a normal single window close.
         guard let tabGroup = window.tabGroup,
-              tabGroup.windows.count > 1 else {
+              workspaceTabWindows.count > 1 else {
             // No tabs, just save this window's state
             if let undoState {
                 // Register undo action to restore the window
@@ -4126,7 +4230,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Multiple windows in tab group - collect all undo states in sorted order
         // by tab ordering. Also track which window was key.
-        let undoStates = tabGroup.windows
+        let activeWindows = workspaceTabWindows
+        let undoStates = activeWindows
             .compactMap { tabWindow -> UndoState? in
                 guard let controller = tabWindow.windowController as? TerminalController,
                       var undoState = controller.undoState else { return nil }
@@ -4149,7 +4254,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // but we only need this for this style of undo so we don't want to add it to
         // UndoState.
         let keyWindowIndex: Int?
-        if let keyWindow = tabGroup.windows.first(where: { $0.isKeyWindow }),
+        if let keyWindow = activeWindows.first(where: { $0.isKeyWindow }),
             let keyController = keyWindow.windowController as? TerminalController,
             let keyUndoState = keyController.undoState {
             keyWindowIndex = undoStates.firstIndex {
@@ -4284,14 +4389,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
 
             // If we have a tab group and index, restore the tab to its original position
-            if let tabGroup = undoState.tabGroup,
-               let tabIndex = undoState.tabIndex {
-                if tabIndex < tabGroup.windows.count {
-                    // Find the window that is currently at that index
-                    let currentWindow = tabGroup.windows[tabIndex]
-                    currentWindow.addTabbedWindowSafely(window, ordered: .below)
-                } else {
-                    tabGroup.windows.last?.addTabbedWindowSafely(window, ordered: .above)
+            if undoState.tabGroup != nil, let tabIndex = undoState.tabIndex {
+                let activeSiblings = workspaceTabWindows.filter { $0 !== window }
+                let siblingWindows = activeSiblings.isEmpty
+                    ? (undoState.tabGroup?.windows ?? []).filter {
+                        $0 !== window &&
+                            ($0.windowController as? TerminalController)?.workspaceID == workspaceID
+                    }
+                    : activeSiblings
+                if siblingWindows.indices.contains(tabIndex) {
+                    siblingWindows[tabIndex].addTabbedWindowSafely(window, ordered: .below)
+                } else if let last = siblingWindows.last {
+                    last.addTabbedWindowSafely(window, ordered: .above)
                 }
 
                 // Make it the key window
@@ -4323,7 +4432,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             frame: window.frame,
             surfaceTree: surfaceTree,
             focusedSurface: focusedSurface?.id,
-            tabIndex: window.tabGroup?.windows.firstIndex(of: window),
+            tabIndex: workspaceTabWindows.firstIndex(of: window),
             tabGroup: window.tabGroup,
             tabColor: (window as? TerminalWindow)?.tabColor ?? .none,
             tabSessionID: tabSessionID,
@@ -4353,7 +4462,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidLoad()
         guard let window else { return }
         DevMemoryDiagnostics.windowOpened()
-        window.tabbingIdentifier = "omg.window.\(windowSessionID).workspace.\(workspaceID)"
+        window.tabbingIdentifier = workspaceCoordinator.nativeTabbingIdentifier(for: self)
 
         // I copy this because we may change the source in the future but also because
         // I regularly audit our codebase for "ghostty.config" access because generally
@@ -4508,6 +4617,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     lazy private(set) var tabGroupCloseCoordinator = TabGroupCloseCoordinator()
 
     override func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Native bulk close can snapshot foreign tabs before AppKit asks each
+        // controller, so a parked workspace always declines this delegate
+        // path. Explicit tab/window actions use the workspace projection.
+        if workspacePresentationIsParked { return false }
+        if workspaceCoordinator.usesRetainedNativeTabs(in: windowSessionID) {
+            guard workspaceCoordinator.isolateWorkspaceTabs(from: self) else { return false }
+        }
         tabGroupCloseCoordinator.windowShouldClose(sender) { [weak self] scope in
             guard let self else { return }
             switch scope {
@@ -4682,12 +4798,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func closeOtherTabs(_ sender: Any?) {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup else { return }
+        let activeWindows = workspaceTabWindows
 
         // If we only have one window then we have no other tabs to close
-        guard tabGroup.windows.count > 1 else { return }
+        guard activeWindows.count > 1 else { return }
 
         // Check if we have to confirm close.
-        guard tabGroup.windows.contains(where: { window in
+        guard activeWindows.contains(where: { window in
             // Ignore ourself
             if window == self.window { return false }
 
@@ -4714,9 +4831,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func closeTabsOnTheRight(_ sender: Any?) {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup else { return }
-        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+        let activeWindows = workspaceTabWindows
+        guard let currentIndex = activeWindows.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        let tabsToClose = activeWindows.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
         let needsConfirm = tabsToClose.contains { (_, candidate) in
@@ -4751,7 +4869,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // We need to check all the windows in our tab group for confirmation
         // if we're closing the window. If we don't have a tabgroup for any
         // reason we check ourselves.
-        let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
+        let windows = workspaceTabWindows
         guard let confirmController = windows
             .compactMap({ $0.windowController as? TerminalController })
             .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
@@ -4773,6 +4891,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction func toggleGhosttyFullScreen(_ sender: Any?) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.toggleFullscreen(surface: surface)
+    }
+
+    override func toggleFullscreen(mode: FullscreenMode) {
+        let exitingNonNativeFullscreen = fullscreenStyle?.isFullscreen == true &&
+            fullscreenStyle?.fullscreenMode != .native
+        if mode != .native, !exitingNonNativeFullscreen,
+           workspaceCoordinator.usesRetainedNativeTabs(in: windowSessionID),
+           !workspaceCoordinator.isolateWorkspaceTabs(from: self) {
+            return
+        }
+        if mode != .native || exitingNonNativeFullscreen {
+            // Removing the titlebar temporarily selects another native tab.
+            // That AppKit callback is not a user request to switch terminals.
+            TerminalWorkspacePresentation.begin()
+            super.toggleFullscreen(mode: mode)
+            TerminalWorkspacePresentation.end()
+            workspaceCoordinator.fullscreenDidChange(self)
+            return
+        }
+        super.toggleFullscreen(mode: mode)
     }
 
     @IBAction func toggleTerminalInspector(_ sender: Any?) {
@@ -4919,10 +5057,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard action.amount != 0 else { return }
 
         // Determine our current selected index
-        guard let windowController = window.windowController else { return }
-        guard let tabGroup = windowController.window?.tabGroup else { return }
-        guard let selectedWindow = tabGroup.selectedWindow else { return }
-        let tabbedWindows = tabGroup.windows
+        guard let tabGroup = window.tabGroup,
+              let selectedWindow = workspaceSelectedTabWindow else { return }
+        let tabbedWindows = workspaceTabWindows
         guard tabbedWindows.count > 0 else { return }
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
@@ -4938,7 +5075,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // If our index is the same we do nothing
         guard finalIndex != selectedIndex else { return }
 
-        if supportsSidebar {
+        if supportsSidebar || workspaceCoordinator.usesRetainedNativeTabs(in: windowSessionID) {
             let insertionIndex = finalIndex > selectedIndex ? finalIndex + 1 : finalIndex
             _ = reorderTab(self, toInsertionIndex: insertionIndex)
             return
@@ -5003,16 +5140,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        guard let windowController = window.windowController else { return }
-        guard let tabGroup = windowController.window?.tabGroup else { return }
-        let tabbedWindows = tabGroup.windows
+        guard let tabGroup = window.tabGroup else { return }
+        let tabbedWindows = workspaceTabWindows
+        guard !tabbedWindows.isEmpty else { return }
 
         // This will be the index we want to actual go to
         let finalIndex: Int
 
         // An index that is invalid is used to signal some special values.
         if tabIndex <= 0 {
-            guard let selectedWindow = tabGroup.selectedWindow else { return }
+            guard let selectedWindow = workspaceSelectedTabWindow else { return }
             guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
             if tabIndex == GHOSTTY_GOTO_TAB_PREVIOUS.rawValue {
@@ -5054,20 +5191,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @discardableResult
     static func selectTab(digit: Int, in window: NSWindow?) -> Bool {
-        if let controller = window?.windowController as? TerminalController,
-           controller.workspaceCoordinator.hasNonNativeFullscreen(in: controller.windowSessionID) {
+        guard let controller = window?.windowController as? TerminalController else { return false }
+        if controller.workspaceCoordinator.hasNonNativeFullscreen(in: controller.windowSessionID) {
             let tabs = controller.tabControllers
             let index = digit == 9 ? tabs.count - 1 : digit - 1
             guard tabs.indices.contains(index) else { return false }
             return controller.workspaceCoordinator.selectNonNativeTab(tabs[index])
         }
         guard let tabGroup = window?.tabGroup else { return false }
-        let tabbedWindows = tabGroup.windows
+        let tabbedWindows = controller.workspaceTabWindows
         guard tabbedWindows.count > 1 else { return false }
         let targetIndex = digit == 9 ? (tabbedWindows.count - 1) : (digit - 1)
         guard targetIndex >= 0, targetIndex < tabbedWindows.count else { return false }
         let targetWindow = tabbedWindows[targetIndex]
-        if let target = targetWindow.windowController as? TerminalController, target.tabLayout == .vertical {
+        guard let target = targetWindow.windowController as? TerminalController,
+              target.workspaceID == controller.workspaceID else { return false }
+        if target.tabLayout == .vertical {
             target.selectVerticalTab(target)
             return true
         }
@@ -5212,9 +5351,10 @@ extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(closeTabsOnTheRight):
-            guard let window, let tabGroup = window.tabGroup else { return false }
-            guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
-            return tabGroup.windows.indices.contains { $0 > currentIndex }
+            guard let window, window.tabGroup != nil else { return false }
+            let activeWindows = workspaceTabWindows
+            guard let currentIndex = activeWindows.firstIndex(of: window) else { return false }
+            return activeWindows.indices.contains { $0 > currentIndex }
 
         case #selector(returnToDefaultSize):
             guard let window else { return false }

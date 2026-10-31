@@ -422,14 +422,20 @@ struct TerminalWorkspaceManagementTests {
         try await Task.sleep(for: .milliseconds(80))
         fixture.controller.selectVerticalTab(fixture.controller)
         let pane = try #require(fixture.controller.surfaceTree.first)
+        let host = fixture.controller.windowSessionID
+        let workspace = fixture.controller.workspaceID
         for _ in 0..<8 {
             fixture.controller.toggleFullscreen(mode: .nonNative)
             try await Task.sleep(for: .milliseconds(60))
             #expect(!window.styleMask.contains(.titled))
             #expect(fixture.controller.surfaceTree.first === pane)
+            #expect(fixture.store.group(window: host, workspace: workspace)?.selected ==
+                    fixture.controller.tabSessionID)
             fixture.controller.toggleFullscreen(mode: .nonNative)
             try await Task.sleep(for: .milliseconds(60))
             #expect(window.styleMask.contains(.titled))
+            #expect(fixture.store.group(window: host, workspace: workspace)?.selected ==
+                    fixture.controller.tabSessionID)
             #expect(window.tabGroup?.windows.contains(sibling.window!) == true)
             #expect(window.isVisible)
         }
@@ -472,7 +478,13 @@ struct TerminalWorkspaceManagementTests {
         #expect(sibling.tabControllers.count == 2)
         sibling.toggleFullscreen(mode: .nonNative)
         try await Task.sleep(for: .milliseconds(100))
-        #expect(sibling.window?.tabGroup?.windows.count == 2)
+        let hostWindows = fixture.coordinator.liveControllers
+            .filter { $0.windowSessionID == sibling.windowSessionID }
+            .compactMap(\.window)
+        let restoredGroup = try #require(sibling.window?.tabGroup)
+        #expect(sibling.workspaceTabWindows.count == 2)
+        #expect(Set(restoredGroup.windows.map(ObjectIdentifier.init)) ==
+                Set(hostWindows.map(ObjectIdentifier.init)))
         #expect(fixture.store.snapshot.validationErrors.isEmpty)
     }
 }

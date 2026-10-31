@@ -144,6 +144,9 @@ final class ScriptWindow: NSObject {
     private var controllers: [BaseTerminalController] {
         guard NSApp.isAppleScriptEnabled else { return [] }
         guard let primaryController else { return [] }
+        if let terminal = primaryController as? TerminalController {
+            return terminal.workspaceTabWindows.compactMap { $0.windowController as? BaseTerminalController }
+        }
         guard let window = primaryController.window else { return [primaryController] }
 
         if let tabGroup = window.tabGroup {
@@ -167,8 +170,15 @@ final class ScriptWindow: NSObject {
         guard let window = primaryController.window else { return primaryController }
 
         if let tabGroup = window.tabGroup,
-           let selectedController = tabGroup.selectedWindow?.windowController as? BaseTerminalController {
+           let selectedController = tabGroup.selectedWindow?.windowController as? BaseTerminalController,
+           controllers.contains(where: { $0 === selectedController }) {
             return selectedController
+        }
+        if let terminal = primaryController as? TerminalController,
+           let selected = terminal.workspaceCoordinator.store.group(
+               window: terminal.windowSessionID, workspace: terminal.workspaceID
+           )?.selected {
+            return controllers.first { ($0 as? TerminalController)?.tabSessionID == selected } ?? controllers.first
         }
 
         return controllers.first

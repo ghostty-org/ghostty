@@ -122,6 +122,7 @@ struct TerminalWorkspaceIntegrationTests {
             workspaceID: closedID, workspaceCoordinator: coordinator)
         let sourceWindow = try #require(source.window)
         let closedWindow = try #require(closed.window)
+        let sourceSurface = try #require(source.surfaceTree.first)
         var reopened: TerminalController?
         defer {
             for controller in [source, closed] + [reopened].compactMap({ $0 }) {
@@ -141,7 +142,12 @@ struct TerminalWorkspaceIntegrationTests {
         #expect(reopened?.workspaceID == closedID)
         #expect(reopened?.window?.contentView != nil)
         #expect(reopened?.window?.isVisible == true)
-        #expect(sourceWindow.isVisible == false)
+        #expect(source.workspaceID == sourceID)
+        #expect(source.workspacePresentationIsParked)
+        #expect(source.window === sourceWindow && sourceWindow.contentView != nil)
+        #expect(source.surfaceTree.first === sourceSurface)
+        #expect(sourceWindow.tabGroup === reopened?.window?.tabGroup)
+        #expect(reopened?.window?.tabGroup?.selectedWindow === reopened?.window)
     }
 
     @Test(arguments: [1, 3])
@@ -181,6 +187,7 @@ struct TerminalWorkspaceIntegrationTests {
         }
         let firstWindow = try #require(original[0].window)
         let sourceWindow = try #require(source.window)
+        let sourceSurface = try #require(source.surfaceTree.first)
         for index in 1..<tabCount {
             #expect(original[index - 1].window!.addTabbedWindowSafely(original[index].window!, ordered: .above))
         }
@@ -210,7 +217,12 @@ struct TerminalWorkspaceIntegrationTests {
         #expect(restored.allSatisfy { $0.window?.contentView != nil && $0.titleOverride?.hasPrefix("Saved ") == true })
         #expect(target.window?.tabGroup?.selectedWindow === target.window)
         #expect(target.window?.isVisible == true)
-        #expect(!sourceWindow.isVisible)
+        #expect(source.workspaceID == sourceID)
+        #expect(source.workspacePresentationIsParked)
+        #expect(source.window === sourceWindow && sourceWindow.contentView != nil)
+        #expect(source.surfaceTree.first === sourceSurface)
+        #expect(sourceWindow.tabGroup === target.window?.tabGroup)
+        #expect(source.workspaceTabWindows == [sourceWindow])
         try await Task.sleep(for: .milliseconds(150))
         #expect(coordinator.switchWorkspace(to: sourceID, from: target) === source)
         #expect(coordinator.switchWorkspace(to: closedID, from: source) === target)
@@ -718,9 +730,9 @@ struct TerminalWorkspaceIntegrationTests {
         controllers.append(bTwo)
         #expect(bTwo.windowSessionID == bHost)
         #expect(selectedA.window?.isVisible == true)
-        #expect(selectedA.window?.tabGroup?.windows == aWindows)
+        #expect(selectedA.workspaceTabWindows == aWindows)
         #expect(coordinator.switchWorkspace(to: one, from: bTwo) === selectedB)
-        #expect(selectedB.window?.tabGroup?.windows == bWindows)
+        #expect(selectedB.workspaceTabWindows == bWindows)
         #expect(selectedB.workspaceGroupID == bGroup)
         #expect(zip(b.flatMap { Array($0.surfaceTree) }, originalSurfaces).allSatisfy { $0 === $1 })
         #expect(store.group(window: a[0].windowSessionID, workspace: one)?.selected == selectedA.tabSessionID)
@@ -735,8 +747,8 @@ struct TerminalWorkspaceIntegrationTests {
         #expect(coordinator.switchWorkspace(to: one, from: aTwo) === selectedA)
         #expect(coordinator.switchWorkspace(to: one, from: bTwo) === selectedB)
         try await Task.sleep(for: .milliseconds(150))
-        #expect(selectedA.window?.tabGroup?.windows == aWindows)
-        #expect(selectedB.window?.tabGroup?.windows == bWindows)
+        #expect(selectedA.workspaceTabWindows == aWindows)
+        #expect(selectedB.workspaceTabWindows == bWindows)
         #expect(coordinator.previousWorkspaceID(in: selectedA) == two)
         #expect(coordinator.previousWorkspaceID(in: selectedB) == two)
 
@@ -845,7 +857,9 @@ struct TerminalWorkspaceIntegrationTests {
 
         #expect(coordinator.switchWorkspace(to: personal, from: target) === first)
         #expect(firstWindow.tabGroup?.selectedWindow === firstWindow)
-        #expect(firstWindow.tabGroup?.windows == [firstWindow, secondWindow])
+        #expect(first.workspaceTabWindows == [firstWindow, secondWindow])
+        #expect(firstWindow.tabGroup === targetWindow.tabGroup)
+        #expect(target.workspacePresentationIsParked)
         #expect(coordinator.parked[target.tabSessionID] === target)
         #expect(coordinator.parked[first.tabSessionID] == nil)
         #expect(first.surfaceTree.first === firstSurface)
@@ -857,7 +871,9 @@ struct TerminalWorkspaceIntegrationTests {
         #expect(second.workspaceID == work)
         #expect(second.surfaceTree.first === secondSurface)
         #expect(coordinator.switchWorkspace(to: work, from: first) === target)
-        #expect(targetWindow.tabGroup?.windows == [targetWindow, secondWindow])
+        #expect(target.workspaceTabWindows == [targetWindow, secondWindow])
+        #expect(targetWindow.tabGroup === firstWindow.tabGroup)
+        #expect(first.workspacePresentationIsParked)
         #expect(first.surfaceTree.first === firstSurface)
         #expect(second.surfaceTree.first === secondSurface)
     }

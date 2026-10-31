@@ -172,11 +172,14 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
     private weak var anchor: NSView?
     private var pendingAction: (() -> Void)?
     private var isClosing = false
+    private var closeGeneration: UInt64 = 0
+    private var completedCloseGeneration: UInt64?
     private var management: TerminalWorkspacePickerModel?
     private(set) var contentCreationCount = 0
     var isShown: Bool { popover.isShown }
     var contentView: NSView? { popover.contentViewController?.view }
     var contentController: NSViewController? { popover.contentViewController }
+    var isManagementActionPerforming: Bool { management?.isPerforming == true }
 
     init(controller: TerminalController) {
         self.controller = controller
@@ -193,11 +196,12 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
 
     func setPresented(_ presented: Bool) {
         guard presented else {
-            if popover.isShown { popover.performClose(nil) }
+            if popover.isShown { close() }
             return
         }
         guard let controller, !popover.isShown, !isClosing, controller.isAvailableForWorkspace,
               !controller.workspacePresentationIsParked, let window = controller.window else { return }
+        closeGeneration &+= 1
         let source: NSView
         let rect: NSRect
         if let anchor, anchor.window === window, !anchor.isHiddenOrHasHiddenAncestor,
@@ -227,19 +231,47 @@ final class WorkspacePopoverPresentation: NSObject, NSPopoverDelegate {
     }
 
     func close(after action: (() -> Void)? = nil) {
+        // Keyboard commands have no popover tracking stack to unwind. Their
+        // coordinator already coalesces presentation on the next main turn.
+        if !popover.isShown, !isClosing, popover.contentViewController == nil {
+            controller?.workspaceSwitcherIsPresented = false
+            action?()
+            return
+        }
+        let deferUntilTrackingReturns = action != nil
         if let action { pendingAction = action }
         guard !isClosing else { return }
-        if popover.isShown {
-            isClosing = true
-            popover.performClose(nil)
+        isClosing = true
+        closeGeneration &+= 1
+        let generation = closeGeneration
+        // Button actions run inside AppKit's mouse tracking loop. Let that
+        // stack return before closing the popover and detaching its content.
+        if deferUntilTrackingReturns {
+            DispatchQueue.main.async { [weak self] in self?.performClose(generation: generation) }
         } else {
-            finishClosing()
+            performClose(generation: generation)
         }
     }
 
-    func popoverDidClose(_ notification: Notification) { finishClosing() }
+    func popoverDidClose(_ notification: Notification) {
+        let generation = closeGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.popover.isShown else { return }
+            self.finishClosing(generation: generation)
+        }
+    }
 
-    private func finishClosing() {
+    private func performClose(generation: UInt64) {
+        guard isClosing, generation == closeGeneration else { return }
+        // performClose can refuse while a transient child window is attached.
+        // An accepted workspace command owns this dismissal and must complete it.
+        if popover.isShown { popover.close() }
+        if !popover.isShown { finishClosing(generation: generation) }
+    }
+
+    private func finishClosing(generation: UInt64) {
+        guard generation == closeGeneration, completedCloseGeneration != generation else { return }
+        completedCloseGeneration = generation
         isClosing = false
         let action = pendingAction
         pendingAction = nil

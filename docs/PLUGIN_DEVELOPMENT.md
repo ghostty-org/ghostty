@@ -1252,9 +1252,14 @@ plugin path; the built-in hook bridge is correlated directly by Surface.
 
 Named terminal workspaces (Personal, Work, etc.) are host-owned collections of
 native terminal tabs. They are distinct from the filesystem `WorkspaceDescriptor`
-below. Switching parks live windows without closing Surface/PTY objects; returning
-reassembles native tab membership if AppKit detached ordered-out windows. Agent
-and SSH state stays attached to the original Surface identity. Moving a whole tab
+below. Switching preserves the original Surface/PTY objects. Vertical layout
+retains the host's workspace windows in one native tab group and projects only
+the active workspace into the sidebar and tab actions; native group membership
+alone does not mean a provider is presented. Parked-workspace Inspector instances
+remain inactive. Horizontal layout and borderless fullscreen use separate
+workspace groups; window close and mode changes isolate those groups before
+native operations. Agent and SSH state stays attached to the original Surface
+identity. Moving a whole tab
 between named workspaces preserves its tab and Surface IDs and does not grant new
 plugin capabilities or change the pane's local/remote filesystem context. Inspector
 providers continue consuming the selected pane's existing context. No public

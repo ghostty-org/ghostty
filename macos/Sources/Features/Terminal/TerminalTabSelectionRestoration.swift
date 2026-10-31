@@ -30,11 +30,18 @@ final class TerminalTabSelectionRestoration {
     private var generation = UUID()
     private var launchFinished = false
     private let captureSnapshot: @MainActor () -> Snapshot
+    private let finishRestoring: @MainActor () -> Void
 
-    init(captureSnapshot: @escaping @MainActor () -> Snapshot = {
-        TerminalTabSelectionRestoration.capture(TerminalController.all, foreground: NSApp.mainWindow)
-    }) {
+    init(
+        captureSnapshot: @escaping @MainActor () -> Snapshot = {
+            TerminalTabSelectionRestoration.capture(TerminalController.all, foreground: NSApp.mainWindow)
+        },
+        finishRestoring: @escaping @MainActor () -> Void = {
+            TerminalWorkspaceCoordinator.shared.finishRestoring()
+        }
+    ) {
         self.captureSnapshot = captureSnapshot
+        self.finishRestoring = finishRestoring
     }
 
     static func capture(_ controllers: [TerminalController], foreground: NSWindow?) -> Snapshot {
@@ -43,17 +50,34 @@ final class TerminalTabSelectionRestoration {
         for controller in controllers {
             guard let window = controller.window, window.isRestorable,
                   !visited.contains(controller.tabSessionID) else { continue }
-            let windows = window.tabGroup?.windows ?? [window]
+            let windows = controller.workspaceTabWindows
             let members = windows.filter(\.isRestorable).compactMap {
                 ($0.windowController as? TerminalController)?.tabSessionID
             }
-            let selected = ((window.tabGroup?.selectedWindow ?? window).windowController as? TerminalController)?.tabSessionID
+            let state = controller.workspaceCoordinator.store.snapshot
+            let record = state.windows?[controller.windowSessionID]
+            let storedSelection = controller.workspaceCoordinator.store
+                .group(window: controller.windowSessionID, workspace: controller.workspaceID)?.selected
+            let nativeSelection: UUID? = if record?.currentWorkspace == controller.workspaceID,
+                                    let selected = window.tabGroup?.selectedWindow,
+                                    windows.contains(selected) {
+                (selected.windowController as? TerminalController)?.tabSessionID
+            } else {
+                nil
+            }
+            let selected = nativeSelection ?? storedSelection
             guard let selected, members.contains(selected) else { continue }
             visited.formUnion(members)
             groups.append(.init(members: members, selected: selected))
         }
-        let foregroundID = ((foreground?.tabGroup?.selectedWindow ?? foreground)?.windowController
-            as? TerminalController)?.tabSessionID
+        let foregroundID: UUID?
+        if let foreground, let controller = foreground.windowController as? TerminalController,
+           controller.workspaceTabWindows.contains(foreground) {
+            foregroundID = controller.tabSessionID
+        } else {
+            foregroundID = ((foreground?.tabGroup?.selectedWindow ?? foreground)?.windowController
+                as? TerminalController)?.tabSessionID
+        }
         return .init(groups: groups, foreground: foregroundID)
     }
 
@@ -112,7 +136,7 @@ final class TerminalTabSelectionRestoration {
         pending = nil
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        TerminalWorkspaceCoordinator.shared.finishRestoring()
+        finishRestoring()
     }
 
     private func apply(token: UUID, attempt: Int) {
@@ -125,23 +149,33 @@ final class TerminalTabSelectionRestoration {
                 unresolved.append(group)
                 continue
             }
-            let actual = Set((window.tabGroup?.windows ?? [window]).compactMap {
+            let actual = Set(selected.workspaceTabWindows.filter(\.isRestorable).compactMap {
                 ($0.windowController as? TerminalController)?.tabSessionID
             })
             guard pending.selection(for: actual) == group.selected else {
                 unresolved.append(group)
                 continue
             }
-            window.tabGroup?.selectedWindow = window
+            guard !selected.workspaceCoordinator.store.snapshot.isParked(selected.tabSessionID) else { continue }
+            if let nativeGroup = window.tabGroup, nativeGroup.windows.contains(window),
+               nativeGroup.selectedWindow !== window {
+                nativeGroup.selectedWindow = window
+            }
             if let surface = selected.focusedSurface, surface.window === window {
                 window.makeFirstResponder(surface)
             }
         }
-        // Selecting a background group's tab can change AppKit ordering; put
-        // the saved foreground window in front only after all group updates.
+        // Apply foreground last so parked workspace records cannot steal the
+        // retained group's physical selection after the active workspace.
         if let id = pending.foreground,
-           let window = controllers.first(where: { $0.tabSessionID == id })?.window,
-           window.tabGroup == nil || window.tabGroup?.selectedWindow === window {
+           let controller = controllers.first(where: { $0.tabSessionID == id }),
+           !controller.workspaceCoordinator.store.snapshot.isParked(id),
+           let window = controller.window,
+           controller.workspaceTabWindows.contains(window) {
+            if let nativeGroup = window.tabGroup, nativeGroup.windows.contains(window),
+               nativeGroup.selectedWindow !== window {
+                nativeGroup.selectedWindow = window
+            }
             window.makeKeyAndOrderFront(nil)
         }
         guard !unresolved.isEmpty, attempt < 40 else { cancel(); return }
