@@ -27,11 +27,12 @@ final class NativeTableHover: NSObject {
 
     func update() {
         guard let table else { return }
-        if let tracking { table.removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self)
-        tracking = area
-        table.addTrackingArea(area)
+        if tracking == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                      owner: self)
+            tracking = area
+            table.addTrackingArea(area)
+        }
         table.enclosingScrollView?.contentView.postsBoundsChangedNotifications = true
         refresh()
     }

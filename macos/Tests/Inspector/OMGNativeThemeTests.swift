@@ -1,9 +1,21 @@
 import AppKit
+import CodeEditSourceEditor
 import Testing
 @testable import Ghostty
 
 @MainActor
 struct OMGNativeThemeTests {
+    @Test func lightweightAccentMatchesTheEditorPalette() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try "background = 123456\nforeground = abcdef\npalette = 4=#67a9bc\n"
+            .write(to: file, atomically: true, encoding: .utf8)
+        let config = Ghostty.Config(at: file.path)
+        let theme = OMGNativeTheme.resolve(for: nil, config: config)
+        #expect(theme.accent == config.editorTheme(background: theme.background).commands.color)
+        #expect(theme.accent == NSColor(hex: "#67a9bc"))
+    }
+
     @Test func nativeChoicePopupUsesSharedSurfaceAndPreservesSelectionContract() throws {
         let picker = OMGNativePopUpButton(frame: .init(x: 20, y: 100, width: 260, height: 28))
         picker.addItems(withTitles: ["New branch", "Detached HEAD"])

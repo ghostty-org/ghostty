@@ -229,7 +229,10 @@ struct AgentHookInstaller {
     }
 
     func isInstalled(_ agent: SupportedAgent) -> Bool {
-        installationState(agent).isInstalled
+        // A stale YAML integration is still installed. Runtime detection must
+        // not revalidate every event/helper version just to establish presence.
+        if agent.definition.hook.kind == .yaml { return Self.yamlBlockPresent(at: hookURL(for: agent)) }
+        return installationState(agent).isInstalled
     }
 
     /// Whether the user explicitly removed this Agent's detector integration.
@@ -1080,11 +1083,11 @@ else:
 
     private func yamlHooksCurrent(at url: URL, agent: SupportedAgent) -> Bool {
         guard let text = try? String(contentsOf: url, encoding: .utf8),
-              text.contains(Self.yamlBlockBegin),
-              text.contains("hooks_auto_accept: true") else { return false }
+              text.range(of: Self.yamlBlockBegin, options: .literal) != nil,
+              text.range(of: "hooks_auto_accept: true", options: .literal) != nil else { return false }
         // Every declared event must delegate to the helper script.
-        guard agent.definition.hook.events.allSatisfy({ text.contains("\($0.name):") }),
-              text.contains("\(agent.rawValue)-hook.sh") else { return false }
+        guard agent.definition.hook.events.allSatisfy({ text.range(of: "\($0.name):", options: .literal) != nil }),
+              text.range(of: "\(agent.rawValue)-hook.sh", options: .literal) != nil else { return false }
         // The helper script carries the hook version; a stale script means the
         // integration needs rewriting even when the YAML block looks current.
         guard let script = try? String(
@@ -1098,7 +1101,7 @@ else:
         guard let text = try? String(contentsOf: url, encoding: .utf8) else {
             return false
         }
-        return text.contains(yamlBlockBegin)
+        return text.range(of: yamlBlockBegin, options: .literal) != nil
     }
 
     private func validateYAMLHooks(_ text: String) throws {

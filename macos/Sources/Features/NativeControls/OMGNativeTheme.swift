@@ -43,8 +43,8 @@ struct OMGNativeTheme: Equatable {
             return .init(background: background, foreground: foreground)
         }
         let palette = OMGThemeBackground.palette(for: origin, config: config)
-        let editor = config.editorTheme(background: palette.background)
-        var theme = OMGNativeTheme(background: palette.background, foreground: palette.foreground, accent: editor.commands.color)
+        var theme = OMGNativeTheme(background: palette.background, foreground: palette.foreground,
+                                   accent: config.nativeControlAccent(background: palette.background))
         let forceOpaque = origin?.styleMask.contains(.fullScreen) == true ||
             (origin?.windowController as? TerminalController)?.isBackgroundOpaque == true
         if !forceOpaque {

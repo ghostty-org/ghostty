@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 struct NativeActionControlsTests {
+    @Test func unchangedConfigurationPreservesImageAndTrackingIdentity() throws {
+        let button = NativeActionControl(frame: .init(x: 0, y: 0, width: 28, height: 28))
+        func configure() {
+            button.configure(title: "", symbol: "terminal", help: "Terminal", enabled: true, style: .plain, identifier: nil)
+            button.updateTrackingAreas()
+        }
+        configure()
+        let image = try #require(button.image)
+        let tracking = button.trackingAreas
+        for _ in 0..<100 { configure() }
+        #expect(button.image === image)
+        #expect(button.trackingAreas == tracking)
+        button.configure(title: "Stop", symbol: "stop.fill", help: nil, enabled: false, style: .bordered, identifier: nil)
+        #expect(button.image !== image)
+        #expect(button.title == "Stop" && !button.isEnabled)
+        button.configure(title: "Text", symbol: nil, help: nil, enabled: true, style: .plain, identifier: nil)
+        #expect(button.image == nil)
+    }
+
     @Test func windowDisplayUsesCustomDrawingForControlsAndRows() async throws {
         final class Probe: NativeActionControl {
             var drawCount = 0

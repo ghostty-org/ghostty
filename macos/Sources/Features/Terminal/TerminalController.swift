@@ -1563,7 +1563,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             let tty: String?
             switch context.state {
             case .local:
-                guard AgentHookInstaller().isInstalled(.hermes) else { continue }
+                guard AgentHookPresenceCache.shared.isInstalled(.hermes) == true else { continue }
                 connection = nil
                 tty = surface.surfaceModel?.ttyName
             case .sshReady(let ssh, _):

@@ -89,6 +89,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     private(set) var isHovered = false
     private(set) var isMenuOpen = false
     private var actionStyle: NativeActionStyle = .plain
+    private var configuredSymbol: String?
     var controlStyle: NativeActionStyle {
         get { actionStyle }
         set { actionStyle = newValue; needsDisplay = true }
@@ -124,24 +125,31 @@ class NativeActionControl: NSButton, NSMenuDelegate {
 
     func configure(title: String, symbol: String?, help: String?, enabled: Bool,
                    style: NativeActionStyle, identifier: String?) {
-        self.title = title
-        image = symbol.flatMap {
-            NSImage(systemSymbolName: $0, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+        let titleChanged = self.title != title
+        let imageChanged = configuredSymbol != symbol || (symbol == nil) != (image == nil)
+        if titleChanged { self.title = title }
+        if imageChanged {
+            configuredSymbol = symbol
+            image = symbol.flatMap {
+                NSImage(systemSymbolName: $0, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+            }
         }
-        imagePosition = symbol == nil ? .noImage : title.isEmpty ? .imageOnly : .imageLeading
-        isEnabled = enabled
-        actionStyle = style
-        isBordered = false
-        cell?.lineBreakMode = .byTruncatingTail
-        toolTip = help
+        let position: NSControl.ImagePosition = symbol == nil ? .noImage : title.isEmpty ? .imageOnly : .imageLeading
+        if imagePosition != position { imagePosition = position }
+        if isEnabled != enabled { isEnabled = enabled }
+        if actionStyle != style { actionStyle = style; needsDisplay = true }
+        if isBordered { isBordered = false }
+        if cell?.lineBreakMode != .byTruncatingTail { cell?.lineBreakMode = .byTruncatingTail }
+        if toolTip != help { toolTip = help }
         setAccessibilityLabel(title.isEmpty ? help : title)
         setAccessibilityIdentifier(identifier)
-        invalidateIntrinsicContentSize()
+        if titleChanged || imageChanged { invalidateIntrinsicContentSize() }
         applyTheme(.resolve(for: self))
     }
 
     func applyTheme(_ theme: OMGNativeTheme) {
+        guard self.theme != theme else { return }
         self.theme = theme
         needsDisplay = true
     }
@@ -161,11 +169,12 @@ class NativeActionControl: NSButton, NSMenuDelegate {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self)
-        tracking = area
-        addTrackingArea(area)
+        if tracking == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                      owner: self)
+            tracking = area
+            addTrackingArea(area)
+        }
         refreshHover()
     }
 
@@ -292,9 +301,9 @@ enum NativePointerLocation {
         guard let window = view.window, window.isKeyWindow, window.isVisible,
               !view.isHiddenOrHasHiddenAncestor else { return false }
         let screenPoint = NSEvent.mouseLocation
-        guard NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0) == window.windowNumber else { return false }
         let point = view.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
-        return view.visibleRect.contains(point)
+        guard view.visibleRect.contains(point) else { return false }
+        return NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0) == window.windowNumber
     }
 }
 

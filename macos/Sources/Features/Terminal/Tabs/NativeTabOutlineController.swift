@@ -548,6 +548,12 @@ final class NativeTabOutline: NSOutlineView {
 }
 
 private final class NativeTabRowView: NativeHoverRowView {
+    override var isSelected: Bool {
+        didSet {
+            guard oldValue != isSelected, numberOfColumns > 0 else { return }
+            (view(atColumn: 0) as? NativeTabCell)?.updateSelection(isSelected)
+        }
+    }
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
     override func drawSelection(in dirtyRect: NSRect) {
         OMGNativeTheme.resolve(for: self).selectedFill.setFill()
@@ -577,16 +583,23 @@ final class NativeTabCell: NSTableCellView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+        if tracking == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+            addTrackingArea(area)
+            tracking = area
+        }
         hovering = NativePointerLocation.contains(self)
         updateTrailing()
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = NativePointerLocation.contains(self); updateTrailing(); refreshNow() }
-    override func mouseExited(with event: NSEvent) { hovering = false; updateTrailing(); refreshNow() }
+    override func mouseEntered(with event: NSEvent) { hovering = NativePointerLocation.contains(self); updateTrailing() }
+    override func mouseExited(with event: NSEvent) { hovering = false; updateTrailing() }
+
+    func updateSelection(_ selected: Bool) {
+        guard self.selected != selected else { return }
+        self.selected = selected
+        icon.updateSelection(selected)
+    }
 
     private func updateTrailing() {
         closeButton.isHidden = !(hovering && canClose)
@@ -729,8 +742,9 @@ final class NativeTabCell: NSTableCellView {
         toolTip = value.remoteBreadcrumb?.title ?? value.title
         icon.configure(controller: tab.controller, icon: value.icon, selected: selected, activity: value.activity)
         label.stringValue = value.remoteBreadcrumb?.title ?? value.title
-        label.textColor = OMGNativeTheme.resolve(for: self).foreground
-        shortcut.textColor = OMGNativeTheme.resolve(for: self).secondary
+        let theme = OMGNativeTheme.resolve(for: self)
+        label.textColor = theme.foreground
+        shortcut.textColor = theme.secondary
         let symbol: String?
         switch value.activity?.state {
         case .needsAttention: symbol = "exclamationmark.circle.fill"

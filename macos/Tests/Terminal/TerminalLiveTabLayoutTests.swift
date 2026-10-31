@@ -5,6 +5,45 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalLiveTabLayoutTests {
+    @Test func nativeTabCreationTimingsInBothDirections() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        source.showWindow(nil)
+        for mode in [Ghostty.Config.MacOSTabLayout.vertical, .horizontal] {
+            fixture.coordinator.requestTabLayout(mode, from: source)
+            try await Task.sleep(for: .milliseconds(100))
+            let clock = ContinuousClock()
+            var durations: [Duration] = []
+            var readyDurations: [Duration] = []
+            for _ in 0..<3 {
+                var config = Ghostty.SurfaceConfiguration()
+                config.command = "/bin/sleep 60"
+                let start = clock.now
+                let added = try #require(TerminalController.newTab(fixture.app, from: source.window, withBaseConfig: config))
+                durations.append(start.duration(to: clock.now))
+                fixture.controllers.append(added)
+                func ready() -> Bool {
+                    guard let window = added.window else { return false }
+                    return window.tabGroup?.selectedWindow === window &&
+                        added.focusedSurface?.window === window &&
+                        (mode != .vertical || added.tabLayoutState.sidebarHost.liveView?.window === window)
+                }
+                for _ in 0..<400 {
+                    if ready() { break }
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                readyDurations.append(start.duration(to: clock.now))
+                #expect(ready())
+                #expect(added.tabLayout == mode)
+                #expect(added.window?.tabGroup === source.window?.tabGroup)
+            }
+            print("Native tab creation \(mode): \(durations)")
+            print("Native tab mounted \(mode): \(readyDurations)")
+            #expect(durations.allSatisfy { $0 < .seconds(2) })
+        }
+    }
+
     @Test func tabChromeSettlesAfterCreationAndRepeatedDirectionChanges() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }

@@ -59,6 +59,13 @@ struct VerticalNativeTabSidebarTests {
         #expect(!descendants(host).contains { String(describing: type(of: $0)).contains("HostingView") && $0 !== host })
         #expect(descendants(host).contains { $0 is TerminalWorkspaceHeaderButton })
         #expect(descendants(host).contains { $0 is NativeTabIconView })
+        // AppKit paints native selection inside mouse tracking, before deferred
+        // activation. The glyph must change in that same synchronous update.
+        outline.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        let cell = try #require(outline.view(atColumn: 0, row: 1, makeIfNecessary: true))
+        let icon = try #require(descendants(cell).compactMap { $0 as? NativeTabIconView }.first)
+        let mark = try #require(icon.subviews.compactMap { $0 as? NSImageView }.first)
+        #expect(mark.contentTintColor == OMGNativeTheme.resolve(for: icon).accent)
         first.tabLayoutState.updateTabs([first, second], selectedID: ObjectIdentifier(second))
         host.configure(.init(controller: second, layoutState: first.tabLayoutState,
                              statusStore: status, backgroundColor: .black))

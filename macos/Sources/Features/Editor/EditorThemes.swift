@@ -298,6 +298,18 @@ extension Ghostty.Config {
         }
     }
 
+    /// Native chrome only needs the accent; avoid constructing all 256 palette
+    /// colors and syntax attributes for every row draw and hover update.
+    func nativeControlAccent(background: NSColor) -> NSColor {
+        var palette = ghostty_config_palette_s()
+        if ghostty_config_get(config, &palette, "palette", 7) {
+            return withUnsafeBytes(of: &palette.colors) {
+                NSColor(ghostty: $0.bindMemory(to: ghostty_config_color_s.self)[4])
+            }
+        }
+        return editorTheme(background: background).commands.color
+    }
+
     func editorTheme(background: NSColor) -> EditorTheme {
         func color(_ key: String, fallback: NSColor) -> NSColor {
             var value = ghostty_config_color_s()

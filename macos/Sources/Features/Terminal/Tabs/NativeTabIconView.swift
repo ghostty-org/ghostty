@@ -34,6 +34,11 @@ final class NativeTabIconView: NSView {
         configure(controller: controller, icon: lastIcon, selected: lastSelected, activity: lastActivity)
     }
 
+    func updateSelection(_ selected: Bool) {
+        guard selected != lastSelected else { return }
+        configure(controller: controller, icon: lastIcon, selected: selected, activity: lastActivity)
+    }
+
     static func image(_ icon: GhosttyTabIcon) -> NSImage? {
         switch icon {
         case .systemSymbol(let name): NSImage(systemSymbolName: name, accessibilityDescription: nil)
@@ -121,10 +126,11 @@ final class NativeTabIconView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        tracking = area
-        addTrackingArea(area)
+        if tracking == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+            tracking = area
+            addTrackingArea(area)
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {

@@ -926,6 +926,13 @@ files under `~/.config/oh-my-ghostty/agent-status/hermes/` (directory 0700, file
 the same reporter; an OMG-owned YAML block is replaced without changing unrelated
 configuration, and an existing user-owned top-level `hooks:` key fails closed.
 
+Local pollers share a background hook-presence cache across windows and panes,
+with a five-second freshness interval. Install/remove notifications invalidate it
+immediately, including reads already in flight. An initial pending read defers the
+probe until a later polling tick. This presence check accepts stale installed
+hooks; complete hook-version auditing remains part of integration maintenance.
+It never reads or scans the YAML configuration on the UI thread during polling.
+
 Every two seconds, OMG checks for a foreground Hermes terminal client on the pane's
 exact TTY, then reads that TTY's `~/.hermes/terminal-sessions/tty-*` breadcrumb and
 only the matching session event. A stale breadcrumb from before the client's start,
