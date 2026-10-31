@@ -152,7 +152,7 @@ Vertical Tabs 不是独立 Sidebar 产品，而是 Ghostty tab bar 的另一种 
 
 两种 layout 共享 `TerminalController`/`NSWindowTabGroup` 的新建、关闭、选择、恢复、顺序、标题和快捷键路径。Vertical presentation 消费统一的 title/shortcut/icon/selected/hovered metadata；插件未来只能提供可选 icon/metadata override，不能控制 tab bar view。split 继续由 terminal 内容区管理，不生成额外 tab 行。
 
-每个原生 tab group 只保留一份 live vertical sidebar hosting view。各 NSWindow 的 shell 预留 sidebar 容器，提交选择或关闭当前 tab 时移动同一份 view，保留行身份与滚动状态；旧窗口最多保留上一帧静态图像，不能以清空/重建行树优化后台开销。拖出新窗口会复制布局偏好并建立独立 presentation，合并后回到目标组。连续新建按最新待显示 tab 计算插入位置，过期显示任务不能重新抢焦点；选中变化把对应行滚入可见区域。
+每个逻辑 `(windowSessionID, workspaceID)` 标签组只保留一份 live vertical sidebar hosting view。各 NSWindow 的 shell 预留 sidebar 容器，提交选择或关闭当前 tab 时移动同一份 view，保留行身份与滚动状态；旧窗口最多保留上一帧静态图像，不能以清空/重建行树优化后台开销。纵向模式下多个 workspace 可以共用一个物理原生组，只有当前 workspace 的 host 参与呈现。拖出新窗口会复制布局偏好并建立独立 presentation，合并后回到目标组。连续新建按最新待显示 tab 计算插入位置，过期显示任务不能重新抢焦点；选中变化把对应行滚入可见区域。
 
 后台 tab 可以保留旧尺寸的 IOSurface 并停止自动重绘。窗口放大后关闭或切换 tab 时，Host 先同步即将显示窗口的尺寸和布局；仅当该 tab 的保留图像尺寸不匹配时，通过 app-thread 的显式 `ghostty_surface_draw` 同步准备一帧，再交给 AppKit 显示。普通隐藏层的 display 回调仍跳过绘制，不在 resize 时刷新整组后台 tab；恢复可见时先更新 renderer visibility，再立即重建并绘制，避免首帧被 hidden guard 丢弃。该准备路径沿用 renderer 的背景色和透明度，不叠加不透明兜底层。
 
@@ -162,7 +162,9 @@ Layout 配置只对新窗口生效。运行时更换 orientation 需要替换 NS
 
 工作区是原生 Tab 之上的宿主归属层，默认创建 Personal；左上角原 TABS 标题替换为图标、名称和下拉入口。入口支持搜索、新建、改名、图标/低饱和颜色选择和移动当前完整 Tab。折叠 vertical sidebar 时工作区入口随侧栏一起隐藏，快捷键仍可通过窗口内容锚点唤出；horizontal tabs 在内容区顶部保留紧凑入口。默认 `⌃⌘W` 打开切换器、`⌃⌘1…9` 按固定目录顺序切换，Settings > Shortcuts 支持修改并提示工作区、OMG 面板、菜单及 Ghostty binding 冲突；第三方全局快捷键不保证能检测。切换器默认选中当前窗口的上一个工作区，确认后才切换。管理入口关联具体行：顶部新建进入预览表单，“创建并打开”在原生呈现成功后一次提交目录与终端；每行菜单可编辑/删除未激活工作区。移动当前标签进入可搜索目标页，删除确认显示实际默认目标和标签数；失败保留表单与具体原因，不再只响提示音。
 
-运行期切换保留 TerminalController、Surface、PTY、SSH 与 Agent，不通过序列化重建。目标成员先加入当前原生标签组并准备画面，然后才移走旧成员，避免先隐藏全屏窗口造成容器空洞；成员列表在交接前冻结，不从临时混合组反推归属。原生窗口 orderOut 可能拆散 NSWindowTabGroup，因此后台保存有序成员，返回时重建原生分组并选中原 Tab。每个用户窗口有独立稳定 ID，按 `(windowSessionID, workspaceID)` 管理稳定 tab 组、顺序、选中项和滚动位置；切换只查找当前窗口的组，其他窗口显示相同工作区时不抢焦点、不搬动其 tab。首次进入目标工作区时创建当前窗口自己的组，复用普通 new-tab 的本地启动配置和目录继承策略，在首帧提供已知目录信息；SSH/runtime 沿用既有本地目录回退。后台会话继续占用进程资源。完整 Tab 移动保留 Surface/tab 身份，原工作区最后一个 Tab 被移走后创建空终端。窗口 tabbingIdentifier 包含窗口 ID 和工作区 UUID，避免系统自动合并独立窗口。原生 tab 拆窗创建新窗口身份，合组和撤销同步更新归属。
+运行期切换保留 TerminalController、Surface、PTY、SSH 与 Agent，不通过序列化重建。纵向模式将同一用户窗口已加载的 workspace 标签保留在一个 `NSWindowTabGroup` 中，切换只选择目标窗口并发布当前 workspace 的逻辑标签列表，不在每次往返时拆散、重建整个组。快捷键、拖放、排序、关闭和脚本接口使用逻辑列表，不能把物理组里的其他 workspace 当作当前标签。横向模式及非原生全屏仍使用分开的 workspace 组；关闭当前窗口、关闭最后一个活动标签或进入这些模式前，先隔离当前 workspace，避免关闭其他工作区的会话。后台标签显式关闭时只移除自身。
+
+每个用户窗口有独立稳定 ID，按 `(windowSessionID, workspaceID)` 管理稳定 tab 组、顺序、选中项和滚动位置；切换只查找当前窗口的组，其他窗口显示相同工作区时不抢焦点、不搬动其 tab。首次进入目标工作区时创建当前窗口自己的组，复用普通 new-tab 的本地启动配置和目录继承策略，在首帧提供已知目录信息；SSH/runtime 沿用既有本地目录回退。后台会话继续占用进程资源。完整 Tab 移动保留 Surface/tab 身份，原工作区最后一个 Tab 被移走后创建空终端。保留纵向物理组时 tabbingIdentifier 使用用户窗口 ID，隔离模式再加 workspace UUID，始终避免系统自动合并独立用户窗口。原生 tab 拆窗创建新窗口身份，合组和撤销同步更新归属。
 
 `TerminalWorkspaceState` 统一保存已提交的 workspace/window/group/tab 归属与顺序；Coordinator 的 live registry 保留运行对象，Controller 字段和原生组只作为投影。switch/move/delete 整体预检、冻结旧图，经 `TerminalWorkspaceNativeAdapter` 完成原生操作后一次提交；失败补偿旧拓扑，删除按窗口合并组，不隐藏其他窗口当前 workspace。原生全屏过渡按实际 NSWindow 身份跟踪，结束/关闭清理，不随逻辑窗口 ID 变化残留。全屏进入/退出期间推迟切换，延迟呈现回调携带 generation，避免快速往返后旧回调抢回焦点或重挂 sidebar。非原生全屏不具备 native tab 能力，adapter 在同一呈现事务内规范化旧窗口、重组目标、再让目标进入原模式；全屏期间 sidebar 消费逻辑组，退出后重建原生组，模式随窗口持久化。共享 workspace 布局偏好即时同步到各窗口，order/selection/scroll 保持窗口独立。布局观察只发布实际改变的 sidebar/Inspector 字段，Quick Input 状态不触发无关几何发布。workspace popover 由 Controller 命令直接呈现，SwiftUI 只登记锚点，不依赖视图重绘触发打开。Quick Input 普通打开不覆盖旧帧截图；仅实际外部编辑器草稿握手可保留短时 TUI 截图，pane resize 立即使其失效。编辑框原生视图就绪后一次移交 first responder，Controller 保存的 pane 选择负责视觉高亮。
 

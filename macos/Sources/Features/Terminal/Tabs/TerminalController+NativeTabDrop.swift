@@ -19,13 +19,14 @@ extension TerminalController {
         let selected = destination.tabGroup?.selectedWindow ?? destination
         guard destination.addTabbedWindowSafely(incoming, ordered: .above),
               let group = destination.tabGroup, incoming.tabGroup === group,
-              let index = group.windows.firstIndex(of: destination),
-              let sourceIndex = group.windows.firstIndex(of: incoming) else { return false }
+              group.windows.contains(destination),
+              let index = target.workspaceTabWindows.firstIndex(of: destination),
+              let sourceIndex = target.workspaceTabWindows.firstIndex(of: incoming) else { return false }
         let insertion = index + (placement == .before ? 0 : 1)
         let expected = VerticalTabDropPolicy.destinationIndex(sourceIndex: sourceIndex, insertionIndex: insertion,
-                                                              tabCount: group.windows.count)
+                                                              tabCount: target.workspaceTabWindows.count)
         _ = target.reorderTab(source, toInsertionIndex: insertion)
-        guard group.windows.firstIndex(of: incoming) == expected else {
+        guard target.workspaceTabWindows.firstIndex(of: incoming) == expected else {
             incoming.tabGroup?.removeWindow(incoming)
             if let oldGroup {
                 oldGroup.insertWindow(incoming, at: min(oldIndex, oldGroup.windows.count))
@@ -36,7 +37,12 @@ extension TerminalController {
             Self.refreshTabs(in: group)
             return false
         }
-        if group.windows.contains(selected) { group.selectedWindow = selected }
+        if group.windows.contains(selected),
+           (selected.windowController as? TerminalController)?.workspaceID == target.workspaceID {
+            group.selectedWindow = selected
+        } else {
+            group.selectedWindow = destination
+        }
         Self.refreshTabs(in: group)
         if let oldGroup, !oldGroup.windows.isEmpty { Self.refreshTabs(in: oldGroup) }
         incoming.invalidateRestorableState()

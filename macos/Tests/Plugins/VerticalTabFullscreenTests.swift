@@ -112,6 +112,9 @@ struct VerticalTabFullscreenTests {
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+        try String(ProcessInfo.processInfo.processIdentifier).write(
+            toFile: "/tmp/omg-fullscreen-test.pid", atomically: true, encoding: .utf8
+        )
         for _ in 0..<100 {
             if NSApp.isActive && window.isKeyWindow { break }
             if NSApp.isActive { window.makeKeyAndOrderFront(nil) }
@@ -140,7 +143,11 @@ struct VerticalTabFullscreenTests {
         #expect(target.surfaceTree.first !== original)
         #expect(targetWindow.styleMask.contains(.fullScreen))
         #expect(targetWindow.isKeyWindow)
-        #expect(targetWindow.tabGroup?.windows == [targetWindow])
+        #expect(target.workspaceTabWindows == [targetWindow])
+        #expect(Set(targetWindow.tabGroup?.windows ?? []) ==
+                Set(layout == .vertical ? [window, targetWindow] : [targetWindow]))
+        #expect(targetWindow.tabGroup?.selectedWindow === targetWindow)
+        #expect(source.workspacePresentationIsParked)
         if layout == .vertical { #expect(target.tabLayoutState.sidebarHost.liveView?.window === targetWindow) }
         #expect(target.tabControllers.map(\.tabSessionID) == [target.tabSessionID])
         let targetSurface = try #require(target.focusedSurface ?? target.surfaceTree.first)
@@ -186,7 +193,11 @@ struct VerticalTabFullscreenTests {
         try expectPreparedFrame(source)
         try #require(coordinator.switchWorkspace(to: workspace, from: source) === target)
         try await Task.sleep(for: .milliseconds(250))
-        #expect(targetWindow.tabGroup?.windows == [targetWindow, sibling.window!])
+        #expect(target.workspaceTabWindows == [targetWindow, sibling.window!])
+        #expect(Set(targetWindow.tabGroup?.windows ?? []) == Set(
+            layout == .vertical ? [window, targetWindow, sibling.window!] : [targetWindow, sibling.window!]
+        ))
+        #expect(targetWindow.tabGroup?.selectedWindow === targetWindow)
         #expect(!target.sidebarIsShowing)
         #expect(targetWindow.firstResponder === extraPane)
         try expectPreparedFrame(target)

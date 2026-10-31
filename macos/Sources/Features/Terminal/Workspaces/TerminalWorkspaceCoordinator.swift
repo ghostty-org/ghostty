@@ -84,16 +84,24 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
             return
         }
         deferredTabLayouts.removeValue(forKey: host)
-        store.transaction { $0.windows?[host]?.tabLayout = mode.rawValue }
         let members = liveControllers.filter { $0.windowSessionID == host }
-        guard members.contains(where: { $0.tabLayout != mode }) else { sessions.capture(); return }
-        for member in members where member.tabLayout != mode {
-            if member.workspaceSwitcherIsPresented { member.workspacePopover.close() }
-            member.adoptTabLayout(mode)
+        guard members.contains(where: { $0.tabLayout != mode }) else {
+            store.transaction { $0.windows?[host]?.tabLayout = mode.rawValue }
+            sessions.capture()
+            return
+        }
+        NSDisableScreenUpdates()
+        defer { NSEnableScreenUpdates() }
+        for member in members where member.workspaceSwitcherIsPresented { member.workspacePopover.close() }
+        guard perform(hosts: [host], focus: source, change: { state in
+            state.windows?[host]?.tabLayout = mode.rawValue
+            return true
+        }) else {
+            return
         }
         var states = Set<ObjectIdentifier>()
         for member in members {
-            if mode == .vertical, states.insert(ObjectIdentifier(member.tabLayoutState)).inserted {
+            if member.tabLayout == .vertical, states.insert(ObjectIdentifier(member.tabLayoutState)).inserted {
                 member.tabLayoutState.setSidebarVisible(true)
             }
             (member.window as? TerminalWindow)?.installOMGTabChrome(controller: member)
@@ -106,6 +114,24 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
 
     func tabLayout(in host: UUID, fallback: Ghostty.Config.MacOSTabLayout) -> Ghostty.Config.MacOSTabLayout {
         store.snapshot.windows?[host]?.tabLayout.flatMap(Ghostty.Config.MacOSTabLayout.init(rawValue:)) ?? fallback
+    }
+
+    func usesRetainedNativeTabs(in host: UUID) -> Bool {
+        native.retainedVerticalHosts.contains(host)
+    }
+
+    func nativeTabbingIdentifier(for controller: TerminalController) -> String {
+        let host = "omg.window.\(controller.windowSessionID)"
+        return usesRetainedNativeTabs(in: controller.windowSessionID)
+            ? host : "\(host).workspace.\(controller.workspaceID)"
+    }
+
+    /// Window close and borderless mode need an actual per-workspace native
+    /// group. Isolate only at these boundaries, not on every workspace switch.
+    @discardableResult
+    func isolateWorkspaceTabs(from controller: TerminalController) -> Bool {
+        guard usesRetainedNativeTabs(in: controller.windowSessionID) else { return true }
+        return perform(hosts: [controller.windowSessionID], focus: controller, retainVerticalTabs: false) { _ in true }
     }
 
     func controllers(in id: UUID) -> [TerminalController] {
@@ -214,8 +240,11 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func didActivate(_ controller: TerminalController) {
-        guard !applying, !restoring, !quitting, controller.isAvailableForWorkspace,
+        guard !applying, !restoring, !quitting, !TerminalWorkspacePresentation.isChanging,
+              controller.isAvailableForWorkspace,
               controller.window?.isVisible == true else { return }
+        if usesRetainedNativeTabs(in: controller.windowSessionID),
+           controller.window?.tabGroup?.selectedWindow !== controller.window { return }
         // Native focus notifications from the outgoing fullscreen stack are
         // observations, not a newer command than a queued picker/key request.
         guard deferredSwitches[controller.windowSessionID] == nil else { return }
@@ -258,6 +287,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
             cancelWorkspaceSwitch(in: host)
             deferredTabLayouts.removeValue(forKey: host)
         }
+        if !liveControllers.contains(where: { $0.windowSessionID == host }) { native.forgetRetainedHost(host) }
         revision &+= 1
         if !restoring { sessions.capture() }
     }
@@ -465,10 +495,12 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     /// affected by delete/move is preflighted before the first native mutation.
     private func perform(hosts: Set<UUID>, focus: TerminalController?,
                          desiredFocus: (() -> TerminalController?)? = nil,
+                         retainVerticalTabs: Bool = true,
                          change: (inout TerminalWorkspaceState) -> Bool) -> Bool {
         guard !applying else { return false }
         let before = store.snapshot
         let previous = groups(state: before, hosts: hosts)
+        let retainedBefore = native.retainedVerticalHosts
         let existing = Set(registry.keys)
         if let error = native.preflightError(previous.flatMap(\.members)) {
             operationError = error
@@ -483,7 +515,10 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         let proposed = groups(state: next, hosts: hosts)
         let preflightError = native.preflightError(proposed.flatMap(\.members))
         succeeded = succeeded && next.validationErrors.isEmpty && preflightError == nil
-        if succeeded { succeeded = native.apply(proposed, previous: previous, focus: desiredFocus?() ?? focus) }
+        if succeeded {
+            succeeded = native.apply(proposed, previous: previous, focus: desiredFocus?() ?? focus,
+                                     retainingVerticalHosts: retainVerticalTabs ? nil : [])
+        }
         if succeeded {
             projectIdentities(next, controllers: proposed.flatMap(\.members))
             for group in proposed where group.visible {
@@ -498,7 +533,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         } else {
             operationError = preflightError ?? WorkspaceL10n.text("The window could not display the workspace. Your previous workspace is retained.",
                 "窗口未能显示该工作区，原工作区已保留。")
-            if !native.rollback(previous, attempted: proposed, focus: focus) {
+            if !native.rollback(previous, attempted: proposed, focus: focus, retainingVerticalHosts: retainedBefore) {
                 operationError = WorkspaceL10n.text("Could not restore the window arrangement. Your sessions are retained.",
                     "无法恢复窗口布局，会话仍然保留。")
             }
@@ -576,15 +611,24 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func fullscreenDidChange(_ controller: TerminalController) {
-        guard !applying, !restoring, !quitting else { return }
-        if hasNonNativeFullscreen(in: controller.windowSessionID) {
+        guard !applying, !restoring, !quitting, !TerminalWorkspacePresentation.isChanging else { return }
+        if let fullscreen = liveControllers.first(where: {
+            $0.windowSessionID == controller.windowSessionID &&
+                $0.fullscreenStyle?.isFullscreen == true && $0.fullscreenStyle?.supportsTabs == false
+        }) {
             native.beginNonNativeProjection(in: controller.windowSessionID)
-            for member in members(host: controller.windowSessionID, workspace: controller.workspaceID, state: store.snapshot)
-                where member !== controller { member.window?.orderOut(nil) }
-            _ = projectNonNativeTabs(for: controller)
+            store.transaction {
+                $0.windows?[fullscreen.windowSessionID]?.groups[fullscreen.workspaceID]?.selected = fullscreen.tabSessionID
+            }
+            for member in members(host: fullscreen.windowSessionID, workspace: fullscreen.workspaceID, state: store.snapshot)
+                where member !== fullscreen { member.window?.orderOut(nil) }
+            _ = projectNonNativeTabs(for: fullscreen)
         } else if native.nonNativeProjectionWindows.contains(controller.windowSessionID) {
             native.finishNonNativeProjection(in: controller.windowSessionID)
-            _ = perform(hosts: [controller.windowSessionID], focus: controller) { _ in true }
+            _ = perform(hosts: [controller.windowSessionID], focus: controller) {
+                $0.windows?[controller.windowSessionID]?.groups[controller.workspaceID]?.selected = controller.tabSessionID
+                return true
+            }
         }
         savePresentation()
     }
@@ -618,7 +662,9 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
                 let bound = layout.workspaceBindingID
                 let ownLayout = bound == nil || bound == workspace.id ? layout : layout.detachedCopy()
                 ownLayout.bindWorkspace(workspace.id, store: store)
-                return .init(members: controllers, selected: selected,
+                let tabLayout = window.tabLayout.flatMap(Ghostty.Config.MacOSTabLayout.init(rawValue:))
+                    ?? selected.tabLayout
+                return .init(members: controllers, selected: selected, tabLayout: tabLayout,
                     visible: window.currentWorkspace == workspace.id, layout: ownLayout, scrollOffset: group.scrollOffset)
             }
         }
@@ -633,7 +679,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
             // Reconciliation runs for every native tab; unchanged assignments
             // must not rebuild every hidden terminal during an AppKit flush.
             if controller.workspaceID != owner.workspace { controller.workspaceID = owner.workspace }
-            let identifier = "omg.window.\(owner.window).workspace.\(owner.workspace)"
+            let identifier = nativeTabbingIdentifier(for: controller)
             if controller.window?.tabbingIdentifier != identifier { controller.window?.tabbingIdentifier = identifier }
         }
     }
@@ -647,7 +693,10 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     private func nativeMembers(_ controller: TerminalController) -> [TerminalController] {
         (controller.window?.tabGroup?.windows ?? [controller.window].compactMap { $0 }).compactMap {
             $0.windowController as? TerminalController
-        }.filter { $0.workspaceCoordinator === self && $0.isAvailableForWorkspace }
+        }.filter {
+            $0.workspaceCoordinator === self && $0.isAvailableForWorkspace &&
+                (!usesRetainedNativeTabs(in: controller.windowSessionID) || $0.workspaceID == controller.workspaceID)
+        }
     }
 
     func finishRestoring() {
