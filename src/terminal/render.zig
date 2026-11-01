@@ -2753,6 +2753,10 @@ const RowBuilder = struct {
         const cells_grapheme = cells_slice.items(.grapheme);
         const n = page_cells.len;
         const runs_start = b.pending_styles.items.len;
+
+        // Each cell starts at most one style run, so reserve a row's worth
+        // up front to keep the appends below allocation-free.
+        try b.pending_styles.ensureUnusedCapacity(b.alloc, n);
         var x: usize = 0;
         scan: while (x < n) {
             // Skip runs of plain cells a group at a time. Cells that
@@ -2817,7 +2821,7 @@ const RowBuilder = struct {
                         )) break;
                     }
 
-                    try b.pending_styles.append(b.alloc, .{
+                    b.pending_styles.appendAssumeCapacity(.{
                         .y = @intCast(vy),
                         .start = @intCast(start),
                         .end = @intCast(x),
@@ -2845,7 +2849,7 @@ const RowBuilder = struct {
                             p.memory,
                             page_cell.style_id,
                         ).*;
-                        try b.pending_styles.append(b.alloc, .{
+                        b.pending_styles.appendAssumeCapacity(.{
                             .y = @intCast(vy),
                             .start = @intCast(x),
                             .end = @intCast(x + 1),
@@ -2905,7 +2909,7 @@ const RowBuilder = struct {
                             break;
                     }
 
-                    try b.pending_styles.append(b.alloc, .{
+                    b.pending_styles.appendAssumeCapacity(.{
                         .y = @intCast(vy),
                         .start = @intCast(start),
                         .end = @intCast(x),
