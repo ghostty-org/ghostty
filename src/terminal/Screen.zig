@@ -2444,19 +2444,32 @@ pub fn setAttribute(
     self: *Screen,
     attr: sgr.Attribute,
 ) PageList.IncreaseCapacityError!void {
-    // If we fail to set our style for any reason, we should revert
-    // back to the old style. If we fail to do that, we revert back to
-    // the default style.
     const old_style = self.cursor.style;
-    errdefer {
-        self.cursor.style = old_style;
-        self.manualStyleUpdate() catch |err| {
-            log.warn("setAttribute error restoring old style after failure err={}", .{err});
-            self.cursor.style = .{};
-            self.manualStyleUpdate() catch unreachable;
-        };
-    }
+    self.applyAttribute(attr);
+    try self.commitStyle(old_style);
+}
 
+/// Set all the style attributes of one SGR sequence for the current
+/// cursor. The resulting style is interned once, after every attribute
+/// is applied, so a sequence such as `CSI 0;1;31 m` costs one style
+/// update rather than three.
+///
+/// On failure the cursor style reverts to what it was before the
+/// sequence, as with `setAttribute`.
+pub fn setAttributes(
+    self: *Screen,
+    parser: sgr.Parser,
+) PageList.IncreaseCapacityError!void {
+    const old_style = self.cursor.style;
+    var p = parser;
+    while (p.next()) |attr| self.applyAttribute(attr);
+    try self.commitStyle(old_style);
+}
+
+/// Apply a style attribute to the cursor style without updating the
+/// cursor style ID. `commitStyle` must follow before anything reads
+/// the cursor style ID.
+fn applyAttribute(self: *Screen, attr: sgr.Attribute) void {
     switch (attr) {
         .unset => {
             self.cursor.style = .{};
@@ -2592,15 +2605,47 @@ pub fn setAttribute(
             self.cursor.style.bg_color = .{ .palette = idx };
         },
 
-        .unknown => return,
+        // Unknown attributes are ignored. They are common enough in real
+        // output (a bare `38`, font selection `10`) that logging each one
+        // costs more than the sequence itself.
+        .unknown => {},
     }
+}
 
-    // If the attribute didn't change our style then we can skip the
+const commitStyle_tw = tripwire.module(enum {
+    manual_style_update,
+}, commitStyle);
+
+/// Update the cursor style ID to match the cursor style after one or
+/// more `applyAttribute` calls. `old_style` is the cursor style from
+/// before those calls.
+///
+/// If the style can't be set due to any internal errors (memory-related),
+/// then this reverts the cursor style to `old_style` (or the default
+/// style if even that fails) and returns an error.
+fn commitStyle(
+    self: *Screen,
+    old_style: style.Style,
+) PageList.IncreaseCapacityError!void {
+    // If the attributes didn't change our style then we can skip the
     // style update entirely: our current style ID is already correct.
     // This is a common case in the wild where programs re-assert the
     // same style repeatedly (e.g. per span or per line).
     if (self.cursor.style.eql(old_style)) return;
 
+    // If we fail to set our style for any reason, we should revert
+    // back to the old style. If we fail to do that, we revert back to
+    // the default style.
+    errdefer {
+        self.cursor.style = old_style;
+        self.manualStyleUpdate() catch |err| {
+            log.warn("commitStyle error restoring old style after failure err={}", .{err});
+            self.cursor.style = .{};
+            self.manualStyleUpdate() catch unreachable;
+        };
+    }
+
+    try commitStyle_tw.check(.manual_style_update);
     try self.manualStyleUpdate();
 }
 
@@ -4633,6 +4678,82 @@ test "Screen style basics" {
     try testing.expect(s.cursor.style_id != 0);
     try testing.expectEqual(@as(usize, 1), page.styles.count());
     try testing.expect(s.cursor.style.flags.italic);
+}
+
+test "Screen setAttributes applies several attributes with one style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 80, .rows = 24, .max_scrollback_bytes = 1000 });
+    defer s.deinit();
+    const page = s.cursor.page_pin.node.page();
+
+    // CSI 1;3;38;5;100 m
+    try s.setAttributes(.{ .params = &.{ 1, 3, 38, 5, 100 } });
+    try testing.expect(s.cursor.style_id != style.default_id);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+    const interned = page.styles.get(page.memory, s.cursor.style_id);
+    try testing.expect(interned.eql(s.cursor.style));
+    try testing.expect(interned.flags.bold);
+    try testing.expect(interned.flags.italic);
+    try testing.expectEqual(style.Style.Color{ .palette = 100 }, interned.fg_color);
+
+    // A sequence that ends at the committed style keeps the same ID:
+    // CSI 0;1;3;38;5;100 m
+    const id = s.cursor.style_id;
+    try s.setAttributes(.{ .params = &.{ 0, 1, 3, 38, 5, 100 } });
+    try testing.expectEqual(id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+
+    // A sequence that ends at the default style releases the interned
+    // style: CSI 1;0 m
+    try s.setAttributes(.{ .params = &.{ 1, 0 } });
+    try testing.expectEqual(style.default_id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 0), page.styles.count());
+
+    // An empty sequence (CSI m) is a reset.
+    try s.setAttribute(.{ .bold = {} });
+    try s.setAttributes(.{ .params = &.{} });
+    try testing.expectEqual(style.default_id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 0), page.styles.count());
+}
+
+test "Screen setAttributes failure restores the previous style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    const tw = commitStyle_tw;
+    defer tw.end(.reset) catch unreachable;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 80, .rows = 24, .max_scrollback_bytes = 1000 });
+    defer s.deinit();
+    const page = s.cursor.page_pin.node.page();
+
+    try s.setAttribute(.{ .bold = {} });
+    const old_style = s.cursor.style;
+    const old_id = s.cursor.style_id;
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+
+    // Fail interning the style of a sequence with several attributes:
+    // CSI 3;38;2;1;2;3 m
+    tw.errorAlways(.manual_style_update, error.OutOfMemory);
+    try testing.expectError(error.OutOfMemory, s.setAttributes(.{
+        .params = &.{ 3, 38, 2, 1, 2, 3 },
+    }));
+    try tw.end(.reset);
+
+    // The style from before the sequence is back, and still interned.
+    try testing.expect(s.cursor.style.eql(old_style));
+    try testing.expectEqual(old_id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+    try testing.expect(page.styles.get(page.memory, s.cursor.style_id).eql(old_style));
+
+    // And the next sequence works normally.
+    try s.setAttributes(.{ .params = &.{3} });
+    try testing.expect(s.cursor.style.flags.bold);
+    try testing.expect(s.cursor.style.flags.italic);
+    try testing.expect(page.styles.get(page.memory, s.cursor.style_id).eql(s.cursor.style));
 }
 
 test "Screen style reset to default" {

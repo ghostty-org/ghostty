@@ -125,7 +125,7 @@ pub const Action = union(Key) {
     clipboard_contents: ClipboardContents,
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
-    set_attribute: sgr.Attribute,
+    set_attributes: SetAttributes,
     kitty_color_report: kitty.color.OSC,
     color_operation: ColorOperation,
     semantic_prompt: SemanticPrompt,
@@ -237,7 +237,7 @@ pub const Action = union(Key) {
             "clipboard_contents",
             "mouse_shape",
             "configure_charset",
-            "set_attribute",
+            "set_attributes",
             "kitty_color_report",
             "color_operation",
             "semantic_prompt",
@@ -302,6 +302,42 @@ pub const Action = union(Key) {
 
         pub fn cval(self: PrintSlice) PrintSlice.C {
             return .{ .cps = self.cps.ptr, .len = self.cps.len };
+        }
+    };
+
+    /// All the attributes of one SGR sequence (`CSI ... m`), as its raw
+    /// parameters. A handler iterates them with `parser`. Sending the
+    /// whole sequence at once lets a handler apply every attribute
+    /// before doing per-sequence work, such as interning the resulting
+    /// style, instead of repeating that work per attribute.
+    ///
+    /// The slice is only valid for the duration of the handler call.
+    pub const SetAttributes = struct {
+        params: []const u16,
+        params_sep: Parser.Action.CSI.SepList,
+
+        /// A parser over the attributes of this sequence.
+        pub fn parser(self: SetAttributes) sgr.Parser {
+            return .{
+                .params = self.params,
+                .params_sep = self.params_sep,
+            };
+        }
+
+        pub const C = extern struct {
+            params: [*]const u16,
+            len: usize,
+            /// Bit `i` is set when a colon follows `params[i]`, as in
+            /// `ghostty_sgr_parser_set_params` separators.
+            params_sep: u32,
+        };
+
+        pub fn cval(self: SetAttributes) SetAttributes.C {
+            return .{
+                .params = self.params.ptr,
+                .len = self.params.len,
+                .params_sep = self.params_sep.mask,
+            };
         }
     };
 
@@ -2222,14 +2258,11 @@ pub fn Stream(comptime H: type) type {
                             // This is the most common case.
                             @branchHint(.likely);
                             // log.info("parse SGR params={any}", .{input.params});
-                            var p: sgr.Parser = .{
+                            const attrs: streampkg.Action.SetAttributes = .{
                                 .params = input.params,
                                 .params_sep = input.params_sep,
                             };
-                            while (p.next()) |attr| {
-                                // log.info("SGR attribute: {}", .{attr});
-                                self.handler.vt(.set_attribute, attr);
-                            }
+                            self.handler.vt(.set_attributes, attrs);
                         },
 
                         1 => switch (input.intermediates[0]) {
@@ -5333,8 +5366,8 @@ test "stream CSI ? W reset tab stops" {
 
 test "stream: SGR with 17+ parameters for underline color" {
     const H = struct {
-        attrs: ?sgr.Attribute = null,
-        called: bool = false,
+        attrs: usize = 0,
+        last: ?sgr.Attribute = null,
 
         pub fn vt(
             self: *@This(),
@@ -5342,9 +5375,12 @@ test "stream: SGR with 17+ parameters for underline color" {
             value: anytype,
         ) void {
             switch (action) {
-                .set_attribute => {
-                    self.attrs = value;
-                    self.called = true;
+                .set_attributes => {
+                    var p = value.parser();
+                    while (p.next()) |attr| {
+                        self.attrs += 1;
+                        self.last = attr;
+                    }
                 },
                 else => {},
             }
@@ -5356,7 +5392,8 @@ test "stream: SGR with 17+ parameters for underline color" {
     // Kakoune-style SGR with underline color as 17th parameter
     // This tests the fix where param 17 was being dropped
     s.nextSlice("\x1b[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136;0m");
-    try testing.expect(s.handler.called);
+    try testing.expectEqual(5, s.handler.attrs);
+    try testing.expectEqual(sgr.Attribute.unset, s.handler.last.?);
 }
 
 test "stream: tab clear with no param clears the current stop" {
