@@ -8,6 +8,7 @@ const cli = @import("../cli.zig");
 pub const Action = enum {
     ascii,
     erase,
+    hyperlink,
     kitty,
     osc,
     styled,
@@ -25,6 +26,7 @@ pub const Action = enum {
         return switch (action) {
             .ascii => @import("cli/Ascii.zig"),
             .erase => @import("cli/Erase.zig"),
+            .hyperlink => @import("cli/Hyperlink.zig"),
             .kitty => @import("cli/Kitty.zig"),
             .osc => @import("cli/Osc.zig"),
             .styled => @import("cli/Styled.zig"),

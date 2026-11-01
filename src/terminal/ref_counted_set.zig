@@ -12,15 +12,23 @@ const OffsetBuf = size.OffsetBuf;
 /// the exact memory requirement of a given capacity by calling `layout`
 /// and checking the total size.
 ///
-/// When the set exceeds capacity, an `OutOfMemory` or `NeedsRehash` error
-/// is returned from any memory-using methods. The caller is responsible
-/// for determining a path forward.
+/// When the set is full, adding returns `OutOfMemory` and the caller
+/// decides what to do, usually by growing the set.
 ///
-/// This set is reference counted. Each item in the set has an associated
-/// reference count. The caller is responsible for calling release for an
-/// item when it is no longer being used. Items with 0 references will be
-/// kept until another item is written to their bucket. This allows items
-/// to be resurrected if they are re-added before they get overwritten.
+/// Each item has a reference count. Call `release` once for every
+/// reference you no longer need. An item whose count reaches zero is dead.
+/// `lookup` won't find it, and a later `add` may give its ID to a
+/// different value.
+///
+/// ```zig
+/// const id = try set.add(base, value); // count is 1
+/// set.use(base, id); // count is 2
+/// set.release(base, id); // count is 1
+/// set.release(base, id); // count is 0, the item is dead
+/// ```
+///
+/// Dead items are removed later, when the set needs their ID or their
+/// slot in the table. The context's `deleted` callback runs then.
 ///
 /// The backing data structure of this set is an open addressed hash table
 /// with linear probing and Robin Hood hashing, and a flat array of items.
@@ -140,6 +148,10 @@ pub fn RefCountedSet(
         /// Id 0 is reserved for unused items.
         next_id: Id = 1,
 
+        /// Where `reclaimDeadId` resumes searching, so repeated calls
+        /// don't rescan the same live items.
+        free_cursor: Id = 1,
+
         layout: Layout,
 
         /// An instance of the context structure.
@@ -246,20 +258,32 @@ pub fn RefCountedSet(
 
         /// Possible errors for `add` and `addWithId`.
         pub const AddError = error{
-            /// There is not enough memory to add a new item.
-            /// Remove items or grow and reinitialize.
+            /// There is no room for a new item. Grow the set and add the
+            /// items again.
             OutOfMemory,
 
-            /// The set needs to be rehashed, as there are many dead
-            /// items with lower IDs which are inaccessible for reuse.
+            /// No ID is free and no dead ID could be reused. Rebuild the
+            /// set at the same capacity to free them. `add` reuses dead
+            /// IDs itself, so this means the set's bookkeeping is wrong.
+            /// Safe builds panic instead of returning it.
             NeedsRehash,
         };
 
-        /// Add an item to the set if not present and increment its ref count.
+        /// Add `value` to the set and take one reference to it. Returns its ID.
         ///
-        /// Returns the item's ID.
+        /// If an equal value is already present, this returns its ID. The set
+        /// keeps its existing copy, so the context's `deleted` callback runs
+        /// on the `value` you passed in.
         ///
-        /// If the set has no more room, then an OutOfMemory error is returned.
+        /// Once every ID has been handed out, new values reuse the IDs of dead
+        /// items. If fewer than 10% of IDs are dead, this returns `OutOfMemory`.
+        ///
+        /// ```zig
+        /// const a = try set.add(base, 1);
+        /// const b = try set.add(base, 1); // same value, so b == a
+        /// set.release(base, a);
+        /// set.release(base, b); // dead, so a later add may reuse its ID
+        /// ```
         pub fn add(self: *Self, base: anytype, value: T) AddError!Id {
             return try self.addContext(base, value, self.context);
         }
@@ -296,16 +320,29 @@ pub fn RefCountedSet(
 
             // If the item doesn't exist, we need an available ID.
             if (self.next_id >= self.layout.cap) {
-                // Arbitrarily chosen, threshold for rehashing.
-                // If less than 90% of currently allocated IDs
-                // correspond to living items, we should rehash.
-                // Otherwise, claim we're out of memory because
-                // we assume that we'll end up running out of
-                // memory or rehashing again very soon if we
-                // rehash with only a few IDs left.
-                const rehash_threshold = 0.9;
-                if (self.living < @as(Id, @intFromFloat(@as(f64, @floatFromInt(self.layout.cap)) * rehash_threshold))) {
-                    return AddError.NeedsRehash;
+                // Every ID is taken. Reuse a dead one if at least 10% are
+                // dead. Otherwise ask the caller to grow, since we would
+                // run out again almost immediately. 90% is arbitrary.
+                const reuse_threshold = 0.9;
+                if (self.living < @as(Id, @intFromFloat(@as(f64, @floatFromInt(self.layout.cap)) * reuse_threshold))) {
+                    // The trim at the top leaves the last ID live, so a
+                    // dead ID must exist below it.
+                    const dead_id = self.reclaimDeadId(base, ctx) orelse {
+                        @branchHint(.cold);
+
+                        // Only possible if `living` is wrong. Fail loudly
+                        // in safe builds. Release builds recover by
+                        // asking the caller to rehash. In a future PR
+                        // I plan to remove this completely.
+                        if (comptime std.debug.runtime_safety) assert(false);
+                        return AddError.NeedsRehash;
+                    };
+
+                    const id = self.insert(base, value, dead_id, ctx);
+                    items[id].meta.ref += 1;
+                    assert(items[id].meta.ref == 1);
+                    self.living += 1;
+                    return id;
                 }
 
                 // If we don't have at least 10% dead items then
@@ -523,6 +560,27 @@ pub fn RefCountedSet(
                 .items = self.items.ptr(base),
                 .end = self.next_id,
             };
+        }
+
+        /// Remove a dead item from the table and return its ID for reuse,
+        /// or null if every ID is live. Searches from `free_cursor`,
+        /// wrapping around.
+        fn reclaimDeadId(self: *Self, base: anytype, ctx: Context) ?Id {
+            const items = self.items.ptr(base);
+
+            var id: Id = self.free_cursor;
+            for (1..self.next_id) |_| {
+                if (id == 0 or id >= self.next_id) id = 1;
+                if (items[id].meta.ref == 0) {
+                    // Does nothing if the item already left the table.
+                    self.deleteItem(base, id, ctx);
+                    self.free_cursor = id +% 1;
+                    return id;
+                }
+                id +%= 1;
+            }
+
+            return null;
         }
 
         /// Delete an item, removing any references from
@@ -887,4 +945,69 @@ test "iterator visits live entries in ID order" {
     try testing.expectEqual(@as(u32, 33), last_entry.value_ptr.*);
 
     try testing.expect(it.next() == null);
+}
+
+test "add reclaims dead IDs in place instead of NeedsRehash" {
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u16,
+        u16,
+        struct {
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return std.hash.int(value);
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(16);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+
+    // Hand out every ID. All are live, so `add` must ask to grow.
+    const n: usize = layout.cap - 1;
+    var ids: [64]u16 = undefined;
+    for (0..n) |i| ids[i] = try set.add(buf, @intCast(i + 1000));
+    try testing.expectEqual(layout.cap, @as(usize, set.next_id));
+    try testing.expectError(error.OutOfMemory, set.add(buf, 5000));
+
+    // Release the even items. The last item stays live, so `add` can't
+    // just free IDs from the end.
+    for (0..n) |i| if (i % 2 == 0) set.release(buf, ids[i]);
+
+    // New values reuse dead IDs until 90% of IDs are live.
+    const threshold: usize = @intFromFloat(@as(f64, @floatFromInt(layout.cap)) * 0.9);
+    const addable = threshold - n / 2;
+    var new_ids: [64]u16 = undefined;
+    for (0..addable) |j| new_ids[j] = try set.add(buf, @intCast(j + 7000));
+    try testing.expectEqual(threshold, set.count());
+    for (0..addable) |j| {
+        try testing.expectEqual(new_ids[j], set.lookup(buf, @intCast(j + 7000)).?);
+    }
+    try testing.expectError(error.OutOfMemory, set.add(buf, 9000));
+
+    // Release and re-add many times so the search wraps around.
+    for (0..200) |round| {
+        for (0..addable) |j| set.release(buf, new_ids[j]);
+        for (0..addable) |j| new_ids[j] = try set.add(
+            buf,
+            @intCast(100_000 + round * 1000 + j),
+        );
+    }
+    try testing.expectEqual(threshold, set.count());
+
+    // Items that were never released keep their IDs.
+    for (0..n) |i| if (i % 2 == 1) {
+        try testing.expectEqual(ids[i], set.lookup(buf, @intCast(i + 1000)).?);
+    };
 }

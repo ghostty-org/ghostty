@@ -43,6 +43,17 @@ pub const Options = struct {
     /// `legacy` leaves it off, which is the library default.
     @"grapheme-width": GraphemeWidth = .legacy,
 
+    /// The maximum scrollback size in bytes. Zero disables scrollback.
+    ///
+    /// The default of 10,000 bytes matches `Terminal.Options`, not the
+    /// app's 50 MB. This can change results by 2x. Without scrollback,
+    /// pages stay in use for the whole run, so costs that grow over a
+    /// page's life show up much more. Say which value you used when
+    /// sharing results.
+    ///
+    ///   ghostty-bench +terminal-stream --data=input.vt --scrollback-max-bytes=0
+    @"scrollback-max-bytes": usize = 10_000,
+
     /// Enable opt-in continuation tracking on the stream.
     @"continuation-enabled": bool = false,
 
@@ -84,6 +95,7 @@ pub fn create(
             .default_modes = .{
                 .grapheme_cluster = opts.@"grapheme-width" == .unicode,
             },
+            .max_scrollback_bytes = opts.@"scrollback-max-bytes",
         }),
         .stream = undefined,
     };
