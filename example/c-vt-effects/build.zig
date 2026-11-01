@@ -18,6 +18,8 @@ pub fn build(b: *std.Build) void {
     // You'll want to use a lazy dependency here so that ghostty is only
     // downloaded if you actually need it.
     if (b.lazyDependency("ghostty", .{
+        .target = target,
+        .optimize = optimize,
         // Setting simd to false will force a pure static build that
         // doesn't even require libc, but it has a significant performance
         // penalty. If your embedding app requires libc anyway, you should

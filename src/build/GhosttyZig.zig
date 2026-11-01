@@ -28,6 +28,17 @@ pub fn init(
     return initInner(b, cfg, deps, "ghostty-vt", "ghostty-vt-c");
 }
 
+/// Create a separate, unnamed set of modules with the same configuration.
+/// Used when an artifact needs to modify its root module (e.g. to add
+/// link inputs) without affecting other artifacts built from `init`.
+pub fn initUnnamed(
+    b: *std.Build,
+    cfg: *const Config,
+    deps: *const SharedDeps,
+) !GhosttyZig {
+    return initInner(b, cfg, deps, null, null);
+}
+
 /// Create a new GhosttyZig with modules retargeted to a different
 /// architecture. Used to produce universal (fat) binaries on macOS.
 pub fn retarget(

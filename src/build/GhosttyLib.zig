@@ -107,7 +107,7 @@ pub fn initShared(
     if (deps.config.target.result.os.tag == .windows and
         deps.config.target.result.abi == .msvc)
     {
-        try WindowsCrt.link(b, lib);
+        WindowsCrt.link(b, lib);
     }
 
     // Get our debug symbols

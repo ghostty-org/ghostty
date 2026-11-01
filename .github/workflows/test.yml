@@ -971,9 +971,6 @@ jobs:
       - name: Build libghostty-vt
         run: zig build -Demit-lib-vt
 
-      - name: Test libghostty-vt (x86_64-windows-msvc)
-        run: zig build test-lib-vt -Dtarget=x86_64-windows-msvc
-
       - name: Test static linking
         working-directory: example/c-vt-static
         run: zig build
@@ -995,6 +992,29 @@ jobs:
       # pwsh reports the full NTSTATUS; `zig build run` and Git Bash
       # truncate it to 8 bits.
       - name: Test dynamic linking
+        working-directory: example/c-vt-effects
+        shell: pwsh
+        run: |
+          ./zig-out/bin/c_vt_effects.exe
+          $code = $LASTEXITCODE
+          "exit code: 0x{0:X8}" -f $code
+          exit $code
+
+      # Link and run against the MSVC-built DLL, which needs the CRT
+      # libraries from the Windows SDK.
+      - name: Build dynamic linking example (x86_64-windows-msvc)
+        working-directory: example/c-vt-effects
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue zig-out
+          zig build -Dtarget=x86_64-windows-msvc
+          $cache = if ($env:ZIG_LOCAL_CACHE_DIR) { $env:ZIG_LOCAL_CACHE_DIR } else { ".zig-cache" }
+          Get-ChildItem $cache -Recurse -Filter ghostty-vt.dll |
+            Sort-Object LastWriteTime |
+            Select-Object -Last 1 |
+            Copy-Item -Destination zig-out/bin
+
+      - name: Test dynamic linking (x86_64-windows-msvc)
         working-directory: example/c-vt-effects
         shell: pwsh
         run: |

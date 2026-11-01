@@ -273,7 +273,7 @@ fn initLib(
 
         // Building an MSVC DLL requires the full CRT library chain.
         if (kind == .shared and target.result.abi == .msvc) {
-            try WindowsCrt.link(b, lib);
+            WindowsCrt.link(b, lib);
         }
     }
 
