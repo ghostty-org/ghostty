@@ -58,6 +58,10 @@ enum HermesPaneStatus {
         return probe + "\nprint(json.dumps(snapshot(json.loads(base64.b64decode(\"\(encoded)\")))))\n"
     }
 
+    static var localScript: String {
+        probe + "\nprint(json.dumps(snapshots(), sort_keys=True))\n"
+    }
+
     static let reporter = #"""
 import hashlib, json, os, re, stat, sys, tempfile, time
 from pathlib import Path
@@ -114,37 +118,32 @@ def elapsed_seconds(text):
     seconds = sum(value * (60 ** index) for index, value in enumerate(reversed(values)))
     return seconds + (int(days) * 86400 if days else 0)
 
-def snapshot(tty):
+def valid_tty(tty):
+    return isinstance(tty, str) and re.fullmatch(r"/dev/(?:ttys[0-9]+|pts/[0-9]+)", tty)
+
+def is_hermes_client(command):
+    argv = command.split()
+    if not argv: return False
+    runtime = Path(argv[0]).name.lower()
+    node_client = runtime in {"node", "bun"} and any(
+        re.search(r"/(?:ui-tui/(?:dist|src)|hermes_cli/tui_dist)/entry\.(?:js|tsx?)$", arg)
+        and "hermes" in arg.lower() for arg in argv[1:6])
+    python_client = (runtime.startswith("python") and "/.hermes/" in argv[0]
+                     and "from hermes_cli.main import main" in command
+                     and "sys.exit(main())" in command)
+    return node_client or python_client
+
+def foreground_hermes_client(flags, command):
+    return "+" in flags and is_hermes_client(command)
+
+def select_client(candidates):
+    groups = {candidate[1] for candidate in candidates}
+    if len(groups) != 1: return None
+    return candidates[0]
+
+def read_session(tty, pid, pgid, started):
+    output = {"pgid": pgid, "state": "idle", "revision": "client:" + str(pid)}
     try:
-        if not re.fullmatch(r"/dev/(?:ttys[0-9]+|pts/[0-9]+)", tty): return {}
-        result = subprocess.run(["ps", "-t", tty[5:], "-o", "pid=,pgid=,stat=,args="],
-                                capture_output=True, text=True, timeout=2)
-        candidates = []
-        for line in result.stdout.splitlines():
-            fields = line.split(None, 3)
-            if len(fields) != 4: continue
-            pid, pgid, flags, command = fields
-            if "+" not in flags: continue
-            # Match the actual TUI entry, never an arbitrary mention of Hermes in
-            # a Python -c string, a shell argument, or a background gateway process.
-            argv = command.split()
-            if not argv: continue
-            runtime = Path(argv[0]).name.lower()
-            node_client = runtime in {"node", "bun"} and any(
-                re.search(r"/(?:ui-tui/(?:dist|src)|hermes_cli/tui_dist)/entry\.(?:js|tsx?)$", arg)
-                and "hermes" in arg.lower() for arg in argv[1:6])
-            python_client = (runtime.startswith("python") and "/.hermes/" in argv[0]
-                             and "from hermes_cli.main import main" in command
-                             and "sys.exit(main())" in command)
-            if not (node_client or python_client): continue
-            candidates.append((int(pid), int(pgid)))
-        groups = {pgid for _, pgid in candidates}
-        if len(groups) != 1: return {}
-        pid, pgid = candidates[0]
-        age = subprocess.run(["ps", "-p", str(pid), "-o", "etime="],
-                             capture_output=True, text=True, timeout=2).stdout.strip()
-        started = time.time() - elapsed_seconds(age)
-        output = {"pgid": pgid, "state": "idle", "revision": "client:" + str(pid)}
         home = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
         key = "tty-" + re.sub(r"[^A-Za-z0-9._-]", "-", tty.strip("/"))[:120]
         crumb = read_object(home / "terminal-sessions" / key)
@@ -167,9 +166,64 @@ def snapshot(tty):
             and state in {"idle", "working", "done", "error", "needsAttention"}):
             output["state"] = state
             output["revision"] += ":" + str(stamp)
-        return output
+    except (ValueError, OSError, TypeError):
+        pass
+    return output
+
+def snapshot(tty):
+    try:
+        if not valid_tty(tty): return {}
+        result = subprocess.run(["ps", "-t", tty[5:], "-o", "pid=,pgid=,stat=,args="],
+                                capture_output=True, text=True, timeout=2)
+        if result.returncode != 0: return {}
+        candidates = []
+        for line in result.stdout.splitlines():
+            fields = line.split(None, 3)
+            if len(fields) != 4: continue
+            pid, pgid, flags, command = fields
+            if not foreground_hermes_client(flags, command): continue
+            candidates.append((int(pid), int(pgid)))
+        selected = select_client(candidates)
+        if selected is None: return {}
+        pid, pgid = selected
+        age_result = subprocess.run(["ps", "-p", str(pid), "-o", "etime="],
+                             capture_output=True, text=True, timeout=2).stdout.strip()
+        started = time.time() - elapsed_seconds(age_result)
+        return read_session(tty, pid, pgid, started)
     except (ValueError, OSError, TypeError, subprocess.SubprocessError):
-        return locals().get("output", {})
+        return {}
+
+def snapshots():
+    # One process-table read serves every local pane. A failed read must remain
+    # distinguishable from a successful scan with no Hermes clients.
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,pgid=,tty=,stat=,etime=,args="],
+        capture_output=True, text=True, timeout=2)
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip()[:512]
+        raise RuntimeError("ps process-table scan failed" + (": " + detail if detail else ""))
+
+    by_tty = {}
+    for line in result.stdout.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) != 6: continue
+        pid, pgid, raw_tty, flags, age, command = fields
+        if not re.fullmatch(r"(?:ttys[0-9]+|pts/[0-9]+)", raw_tty): continue
+        if not foreground_hermes_client(flags, command): continue
+        try:
+            candidate = (int(pid), int(pgid), elapsed_seconds(age))
+        except ValueError:
+            continue
+        by_tty.setdefault("/dev/" + raw_tty, []).append(candidate)
+
+    result_by_tty = {}
+    for tty, candidates in by_tty.items():
+        selected = select_client(candidates)
+        if selected is None: continue
+        pid, pgid, elapsed = selected
+        started = time.time() - elapsed
+        result_by_tty[tty] = read_session(tty, pid, pgid, started)
+    return result_by_tty
 """#
 }
 

@@ -944,9 +944,18 @@ probe until a later polling tick. This presence check accepts stale installed
 hooks; complete hook-version auditing remains part of integration maintenance.
 It never reads or scans the YAML configuration on the UI thread during polling.
 
-Every two seconds, OMG checks for a foreground Hermes terminal client on the pane's
-exact TTY, then reads that TTY's `~/.hermes/terminal-sessions/tty-*` breadcrumb and
-only the matching session event. A stale breadcrumb from before the client's start,
+Local panes share one in-flight Hermes status probe and a two-second snapshot
+cache across all windows and workspaces, including parked tabs. A single Python
+process reads the local process table once, selects foreground Hermes clients by
+exact TTY and process group, then reads only those TTYs'
+`~/.hermes/terminal-sessions/tty-*` breadcrumbs and matching session events.
+Ordinary terminal panes do not launch separate Python/`ps` probes or read Hermes
+session files. Cancelling one pane's request does not cancel the shared probe.
+Process, timeout, and decoding failures propagate as failures with a two-second
+retry backoff; they never masquerade as an empty snapshot or clear live Agent
+state. A successful scan without a client on a pane's TTY can end its old state.
+Each pane still revalidates its existence, session context and foreground process
+before applying a result. A stale breadcrumb from before the client's start,
 a background/exited client, and a synthetic test session cannot supply restoration
 identity. A live client appears idle even before the first hook runs. No prompt or
 message content is recorded. `on_session_end` is turn-scoped and must not be treated

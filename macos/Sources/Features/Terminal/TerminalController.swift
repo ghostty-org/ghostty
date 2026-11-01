@@ -1633,35 +1633,40 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .sshConnecting:
                 continue
             }
-            guard let tty, let script = try? HermesPaneStatus.script(tty: tty) else { continue }
+            guard let tty else { continue }
+            let remoteScript: String?
+            if connection != nil {
+                guard let script = try? HermesPaneStatus.script(tty: tty) else { continue }
+                remoteScript = script
+            } else {
+                remoteScript = nil
+            }
             hermesPollDates[id] = Date()
             hermesPollTasks[id] = Task { [weak self] in
-                guard let self else { return }
-                defer { hermesPollTasks.removeValue(forKey: id) }
+                defer { self?.hermesPollTasks.removeValue(forKey: id) }
                 do {
-                    let data: Data
+                    let snapshot: HermesPaneStatus.Snapshot?
                     if let connection {
+                        guard let remoteScript else { return }
                         // This probe reads only metadata on the exact connected account.
                         let result = try await SSHSessionTransport.run(
                             connection: connection, command: "exec python3 -",
-                            stdin: Data(script.utf8), limit: 8192, timeout: 5
+                            stdin: Data(remoteScript.utf8), limit: 8192, timeout: 5
                         )
                         guard result.isSuccess else { return }
-                        data = result.stdout
+                        snapshot = try? JSONDecoder().decode(
+                            HermesPaneStatus.Snapshot.self,
+                            from: result.stdout
+                        )
                     } else {
-                        let result = try await GitProcessRunner().run(
-                            executablePath: "/usr/bin/python3", arguments: ["-"],
-                            workingDirectory: "/tmp", stdin: Data(script.utf8),
-                            maxOutputBytes: 8192, timeout: 5
-                        )
-                        guard result.isSuccess else { return }
-                        data = result.stdout
+                        snapshot = try await HermesLocalStatusCache.shared.snapshot(tty: tty)
+                        if let snapshot, snapshot.pgid != foreground { return }
                     }
                     guard !Task.isCancelled,
-                          surfaceTree.contains(where: { $0.id == id }),
+                          let self,
+                          let currentSurface = surfaceTree.first(where: { $0.id == id }),
                           paneSessionContexts[id]?.state == context.state,
-                          surface.surfaceModel?.foregroundPID == foreground else { return }
-                    let snapshot = try? JSONDecoder().decode(HermesPaneStatus.Snapshot.self, from: data)
+                          currentSurface.surfaceModel?.foregroundPID == foreground else { return }
                     applyHermesSnapshot(snapshot, surfaceID: id, remote: connection != nil)
                 } catch {
                     // A failed transport probe does not prove the client exited.
