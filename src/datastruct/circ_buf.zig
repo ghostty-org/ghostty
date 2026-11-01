@@ -143,11 +143,8 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             alloc: Allocator,
             amount: usize,
         ) Allocator.Error!void {
-            const current_len = self.len();
-            const max = std.math.maxInt(usize);
-
-            if (amount > max - current_len) return error.OutOfMemory;
-            const new_cap = current_len + amount;
+            const new_cap = std.math.add(usize, self.len(), amount) catch
+                return error.OutOfMemory;
 
             if (new_cap <= self.capacity()) return;
             try self.resize(alloc, new_cap);
