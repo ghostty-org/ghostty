@@ -795,16 +795,34 @@ pub fn clonePartialRowGrowCapacity(
                 current,
                 PageList.IncreaseCapacity.forCloneError(err),
             ) catch |e| switch (e) {
-                // We can't gracefully recover from either of these
-                // here: our callers have already rotated or shifted
-                // rows, so returning an error would leave the page
-                // list half-mutated (and corrupt), so a crash is
-                // better.
+                // We can't gracefully recover from system OOM here:
+                // our callers have already rotated or shifted rows, so
+                // returning an error would leave the page list
+                // half-mutated (and corrupt), so a crash is better.
                 error.OutOfMemory,
                 => @panic("increaseCapacity system allocator OOM"),
 
-                error.OutOfSpace,
-                => @panic("increaseCapacity OutOfSpace"),
+                // The destination page is already at maximum capacity
+                // for this managed memory dimension (or max page size),
+                // and callers cannot split pages mid-rotation/shift.
+                // Fall back to cloning the row without managed memory
+                // so the page list remains valid and uncorrupted.
+                error.OutOfSpace => {
+                    log.warn(
+                        "falling back to cloning row without managed memory err={}",
+                        .{err},
+                    );
+                    const fallback_page: *Page = current.page();
+                    const fallback_rows = fallback_page.rows.ptr(fallback_page.memory.ptr);
+                    fallback_page.clonePartialRowFromWithoutManagedMemory(
+                        src_page,
+                        &fallback_rows[dst_y],
+                        src_row,
+                        x_start,
+                        x_end,
+                    );
+                    return current;
+                },
             };
 
             continue;
@@ -3044,9 +3062,7 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
                     page.memory,
                     link.uri.len,
                 )) |slice| {
-                    // We don't bother freeing because we're
-                    // about to free the entire page anyway.
-                    _ = slice;
+                    page.string_alloc.free(page.memory, slice);
                     break;
                 } else |_| {}
 
@@ -13100,4 +13116,88 @@ test "Screen: scrollClear cursor page pruned keeps per-page hyperlink id" {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
         try testing.expect(list_cell.cell.hyperlink);
     }
+}
+
+test "Screen: clonePartialRowGrowCapacity falls back to clonePartialRowFromWithoutManagedMemory at max hyperlink capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{
+        .cols = 80,
+        .rows = 4,
+        .max_scrollback_bytes = null,
+    });
+    defer s.deinit();
+
+    var first_node = s.pages.pages.first.?;
+    while (first_node.page().capacity.hyperlink_bytes < std.math.maxInt(size.HyperlinkCountInt)) {
+        first_node = try s.increaseCapacity(first_node, .hyperlink_bytes);
+    }
+
+    const first_cap_rows = first_node.capacity().rows;
+    while (s.pages.total_rows < first_cap_rows + 1) {
+        _ = try s.pages.grow();
+    }
+    s.cursorReload();
+    first_node = s.pages.pages.first.?;
+    const second_node = first_node.next.?;
+
+    // Fill the first page's hyperlink map to capacity on rows 0..first_cap_rows-1.
+    const first_page = first_node.page();
+    const link_id1 = try first_page.insertHyperlink(.{
+        .uri = "https://example.com/1",
+        .id = .{ .implicit = 1 },
+    });
+    defer first_page.hyperlink_set.release(first_page.memory, link_id1);
+    const map_cap = first_page.hyperlinkCapacity();
+    var placed: usize = 0;
+    {
+        first_page.pauseIntegrityChecks(true);
+        defer first_page.pauseIntegrityChecks(false);
+        outer: for (0..first_page.size.rows - 1) |y| {
+            const row = first_page.getRow(y);
+            const cells = first_page.getCells(row);
+            for (cells) |*cell| {
+                if (placed >= map_cap) break :outer;
+                cell.* = .init('x');
+                first_page.hyperlink_set.use(first_page.memory, link_id1);
+                try first_page.setHyperlink(row, cell, link_id1);
+                placed += 1;
+            }
+        }
+    }
+    first_page.assertIntegrity();
+    try testing.expectEqual(map_cap, first_page.hyperlinkCount());
+
+    // Put a hyperlink cell on row 0 of the second page.
+    const second_page = second_node.page();
+    const link_id2 = try second_page.insertHyperlink(.{
+        .uri = "https://example.com/2",
+        .id = .{ .implicit = 2 },
+    });
+    defer second_page.hyperlink_set.release(second_page.memory, link_id2);
+    const src_row = second_page.getRow(0);
+    {
+        const cell0 = &second_page.getCells(src_row)[0];
+        cell0.* = .init('Q');
+        second_page.hyperlink_set.use(second_page.memory, link_id2);
+        try second_page.setHyperlink(src_row, cell0, link_id2);
+    }
+
+    const dst_y = first_page.size.rows - 1;
+    const out_node = s.clonePartialRowGrowCapacity(
+        first_node,
+        dst_y,
+        second_page,
+        src_row,
+        0,
+        s.pages.cols,
+    );
+    s.assertIntegrity();
+
+    const dst_row = out_node.page().getRow(dst_y);
+    const dst_cell = out_node.page().getCells(dst_row)[0];
+    try testing.expectEqual(@as(u21, 'Q'), dst_cell.codepoint());
+    try testing.expect(!dst_cell.hyperlink);
 }
