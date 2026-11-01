@@ -8,7 +8,7 @@ extension TerminalRestorableState {
     /// we use an internal type to perform migration and tests
     struct InternalState<ViewType: NSView & Codable & Identifiable>: Codable {
         // MARK: - Version 5 (1.2.3)
-        let focusedSurface: String?
+        var focusedSurface: String?
         let surfaceTree: SplitTree<ViewType>
 
         // MARK: - Version 7 (1.3.0)

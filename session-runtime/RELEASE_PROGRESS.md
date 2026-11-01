@@ -24,7 +24,7 @@ Implemented in this change:
   local helper, nested code signing and manifest hash refresh. Versioned app cache
   and remote directories preserve active old runtimes instead of restarting them.
 
-Validation so far:
+Historical validation before the 2026-11-01 local-holder changes:
 
 - Runtime Rust unit/integration tests pass; fixture Agent completion/termination/
   resume test passes; detached output-producing process expires and empty host exits.
@@ -58,10 +58,16 @@ Release gaps (do not advertise these as completed):
   local sockets and native Surfaces, generation-fenced input, and an attention/
   retry state for authentication and session rejection. Real network sleep/wake
   and password-dialog acceptance are still separate gates.
-- Local background sessions share the SSH runtime's descriptor, daemon, snapshot
-  and close lifecycle. SSH handoff opens a sibling native tab and releases the
-  source local prompt. Ordinary existing local PTYs are not migrated.
-- Metadata/status list and explicit restore protocol exist, but full session manager
-  UI and local process death reconciliation are still pending.
+- New local terminals use the runtime by default and share SSH's descriptor,
+  snapshot and close lifecycle. Local independent holders preserve PTYs across
+  broker restart; remote Linux retains its single supervised host and cgroups.
+  SSH handoff opens a sibling native tab and releases the source local prompt.
+  Ordinary existing local PTYs are not migrated.
+- The native Session Library provides on-demand inventory, existing-pane focus,
+  explicit attachment and durable End. It preserves exact endpoint routing and
+  does not poll every saved SSH connection. Local adoption verifies a private
+  holder capability rather than trusting persisted PIDs. Current implementation
+  and validation evidence is tracked in
+  `docs/plans/local-session-runtime-completion-2026-11-01.md`.
 - Existing terminal side effects and capabilities need parity checks. Arbitrary
   escaped descendants cannot be guaranteed killed without platform containment.

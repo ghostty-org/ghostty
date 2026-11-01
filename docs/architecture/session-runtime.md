@@ -1,6 +1,6 @@
 # OMG 原生 Session Runtime 设计提案
 
-状态：内部实现与验收契约；`session-runtime/` 已提供多会话 daemon、SSH relay 和原生 snapshot backend。2026-11-01 的客户端重构增加稳定 relay、自动重连、并列本地/SSH tabs 与本地后台会话入口，具体验证记录见 `docs/plans/ssh-session-runtime-2026-11-01.md`。公开发布仍需真实 SSH、Agent 与跨平台验收。目标：保留完整 Ghostty macOS host，本地与远程共享会话模型和协议，不依赖 tmux 或嵌套终端代理 PTY。
+状态：内部实现与验收契约；`session-runtime/` 已提供多会话 daemon、SSH relay 和原生 snapshot backend。2026-11-01 的重构增加稳定 relay、自动重连、并列本地/SSH tabs，并继续完善默认本地持久会话、独立 holder 与原生会话库。验证记录见 `docs/plans/ssh-session-runtime-2026-11-01.md` 和 `docs/plans/local-session-runtime-completion-2026-11-01.md`。公开发布仍需真实 SSH、Agent 与跨平台验收。目标：保留完整 Ghostty macOS host，本地与远程共享会话模型和协议，不依赖 tmux 或嵌套终端代理 PTY。
 
 ## 源码依据
 
@@ -8,12 +8,16 @@
 
 - Termio：`dba6395a674aa63da1ac25089c2855ed7cbf3b68`
 - Kero：`cd340bda44bdca98a4e82195ae7fd392dc543f73`
+- Herdr App：`07ba77e87a8d809ef5a486e09e4ac44cade2c39a`
+- Herdr Core：`572fdf5c82ef2de5d725b0161f1bdc2ebfe3fee0`
 
 Termio 的 `termiod/src/session.rs` 采用独立 session actor、原始字节分发、SnapshotPending 屏障和有界 VT sidecar；`termiod/vt/src/lib.rs` 包含原生快照和 ANSI 恢复路径。`termiod/ARCHITECTURE.md` 仍有 snapshot 为 later 的旧描述，应以对应源码为准。VT crate 使用其 fork 的 libghostty Rust bindings，固定 Ghostty revision；不能假定可直接连接 OMG 当前 ABI。
 
 Kero 的 `internal/daemon/pty_unix.go` 由 daemon 持有 PTY；`internal/daemon/session.go` 使用服务端 terminal 与每个 attachment 的 `terminal.Mirror`，通过 `Frame()` 同步。慢客户端队列满时结束 attachment，重新 attach 获取首帧。持久化 history 是新 shell 上方的历史恢复，不能等同于 daemon 重启后的原进程存活。其终端查询由服务端回答，客户端只处理特定的剪贴板请求。
 
-两者可以作为生命周期和同步机制的参考，不应将两套数据路径混为一谈，也不承诺直接兼容其协议。
+Herdr 的本地窗口与远端访问复用 core、稳定 terminal address 和会话 inventory；独立 holder 持有 PTY，core 重启后重新 adopt。关闭窗口/退出 detach，显式关闭 tab/pane 才结束会话。本轮借鉴其所有权划分和原生入口，继续复用 Ghostty 的启动准备、VT 与渲染；没有引入 GPUI 或第二套终端 UI。Herdr 两个仓库使用 Apache-2.0，移植源码必须保留适用的许可证与 notices。
+
+这些项目可以作为生命周期和同步机制的参考，不应将其数据路径混为一谈，也不承诺直接兼容协议。
 
 ## 目标结构
 
@@ -39,11 +43,11 @@ SSH 子进程使用普通管道与 `ssh -T`，它不持有 Agent PTY。Bridge �
 
 `src/termio/backend.zig` 的 `exec` 和 fork-owned `OmgSession` backend 共用完整 Ghostty host；backend union、surface 初始化、配置/API 边界只做适配。保留原有键盘、IME、鼠标、选区、渲染路径。
 
-`macos/Sources/Features/Terminal/SSHRecovery.swift` 为普通 system SSH 保留新 PTY/重执行命令的恢复路径；不把这条路径当作 durable session attach。既有普通本地 session 继续 Exec；显式新建的本地后台会话和原生 SSH 会话使用同一 runtime，其 PTY 从第一天起仅归 daemon 所有。
+`macos/Sources/Features/Terminal/SSHRecovery.swift` 为普通 system SSH 保留新 PTY/重执行命令的恢复路径；不把这条路径当作 durable session attach。既有普通本地 session 继续 Exec；新本地窗口/tab/split 默认使用 runtime，可用 `sessions.localRuntimeEnabled` 为后续新终端关闭。新本地进程由独立 holder 持有，SSH 由远端 host 的 session thread 持有；两者共享协议和 snapshot backend。Ghostty 通过原有 Exec 准备路径解析本地 argv/env/cwd/shell integration，传递首次尺寸与初始输入，但不额外创建 GUI PTY。launch 仅存内存，首次创建后释放，重连不得重放；SSH 拒绝该本地 payload。
 
 SSH handoff 使用当前窗口/工作区的原生 sibling tab，保留发起连接的本地 Surface 和 shell；helper 得到接受确认后立即返回本地 prompt。连接掉线只更新 pane 状态，relay 保持客户端 socket，自动重新建立传输并 attach 原 UUID。snapshot 恢复和 writer 确认完成前不接受输入；连接 generation 拒绝旧输入、resize、writer 与 snapshot ACK。失败信息走原生状态呈现，不写入终端输出污染保留的画面。用户手动重试只唤醒既有 relay，不替换 Surface 或中断健康 sibling panes。
 
-重点审计 surface deinit、关闭 tab、退出 App、进程退出展示和 restorable state。关闭视图默认 Detach；结束会话是独立的 CloseSession 操作。元数据记录 host/account 身份、session ID 和 daemon instance epoch。重连找不到 session 时显示明确状态，不自动创建同名进程冒充恢复。
+重点审计 surface deinit、关闭 tab、退出 App、进程退出展示和 restorable state。关闭窗口或退出 App 是 Detach；用户显式关闭 tab/pane 则持久化 CloseSession。Window 菜单和设置页均可打开原生 Session Library，按 endpoint 查询、聚焦或 attach 原 UUID，以及确认 End；只读查询不延长脱离视图后的 TTL。元数据记录 host/account 身份、session ID 和 daemon instance epoch。重连找不到 session 时显示明确状态，不自动创建同名进程冒充恢复。
 
 ## 协议与生命周期
 
@@ -88,9 +92,9 @@ Termio 的 VT sidecar 注释说明它不注册 `on_pty_write`，主要由 writer
 
 Unix socket 位于用户私有目录，校验 owner/peer credentials，限制帧、快照和会话配额。远程安装按 OS/arch 检测、原子落盘和版本校验，禁止在 bridge 建连时替换正在持有 PTY 的 daemon。
 
-Linux root 账号使用 systemd 系统级临时服务；普通账号仅在用户管理器可用且已启用 linger 时使用用户临时服务。不会自动开启 linger 或请求提权；不满足条件则明确记录 process-group-only 模式。服务按 runtime directory 隔离，Delegate=yes，KillMode=control-group，Restart=no；下一次连接再启动，避免重复崩溃循环。监管模式启动失败不能偷偷降级绕过监管。未来 macOS launchd 的退出登录语义另行验证。不承诺 daemon 崩溃或主机重启后 PID 不变。
+Linux root 账号使用 systemd 系统级临时服务；普通账号仅在用户管理器可用且已启用 linger 时使用用户临时服务。不会自动开启 linger 或请求提权；不满足条件则明确记录 process-group-only 模式。服务按 runtime directory 隔离，Delegate=yes，KillMode=control-group，Restart=no；下一次连接再启动，避免重复崩溃循环。监管模式启动失败不能偷偷降级绕过监管。未来 macOS launchd 的退出登录语义另行验证。远端 daemon 崩溃和主机重启不保证 PID 不变。本地 broker 重启通过私有控制探针核对 UUID、generation 与 capability 后收编仍存活的 holder，PID/PTY/VT 保持不变；holder 或主机丢失仍必须明确报告 Lost。
 
-启动和周期维护把没有 actor 的运行中记录改为 Lost，删除该 UUID 的失效 socket，不按历史 PID 发信号。待关闭请求保存在 App Support 的 session-runtime/pending-closes.json，App 启动及运行中重试；设置页显示未确认数量。空 relay 在 30 秒无客户端后退出，host 仍按存活 actor 和既有空闲策略管理。旧版本 daemon 保持原版本，不自动替换或收编现有工作会话；不支持新关闭能力的旧版本仍有待确认限制。高权限进程主动迁移 cgroup、通过外部服务创建任务不在自动回收保证内。
+远端启动和周期维护把没有 actor 的运行中记录改为 Lost；本地先验证独立 holder，仅在没有可验证 holder 时标记 Lost。失效 socket 按所属 UUID 清理，不按历史 PID 发信号；adoption 探针不 attach，也不刷新 TTL。待关闭请求保存在 App Support 的 session-runtime/pending-closes.json，App 启动及运行中重试；设置页显示未确认数量。空 relay 在 30 秒无客户端后退出，host 仍按存活 actor 和既有空闲策略管理。旧版本 daemon 保持原版本；本地 broker/holder 从 descriptor 固定版本的缓存 helper 启动，不跨版本收编；不支持新关闭能力的旧版本仍有待确认限制。高权限进程主动迁移 cgroup、通过外部服务创建任务不在自动回收保证内。
 
 ## 实施顺序与验收
 

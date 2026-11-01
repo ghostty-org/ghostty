@@ -18,6 +18,9 @@ struct SessionRuntimeSettingsView: View {
             }
             Text(strings.runtimeConnectCaption)
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle(strings.runtimeLocalRuntimeEnabled, isOn: $settings.localRuntimeEnabled)
+            Text(strings.runtimeLocalRuntimeCaption)
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 TextField(strings.runtimeLocalDirectory, text: $localWorkingDirectory)
                 Button(strings.runtimeLocalOpen) { connectLocal() }
@@ -25,6 +28,9 @@ struct SessionRuntimeSettingsView: View {
             }
             Text(strings.runtimeLocalCaption)
                 .font(.caption).foregroundStyle(.secondary)
+            Button(strings.runtimeLibrary) {
+                SessionRuntimeLibrary.show()
+            }
             HStack {
                 Text(strings.runtimeDetachedHours)
                 Spacer()

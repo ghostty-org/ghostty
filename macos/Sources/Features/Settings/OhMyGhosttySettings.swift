@@ -559,9 +559,14 @@ final class OhMyGhosttySettings: ObservableObject {
             description: "Maximum number of historical agent sessions to index and display.",
             requiresNewWindow: false, category: "general"),
         .init(
+            id: "sessions.localRuntimeEnabled", type: .boolean, defaultValue: "true",
+            allowedValues: nil, minimum: nil, maximum: nil,
+            description: "Launch new local terminals in the durable local session runtime.",
+            requiresNewWindow: true, category: "general"),
+        .init(
             id: "sessions.runtimeDetachedHours", type: .number, defaultValue: "72",
             allowedValues: nil, minimum: 0, maximum: 8760,
-            description: "Maximum detached SSH session lifetime in hours; zero explicitly keeps it indefinitely.",
+            description: "Maximum detached local and SSH session lifetime in hours; zero explicitly keeps it indefinitely.",
             requiresNewWindow: true, category: "general"),
         .init(
             id: "sessions.runtimeExpiration", type: .string, defaultValue: "",
@@ -912,6 +917,9 @@ final class OhMyGhosttySettings: ObservableObject {
             }
         }
     }
+    @Published var localRuntimeEnabled = true {
+        didSet { persist("sessions.localRuntimeEnabled", localRuntimeEnabled) }
+    }
     @Published var runtimeDetachedHours: Double = 72 {
         didSet { persist("sessions.runtimeDetachedHours", min(max(runtimeDetachedHours, 0), 8760)) }
     }
@@ -1246,6 +1254,7 @@ final class OhMyGhosttySettings: ObservableObject {
                 fallback: 10_000,
                 range: 100...50_000
             )
+            localRuntimeEnabled = boolValue("sessions.localRuntimeEnabled", fallback: true)
             startupMode = enumValue("sessions.startupMode", fallback: .restoreSessions)
             runtimeDetachedHours = min(max(chosen["sessions.runtimeDetachedHours"] as? Double ?? 72, 0), 8760)
             runtimeExpiration = chosen["sessions.runtimeExpiration"] as? String ?? ""

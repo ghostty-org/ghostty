@@ -22,6 +22,32 @@ extension Ghostty {
         var runtimeDescriptor: SessionRuntimeDescriptor?
         @Published var runtimeConnectionState: SessionRuntimeConnectionState?
         @Published var runtimeConnectionError: String?
+        private(set) var runtimeAttachmentSuspended = false
+
+        func suspendRuntimeAttachment() {
+            guard runtimeDescriptor != nil,
+                  !runtimeAttachmentSuspended,
+                  let surface else { return }
+            _ = ghostty_surface_set_session_attached(surface, false)
+            runtimeAttachmentSuspended = true
+        }
+
+        func resumeRuntimeAttachment() {
+            guard runtimeDescriptor != nil,
+                  runtimeAttachmentSuspended,
+                  let surface else { return }
+            guard ghostty_surface_set_session_attached(surface, true) else {
+                let message = SettingsStrings(language: OhMyGhosttySettings.shared.language).t(
+                    "This session was explicitly closed and cannot be reopened.",
+                    "此会话已被显式关闭，无法重新打开。"
+                )
+                runtimeConnectionError = message
+                runtimeConnectionState = .failed(message: message, retryable: false)
+                return
+            }
+            runtimeAttachmentSuspended = false
+            runtimeConnectionError = nil
+        }
 
         // The progress report (if any)
         override var progressReport: Action.ProgressReport? {
@@ -405,9 +431,19 @@ extension Ghostty {
                     let descriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data(encoded.utf8))
                     runtimeDescriptor = descriptor
                     runtimeConnectionState = .connecting(attempt: 0)
-                    let socket = try SessionRuntimeConnections.shared.prepare(descriptor)
+                    let attachExisting =
+                        surface_cfg.environmentVariables[SessionRuntimeDescriptor.attachExistingEnvironmentKey] == "1"
+                    let socket: URL
+                    if attachExisting {
+                        socket = try SessionRuntimeConnections.shared.prepareBatch(descriptor)
+                    } else {
+                        socket = try SessionRuntimeConnections.shared.prepareInteractiveSession(descriptor)
+                    }
                     surface_cfg.environmentVariables["OMG_RUNTIME_SOCKET"] = socket.path
-                    surface_cfg.environmentVariables["OMG_RUNTIME_PANE_ID"] = try descriptor.openRequest(pane: id, restoring: uuid != nil)
+                    surface_cfg.environmentVariables["OMG_RUNTIME_PANE_ID"] = try descriptor.openRequest(
+                        pane: id,
+                        attachExisting: attachExisting
+                    )
                 } catch {
                     self.runtimeConnectionError = error.localizedDescription
                     self.runtimeConnectionState = .failed(message: error.localizedDescription)
@@ -417,7 +453,11 @@ extension Ghostty {
                 }
             }
             SessionRuntimeHandoff.shared.configure(&surface_cfg, pane: self.id)
-            QuickInputDraftBridge.shared.configure(&surface_cfg, surfaceID: self.id)
+            QuickInputDraftBridge.shared.configure(
+                &surface_cfg,
+                surfaceID: self.id,
+                runtimeDescriptor: runtimeDescriptor
+            )
             // A restored command can launch an agent before any shell prompt
             // reports OSC 7. Seed the known launch directory for all consumers.
             if let directory = surface_cfg.workingDirectory, directory.hasPrefix("/") {
@@ -2034,7 +2074,17 @@ extension Ghostty {
             }
 
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
+            let archivedUUID = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
+            let workspaceRestoreSessions = decoder.userInfo[TerminalWorkspaceSessionStore.restoreSessionsKey] as? Bool
+            let startupMode = workspaceRestoreSessions.map {
+                $0 ? OMGStartupMode.restoreSessions : .restoreTabs
+            } ?? OhMyGhosttySettings.shared.startupMode
+            let paneIDsPreRemapped = decoder.userInfo[TerminalWorkspaceSessionState.paneIDsPreRemappedKey] as? Bool == true
+            let uuid = SessionRuntimeRestorationPolicy.createsFreshPaneIDsFromSavedState(for: startupMode)
+                && !paneIDsPreRemapped ? UUID() : archivedUUID
+            if let archivedUUID, let uuid {
+                TerminalPaneIDDecodeContext.record(archivedID: archivedUUID, restoredID: uuid)
+            }
             var config = Ghostty.SurfaceConfiguration()
             // Restored Surfaces bypass TerminalController's fresh-tab base
             // configuration. Preserve the app channel explicitly so +ssh
@@ -2043,15 +2093,35 @@ extension Ghostty {
                 OMGApplicationEnvironment.channel()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             if let runtime = try container.decodeIfPresent(SessionRuntimeDescriptor.self, forKey: .runtimeDescriptor) {
-                try runtime.configure(&config)
-                // Runtime attach owns the process; don't replay shell/Agent launch commands.
-                config.workingDirectory = nil
-                self.init(app, baseConfig: config, uuid: uuid)
+                if SessionRuntimeRestorationPolicy.attachesSavedRuntime(for: startupMode) {
+                    try runtime.configureAttachExisting(&config)
+                    // Runtime attach owns the process; don't replay shell/Agent launch commands.
+                    config.workingDirectory = nil
+                    self.init(app, baseConfig: config, uuid: uuid)
+                } else {
+                    config.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)
+                    config.environmentVariables[SessionRuntimeDescriptor.localRuntimeEnvironmentKey] = ""
+                    config.environmentVariables[SessionRuntimeDescriptor.attachExistingEnvironmentKey] = ""
+                    config.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
+                    config.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
+                    config.workingDirectory = runtime.isLocal
+                        ? config.workingDirectory ?? runtime.localWorkingDirectory
+                        : runtime.connection?.localWorkingDirectory
+                    config.command = nil
+                    config.initialInput = nil
+                    config.waitAfterCommand = false
+                    _ = SessionRuntimeConnections.automaticallyConfigureLocalRuntime(
+                        &config,
+                        policy: OhMyGhosttySettings.shared.runtimePolicy,
+                        enabled: OhMyGhosttySettings.shared.localRuntimeEnabled
+                    )
+                    // A detached record can remain live after the GUI tab is gone.
+                    // Restore Tabs creates a new shell and a new runtime identity.
+                    self.init(app, baseConfig: config, uuid: uuid)
+                }
                 if let title = try container.decodeIfPresent(String.self, forKey: .title) { self.title = title }
                 return
             }
-            let startupMode: OMGStartupMode = decoder.userInfo[TerminalWorkspaceSessionStore.restoreSessionsKey] as? Bool == true
-                ? .restoreSessions : OhMyGhosttySettings.shared.startupMode
             // Layout-only recovery must not fail just because a stale Agent or
             // SSH descriptor cannot be decoded; it never launches that program.
             let resume: AgentResumeDescriptor?
@@ -2112,6 +2182,11 @@ extension Ghostty {
                     }
                 }
             }
+            _ = SessionRuntimeConnections.automaticallyConfigureLocalRuntime(
+                &config,
+                policy: OhMyGhosttySettings.shared.runtimePolicy,
+                enabled: OhMyGhosttySettings.shared.localRuntimeEnabled
+            )
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 

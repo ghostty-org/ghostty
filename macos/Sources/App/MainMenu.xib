@@ -48,6 +48,7 @@
                 <outlet property="menuQuickTerminal" destination="1pv-LF-NBJ" id="glN-5B-IGi"/>
                 <outlet property="menuQuit" destination="4sb-4s-VLi" id="qYN-S1-6UW"/>
                 <outlet property="menuReadonly" destination="xpe-ia-Yjw" id="MMT-Sl-AfD"/>
+                <outlet property="menuSessionLibrary" destination="S5R-Lb-5Lq" id="7uE-s1-rXk"/>
                 <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
@@ -418,6 +419,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="toggleVisibility:" target="bbz-4X-AYv" id="2vT-tL-3tQ"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Browse Sessions…" id="S5R-Lb-5Lq">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="showSessionLibrary:" target="bbz-4X-AYv" id="Yk6-rZ-Uf9"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="rlu-tP-x0P"/>

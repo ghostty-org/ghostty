@@ -13,6 +13,8 @@ use std::{
     time::{Duration, Instant},
 };
 const MAX_STREAMS: usize = 64;
+const MAX_LIST_ENTRIES: usize = 2048;
+const MAX_LIST_BYTES: usize = 8 * 1024 * 1024;
 struct HostLock(fs::File);
 impl HostLock {
     fn acquire(directory: &Path) -> io::Result<Self> {
@@ -69,6 +71,14 @@ pub fn valid_id(id: &str) -> bool {
 /// Outer protocol: H(stream, UUID), D(stream, encoded inner frame), E(stream,error),
 /// Q(stream) detach. Outer stream IDs are local to one transport connection.
 pub fn serve(directory: &Path, command: Vec<String>) -> io::Result<()> {
+    serve_mode(directory, command, false)
+}
+
+pub fn serve_local(directory: &Path, command: Vec<String>) -> io::Result<()> {
+    serve_mode(directory, command, true)
+}
+
+fn serve_mode(directory: &Path, command: Vec<String>, local: bool) -> io::Result<()> {
     private(directory)?;
     let policy_path = directory.join("policy.json");
     let policy: Policy = if policy_path.exists() {
@@ -89,8 +99,14 @@ pub fn serve(directory: &Path, command: Vec<String>) -> io::Result<()> {
         fs::Permissions::from_mode(0o600),
     )?;
     listener.set_nonblocking(true)?;
-    let mut initial = Registry::new(root, command, policy.clone());
-    initial.set_containment_root(crate::containment::host_root()?);
+    let mut initial = if local {
+        Registry::new_local(root, command, policy.clone())
+    } else {
+        Registry::new(root, command, policy.clone())
+    };
+    if !local {
+        initial.set_containment_root(crate::containment::host_root()?);
+    }
     initial.maintenance();
     let registry = Arc::new(Mutex::new(initial));
     let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -138,7 +154,12 @@ fn host_connection(socket: UnixStream, registry: Arc<Mutex<Registry>>) -> io::Re
             match f.kind {
                 b'P' if f.seq == 0 => {
                     last_heartbeat = Instant::now();
-                    transport.push(Frame::new(b'P', 0, b"durable-close/1,strict-open/1"));
+                    let capabilities = if registry.lock().unwrap().is_local() {
+                        b"durable-close/1,strict-open/1,local-launch/1".as_slice()
+                    } else {
+                        b"durable-close/1,strict-open/1".as_slice()
+                    };
+                    transport.push(Frame::new(b'P', 0, capabilities));
                 }
                 b'K' if f.seq != 0 => {
                     let result = std::str::from_utf8(&f.data)
@@ -154,9 +175,31 @@ fn host_connection(socket: UnixStream, registry: Arc<Mutex<Registry>>) -> io::Re
                         Err(e) => transport.push(Frame::new(b'E', f.seq, e.to_string().as_bytes())),
                     }
                 }
+                b'L' if f.seq == 0 && f.data.is_empty() => {
+                    let response = (|| {
+                        let records = registry.lock().unwrap().catalogue()?;
+                        if records.len() > MAX_LIST_ENTRIES {
+                            return Err(io::Error::other("session catalogue exceeds entry limit"));
+                        }
+                        let summary = records
+                            .iter()
+                            .map(crate::record::SessionSummary::from)
+                            .collect::<Vec<_>>();
+                        let bytes = serde_json::to_vec(&summary)?;
+                        if bytes.len() > MAX_LIST_BYTES {
+                            return Err(io::Error::other("session catalogue exceeds size limit"));
+                        }
+                        Ok(bytes)
+                    })();
+                    match response {
+                        Ok(bytes) => transport.push(Frame::new(b'L', 0, &bytes)),
+                        Err(error) => {
+                            transport.push(Frame::new(b'E', 0, error.to_string().as_bytes()))
+                        }
+                    }
+                }
                 b'L' if f.seq == 0 => {
-                    let list = registry.lock().unwrap().list()?;
-                    transport.push(Frame::new(b'L', 0, &serde_json::to_vec(&list)?));
+                    transport.push(Frame::new(b'E', 0, b"invalid catalogue request"));
                 }
                 b'U' if f.seq != 0
                     && !streams.contains_key(&f.seq)

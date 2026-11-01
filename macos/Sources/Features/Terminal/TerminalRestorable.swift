@@ -102,7 +102,15 @@ final class TerminalRestorableState: TerminalRestorable {
     ///
     /// - Important: If you intend to add more things, go to `InternalState`.
     init(from decoder: any Decoder) throws {
-        self.internalState = try InternalState<Ghostty.SurfaceView>(from: decoder)
+        let remapping = TerminalPaneIDRemapping()
+        var state = try TerminalPaneIDDecodeContext.withRemapping(remapping) {
+            try InternalState<Ghostty.SurfaceView>(from: decoder)
+        }
+        if let focusedSurface = state.focusedSurface,
+           let restoredFocus = remapping.ids[focusedSurface] {
+            state.focusedSurface = restoredFocus
+        }
+        self.internalState = state
     }
 
     /// This is just wrapper around internalState
@@ -186,17 +194,12 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
-        if let focusedStr = state.focusedSurface {
-            var foundView: Ghostty.SurfaceView?
-            for view in c.surfaceTree where view.id.uuidString == focusedStr {
-                foundView = view
-                break
-            }
-
-            if let view = foundView {
-                c.focusedSurface = view
-                restoreFocus(to: view, inWindow: window)
-            }
+        let restoredFocus = state.focusedSurface.flatMap { focusedID in
+            c.surfaceTree.first { $0.id.uuidString == focusedID }
+        } ?? c.surfaceTree.first
+        if let restoredFocus {
+            c.focusedSurface = restoredFocus
+            restoreFocus(to: restoredFocus, inWindow: window)
         }
 
         TerminalTabSelectionRestoration.shared.registerRestored(c)

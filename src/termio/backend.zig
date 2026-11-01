@@ -67,6 +67,14 @@ pub const Backend = union(Kind) {
         }
     }
 
+    /// Pause or resume the client attachment without terminating its session.
+    pub fn setSessionAttached(self: *Backend, attached: bool) bool {
+        return switch (self.*) {
+            .exec => true,
+            .omg_session => |*session| session.setSessionAttached(attached),
+        };
+    }
+
     pub fn focusGained(
         self: *Backend,
         td: *termio.Termio.ThreadData,

@@ -768,6 +768,12 @@ struct SettingsStrings: Equatable, Sendable {
     }
     var runtimeLocalDirectory: String { t("Local working directory", "本地工作目录") }
     var runtimeLocalOpen: String { t("New Local Session", "新建本地会话") }
+    var runtimeLocalRuntimeEnabled: String { t("Use durable runtime for new local terminals", "新建本地终端使用后台会话运行时") }
+    var runtimeLocalRuntimeCaption: String {
+        t("New windows, tabs and splits use the local session runtime, which keeps up to 4 MiB of terminal history and respects any lower Ghostty scrollback limit. Turn this off for larger history and native PTYs. Existing terminals keep their current process.",
+          "新建窗口、标签页和分屏使用本地会话运行时，最多保留 4 MiB 终端历史，并遵循 Ghostty 更低的滚动历史限制。需要更多历史时可关闭此选项使用原生 PTY；已打开的终端继续使用原进程。")
+    }
+    var runtimeLibrary: String { t("Browse Sessions…", "浏览后台会话…") }
     var runtimeLocalCaption: String {
         t("Runs a background session on this Mac beside your existing tabs. Agent completion cleanup requires enabled local Agent integrations.",
           "在本机启动后台会话，与现有标签页并列打开。按 Agent 任务完成回收需要先启用本机 Agent 集成。")

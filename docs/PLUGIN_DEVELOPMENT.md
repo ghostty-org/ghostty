@@ -21,7 +21,11 @@ runtime yet. There is no public SDK, socket listener, or hot reload command.
 
 ## Native Session Runtime lifecycle
 
-The internal runtime keeps a single `omgd` host with per-session actor threads.
+The remote runtime keeps a single `omgd` host with per-session actor threads.
+Local sessions use a broker and independent PTY/VT holders. A restarted broker
+adopts a holder only after verifying its UUID, generation and private capability;
+recorded PIDs are never authority to signal a process. Inventory and adoption
+probes do not attach a viewer or refresh a detached session's lifetime.
 Explicit pane/tab closure is persisted in `session-runtime/pending-closes.json`
 before local removal; detached/network-lost sessions retain their existing TTL
 and Agent-completion policy. Completion cleanup is an opt-in Beta feature,
@@ -188,11 +192,54 @@ untouched. Snapshot-format compatibility alone does not authorize implicit resum
 
 SSH handoff opens a sibling native tab in the same workspace and acknowledges the
 local helper immediately. The original local Surface/shell remains visible and
-interactive; remote exit does not replace it. Explicit local background sessions
-share the descriptor, relay, daemon and snapshot protocol while bypassing SSH;
+interactive; remote exit does not replace it. New local windows/tabs/splits use
+the runtime by default (`sessions.localRuntimeEnabled`); disabling it applies
+only to newly created local terminals. Local sessions share descriptors, relay
+and snapshot protocol while bypassing SSH;
 their context remains local for Git, files and Agent/history providers. Existing
 ordinary Ghostty Exec sessions retain their current process ownership. Restored
 SSH descriptors without local transport fields remain supported.
+`restoreSessions` attaches saved runtime identities; `restoreTabs` creates fresh
+local processes and UUIDs; `newTerminal` also skips saved workspace restoration.
+Closing a window or quitting the app detaches its viewers. Explicit pane/tab
+closure ends those sessions; local child exit honors Ghostty's configured
+wait-after-command behavior.
+Window closure explicitly suspends the runtime attachment even when Undo still
+retains the Surface. The host-only `ghostty_surface_set_session_attached` adapter
+pauses/resumes that connection without ending the process. Reusing the Surface
+for Undo resumes the same UUID through the snapshot/writer barrier; workspace
+parking and ordinary tab selection do not suspend it. This avoids an invisible,
+retained view occupying the writer or preventing detached-session expiry.
+
+Local creation uses Ghostty's resolved argv, environment, cwd, dimensions and
+one-time initial input. The `local-launch/1` capability is required before
+creation; SSH refuses local launch payloads. The payload is never persisted in
+workspace/session records and is discarded after creation is confirmed.
+Local launch also carries `scrollback_max_bytes` and optional
+`scrollback_max_lines`. Persistent runtime history has a 4 MiB logical byte
+ceiling; a lower user byte limit (including zero) and the configured line limit
+are preserved. Unlimited bytes use the runtime ceiling. The authoritative VT
+and its first/restored snapshot share these limits. This is deliberately lower
+than Ghostty's native default of 50,000,000 bytes and is disclosed in settings;
+users needing larger history can opt new local terminals into ordinary PTYs.
+The byte limit includes active-screen storage and is not a process RSS limit.
+Reattach cannot replay it. Local Handoff and Quick Input helpers have private,
+stable scopes so an existing shell remains usable after the app restarts.
+User keystrokes during the first local creation have a bounded queue that drains
+only after snapshot restoration and writer acquisition. Any connection failure,
+writer rejection or explicit close discards that queue permanently; SSH and
+reattaching sessions never buffer disconnected input.
+The J version-2 and M metadata frames carry cwd, password-input state and child
+runtime; validated foreground process-group ID and PTY name are exposed only for
+local sessions. Password transitions use the existing balanced Secure Input
+lifecycle. Version-2 resize also carries pixel dimensions; version 1 remains
+accepted for existing compatible hosts.
+
+The native Session Library queries only the selected endpoint through read-only
+`list-local`/L, cancels superseded requests and excludes launch data/capabilities
+from its inventory projection. Attaching an already open UUID focuses its
+existing pane, including parked workspaces. Explicit End uses the same durable
+close queue as pane/tab closure. Inventory is not a new plugin permission or API.
 Local background sessions use already enabled local Agent integrations; opening
 one does not install hooks or edit local dotfiles. Without those integrations,
 completion cleanup does not activate, while detached TTL/deadline rules still apply.

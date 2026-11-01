@@ -146,6 +146,7 @@ fn relay_connector(
         TransportKind::Local => {
             let root = config.local_state_directory.clone();
             let shell = config.local_shell.clone();
+            let helper = config.bundle.join("omgd");
             Arc::new(move |_| {
                 let root = root
                     .as_ref()
@@ -157,7 +158,7 @@ fn relay_connector(
                     .clone()
                     .or_else(|| env::var("SHELL").ok())
                     .unwrap_or_else(|| "/bin/sh".into());
-                ensure_host(&root.to_string_lossy(), Some(&shell))?;
+                ensure_host_with(&root.to_string_lossy(), Some(&shell), &helper, true)?;
                 let path = root.join("host.sock");
                 if path.as_os_str().as_encoded_bytes().len() >= 104 {
                     return Err(io::Error::other("local runtime socket path is too long"));
@@ -172,6 +173,15 @@ fn relay_connector(
 }
 
 fn ensure_host(directory: &str, shell_override: Option<&str>) -> io::Result<()> {
+    ensure_host_with(directory, shell_override, &env::current_exe()?, false)
+}
+
+fn ensure_host_with(
+    directory: &str,
+    shell_override: Option<&str>,
+    executable: &Path,
+    local: bool,
+) -> io::Result<()> {
     use std::os::unix::{fs::PermissionsExt, process::CommandExt};
     let root = Path::new(directory);
     std::fs::create_dir_all(root)?;
@@ -187,6 +197,14 @@ fn ensure_host(directory: &str, shell_override: Option<&str>) -> io::Result<()> 
             ));
         }
     }
+    let metadata = std::fs::metadata(executable)
+        .map_err(|_| io::Error::other("pinned local runtime helper is unavailable"))?;
+    if !executable.is_absolute() || metadata.is_dir() || metadata.permissions().mode() & 0o111 == 0
+    {
+        return Err(io::Error::other(
+            "pinned local runtime helper is not executable",
+        ));
+    }
     let socket = root.join("host.sock");
     if UnixStream::connect(&socket).is_ok() {
         return Ok(());
@@ -199,7 +217,7 @@ fn ensure_host(directory: &str, shell_override: Option<&str>) -> io::Result<()> 
         .map(str::to_string)
         .or_else(|| env::var("SHELL").ok())
         .unwrap_or_else(|| "/bin/sh".into());
-    if omg_session_runtime::supervision::start(root, &shell)? {
+    if !local && omg_session_runtime::supervision::start(root, &shell)? {
         for _ in 0..100 {
             if UnixStream::connect(&socket).is_ok() {
                 return Ok(());
@@ -209,8 +227,8 @@ fn ensure_host(directory: &str, shell_override: Option<&str>) -> io::Result<()> 
         return Err(io::Error::other("supervised host failed to become ready"));
     }
     eprintln!("runtime supervision unavailable; process-group cleanup only");
-    let mut c = Command::new(env::current_exe()?);
-    c.arg("host")
+    let mut c = Command::new(executable);
+    c.arg(if local { "host-local" } else { "host" })
         .arg(root)
         .args(["--", &shell, "-l"])
         .stdin(Stdio::null())
@@ -283,6 +301,10 @@ fn main() -> io::Result<()> {
         Some("host") if a.len() >= 5 && a[3] == "--" => {
             omg_session_runtime::host::serve(Path::new(&a[2]), a[4..].to_vec())
         }
+        Some("host-local") if a.len() >= 5 && a[3] == "--" => {
+            omg_session_runtime::host::serve_local(Path::new(&a[2]), a[4..].to_vec())
+        }
+        Some("session-holder") if a.len() == 2 => omg_session_runtime::holder::run_from_stdin(),
         Some("bridge") if a.len() == 3 => bridge(&a[2]),
         Some("connect") if a.len() == 4 => {
             let config = omg_session_runtime::deploy::load(Path::new(&a[3]))?;
@@ -321,6 +343,12 @@ fn main() -> io::Result<()> {
                 Err(io::Error::other("remote close pending or unavailable"))
             }
         }
+        Some("list-local") if a.len() == 3 => {
+            let sessions = omg_session_runtime::client::list_local(Path::new(&a[2]))?;
+            serde_json::to_writer(io::stdout().lock(), &sessions)?;
+            println!();
+            Ok(())
+        }
         Some("ensure-host") if a.len() == 3 => ensure_host(&a[2], None),
         Some("report") if a.len() == 6 => report(&a[2], &a[3], &a[4], &a[5]),
         Some("handoff-check") if a.len() >= 3 => {
@@ -339,7 +367,7 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         _ => {
-            eprintln!("usage: omgd host DIRECTORY -- SHELL... | serve SOCKET -- COMMAND... | bridge SOCKET | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive]");
+            eprintln!("usage: omgd host DIRECTORY -- SHELL... | host-local DIRECTORY -- SHELL... | session-holder | serve SOCKET -- COMMAND... | bridge SOCKET | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive] | close-local SOCKET UUID | list-local SOCKET");
             std::process::exit(2)
         }
     }

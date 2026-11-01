@@ -372,8 +372,10 @@ fn drainMailbox(
                     io.backend.omg_session.queueWriteGeneration(
                         v.generation,
                         v.data.slice(),
+                        self.flags.linefeed_mode,
                     ) catch |err| switch (err) {
-                        error.SessionNotReady, error.Disconnected => {},
+                        error.SessionNotReady, error.Disconnected, error.InitialInputTooLarge, error.FrameTooLarge => {},
+                        error.OutOfMemory => return err,
                     };
                 }
             },

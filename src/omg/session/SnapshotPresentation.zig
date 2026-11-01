@@ -10,6 +10,9 @@ pub fn prepare(previous: *terminal.Terminal, replacement: *terminal.Terminal) vo
         replacement.screens.active.kitty_images.dirty = true;
     }
     replacement.flags.search_viewport_dirty = true;
+    // Secure input belongs to the local view; termios metadata updates it via
+    // balanced surface messages after the snapshot is installed.
+    replacement.flags.password_input = previous.flags.password_input;
     if (previous.screens.active_key == replacement.screens.active_key and
         !previous.screens.active.viewportIsBottom())
     {
@@ -32,9 +35,11 @@ test "session snapshot replacement retires selection pins and preserves history 
     old_stream.nextSlice("one\r\ntwo\r\nthree\r\nfour\r\nfive");
     new_stream.nextSlice("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix");
     previous.scrollViewport(.top);
+    previous.flags.password_input = true;
     prepare(&previous, &replacement);
     try std.testing.expectEqual(@as(usize, 0), replacement.screens.active.pages.scrollbar().offset);
     try std.testing.expectEqual(previous.screens.generation(.primary) + 1, replacement.screens.generation(.primary));
     try std.testing.expectEqual(previous.screens.generation(.alternate) + 1, replacement.screens.generation(.alternate));
     try std.testing.expect(replacement.flags.search_viewport_dirty);
+    try std.testing.expect(replacement.flags.password_input);
 }

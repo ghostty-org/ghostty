@@ -7,10 +7,22 @@ import Foundation
 @MainActor
 final class QuickInputDraftBridge {
     static let shared = QuickInputDraftBridge()
-    private let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("omg-quick-input-\(UUID().uuidString)", isDirectory: true)
-    private var installed = false
-    private var configuredSurfaces: Set<UUID> = []
+    private let temporaryDirectory: URL
+    private let applicationSupportRoot: URL?
+    private let homeDirectory: URL?
+    private var installedDirectories: Set<URL> = []
+    private var configuredSurfaces: [UUID: URL] = [:]
+
+    init(
+        applicationSupportRoot: URL? = nil,
+        homeDirectory: URL? = nil,
+        temporaryDirectory: URL? = nil
+    ) {
+        self.applicationSupportRoot = applicationSupportRoot
+        self.homeDirectory = homeDirectory
+        self.temporaryDirectory = temporaryDirectory ?? FileManager.default.temporaryDirectory
+            .appendingPathComponent("omg-quick-input-\(UUID().uuidString)", isDirectory: true)
+    }
 
     static func keys(_ value: String) -> [Ghostty.Input.KeyEvent]? {
         let parts = value.split(separator: ",", omittingEmptySubsequences: false)
@@ -53,17 +65,61 @@ final class QuickInputDraftBridge {
         return keys(shortcut(setting: setting, agent: agent))
     }
 
-    func configure(_ configuration: inout Ghostty.SurfaceConfiguration, surfaceID: UUID) {
+    static func canImportDraft(
+        isReadOnly: Bool,
+        isRuntime: Bool,
+        runtimeState: SessionRuntimeConnectionState?,
+        isSSHConnecting: Bool,
+        hasPendingSSHRecovery: Bool
+    ) -> Bool {
+        !isReadOnly && !isSSHConnecting && !hasPendingSSHRecovery
+            && (!isRuntime || runtimeState == .ready)
+    }
+
+    func configure(
+        _ configuration: inout Ghostty.SurfaceConfiguration,
+        surfaceID: UUID,
+        runtimeDescriptor: SessionRuntimeDescriptor? = nil
+    ) {
+        if let runtimeDescriptor, !runtimeDescriptor.isLocal {
+            for key in ["OMG_QUICK_INPUT_ORIGINAL_EDITOR", "OMG_QUICK_INPUT_BRIDGE", "OMG_QUICK_INPUT_SURFACE"] {
+                configuration.environmentVariables[key] = ""
+            }
+            configuredSurfaces.removeValue(forKey: surfaceID)
+            return
+        }
         let setting = OhMyGhosttySettings.shared.quickInputImportShortcut
         guard Self.keys(Self.shortcut(setting: setting, agent: nil)) != nil else { return }
+        let directory: URL
+        if let runtimeDescriptor {
+            guard runtimeDescriptor.isLocal,
+                  let stableDirectory = try? SessionRuntimeBridgeStorage.directory(
+                    for: runtimeDescriptor,
+                    pane: surfaceID,
+                    purpose: "quick-input",
+                    applicationSupportRoot: applicationSupportRoot,
+                    homeDirectory: homeDirectory
+                  ) else {
+                configuredSurfaces.removeValue(forKey: surfaceID)
+                return
+            }
+            directory = stableDirectory
+        } else {
+            directory = temporaryDirectory
+        }
         do {
-            if !installed {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                        attributes: [.posixPermissions: 0o700])
+            if !installedDirectories.contains(directory) {
+                if runtimeDescriptor == nil {
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                            attributes: [.posixPermissions: 0o700])
+                }
                 let helper = directory.appendingPathComponent("editor")
-                try Self.helper.write(to: helper, atomically: true, encoding: .utf8)
-                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
-                installed = true
+                try SessionRuntimeBridgeStorage.writePrivateFile(
+                    at: helper,
+                    data: Data(Self.helper.utf8),
+                    permissions: 0o700
+                )
+                installedDirectories.insert(directory)
             }
             let inherited = ProcessInfo.processInfo.environment
             let editor = configuration.environmentVariables["OMG_QUICK_INPUT_ORIGINAL_EDITOR"]
@@ -74,7 +130,7 @@ final class QuickInputDraftBridge {
             configuration.environmentVariables["OMG_QUICK_INPUT_SURFACE"] = surfaceID.uuidString
             configuration.environmentVariables["VISUAL"] = directory.appendingPathComponent("editor").path
             configuration.environmentVariables["EDITOR"] = directory.appendingPathComponent("editor").path
-            configuredSurfaces.insert(surfaceID)
+            configuredSurfaces[surfaceID] = directory
         } catch {
             // Leave the terminal's editor environment untouched if installation fails.
         }
@@ -87,7 +143,8 @@ final class QuickInputDraftBridge {
     }
 
     func begin(surfaceID: UUID) throws -> Request {
-        guard installed, configuredSurfaces.contains(surfaceID) else { throw CocoaError(.fileNoSuchFile) }
+        guard let directory = configuredSurfaces[surfaceID],
+              installedDirectories.contains(directory) else { throw CocoaError(.fileNoSuchFile) }
         let id = UUID().uuidString
         let input = directory.appendingPathComponent("\(surfaceID.uuidString).request")
         let output = directory.appendingPathComponent("\(id).response")

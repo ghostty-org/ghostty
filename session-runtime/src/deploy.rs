@@ -9,17 +9,12 @@ use std::{
     sync::{mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
-#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TransportKind {
+    #[default]
     Ssh,
     Local,
-}
-
-impl Default for TransportKind {
-    fn default() -> Self {
-        Self::Ssh
-    }
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -92,9 +87,9 @@ fn run(
     )
 }
 
-fn capture_stderr(
-    child: &mut std::process::Child,
-) -> io::Result<(Arc<Mutex<Vec<u8>>>, std::thread::JoinHandle<()>)> {
+type StderrCapture = (Arc<Mutex<Vec<u8>>>, std::thread::JoinHandle<()>);
+
+fn capture_stderr(child: &mut std::process::Child) -> io::Result<StderrCapture> {
     let mut stderr = child
         .stderr
         .take()

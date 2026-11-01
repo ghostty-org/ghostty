@@ -36,7 +36,7 @@ enum SettingsSearchCatalog {
             item(.terminal, \.sessionRecoverySection, ["sessions.startup"], "startup restore scrollback 启动 恢复 滚屏"),
             .init(id: "terminal:runtime", tab: .terminal, title: strings.runtimeTitle, anchor: strings.runtimeTitle,
                   keywords: "SSH background lifetime deadline TTL Agent completion resume 后台 会话 存活 截止 完成 恢复",
-                  prefixes: ["sessions.runtime"]),
+                  prefixes: ["sessions.runtime", "sessions.localRuntime"]),
             item(.controls, \.quickInputSection, ["keyboard.quickInputHeight", "keyboard.quickInputHistory"], "history retention 快捷输入 历史 保留"),
             item(.editor, \.editorOpeningSection, ["editor.fileOpen", "editor.directoryOpen"], "files folders 打开 文件 目录"),
             item(.editor, \.editorBehaviorSection, ["editor.keymap", "editor.autoClose", "editor.wordWrap"], "vim wrap pairs 自动换行 括号"),

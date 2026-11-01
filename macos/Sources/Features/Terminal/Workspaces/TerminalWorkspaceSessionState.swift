@@ -90,6 +90,20 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
                 return left + right
             }
         }
+
+        mutating func remapPaneIDs(using mapping: inout [String: String]) {
+            switch self {
+            case .leaf(var pane):
+                let newID = mapping[pane.uuid] ?? UUID().uuidString
+                mapping[pane.uuid] = newID
+                pane.uuid = newID
+                self = .leaf(pane)
+            case .split(var branch):
+                branch.left.remapPaneIDs(using: &mapping)
+                branch.right.remapPaneIDs(using: &mapping)
+                self = .split(branch)
+            }
+        }
     }
 
     struct Tree: Codable, Equatable {
@@ -109,6 +123,9 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
     var titleOverride: String?
     var tabSessionID: String?
     var tabCreatedAt: Date?
+    static let paneIDsPreRemappedKey = CodingUserInfoKey(
+        rawValue: "omg.workspace.pane-ids-pre-remapped"
+    )!
 
     @MainActor init(_ controller: TerminalController) {
         focusedSurface = controller.focusedSurface?.id.uuidString
@@ -130,10 +147,26 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
         return ids
     }
 
-    func instantiate() throws -> TerminalRestorableState {
+    mutating func remapPaneIDsForRestoreTabs() {
+        var mapping: [String: String] = [:]
+        surfaceTree.root?.remapPaneIDs(using: &mapping)
+        if let focusedSurface {
+            self.focusedSurface = mapping[focusedSurface]
+        }
+    }
+
+    @MainActor
+    func instantiate(restoreSessions: Bool? = nil) throws -> TerminalRestorableState {
+        let attachesSavedRuntime = restoreSessions
+            ?? SessionRuntimeRestorationPolicy.attachesSavedRuntime(for: OhMyGhosttySettings.shared.startupMode)
+        var restoredState = self
+        if !attachesSavedRuntime {
+            restoredState.remapPaneIDsForRestoreTabs()
+        }
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
-        decoder.userInfo[TerminalWorkspaceSessionStore.restoreSessionsKey] = true
-        return try decoder.decode(TerminalRestorableState.self, from: encoder.encode(self))
+        decoder.userInfo[TerminalWorkspaceSessionStore.restoreSessionsKey] = attachesSavedRuntime
+        decoder.userInfo[Self.paneIDsPreRemappedKey] = !attachesSavedRuntime
+        return try decoder.decode(TerminalRestorableState.self, from: encoder.encode(restoredState))
     }
 }

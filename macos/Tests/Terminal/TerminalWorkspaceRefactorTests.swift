@@ -42,6 +42,78 @@ struct TerminalWorkspaceRefactorTests {
         }
     }
 
+    @Test func restoreTabsRemapsEveryPaneAndFocusedSurfaceDuringDecode() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let native = try #require(app.app)
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let panes = (0..<2).map { _ in Ghostty.SurfaceView(native, baseConfig: config) }
+        let tree = SplitTree<Ghostty.SurfaceView>(root: .split(.init(
+            direction: .horizontal,
+            ratio: 0.5,
+            left: .leaf(view: panes[0]),
+            right: .leaf(view: panes[1])
+        )), zoomed: nil)
+        let original = TerminalController(app, withSurfaceTree: tree)
+        original.focusedSurface = panes[1]
+        let originalIDs = panes.map(\.id)
+        let originalFocusID = try #require(original.focusedSurface?.id.uuidString)
+        let archive = TerminalWorkspaceSessionState(original)
+
+        let restoreTabsState = try archive.instantiate(restoreSessions: false)
+        let restoredTabIDs = Array(restoreTabsState.surfaceTree).map(\.id)
+        let restoreSessionsState = try archive.instantiate(restoreSessions: true)
+        let restoredSessionIDs = Array(restoreSessionsState.surfaceTree).map(\.id)
+        let restoreTabs = TerminalController(app, withSurfaceTree: restoreTabsState.surfaceTree)
+        let restoreSessions = TerminalController(app, withSurfaceTree: restoreSessionsState.surfaceTree)
+        defer {
+            for controller in [original, restoreTabs, restoreSessions] {
+                controller.window?.delegate = nil
+                controller.window?.close()
+            }
+        }
+        _ = try #require(original.window)
+        _ = try #require(restoreTabs.window)
+        _ = try #require(restoreSessions.window)
+
+        #expect(restoredTabIDs.count == originalIDs.count)
+        #expect(Set(restoredTabIDs).isDisjoint(with: Set(originalIDs)))
+        #expect(restoreTabsState.focusedSurface == restoredTabIDs[1].uuidString)
+        #expect(restoreTabsState.focusedSurface != originalFocusID)
+        #expect(restoredSessionIDs == originalIDs)
+        #expect(restoreSessionsState.focusedSurface == originalFocusID)
+    }
+
+    @Test func newTerminalModeDoesNotClaimSavedWorkspaceTabs() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        _ = try fixture.tab()
+        fixture.sessions.start(fixture.app)
+        fixture.sessions.capture()
+        fixture.sessions.flush()
+
+        let url = fixture.directory.appendingPathComponent("state.json")
+        let saved = try JSONDecoder().decode(
+            TerminalWorkspaceSessionStore.Snapshot.self,
+            from: Data(contentsOf: url)
+        )
+        #expect(saved.isComplete)
+
+        let settings = OhMyGhosttySettings.shared
+        let previousMode = settings.startupMode
+        settings.startupMode = .newTerminal
+        defer { settings.startupMode = previousMode }
+
+        let store = TerminalWorkspaceStore(fileURL: nil)
+        let sessions = TerminalWorkspaceSessionStore(url: url, testing: true, workspaces: store)
+        let controllerCount = TerminalController.all.count
+        sessions.prepare()
+
+        #expect(!sessions.ownsRestoration)
+        #expect(store.snapshot.membership.isEmpty)
+        #expect(TerminalController.all.count == controllerCount)
+    }
+
     @Test func stateCommandsPreserveOwnershipAndSelectionAcrossLongSequences() throws {
         var state = TerminalWorkspaceState()
         let other = UUID(), host = UUID(), secondHost = UUID()

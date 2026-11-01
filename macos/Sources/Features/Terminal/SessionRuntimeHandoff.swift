@@ -8,11 +8,20 @@ final class SessionRuntimeHandoff {
     private var tokens: [UUID: String] = [:]
     private let directory: URL
     private let resources: URL
+    private let applicationSupportRoot: URL?
+    private let homeDirectory: URL?
 
-    init(resources: URL? = nil, directory: URL? = nil) {
+    init(
+        resources: URL? = nil,
+        directory: URL? = nil,
+        applicationSupportRoot: URL? = nil,
+        homeDirectory: URL? = nil
+    ) {
         self.resources = resources ?? SessionRuntimeConnections.resources
         self.directory = directory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("omg-ssh-handoff-" + UUID().uuidString)
+        self.applicationSupportRoot = applicationSupportRoot
+        self.homeDirectory = homeDirectory
     }
 
     func configure(_ config: inout Ghostty.SurfaceConfiguration, pane: UUID) {
@@ -23,7 +32,31 @@ final class SessionRuntimeHandoff {
             config.environmentVariables[key] = ""
         }
         tokens.removeValue(forKey: pane)
-        guard config.environmentVariables[SessionRuntimeDescriptor.environmentKey] == nil else { return }
+        let descriptor = config.environmentVariables[SessionRuntimeDescriptor.environmentKey]
+            .flatMap { try? JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data($0.utf8)) }
+        if let descriptor {
+            guard descriptor.isLocal else { return }
+            do {
+                let bridge = try SessionRuntimeBridgeStorage.directory(
+                    for: descriptor,
+                    pane: pane,
+                    purpose: "handoff",
+                    applicationSupportRoot: applicationSupportRoot,
+                    homeDirectory: homeDirectory
+                )
+                let helper = try SessionRuntimeConnections.shared.cachedHelper(
+                    for: descriptor,
+                    applicationSupportRoot: applicationSupportRoot
+                )
+                let token = try SessionRuntimeBridgeStorage.capabilityToken(in: bridge)
+                config.environmentVariables["OMG_SSH_HANDOFF_HELPER"] = helper.path
+                config.environmentVariables["OMG_SSH_HANDOFF_DIRECTORY"] = bridge.path
+                config.environmentVariables["OMG_SSH_HANDOFF_TOKEN"] = token
+            } catch {
+                Ghostty.logger.error("Could not prepare persistent native SSH handoff")
+            }
+            return
+        }
         let helper = resources.appendingPathComponent("omgd")
         guard FileManager.default.isExecutableFile(atPath: helper.path) else { return }
         do {
@@ -60,19 +93,35 @@ final class SessionRuntimeHandoff {
     func accept(_ signal: Ghostty.ContextSignal, source: Ghostty.SurfaceView, controller: TerminalController) -> Bool {
         let prefix = "omg-runtime-request-"
         guard signal.id.hasPrefix(prefix) else { return false }
-        guard source.runtimeDescriptor == nil, signal.action == .start else { return true }
+        guard source.runtimeDescriptor == nil || source.runtimeDescriptor?.isLocal == true,
+              signal.action == .start else { return true }
         let name = String(signal.id.dropFirst(prefix.count))
         guard name.count == 32, name.allSatisfy(\.isHexDigit) else { return true }
-        let file = directory.appendingPathComponent(name + ".json")
+        let requestDirectory: URL
+        let token: String?
+        if let descriptor = source.runtimeDescriptor {
+            do {
+                requestDirectory = try SessionRuntimeBridgeStorage.directory(
+                    for: descriptor,
+                    pane: source.id,
+                    purpose: "handoff",
+                    applicationSupportRoot: applicationSupportRoot,
+                    homeDirectory: homeDirectory
+                )
+                token = try SessionRuntimeBridgeStorage.capabilityToken(in: requestDirectory)
+            } catch { return true }
+        } else {
+            requestDirectory = directory
+            token = tokens[source.id]
+        }
+        let file = requestDirectory.appendingPathComponent(name + ".json")
         defer { try? FileManager.default.removeItem(at: file) }
         struct Request: Decodable { let token: String; let ssh: String; let args: [String]; let cwd: String }
         var authenticated = false
         do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
-            guard attributes[.type] as? FileAttributeType == .typeRegular,
-                  (attributes[.size] as? NSNumber)?.intValue ?? Int.max < 65536 else { return true }
-            let request = try JSONDecoder().decode(Request.self, from: Data(contentsOf: file))
-            guard request.token == tokens[source.id] else { return true }
+            let requestData = try SessionRuntimeBridgeStorage.readPrivateFile(at: file, maximumSize: 65_536)
+            let request = try JSONDecoder().decode(Request.self, from: requestData)
+            guard request.token == token else { return true }
             authenticated = true
             guard let parsed = OpenSSHArguments(request.args),
                   let destination = parsed.interactiveDestination,
@@ -83,11 +132,11 @@ final class SessionRuntimeHandoff {
                 executablePath: executable, localWorkingDirectory: request.cwd)
             let descriptor = try SessionRuntimeConnections.descriptor(connection: connection, policy: OhMyGhosttySettings.shared.runtimePolicy)
             try openRemoteTab(descriptor, in: controller)
-            try Data().write(to: directory.appendingPathComponent(name + ".accepted"), options: .atomic)
+            try Data().write(to: requestDirectory.appendingPathComponent(name + ".accepted"), options: .atomic)
         } catch {
             if authenticated {
                 try? Data(error.localizedDescription.utf8).write(
-                    to: directory.appendingPathComponent(name + ".failed"), options: .atomic
+                    to: requestDirectory.appendingPathComponent(name + ".failed"), options: .atomic
                 )
             }
             Ghostty.logger.error("Native SSH handoff failed: \(error.localizedDescription, privacy: .public)")

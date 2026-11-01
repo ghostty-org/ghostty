@@ -509,8 +509,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // an actual external-editor request may retain its TUI's last frame.
         presentQuickInput(for: surface, requestFocus: true)
         guard quickInputDraftImportTask == nil else { return }
+        let currentContext = paneSessionContext(for: surface)
+        let sshConnecting: Bool
+        if case .sshConnecting? = currentContext?.state {
+            sshConnecting = true
+        } else {
+            sshConnecting = false
+        }
+        guard QuickInputDraftBridge.canImportDraft(
+            isReadOnly: surface.readonly,
+            isRuntime: surface.runtimeDescriptor != nil,
+            runtimeState: surface.runtimeConnectionState,
+            isSSHConnecting: sshConnecting,
+            hasPendingSSHRecovery: pendingSSHRecovery(for: surface) != nil
+        ) else { return }
         let setting = OhMyGhosttySettings.shared.quickInputImportShortcut
-        if let context = paneSessionContext(for: surface), context.isSSHSession {
+        if let context = currentContext, context.isSSHSession {
             importRemoteQuickInputDraft(for: surface, context: context, setting: setting)
             return
         }
@@ -934,16 +948,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
          workspaceGroupID: UUID? = nil,
          workspaceCoordinator: TerminalWorkspaceCoordinator? = nil
     ) {
+        var resolvedBase = base
+        if tree == nil {
+            var configuration = resolvedBase ?? .init()
+            if SessionRuntimeConnections.automaticallyConfigureLocalRuntime(
+                &configuration,
+                policy: OhMyGhosttySettings.shared.runtimePolicy,
+                enabled: OhMyGhosttySettings.shared.localRuntimeEnabled
+            ) {
+                resolvedBase = configuration
+            }
+        }
         // The window we manage is not restorable if we've specified a command
         // to execute. We do this because the restored window is meaningless at the
         // time of writing this: it'd just restore to a shell in the same directory
         // as the script. We may want to revisit this behavior when we have scrollback
         // restoration.
-        self.startedWithCustomCommand = !(base?.command ?? "").isEmpty
+        self.startedWithCustomCommand = !(resolvedBase?.command ?? "").isEmpty
+        let hasRuntimeDescriptor = resolvedBase?.environmentVariables[SessionRuntimeDescriptor.environmentKey] != nil
         self.restorable = Self.canRestoreWindow(
             customCommand: startedWithCustomCommand,
             mode: OhMyGhosttySettings.shared.startupMode,
-            hasResumeDescriptor: false
+            hasResumeDescriptor: hasRuntimeDescriptor
         )
 
         // Setup our initial derived config based on the current app config
@@ -981,8 +1007,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.tabLastActivatedAt = now
 
         let sessionBase = tree == nil
-            ? Self.injectingSessionID(self.tabSessionID, into: base)
-            : base
+            ? Self.injectingSessionID(self.tabSessionID, into: resolvedBase)
+            : resolvedBase
         initialTabParent = parent
         let parentLayout = parentController?.workspaceID == resolvedWorkspaceID ? parentController?.tabLayoutState : nil
         let initialLayoutState = parentLayout ?? VerticalTabWindowLayoutState(
@@ -2272,22 +2298,44 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     func tabConfiguration(
         inherited config: Ghostty.SurfaceConfiguration?,
-        from source: Ghostty.SurfaceView
+        from source: Ghostty.SurfaceView,
+        runtimeRevision: String? = nil,
+        runtimePolicy: SessionRuntimePolicy? = nil,
+        localRuntimeEnabled: Bool? = nil
     ) -> Ghostty.SurfaceConfiguration? {
         if let runtime = source.runtimeDescriptor {
             if runtime.isLocal {
-                var next = runtime
-                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(
-                    source.pwd ?? runtime.launchWorkingDirectory
-                )
+                guard localRuntimeEnabled ?? OhMyGhosttySettings.shared.localRuntimeEnabled else {
+                    var result = config ?? .init()
+                    result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)
+                    result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.localRuntimeEnvironmentKey)
+                    result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.attachExistingEnvironmentKey)
+                    result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
+                    result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
+                    return result
+                }
+                let policy = runtimePolicy ?? OhMyGhosttySettings.shared.runtimePolicy
+                var next: SessionRuntimeDescriptor
+                if let runtimeRevision {
+                    next = SessionRuntimeDescriptor(
+                        connection: nil,
+                        revision: runtimeRevision,
+                        policy: policy,
+                        localWorkingDirectory: runtime.launchWorkingDirectory
+                    )
+                } else if let current = try? SessionRuntimeConnections.localDescriptor(
+                    workingDirectory: runtime.launchWorkingDirectory,
+                    policy: policy
+                ) {
+                    next = current
+                } else {
+                    return nil
+                }
+                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(config?.workingDirectory)
                 var result = config ?? .init()
                 do { try next.configure(&result) } catch { return nil }
                 result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
                 result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
-                result.workingDirectory = nil
-                result.command = nil
-                result.initialInput = nil
-                result.waitAfterCommand = false
                 return result
             }
             guard let connection = runtime.connection else { return config }
@@ -2347,34 +2395,54 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     func splitConfiguration(
         inherited config: Ghostty.SurfaceConfiguration?,
         from source: Ghostty.SurfaceView,
-        runtimeRevision: String? = nil
+        runtimeRevision: String? = nil,
+        runtimePolicy: SessionRuntimePolicy? = nil,
+        localRuntimeEnabled: Bool? = nil
     ) throws -> Ghostty.SurfaceConfiguration? {
+        let settings = OhMyGhosttySettings.shared
+        let effectiveRuntimePolicy = runtimePolicy ?? settings.runtimePolicy
+        let effectiveLocalRuntimeEnabled = localRuntimeEnabled ?? settings.localRuntimeEnabled
         if let runtime = source.runtimeDescriptor {
+            if runtime.isLocal, !effectiveLocalRuntimeEnabled {
+                var result = config ?? .init()
+                result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)
+                result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.localRuntimeEnvironmentKey)
+                result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.attachExistingEnvironmentKey)
+                result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
+                result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
+                return Self.injectingSessionID(tabSessionID, into: result)
+            }
             // A split creates a new PTY on this host. Use the current bundled
             // protocol; the existing pane remains pinned to its own revision.
             var next: SessionRuntimeDescriptor
             if let connection = runtime.connection {
                 next = try runtimeRevision.map {
-                    SessionRuntimeDescriptor(connection: connection, revision: $0, policy: runtime.policy)
-                } ?? SessionRuntimeConnections.descriptor(connection: connection, policy: runtime.policy)
+                    SessionRuntimeDescriptor(connection: connection, revision: $0, policy: effectiveRuntimePolicy)
+                } ?? SessionRuntimeConnections.descriptor(connection: connection, policy: effectiveRuntimePolicy)
             } else {
                 next = try runtimeRevision.map {
-                    SessionRuntimeDescriptor(connection: nil, revision: $0, policy: runtime.policy,
+                    SessionRuntimeDescriptor(connection: nil, revision: $0, policy: effectiveRuntimePolicy,
                                              localWorkingDirectory: runtime.launchWorkingDirectory)
                 } ?? SessionRuntimeConnections.localDescriptor(
                     workingDirectory: runtime.launchWorkingDirectory,
-                    policy: runtime.policy
+                    policy: effectiveRuntimePolicy
                 )
             }
-            next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(source.pwd)
+            let inheritedWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(
+                runtime.isLocal ? config?.workingDirectory : source.pwd
+            )
+            next.initialWorkingDirectory = inheritedWorkingDirectory
             var result = config ?? .init()
             try next.configure(&result)
+            result.environmentVariables[SessionRuntimeDescriptor.attachExistingEnvironmentKey] = ""
             result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
             result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
-            result.workingDirectory = nil
-            result.command = nil
-            result.initialInput = nil
-            result.waitAfterCommand = false
+            if !runtime.isLocal {
+                result.workingDirectory = nil
+                result.command = nil
+                result.initialInput = nil
+                result.waitAfterCommand = false
+            }
             return Self.injectingSessionID(tabSessionID, into: result)
         }
         guard let session = paneSessionContext(for: source) else { return config }
@@ -2384,12 +2452,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case .sshConnecting(let ssh), .sshReady(let ssh, _):
             ssh.replay ?? SSHReplayStore.load(connectionID: ssh.connectionID)
         }
-        let split = Self.splitConfiguration(
+        var split = Self.splitConfiguration(
             inherited: config,
             session: session,
             replay: replay,
             executablePath: Bundle.main.executableURL?.path
         )
+        if split == nil,
+           case .local = session.state,
+           effectiveLocalRuntimeEnabled,
+           SessionRuntimeConnections.supportsAutomaticLocalRuntime {
+            split = .init()
+        }
+        if var localConfiguration = split,
+           SessionRuntimeConnections.automaticallyConfigureLocalRuntime(
+               &localConfiguration,
+               policy: effectiveRuntimePolicy,
+               enabled: effectiveLocalRuntimeEnabled
+           ) {
+            split = localConfiguration
+        }
         return Self.injectingSessionID(tabSessionID, into: split)
     }
 
@@ -4233,6 +4315,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // process them on later ticks so we can't just disable undo registration.
                 if let controller = window.windowController as? TerminalController {
                     controller.cancelPendingInitialPresentation()
+                    controller.surfaceTree.forEach { $0.suspendRuntimeAttachment() }
                     controller.surfaceTree = .init()
                 }
 
@@ -4356,6 +4439,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
+        let closeCopy = SessionRuntimeCloseCopy(
+            surfaces: all.flatMap { Array($0.surfaceTree) }
+        )
         // The window we use for confirmations. Try to find the first window that
         // needs quit confirmation. This lets us attach the confirmation to something
         // that is running.
@@ -4370,7 +4456,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         let alert = NSAlert()
         alert.messageText = "Close All Windows?"
-        alert.informativeText = "All terminal sessions will be terminated."
+        alert.informativeText = closeCopy.windowMessage(
+            allWindows: true,
+            strings: SettingsStrings(language: OhMyGhosttySettings.shared.language)
+        )
         alert.addButton(withTitle: "Close All Windows")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
@@ -4506,6 +4595,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     override func windowDidLoad() {
         super.windowDidLoad()
+        surfaceTree.forEach { $0.resumeRuntimeAttachment() }
         guard let window else { return }
         DevMemoryDiagnostics.windowOpened()
         window.tabbingIdentifier = workspaceCoordinator.nativeTabbingIdentifier(for: self)
@@ -4928,7 +5018,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // attached to the window that needs confirmation.
         confirmController.confirmClose(
             messageText: "Close Window?",
-            informativeText: "All terminal sessions in this window will be terminated.",
+            informativeText: SessionRuntimeCloseCopy(surfaces: Array(surfaceTree)).windowMessage(
+                allWindows: false,
+                strings: SettingsStrings(language: OhMyGhosttySettings.shared.language)
+            ),
         ) {
             self.closeWindowImmediately()
         }
@@ -5045,7 +5138,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         if changedKey == nil || changedKey == "sessions.startupMode" {
             let hasResume = surfaceTree.contains {
-                $0.agentResumeDescriptor != nil || $0.sshResumeDescriptor != nil
+                $0.runtimeDescriptor != nil || $0.agentResumeDescriptor != nil || $0.sshResumeDescriptor != nil
             }
             let next = Self.canRestoreWindow(
                 customCommand: startedWithCustomCommand,

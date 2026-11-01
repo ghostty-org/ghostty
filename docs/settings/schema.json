@@ -372,12 +372,18 @@
       "description": "Allow completion events to request a notification.",
       "type": "boolean"
     },
+    "sessions.localRuntimeEnabled": {
+      "category": "general",
+      "default": true,
+      "description": "Keep newly created local terminals in the session runtime, with at most 4 MiB logical terminal history and any lower Ghostty limits. Disable for larger ordinary PTY history. Existing terminals are unchanged.",
+      "type": "boolean"
+    },
     "sessions.runtimeDetachedHours": {
       "category": "general",
       "default": 72,
       "minimum": 0,
       "maximum": 8760,
-      "description": "Maximum detached SSH session lifetime; zero explicitly means unlimited.",
+      "description": "Maximum detached local or SSH session lifetime; zero explicitly means unlimited.",
       "type": "number"
     },
     "sessions.runtimeExpiration": {

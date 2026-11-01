@@ -1,6 +1,7 @@
 //! Persistent local client endpoint with one reconnecting transport per host.
 use crate::{
     host::{self, inner_frame},
+    record::SessionSummary,
     registry::OpenRequest,
     Frame, Peer, ACK, CLAIM, CLOSE, EXIT, INPUT, MAX_FRAME, RESIZE, SNAPSHOT,
 };
@@ -19,6 +20,8 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
 const PEER_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const STABLE_RESET: Duration = Duration::from_secs(60);
 const MAX_PEERS: usize = 64;
+const MAX_LIST_WAITERS: usize = 3;
+const LIST_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct RelayTransport {
     pub socket: UnixStream,
@@ -63,6 +66,7 @@ struct LocalPeer {
     control: bool,
     control_done: bool,
     close_id: Option<String>,
+    list_requested: bool,
 }
 
 impl LocalPeer {
@@ -84,6 +88,7 @@ impl LocalPeer {
             control: false,
             control_done: false,
             close_id: None,
+            list_requested: false,
         }
     }
 }
@@ -163,7 +168,35 @@ fn open_request(peer: &LocalPeer) -> io::Result<(u8, Vec<u8>)> {
     // A confirmed or explicitly retried UUID is attach-only. It can never
     // silently launch a shell or replay an Agent after daemon loss.
     request.create = request.create && !peer.snapshot_confirmed && !peer.retry_requested;
+    if !request.create {
+        request.launch = None;
+    }
     Ok((b'C', serde_json::to_vec(&request)?))
+}
+
+fn clear_launch_data(peer: &mut LocalPeer) {
+    let Some(bytes) = peer.open.as_ref() else {
+        return;
+    };
+    let Ok(mut request) = serde_json::from_slice::<OpenRequest>(bytes) else {
+        return;
+    };
+    request.create = false;
+    request.launch = None;
+    if let Ok(bytes) = serde_json::to_vec(&request) {
+        peer.open = Some(bytes);
+    }
+}
+
+fn begin_list(remote: &mut Peer, peers: &HashMap<u64, LocalPeer>, in_flight: &mut bool) {
+    if !*in_flight
+        && peers
+            .values()
+            .any(|peer| peer.list_requested && !peer.control_done)
+    {
+        remote.push(Frame::new(b'L', 0, &[]));
+        *in_flight = true;
+    }
 }
 
 fn begin_open(
@@ -251,19 +284,7 @@ fn send_outer_open(remote: &mut Peer, id: u64, kind: u8, data: &[u8]) {
 }
 
 fn discard_queued_output(peer: &mut Peer) {
-    if peer.offset == 0 {
-        peer.queue.clear();
-        peer.queued = 0;
-        return;
-    }
-    let Some(front) = peer.queue.front().cloned() else {
-        peer.queued = 0;
-        peer.offset = 0;
-        return;
-    };
-    peer.queue.clear();
-    peer.queued = front.len().saturating_sub(peer.offset);
-    peer.queue.push_back(front);
+    peer.discard_queued_output();
 }
 
 fn reset_remote_streams(peers: &mut HashMap<u64, LocalPeer>, discard_output: bool) {
@@ -318,6 +339,8 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
     let mut capabilities_received = false;
     let mut strict_open = false;
     let mut durable_close = false;
+    let mut local_launch = false;
+    let mut list_in_flight = false;
     let mut generation_counter = initial_generation;
     let mut state = State::Connecting;
     let mut attempt = 0u32;
@@ -333,10 +356,12 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
     let mut idle_since = Instant::now();
 
     loop {
-        if peers
-            .values()
-            .any(|p| !p.ended && (!p.control || p.close_id.is_some() && !p.control_done))
-        {
+        if peers.values().any(|p| {
+            !p.ended
+                && (!p.control
+                    || p.close_id.is_some() && !p.control_done
+                    || p.list_requested && !p.control_done)
+        }) {
             idle_since = Instant::now();
         } else if idle_since.elapsed() > PEER_IDLE_TIMEOUT {
             return Ok(());
@@ -356,6 +381,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
             _transport_guard = None;
             remote_streams.clear();
             reset_remote_streams(&mut peers, true);
+            list_in_flight = false;
             advance_peer_generations(&mut peers, &mut generation_counter);
             stable_since = None;
             state = State::Reconnecting;
@@ -402,6 +428,8 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             capabilities_received = false;
                             strict_open = false;
                             durable_close = false;
+                            local_launch = false;
+                            list_in_flight = false;
                             remote.as_mut().unwrap().push(Frame::new(b'P', 0, &[]));
                             last_heartbeat = Instant::now();
                             stable_since = None;
@@ -483,6 +511,10 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
         let ids: Vec<_> = peers.keys().copied().collect();
         let mut manual_retry = None;
         for id in ids {
+            let list_waiters = peers
+                .values()
+                .filter(|candidate| candidate.list_requested && !candidate.control_done)
+                .count();
             let has_failed_stream = peers.values().any(|p| !p.control && p.failed && !p.ended);
             let has_observer = peers.values().any(|p| {
                 !p.control
@@ -502,6 +534,23 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             continue;
                         }
                         if peer.open.is_none() {
+                            if frame.kind == b'L' {
+                                peer.control = true;
+                                if frame.seq != 0 || !frame.data.is_empty() {
+                                    peer.peer.push(Frame::new(b'E', 0, b"invalid list request"));
+                                    peer.control_done = true;
+                                } else if list_waiters >= MAX_LIST_WAITERS {
+                                    peer.peer.push(Frame::new(
+                                        b'E',
+                                        0,
+                                        b"too many pending catalogue requests",
+                                    ));
+                                    peer.control_done = true;
+                                } else {
+                                    peer.list_requested = true;
+                                }
+                                continue;
+                            }
                             if frame.kind == b'y' {
                                 peer.control = true;
                                 let interactive = frame.data == b"interactive/1";
@@ -535,8 +584,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             }
                             if frame.kind == CLOSE
                                 && frame.data.len() == 36
-                                && std::str::from_utf8(&frame.data)
-                                    .is_ok_and(|id| host::valid_id(id))
+                                && std::str::from_utf8(&frame.data).is_ok_and(host::valid_id)
                             {
                                 peer.control = true;
                                 peer.close_id =
@@ -560,7 +608,17 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                                 Ok(request) if host::valid_id(&request.id) => {
                                     peer.initial_create = request.create;
                                     peer.open = Some(frame.data);
-                                    if capabilities_received && !strict_open {
+                                    if capabilities_received
+                                        && request.launch.is_some()
+                                        && !local_launch
+                                    {
+                                        peer.failed = true;
+                                        peer.peer.push(Frame::new(
+                                            b'E',
+                                            0,
+                                            b"runtime does not support persistent local launches; no session was created",
+                                        ));
+                                    } else if capabilities_received && !strict_open {
                                         peer.failed = true;
                                         peer.peer.push(Frame::new(
                                             b'E',
@@ -657,8 +715,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                     set_peer_status(peer, attempt);
                 }
             }
-            if remote.is_some() {
-                let remote = remote.as_mut().unwrap();
+            if let Some(remote) = remote.as_mut() {
                 for id in &failed {
                     if let Some(peer) = peers.get_mut(id) {
                         if !strict_open {
@@ -722,6 +779,9 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                 remote.push(Frame::new(b'P', 0, &[]));
                 last_heartbeat = Instant::now();
             }
+            if capabilities_received {
+                begin_list(remote, &peers, &mut list_in_flight);
+            }
             Some(remote.read())
         } else {
             None
@@ -736,19 +796,39 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             capabilities_received = true;
                             strict_open = has_capability(&frame.data, "strict-open/1");
                             durable_close = has_capability(&frame.data, "durable-close/1");
-                            if first_capabilities && !strict_open {
+                            local_launch = has_capability(&frame.data, "local-launch/1");
+                            if first_capabilities {
                                 for peer in peers
                                     .values_mut()
                                     .filter(|p| !p.control && !p.ended && p.open.is_some())
                                 {
-                                    peer.failed = true;
-                                    peer.remote_stream = None;
-                                    peer.peer.push(Frame::new(
-                                        b'E',
-                                        0,
-                                        b"remote runtime is too old for safe session attach; remote process was preserved",
-                                    ));
+                                    let requires_local_launch = peer
+                                        .open
+                                        .as_ref()
+                                        .and_then(|bytes| {
+                                            serde_json::from_slice::<OpenRequest>(bytes).ok()
+                                        })
+                                        .is_some_and(|request| request.launch.is_some());
+                                    if requires_local_launch && !local_launch {
+                                        peer.failed = true;
+                                        peer.remote_stream = None;
+                                        peer.peer.push(Frame::new(
+                                            b'E',
+                                            0,
+                                            b"runtime does not support persistent local launches; no session was created",
+                                        ));
+                                    } else if !strict_open {
+                                        peer.failed = true;
+                                        peer.remote_stream = None;
+                                        peer.peer.push(Frame::new(
+                                            b'E',
+                                            0,
+                                            b"remote runtime is too old for safe session attach; remote process was preserved",
+                                        ));
+                                    }
                                 }
+                            }
+                            if first_capabilities && !strict_open {
                                 for peer in peers.values_mut().filter(|p| {
                                     p.control && !p.control_done && p.close_id.is_some()
                                 }) {
@@ -759,6 +839,42 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                                     ));
                                     peer.control_done = true;
                                 }
+                            }
+                            continue;
+                        }
+                        if frame.kind == b'L' && frame.seq == 0 {
+                            list_in_flight = false;
+                            if frame.data.len() > 8 * 1024 * 1024 {
+                                for peer in peers
+                                    .values_mut()
+                                    .filter(|peer| peer.list_requested && !peer.control_done)
+                                {
+                                    peer.peer.push(Frame::new(
+                                        b'E',
+                                        0,
+                                        b"session catalogue exceeds size limit",
+                                    ));
+                                    peer.control_done = true;
+                                }
+                            } else {
+                                for peer in peers
+                                    .values_mut()
+                                    .filter(|peer| peer.list_requested && !peer.control_done)
+                                {
+                                    peer.peer.push(Frame::new(b'L', 0, &frame.data));
+                                    peer.control_done = true;
+                                }
+                            }
+                            continue;
+                        }
+                        if frame.kind == b'E' && frame.seq == 0 && list_in_flight {
+                            list_in_flight = false;
+                            for peer in peers
+                                .values_mut()
+                                .filter(|peer| peer.list_requested && !peer.control_done)
+                            {
+                                peer.peer.push(Frame::new(b'E', 0, &frame.data));
+                                peer.control_done = true;
                             }
                             continue;
                         }
@@ -828,6 +944,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             SNAPSHOT => {
                                 peer.snapshot_generation = Some(peer.generation);
                                 peer.snapshot_confirmed = true;
+                                clear_launch_data(peer);
                                 peer.failed = false;
                                 peer.retry_requested = false;
                                 peer.snapshot_acked = false;
@@ -864,6 +981,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                     _transport_guard = None;
                     remote_streams.clear();
                     reset_remote_streams(&mut peers, true);
+                    list_in_flight = false;
                     advance_peer_generations(&mut peers, &mut generation_counter);
                     stable_since = None;
                     capabilities_received = false;
@@ -913,6 +1031,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
             _transport_guard = None;
             remote_streams.clear();
             reset_remote_streams(&mut peers, true);
+            list_in_flight = false;
             advance_peer_generations(&mut peers, &mut generation_counter);
             stable_since = None;
             capabilities_received = false;
@@ -948,4 +1067,80 @@ pub fn retry_local(socket: &Path, interactive: bool) -> io::Result<()> {
             String::from_utf8_lossy(&response.data).into_owned(),
         ))
     }
+}
+
+/// Read the session catalogue through an existing relay without opening a pane.
+pub fn list_local(socket: &Path) -> io::Result<Vec<SessionSummary>> {
+    let deadline = Instant::now() + LIST_REQUEST_TIMEOUT;
+    let mut last_error = None;
+    for attempt in 0..3 {
+        let mut stream = match UnixStream::connect(socket) {
+            Ok(stream) => stream,
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < 2 {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                break;
+            }
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "session catalogue request timed out",
+            ));
+        }
+        stream.set_read_timeout(Some(remaining))?;
+        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+        Frame::new(b'L', 0, &[]).send(&mut stream)?;
+        loop {
+            match Frame::read(&mut stream) {
+                Ok(frame) if frame.kind == b'T' || frame.kind == b'P' && frame.seq == 0 => {}
+                Ok(frame) if frame.kind == b'L' && frame.seq == 0 => {
+                    if frame.data.len() > 8 * 1024 * 1024 {
+                        return Err(io::Error::other("session catalogue exceeds size limit"));
+                    }
+                    let sessions: Vec<SessionSummary> = serde_json::from_slice(&frame.data)?;
+                    if sessions.len() > 2048 {
+                        return Err(io::Error::other("session catalogue exceeds entry limit"));
+                    }
+                    return Ok(sessions);
+                }
+                Ok(frame) if frame.kind == b'E' => {
+                    let message = String::from_utf8_lossy(&frame.data);
+                    return Err(io::Error::other(
+                        message.chars().take(1024).collect::<String>(),
+                    ));
+                }
+                Ok(_) => {
+                    return Err(io::Error::other("invalid session catalogue response"));
+                }
+                Err(error)
+                    if attempt < 2
+                        && matches!(
+                            error.kind(),
+                            io::ErrorKind::UnexpectedEof
+                                | io::ErrorKind::ConnectionReset
+                                | io::ErrorKind::BrokenPipe
+                                | io::ErrorKind::NotConnected
+                        ) =>
+                {
+                    last_error = Some(error);
+                    break;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        if attempt < 2 {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "session catalogue request timed out",
+        )
+    }))
 }

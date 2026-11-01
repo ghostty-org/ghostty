@@ -2,9 +2,11 @@ use crate::*;
 use crate::{
     lifecycle::{unix_time, EndReason, Lifetime},
     record::{nonce, AgentEvent, Record},
+    registry::LocalLaunchSpec,
 };
 use std::{
-    ffi::c_void,
+    collections::HashSet,
+    ffi::{c_void, CStr},
     fs::{self, File},
     os::{
         fd::{AsRawFd, FromRawFd},
@@ -40,6 +42,104 @@ fn terminate_group(master: i32, leader: u32, signal: i32) {
         }
     }
 }
+
+fn foreground_session_group(master: i32, leader: u32) -> Option<u64> {
+    let foreground = unsafe { libc::tcgetpgrp(master) };
+    if foreground <= 1 || unsafe { libc::getsid(foreground) } != leader as i32 {
+        return None;
+    }
+    Some(foreground as u64)
+}
+
+fn terminal_name(fd: i32) -> Option<String> {
+    let mut buffer = [0 as libc::c_char; 4096];
+    if unsafe { libc::ttyname_r(fd, buffer.as_mut_ptr(), buffer.len()) } != 0 {
+        return None;
+    }
+    let value = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_str().ok()?;
+    (value.starts_with("/dev/") && value.len() <= 4096).then(|| value.to_string())
+}
+
+fn password_input(master: i32) -> bool {
+    let mut settings = unsafe { std::mem::zeroed::<libc::termios>() };
+    if unsafe { libc::tcgetattr(master, &mut settings) } != 0 {
+        return false;
+    }
+    settings.c_lflag & libc::ICANON != 0 && settings.c_lflag & libc::ECHO == 0
+}
+
+fn enable_utf8_input(master: i32) -> io::Result<()> {
+    let mut settings = unsafe { std::mem::zeroed::<libc::termios>() };
+    if unsafe { libc::tcgetattr(master, &mut settings) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    settings.c_iflag |= libc::IUTF8;
+    if unsafe { libc::tcsetattr(master, libc::TCSANOW, &settings) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn runtime_millis(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
+}
+
+fn resize_dimensions(data: &[u8]) -> Option<(u16, u16, u16, u16)> {
+    match data.len() {
+        4 => {
+            let cols = u16::from_be_bytes(data[..2].try_into().ok()?);
+            let rows = u16::from_be_bytes(data[2..4].try_into().ok()?);
+            Some((cols, rows, cols.saturating_mul(8), rows.saturating_mul(16)))
+        }
+        8 => Some((
+            u16::from_be_bytes(data[..2].try_into().ok()?),
+            u16::from_be_bytes(data[2..4].try_into().ok()?),
+            u16::from_be_bytes(data[4..6].try_into().ok()?),
+            u16::from_be_bytes(data[6..8].try_into().ok()?),
+        )),
+        _ => None,
+    }
+}
+
+fn peer_wants_write(peer: &Peer) -> bool {
+    peer.queued > 0
+        && !(peer.ack.is_some()
+            && peer
+                .queue
+                .front()
+                .and_then(|frame| frame.first().copied())
+                .is_some_and(|kind| matches!(kind, OUTPUT | RESIZE | EXIT | b'M')))
+}
+
+fn pty_poll_interests(eof: bool, input_pending: bool) -> libc::c_short {
+    if eof {
+        return 0;
+    }
+    libc::POLLIN | if input_pending { libc::POLLOUT } else { 0 }
+}
+
+fn queue_snapshot(peer: &mut Peer, seq: u64, snapshot: io::Result<Vec<u8>>) -> bool {
+    match snapshot {
+        Ok(bytes) if bytes.len() <= MAX_FRAME => {
+            peer.push(Frame::new(SNAPSHOT, seq, &bytes));
+            peer.ack = Some(seq);
+            true
+        }
+        Ok(_) => {
+            peer.push(Frame::new(
+                b'E',
+                seq,
+                b"terminal snapshot exceeds the protocol size limit",
+            ));
+            false
+        }
+        Err(_) => {
+            peer.push(Frame::new(b'E', seq, b"terminal snapshot is unavailable"));
+            false
+        }
+    }
+}
+
 struct ChildGuard(Child);
 impl std::ops::Deref for ChildGuard {
     type Target = Child;
@@ -71,7 +171,7 @@ impl Drop for SocketGuard {
 /// Prototype intentionally has one session, created explicitly at daemon startup.
 /// Disconnect never touches the PTY; only Close or child exit ends the session.
 pub fn serve(path: &Path, argv: &[String]) -> io::Result<()> {
-    serve_managed(path, argv, None)
+    serve_managed(path, argv.to_vec(), None)
 }
 
 pub struct ManagedSession {
@@ -79,11 +179,12 @@ pub struct ManagedSession {
     pub record: Record,
     pub containment_root: Option<PathBuf>,
     pub initial_cwd: Option<PathBuf>,
+    pub local_launch: Option<LocalLaunchSpec>,
 }
 
 pub fn serve_managed(
     path: &Path,
-    argv: &[String],
+    argv: Vec<String>,
     mut managed: Option<ManagedSession>,
 ) -> io::Result<()> {
     let policy = managed
@@ -120,12 +221,37 @@ pub fn serve_managed(
         .map_err(|_| io::Error::other("PTY spawn lock poisoned"))?;
     let mut master = -1;
     let mut slave = -1;
-    let mut size = libc::winsize {
-        ws_row: 24,
-        ws_col: 80,
-        ws_xpixel: 640,
-        ws_ypixel: 384,
-    };
+    let mut local_launch = managed.as_mut().and_then(|value| value.local_launch.take());
+    let local_mode = local_launch.is_some();
+    let scrollback_max_bytes = local_launch
+        .as_ref()
+        .and_then(|launch| launch.scrollback_max_bytes)
+        .unwrap_or(DEFAULT_SCROLLBACK_MAX_BYTES);
+    let scrollback_max_lines = local_launch
+        .as_ref()
+        .and_then(|launch| launch.scrollback_max_lines);
+    let mut initial_input = local_launch
+        .as_ref()
+        .map(LocalLaunchSpec::initial_input)
+        .transpose()?
+        .unwrap_or_default();
+    if let Some(launch) = &mut local_launch {
+        launch.input_base64 = None;
+    }
+    let mut size = local_launch.as_ref().map_or(
+        libc::winsize {
+            ws_row: 24,
+            ws_col: 80,
+            ws_xpixel: 640,
+            ws_ypixel: 384,
+        },
+        |launch| libc::winsize {
+            ws_row: launch.rows,
+            ws_col: launch.cols,
+            ws_xpixel: launch.pixel_width,
+            ws_ypixel: launch.pixel_height,
+        },
+    );
     if unsafe {
         libc::openpty(
             &mut master,
@@ -140,6 +266,10 @@ pub fn serve_managed(
     }
     let mut pty = unsafe { File::from_raw_fd(master) };
     let slave = unsafe { File::from_raw_fd(slave) };
+    enable_utf8_input(pty.as_raw_fd())?;
+    let tty_name = local_mode
+        .then(|| terminal_name(slave.as_raw_fd()))
+        .flatten();
     // Prevent one session's exec from retaining another session's PTY.
     if unsafe { libc::fcntl(master, libc::F_SETFD, libc::FD_CLOEXEC) } < 0
         || unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0
@@ -158,9 +288,19 @@ pub fn serve_managed(
     let membership = group.as_ref().map(|g| g.membership()).transpose()?;
     let membership_fd = membership.as_ref().map(|f| f.as_raw_fd());
     let mut command = Command::new(&argv[0]);
+    if let Some(launch) = local_launch.as_ref() {
+        command.env_clear().envs(launch.env.iter());
+        if !launch.env.contains_key("TERM") {
+            command.env("TERM", "xterm-256color");
+        }
+        if let Some(cwd) = launch.cwd.as_deref() {
+            command.current_dir(cwd).env("PWD", cwd);
+        }
+    } else {
+        command.env("TERM", "xterm-256color");
+    }
     command
         .args(&argv[1..])
-        .env("TERM", "xterm-256color")
         .env("OMG_RUNTIME_EVENT_SOCKET", &event_path)
         .env("OMG_RUNTIME_EVENT_TOKEN", &token)
         .env(
@@ -171,13 +311,21 @@ pub fn serve_managed(
                 .unwrap_or(&token),
         )
         .env("OMG_RUNTIME_BIN", std::env::current_exe()?)
-        .env("OMG_RUNTIME_REMOTE", "1")
         .stdin(Stdio::from(slave.try_clone()?))
         .stdout(Stdio::from(slave.try_clone()?))
         .stderr(Stdio::from(slave));
+    if local_mode {
+        command.env_remove("OMG_RUNTIME_REMOTE");
+    } else {
+        command.env("OMG_RUNTIME_REMOTE", "1");
+    }
     if let Some(resume) = managed.as_ref().and_then(|m| m.record.resume.as_ref()) {
         command.current_dir(&resume.cwd).env("PWD", &resume.cwd);
-    } else if let Some(cwd) = managed.as_ref().and_then(|m| m.initial_cwd.as_ref()) {
+    } else if let Some(cwd) = managed
+        .as_ref()
+        .and_then(|m| m.initial_cwd.as_ref())
+        .filter(|_| !local_mode)
+    {
         // Set cwd on this child command only; the host serves other sessions on
         // parallel threads. Treat paths as data, never a shell `cd` expression.
         command.current_dir(cwd).env("PWD", cwd);
@@ -220,29 +368,38 @@ pub fn serve_managed(
         });
     }
     let mut child = ChildGuard(command.spawn()?);
+    let started_at = Instant::now();
+    drop(command);
+    drop(argv);
+    drop(local_launch);
     drop(membership);
     if let Some(m) = &mut managed {
         m.record.pid = Some(child.id());
         m.record.ended = None;
         m.record.save(&m.path)?;
     }
-    // Command retains its configured Stdio descriptors after spawn. Release
-    // the parent's slave handles so child exit produces EOF on the master.
-    drop(command);
+    // Release the parent's slave handles so child exit produces EOF on the master.
     drop(spawn_guard);
     if unsafe { libc::fcntl(master, libc::F_SETFL, libc::O_NONBLOCK) } < 0 {
         let _ = child.kill();
         let _ = child.wait();
         return Err(io::Error::last_os_error());
     }
-    let mut input = Box::new(VecDeque::<u8>::new());
-    let mut vt = Vt::with_reply(
-        80,
-        24,
+    let mut input = Box::new(VecDeque::from(std::mem::take(&mut initial_input)));
+    let mut vt = Vt::with_reply_pixels_scrollback(
+        size.ws_col,
+        size.ws_row,
+        size.ws_xpixel,
+        size.ws_ypixel,
+        ScrollbackLimits {
+            max_bytes: scrollback_max_bytes,
+            max_lines: scrollback_max_lines,
+        },
         Some(reply),
         (&mut *input as *mut VecDeque<u8>).cast(),
     )?;
     let mut peers: Vec<Peer> = vec![];
+    let mut close_after_flush = HashSet::new();
     let mut next_id = 1;
     let mut writer = None;
     let mut seq = 0u64;
@@ -264,8 +421,23 @@ pub fn serve_managed(
     let mut eof = false;
     let mut closing = None;
     let mut draining = None;
-    let mut last_cwd = crate::location::session_cwd(master, child.id());
+    let mut last_cwd = crate::location::session_cwd(master, child.id()).or_else(|| {
+        managed
+            .as_ref()
+            .and_then(|session| session.record.cwd.clone())
+    });
+    let mut last_foreground = local_mode
+        .then(|| foreground_session_group(master, child.id()))
+        .flatten();
+    let mut last_password_input = password_input(master);
     let mut cwd_checked = Instant::now();
+    let mut password_checked = Instant::now();
+    if let Some(session) = &mut managed {
+        if session.record.cwd != last_cwd {
+            session.record.cwd = last_cwd.clone();
+            session.record.save(&session.path)?;
+        }
+    }
     loop {
         if closing.is_none()
             && managed
@@ -278,14 +450,47 @@ pub fn serve_managed(
         }
         if exited.is_none() && cwd_checked.elapsed() >= Duration::from_millis(500) {
             let cwd = crate::location::session_cwd(master, child.id());
-            if cwd != last_cwd {
+            let foreground = local_mode
+                .then(|| foreground_session_group(master, child.id()))
+                .flatten();
+            if cwd != last_cwd || foreground != last_foreground {
                 last_cwd = cwd;
-                let metadata = serde_json::to_vec(&serde_json::json!({"cwd":last_cwd}))?;
+                last_foreground = foreground;
+                if let Some(session) = &mut managed {
+                    if session.record.cwd != last_cwd {
+                        session.record.cwd = last_cwd.clone();
+                        session.record.save(&session.path)?;
+                    }
+                }
+                let metadata = serde_json::to_vec(&serde_json::json!({
+                    "cwd": last_cwd,
+                    "foreground_pid": foreground,
+                    "tty_name": if local_mode { tty_name.as_deref() } else { None },
+                    "password_input": last_password_input,
+                    "runtime_ms": runtime_millis(started_at)
+                }))?;
                 for peer in &mut peers {
                     peer.push(Frame::new(b'M', seq, &metadata));
                 }
             }
             cwd_checked = Instant::now();
+        }
+        if exited.is_none() && password_checked.elapsed() >= Duration::from_millis(200) {
+            let password = password_input(master);
+            if password != last_password_input {
+                last_password_input = password;
+                let metadata = serde_json::to_vec(&serde_json::json!({
+                    "cwd": last_cwd,
+                    "foreground_pid": if local_mode { last_foreground } else { None },
+                    "tty_name": if local_mode { tty_name.as_deref() } else { None },
+                    "password_input": last_password_input,
+                    "runtime_ms": runtime_millis(started_at)
+                }))?;
+                for peer in &mut peers {
+                    peer.push(Frame::new(b'M', seq, &metadata));
+                }
+            }
+            password_checked = Instant::now();
         }
         // Hooks use an inherited per-session capability, never terminal text.
         let mut event_bytes = [0u8; 16384];
@@ -340,24 +545,43 @@ pub fn serve_managed(
                     }
                     let mut peer = Peer::new(socket, next_id)?;
                     next_id += 1;
-                    let info = serde_json::json!({"version":1,"session_id":id,"pid":child.id(),"attachment":peer.id,"cols":size.ws_col,"rows":size.ws_row,"generation":generation,"detached_ttl_seconds":policy.detached_ttl_seconds,"experimental":true});
+                    let info = serde_json::json!({
+                        "version": 2,
+                        "session_id": id,
+                        "pid": child.id(),
+                        "attachment": peer.id,
+                        "cols": size.ws_col,
+                        "rows": size.ws_row,
+                        "pixel_width": size.ws_xpixel,
+                        "pixel_height": size.ws_ypixel,
+                        "generation": generation,
+                        "detached_ttl_seconds": policy.detached_ttl_seconds,
+                        "experimental": true,
+                        "foreground_pid": if local_mode { last_foreground } else { None },
+                        "tty_name": if local_mode { tty_name.as_deref() } else { None },
+                        "password_input": last_password_input,
+                        "runtime_ms": runtime_millis(started_at)
+                    });
                     peer.push(Frame::new(INFO, seq, info.to_string().as_bytes()));
-                    match vt.snapshot() {
-                        Ok(bytes) if bytes.len() <= MAX_FRAME => {
-                            peer.push(Frame::new(SNAPSHOT, seq, &bytes));
-                            peer.ack = Some(seq);
-                            peer.push(Frame::new(
-                                b'M',
-                                seq,
-                                &serde_json::to_vec(&serde_json::json!({"cwd":last_cwd}))?,
-                            ));
-                        }
-                        _ => {
-                            continue;
-                        }
+                    if queue_snapshot(&mut peer, seq, vt.snapshot()) {
+                        peer.push(Frame::new(
+                            b'M',
+                            seq,
+                            &serde_json::to_vec(&serde_json::json!({
+                                "cwd": last_cwd,
+                                "foreground_pid": if local_mode { last_foreground } else { None },
+                                "tty_name": if local_mode { tty_name.as_deref() } else { None },
+                                "password_input": last_password_input,
+                                "runtime_ms": runtime_millis(started_at)
+                            }))?,
+                        ));
+                    } else {
+                        close_after_flush.insert(peer.id);
                     }
-                    if let Some(code) = exited {
-                        peer.push(Frame::new(EXIT, seq, format!("{code}").as_bytes()));
+                    if !close_after_flush.contains(&peer.id) {
+                        if let Some(code) = exited {
+                            peer.push(Frame::new(EXIT, seq, format!("{code}").as_bytes()));
+                        }
                     }
                     peers.push(peer);
                 }
@@ -367,6 +591,9 @@ pub fn serve_managed(
         }
         let mut resizes = Vec::new();
         for peer in &mut peers {
+            if close_after_flush.contains(&peer.id) {
+                continue;
+            }
             let frames = match peer.read() {
                 Ok(f) => f,
                 Err(_) => {
@@ -399,18 +626,28 @@ pub fn serve_managed(
                             input.extend(f.data);
                         }
                     }
-                    RESIZE if writer == Some(peer.id) && f.data.len() == 4 => {
-                        let cols = u16::from_be_bytes(f.data[..2].try_into().unwrap());
-                        let rows = u16::from_be_bytes(f.data[2..].try_into().unwrap());
-                        if cols == 0 || rows == 0 || cols > 500 || rows > 300 {
+                    RESIZE if writer == Some(peer.id) => {
+                        let Some((cols, rows, pixel_width, pixel_height)) =
+                            resize_dimensions(&f.data)
+                        else {
+                            peer.dead = true;
+                            continue;
+                        };
+                        if cols == 0
+                            || rows == 0
+                            || cols > 500
+                            || rows > 300
+                            || pixel_width > 16_000
+                            || pixel_height > 16_000
+                        {
                             peer.dead = true;
                             continue;
                         }
                         size.ws_col = cols;
                         size.ws_row = rows;
-                        size.ws_xpixel = cols * 8;
-                        size.ws_ypixel = rows * 16;
-                        vt.resize(cols, rows)?;
+                        size.ws_xpixel = pixel_width;
+                        size.ws_ypixel = pixel_height;
+                        vt.resize_pixels(cols, rows, pixel_width, pixel_height)?;
                         if unsafe { libc::ioctl(pty.as_raw_fd(), libc::TIOCSWINSZ, &size) } < 0 {
                             return Err(io::Error::last_os_error());
                         }
@@ -437,10 +674,12 @@ pub fn serve_managed(
             let n = bytes.len().min(65536);
             match pty.write(&bytes[..n]) {
                 Ok(n) => {
+                    bytes[..n].fill(0);
                     input.drain(..n);
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(_) => {
+                    input.make_contiguous().fill(0);
                     input.clear();
                 }
             }
@@ -493,6 +732,18 @@ pub fn serve_managed(
                 peer.dead = true;
             }
         }
+        let mut removed_peers = Vec::new();
+        for peer in &mut peers {
+            if close_after_flush.contains(&peer.id) && peer.queued == 0 {
+                peer.dead = true;
+            }
+            if peer.dead {
+                removed_peers.push(peer.id);
+            }
+        }
+        for id in removed_peers {
+            close_after_flush.remove(&id);
+        }
         peers.retain(|p| !p.dead);
         lifetime.attached(peers.len(), Instant::now());
         if closing.is_none() && exited.is_none() {
@@ -535,12 +786,21 @@ pub fn serve_managed(
             writer = None;
         }
         if let (Some(code), true) = (exited, eof) {
-            let start = draining.get_or_insert_with(|| {
+            if draining.is_none() {
+                let metadata = serde_json::to_vec(&serde_json::json!({
+                    "cwd": last_cwd,
+                    "foreground_pid": None::<u64>,
+                    "tty_name": if local_mode { tty_name.as_deref() } else { None },
+                    "password_input": false,
+                    "runtime_ms": runtime_millis(started_at)
+                }))?;
                 for peer in &mut peers {
+                    peer.push(Frame::new(b'M', seq, &metadata));
                     peer.push(Frame::new(EXIT, seq, format!("{code}").as_bytes()));
                 }
-                Instant::now()
-            });
+                draining = Some(Instant::now());
+            }
+            let start = draining.as_ref().unwrap();
             if peers.iter().all(|p| p.queued == 0) || start.elapsed() > Duration::from_secs(2) {
                 let _ = child.wait();
                 if let Some(group) = &group {
@@ -554,13 +814,159 @@ pub fn serve_managed(
                 return Ok(());
             }
         }
-        let mut pollfd = libc::pollfd {
-            fd: master,
-            events: if eof { 0 } else { libc::POLLIN },
-            revents: 0,
-        };
-        unsafe {
-            libc::poll(&mut pollfd, 1, 5);
+        let mut descriptors = Vec::with_capacity(peers.len() + 3);
+        if !eof {
+            descriptors.push(libc::pollfd {
+                fd: master,
+                events: pty_poll_interests(eof, !input.is_empty()),
+                revents: 0,
+            });
         }
+        descriptors.push(libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        });
+        descriptors.push(libc::pollfd {
+            fd: events.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        });
+        for peer in &peers {
+            let mut interests = libc::POLLIN;
+            if peer_wants_write(peer) {
+                interests |= libc::POLLOUT;
+            }
+            descriptors.push(libc::pollfd {
+                fd: peer.socket.as_raw_fd(),
+                events: interests,
+                revents: 0,
+            });
+        }
+        let result = unsafe {
+            libc::poll(
+                descriptors.as_mut_ptr(),
+                descriptors.len() as libc::nfds_t,
+                200,
+            )
+        };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resize_accepts_legacy_and_pixel_aware_payloads() {
+        assert_eq!(
+            resize_dimensions(&[0, 100, 0, 40]),
+            Some((100, 40, 800, 640))
+        );
+        assert_eq!(
+            resize_dimensions(&[0, 100, 0, 40, 0x07, 0x80, 0x03, 0x20]),
+            Some((100, 40, 1920, 800))
+        );
+        assert_eq!(resize_dimensions(&[0, 100, 0, 40, 1]), None);
+    }
+
+    #[test]
+    fn pending_pty_input_wakes_on_write_readiness_without_masking_output() {
+        assert_ne!(pty_poll_interests(false, true) & libc::POLLOUT, 0);
+        assert_ne!(pty_poll_interests(false, true) & libc::POLLIN, 0);
+        assert_eq!(pty_poll_interests(true, true), 0);
+    }
+
+    #[test]
+    fn oversized_snapshot_queues_error_without_a_partial_snapshot() {
+        let (socket, _remote) = UnixStream::pair().unwrap();
+        let mut peer = Peer::new(socket, 1).unwrap();
+        let snapshot = vec![0; MAX_FRAME + 1];
+
+        assert!(!queue_snapshot(&mut peer, 7, Ok(snapshot)));
+        assert_eq!(peer.queue.len(), 1);
+        let error = Frame::read(&mut &peer.queue.front().unwrap()[..]).unwrap();
+        assert_eq!(error.kind, b'E');
+        assert_eq!(error.seq, 7);
+        assert!(error.data.starts_with(b"terminal snapshot exceeds"));
+    }
+
+    #[test]
+    fn password_input_requires_canonical_mode_without_echo() {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    &mut size,
+                )
+            },
+            0
+        );
+        let mut settings = unsafe { std::mem::zeroed::<libc::termios>() };
+        assert_eq!(unsafe { libc::tcgetattr(slave, &mut settings) }, 0);
+        settings.c_lflag |= libc::ICANON;
+        settings.c_lflag &= !libc::ECHO;
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave, libc::TCSANOW, &settings) },
+            0
+        );
+        assert!(password_input(master));
+        settings.c_lflag &= !libc::ICANON;
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave, libc::TCSANOW, &settings) },
+            0
+        );
+        assert!(!password_input(master));
+        unsafe {
+            libc::close(master);
+            libc::close(slave);
+        }
+    }
+
+    #[test]
+    fn pty_enables_utf8_input_mode() {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    &mut size,
+                )
+            },
+            0
+        );
+        enable_utf8_input(master).unwrap();
+        let mut settings = unsafe { std::mem::zeroed::<libc::termios>() };
+        assert_eq!(unsafe { libc::tcgetattr(slave, &mut settings) }, 0);
+        assert_ne!(settings.c_iflag & libc::IUTF8, 0);
+        unsafe {
+            libc::close(master);
+            libc::close(slave);
+        }
+    }
+
+    #[test]
+    fn runtime_duration_uses_elapsed_milliseconds() {
+        let started = Instant::now();
+        std::thread::sleep(Duration::from_millis(25));
+        let elapsed = runtime_millis(started);
+        assert!((20..1000).contains(&elapsed));
     }
 }

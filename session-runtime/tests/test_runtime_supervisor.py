@@ -77,10 +77,13 @@ def find_host_process(state_directory):
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    marker = f"host {state_directory} -- /bin/sh -l"
+    markers = (
+        f"host {state_directory} -- /bin/sh -l",
+        f"host-local {state_directory} -- /bin/sh -l",
+    )
     for line in result.stdout.splitlines():
         fields = line.strip().split(None, 3)
-        if len(fields) != 4 or marker not in fields[3]:
+        if len(fields) != 4 or not any(marker in fields[3] for marker in markers):
             continue
         try:
             return int(fields[0]), int(fields[1]), int(fields[2])
@@ -143,13 +146,14 @@ def make_connection(
     local_state_directory=None,
     local_shell=None,
     cwd=None,
+    bundle=None,
 ):
     config = {
         "transport": transport,
         "executable": str(ssh_script),
         "arguments": ["fake-host"],
         "cwd": str(cwd or root),
-        "bundle": str(root),
+        "bundle": str(bundle or root),
         "policy": policy or DEFAULT_POLICY,
         "revision": "supervisor-fixture",
         "hooks": None,
@@ -245,15 +249,33 @@ def receive_snapshot(peer, timeout=6):
     raise AssertionError("session did not attach")
 
 
-def attach_peer(peer, session_id, create=True, cwd="/tmp", timeout=6):
+def attach_peer(peer, session_id, create=True, cwd="/tmp", timeout=6, launch=None):
     request = {
         "id": session_id,
         "policy": DEFAULT_POLICY,
         "create": create,
         "cwd": cwd,
     }
+    if launch is not None:
+        request["launch"] = launch
     peer.sendall(encode(b"H", 0, json.dumps(request).encode()))
     return receive_snapshot(peer, timeout=timeout)
+
+
+def local_launch(cwd):
+    return {
+        "argv": ["/bin/sh", "-i"],
+        "env": {
+            "HOME": os.environ.get("HOME", cwd),
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "TERM": "xterm-256color",
+        },
+        "cwd": str(Path(cwd).resolve()),
+        "cols": 80,
+        "rows": 24,
+        "pixel_width": 640,
+        "pixel_height": 384,
+    }
 
 
 def claim_writer(peer, generation, snapshot_offset, old_generation=None):
@@ -322,11 +344,17 @@ def marker_command(marker):
 
 class RuntimeSupervisorTests(unittest.TestCase):
     def start_host(self, root):
+        return self.start_host_mode(root, local=False)
+
+    def start_host_mode(self, root, local):
         host_root = root / "host"
         host_root.mkdir(mode=0o700)
         host_root.chmod(0o700)
         daemon = subprocess.Popen(
-            [str(BINARY), "host", str(host_root), "--", "/bin/sh", "-i"],
+            [
+                str(BINARY), "host-local" if local else "host",
+                str(host_root), "--", "/bin/sh", "-i",
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -359,6 +387,7 @@ class RuntimeSupervisorTests(unittest.TestCase):
             local_state_directory=local_state_directory,
             local_shell=local_shell,
             cwd=cwd,
+            bundle=BINARY.parent if transport == "local" else None,
         )
         socket_path = local_root / "client.sock"
         relay = start_client(socket_path, config)
@@ -582,7 +611,7 @@ class RuntimeSupervisorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="omg-supervisor-local-", dir="/tmp") as temp:
             root = Path(temp)
             root.chmod(0o700)
-            host_root, daemon = self.start_host(root)
+            host_root, daemon = self.start_host_mode(root, local=True)
             socket_path, relay, count_path = self.start_relay(
                 root,
                 host_root / "host.sock",
@@ -600,7 +629,8 @@ class RuntimeSupervisorTests(unittest.TestCase):
                     peer = self.connect_peer(socket_path)
                     peers.append(peer)
                     generation, info, offset = attach_peer(
-                        peer, identity, create=True, cwd="/tmp"
+                        peer, identity, create=True, cwd="/tmp",
+                        launch=local_launch("/tmp"),
                     )
                     self.assertEqual(info["session_id"], identity)
                     session_pids.append(info["pid"])
@@ -680,6 +710,7 @@ class RuntimeSupervisorTests(unittest.TestCase):
                 local_state_directory=local_state,
                 local_shell="/bin/sh",
                 cwd="/tmp",
+                bundle=BINARY.parent,
             )
             relay_root = root / "relay"
             relay_root.mkdir(mode=0o700)
@@ -693,7 +724,8 @@ class RuntimeSupervisorTests(unittest.TestCase):
                 first = self.connect_peer(socket_path)
                 peers.append(first)
                 generation, info, offset = attach_peer(
-                    first, identity, create=True, cwd="/tmp"
+                    first, identity, create=True, cwd="/tmp",
+                    launch=local_launch("/tmp"),
                 )
                 session_pid = info["pid"]
                 claim_writer(first, generation, offset)

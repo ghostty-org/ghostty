@@ -48,12 +48,27 @@ Checks:
    gap must not execute later. Retry Now on one failed stream must not disconnect
    a healthy sibling. Bad authentication must stop at attention without an
    askpass loop.
-8. Create a local background session, record its PID, split, then quit/reopen.
-   The same daemon/protocol must retain those PIDs. Git/files/history context
-   remains local. Existing ordinary local sessions must not be migrated.
+8. Open an ordinary local tab with runtime enabled, record its PID, split, then
+   close its window or quit/reopen. The original holders must retain those PIDs.
+   Git/files/history context remains local. Existing ordinary PTYs are not
+   migrated. Verify configured commands, env, shell integration, directory
+   inheritance and initial input; reattach must not run initial input twice.
+9. In an isolated local fixture, stop only its broker and reconnect. The same
+   holder/PTY/PID and terminal snapshot must return. Killing the holder instead
+   must report loss rather than creating a replacement. Never fault-inject into
+   the user's work sessions.
+10. Open the Session Library, select a local or SSH endpoint, cancel a refresh,
+    and change endpoints during a slow query. Stale results must not become
+    actionable. Open focuses an existing pane (including parked workspaces) or
+    attaches its saved UUID. End requires confirmation and durable close.
+    Listing/adoption must not extend a detached session's expiry.
+11. Verify all three startup modes: `restoreSessions` attaches the saved UUID,
+    `restoreTabs` creates fresh local processes and UUIDs in the layout, and
+    `newTerminal` skips saved workspace tabs. Password prompts must preserve
+    Secure Input; custom-command exit follows Ghostty's configured wait policy.
 
 Ordinary interactive `ssh host` in an integrated local shell now uses this native
 path. Remote commands and tunnels retain system SSH semantics. Current release
 gates remain in RELEASE_PROGRESS.md: real sleep/wake/network/authentication
-acceptance, a full management UI, and real vendor Agent/cross-platform execution
+acceptance, management UI interaction, and real vendor Agent/cross-platform execution
 acceptance are required before public release.
