@@ -26,7 +26,12 @@ pub fn build(b: *std.Build) void {
         // always keep simd enabled.
         // .simd = false,
     })) |dep| {
-        exe_mod.linkLibrary(dep.artifact("ghostty-vt"));
+        const lib = dep.artifact("ghostty-vt");
+        exe_mod.linkLibrary(lib);
+
+        // Install the shared library next to the exe so it can be
+        // loaded at runtime (required on Windows).
+        b.installArtifact(lib);
     }
 
     // Exe
