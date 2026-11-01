@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import struct
 import subprocess
 import tempfile
 import time
@@ -18,6 +19,7 @@ class SSHMultiplexTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='omg-mux-', dir='/tmp') as directory:
             path = directory + '/s'
             identities = [str(uuid.uuid4()).encode(), str(uuid.uuid4()).encode()]
+            config = json.loads(Path(os.environ['OMG_SSH_TEST_CONFIG']).read_text())
             clients = []
             relay = None
             def start():
@@ -32,45 +34,73 @@ class SSHMultiplexTests(unittest.TestCase):
                 s.settimeout(10)
                 s.connect(path)
                 clients.append(s)
-                s.sendall(encode(b'H', 0, identity))
-                kind, _, data = frame(s)
-                self.assertEqual(kind, b'J')
-                info = json.loads(data)
-                kind, seq, _ = frame(s)
-                self.assertEqual(kind, b'S')
-                s.sendall(encode(b'A', seq))
-                s.sendall(encode(b'W'))
-                while frame(s)[0] != b'W':
-                    pass
-                return s, info
+                request = json.dumps({
+                    'id': identity.decode(),
+                    'policy': config['policy'],
+                    'create': True,
+                    'cwd': None,
+                }).encode()
+                s.sendall(encode(b'H', 0, request))
+                generation = None
+                info = None
+                while True:
+                    kind, seq, data = frame(s)
+                    if kind == b'T':
+                        generation = seq
+                    elif kind == b'J':
+                        info = json.loads(data)
+                    elif kind == b'S':
+                        self.assertIsNotNone(generation)
+                        s.sendall(encode(b'A', seq, struct.pack('>Q', generation)))
+                        s.sendall(encode(b'W', generation))
+                    elif kind == b'W':
+                        break
+                    elif kind == b'E':
+                        self.fail(data.decode())
+                return s, info, generation
             try:
                 relay = start()
-                one, a = attach(identities[0])
-                two, b = attach(identities[1])
+                one, a, one_generation = attach(identities[0])
+                two, b, two_generation = attach(identities[1])
                 self.assertNotEqual(a['pid'], b['pid'])
                 children = subprocess.check_output(['pgrep', '-P', str(relay.pid)], text=True).split()
                 self.assertEqual(len(children), 1, 'one SSH child for both panes')
                 ssh_pid = int(children[0])
                 os.kill(ssh_pid, 15)
-                relay.wait(timeout=10)
-                one.close()
-                two.close()
-                relay = start()
-                one, again_a = attach(identities[0])
-                two, again_b = attach(identities[1])
+                def restore(existing, old_generation):
+                    generation = old_generation
+                    saw_new_status = False
+                    info = None
+                    while True:
+                        kind, seq, data = frame(existing)
+                        if kind == b'T' and seq != old_generation:
+                            generation = seq
+                            saw_new_status = True
+                        elif kind == b'J':
+                            info = json.loads(data)
+                        elif kind == b'S' and saw_new_status:
+                            existing.sendall(encode(b'A', seq, struct.pack('>Q', generation)))
+                            existing.sendall(encode(b'W', generation))
+                        elif kind == b'W' and saw_new_status:
+                            return info, generation
+                        elif kind == b'E':
+                            self.fail(data.decode())
+                again_a, one_generation = restore(one, one_generation)
+                again_b, two_generation = restore(two, two_generation)
                 self.assertEqual(a['pid'], again_a['pid'])
                 self.assertEqual(b['pid'], again_b['pid'])
-                one.sendall(encode(b'I', 0, b'sleep 60\n'))
+                one.sendall(encode(b'I', one_generation, b'sleep 60\n'))
                 time.sleep(.2)
-                one.sendall(encode(b'I', 0, b'\x03'))
-                one.sendall(encode(b'I', 0, b'printf "MUX_%s_OK\\n" SIGNAL\n'))
+                one.sendall(encode(b'I', one_generation, b'\x03'))
+                one.sendall(encode(b'I', one_generation, b'printf "MUX_%s_OK\\n" SIGNAL\n'))
                 data = b''
                 while b'MUX_SIGNAL_OK' not in data:
                     kind, _, payload = frame(one)
                     if kind == b'O':
                         data += payload
                 for s in [one, two]:
-                    s.sendall(encode(b'K'))
+                    generation = one_generation if s is one else two_generation
+                    s.sendall(encode(b'K', generation))
                     while frame(s)[0] != b'X':
                         pass
             finally:

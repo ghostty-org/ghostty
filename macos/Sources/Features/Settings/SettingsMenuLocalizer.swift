@@ -63,6 +63,7 @@ enum SettingsMenuLocalizer {
         ("Zoom", "缩放"),
         ("Toggle Full Screen", "切换全屏"),
         ("Show/Hide All Terminals", "显示或隐藏所有终端"),
+        ("Browse Sessions…", "浏览后台会话…"),
         ("Zoom Split", "缩放分屏"),
         ("Select Previous Split", "选择上一个分屏"),
         ("Select Next Split", "选择下一个分屏"),

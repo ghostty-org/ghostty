@@ -113,12 +113,17 @@ pub struct Record {
     pub generation: String,
     pub created_at: u64,
     pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     pub pid: Option<u32>,
     pub ended: Option<EndReason>,
     pub resume: Option<Resume>,
     pub policy: Policy,
     #[serde(default)]
     pub contained: bool,
+    /// Authenticates broker adoption of a detached local session holder.
+    #[serde(default)]
+    pub holder_capability: Option<String>,
 }
 impl Record {
     pub fn new(id: &str, policy: Policy) -> io::Result<Self> {
@@ -128,11 +133,13 @@ impl Record {
             generation: nonce()?,
             created_at: unix_time(),
             updated_at: unix_time(),
+            cwd: None,
             pid: None,
             ended: None,
             resume: None,
             policy,
             contained: false,
+            holder_capability: None,
         })
     }
     pub fn load(path: &Path) -> io::Result<Self> {
@@ -150,6 +157,18 @@ impl Record {
             return Err(io::Error::other("invalid session record"));
         }
         value.policy.validate()?;
+        if value
+            .cwd
+            .as_ref()
+            .is_some_and(|cwd| !cwd.starts_with('/') || cwd.len() > 4096 || cwd.contains('\0'))
+        {
+            return Err(io::Error::other("invalid session working directory"));
+        }
+        if value.holder_capability.as_deref().is_some_and(|token| {
+            token.len() != 32 || !token.bytes().all(|byte| byte.is_ascii_hexdigit())
+        }) {
+            return Err(io::Error::other("invalid local holder capability"));
+        }
         if let Some(r) = &value.resume {
             r.validate()?;
         }
@@ -176,6 +195,41 @@ impl Record {
         result
     }
 }
+
+/// Bounded, secret-free record projection for the on-demand session catalogue.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionSummary {
+    pub id: String,
+    pub generation: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub pid: Option<u32>,
+    pub ended: Option<EndReason>,
+    pub resume: Option<Resume>,
+    pub policy: Policy,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+impl From<&Record> for SessionSummary {
+    fn from(record: &Record) -> Self {
+        Self {
+            id: record.id.clone(),
+            generation: record.generation.clone(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+            pid: record.pid,
+            ended: record.ended,
+            resume: record.resume.clone(),
+            policy: record.policy.clone(),
+            cwd: record
+                .cwd
+                .clone()
+                .or_else(|| record.resume.as_ref().map(|resume| resume.cwd.clone())),
+        }
+    }
+}
+
 pub fn nonce() -> io::Result<String> {
     let mut b = [0u8; 16];
     File::open("/dev/urandom")?.read_exact(&mut b)?;
@@ -204,5 +258,18 @@ mod tests {
         assert_eq!(r.arguments().unwrap(), ["codex", "resume", "test-123"]);
         r.conversation_id = "x;touch /tmp/bad".into();
         assert!(r.arguments().is_err());
+    }
+
+    #[test]
+    fn catalogue_summary_omits_private_holder_and_launch_data() {
+        let mut record =
+            Record::new("11111111-1111-1111-1111-111111111111", Policy::default()).unwrap();
+        record.holder_capability = Some("0123456789abcdef0123456789abcdef".into());
+        record.cwd = Some("/tmp/live".into());
+        let value = serde_json::to_value(SessionSummary::from(&record)).unwrap();
+        assert_eq!(value["cwd"], "/tmp/live");
+        assert!(value.get("holder_capability").is_none());
+        assert!(value.get("argv").is_none());
+        assert!(value.get("env").is_none());
     }
 }

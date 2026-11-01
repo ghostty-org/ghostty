@@ -3,6 +3,17 @@ import Foundation
 import Testing
 @testable import Ghostty
 
+@MainActor
+private final class SessionRuntimeRetryRecorder: SessionRuntimeRetrying {
+    private(set) var descriptor: SessionRuntimeDescriptor?
+    private(set) var onFailure: (@MainActor @Sendable (String) -> Void)?
+
+    func retry(_ descriptor: SessionRuntimeDescriptor, onFailure: @escaping @MainActor @Sendable (String) -> Void) throws {
+        self.descriptor = descriptor
+        self.onFailure = onFailure
+    }
+}
+
 struct SessionRuntimeConnectionTests {
     @MainActor
     @Test func missingRuntimeClearsInheritedHandoffCapability() {
@@ -43,7 +54,11 @@ struct SessionRuntimeConnectionTests {
         let name = String(repeating: "a", count: 32)
         let request: [String: Any] = ["token": first.environmentVariables["OMG_SSH_HANDOFF_TOKEN"]!,
             "ssh": "/usr/bin/ssh", "args": ["-N", "host"], "cwd": root.path]
-        try JSONSerialization.data(withJSONObject: request).write(to: directory.appendingPathComponent(name + ".json"))
+        try SessionRuntimeBridgeStorage.writePrivateFile(
+            at: directory.appendingPathComponent(name + ".json"),
+            data: JSONSerialization.data(withJSONObject: request),
+            permissions: 0o600
+        )
         #expect(handoff.accept(.init(action: .start, id: "omg-runtime-request-" + name, metadata: "type=app"),
                                source: surface, controller: controller))
         #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(name + ".failed").path))
@@ -66,7 +81,11 @@ struct SessionRuntimeConnectionTests {
         directory = pathlib.Path(os.environ['OMG_SSH_HANDOFF_DIRECTORY'])
         name = '1234567890abcdef1234567890abcdef'
         payload = dict(token=os.environ['OMG_SSH_HANDOFF_TOKEN'], ssh='/usr/bin/ssh', args=['-N', 'host'], cwd=os.getcwd())
-        (directory / (name + '.json')).write_text(json.dumps(payload))
+        request = directory / (name + '.json')
+        fd = os.open(request, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.write(fd, json.dumps(payload).encode())
+        os.fsync(fd)
+        os.close(fd)
         os.write(1, ('\\x1b]3008;start=omg-runtime-request-' + name + ';type=app\\x07').encode())
         failed = directory / (name + '.failed')
         for _ in range(100):
@@ -78,7 +97,8 @@ struct SessionRuntimeConnectionTests {
         """.write(to: script, atomically: true, encoding: .utf8)
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
         var config = Ghostty.SurfaceConfiguration()
-        config.command = "/usr/bin/python3 " + script.path
+        let python = try #require(LocalPythonInterpreter.cached())
+        config.command = Ghostty.Shell.quote(python.executablePath) + " " + Ghostty.Shell.quote(script.path)
         let controller = TerminalController(app, withBaseConfig: config)
         _ = controller.window
         defer { controller.window?.delegate = nil; controller.window?.close() }
@@ -91,7 +111,7 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
-    @Test func reconnectReplacesViewButPreservesPaneIdentityAndRestoreOnlyRequest() throws {
+    @Test func retryTargetsTheExistingSessionWithoutReplacingItsPane() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
         let native = try #require(app.app)
         var config = Ghostty.SurfaceConfiguration()
@@ -102,34 +122,55 @@ struct SessionRuntimeConnectionTests {
         let descriptor = SessionRuntimeDescriptor(connection: try GitSSHConnection(destination: "host"),
                                                    revision: "unavailable-test-revision", policy: .init())
         original.runtimeDescriptor = descriptor
-        original.runtimeDisconnected = true
+        original.runtimeConnectionState = .attention(attempt: 4, message: "offline")
         let controller = TerminalController(app, withSurfaceTree: .init(view: original))
         defer { controller.window?.delegate = nil; controller.window?.close() }
-        controller.reconnectRuntimeHere(for: original)
-        let replacement = try #require(controller.surfaceTree.first)
-        #expect(replacement !== original)
-        #expect(replacement.id == original.id)
-        #expect(replacement.runtimeDescriptor == descriptor)
-        #expect(controller.focusedSurface === replacement)
+        let originalID = original.id
+        let retryer = SessionRuntimeRetryRecorder()
+        controller.retryRuntimeConnection(for: original, using: retryer)
+        #expect(retryer.descriptor == descriptor)
+        #expect(original.runtimeConnectionState == .reconnecting(attempt: 5, retryInMilliseconds: nil))
+        #expect(controller.surfaceTree.first === original)
+        retryer.onFailure?("relay offline")
+        #expect(original.runtimeConnectionState == .failed(message: "relay offline"))
+        controller.retryRuntimeConnection(for: original, using: retryer)
+        let lateFailure = try #require(retryer.onFailure)
+        original.runtimeConnectionState = .ready
+        lateFailure("stale relay failure")
+        #expect(original.runtimeConnectionState == .ready)
         let request = try #require(try JSONSerialization.jsonObject(with:
-            Data(descriptor.openRequest(pane: replacement.id, restoring: true).utf8)) as? [String: Any])
+            Data(descriptor.openRequest(pane: originalID, attachExisting: true).utf8)) as? [String: Any])
+        let socket = URL(fileURLWithPath: "/tmp/runtime.sock")
+        #expect(SessionRuntimeRetryCommand.arguments(socket: socket, interactive: true) ==
+                ["retry-local", socket.path, "--interactive"])
+        #expect(SessionRuntimeRetryCommand.arguments(socket: socket, interactive: false) ==
+                ["retry-local", socket.path])
+        #expect(controller.surfaceTree.first === original)
+        #expect(original.id == originalID)
+        #expect(original.runtimeDescriptor == descriptor)
         #expect(request["id"] as? String == original.id.uuidString.lowercased())
         #expect(request["create"] as? Bool == false)
     }
 
     @MainActor
-    @Test func protocolErrorPublishesReconnectState() async throws {
+    @Test func runtimeStatusAndFailedAttachKeepTheSameSurfaceAndOutput() async throws {
         let root = URL(fileURLWithPath: "/tmp/omg-error-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let socket = root.appendingPathComponent("s")
         let server = Process()
-        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        let python = try #require(LocalPythonInterpreter.cached())
+        server.executableURL = URL(fileURLWithPath: python.executablePath)
         server.arguments = ["-c", """
         import socket,struct,sys
+        import time
         s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.listen(1)
         c,_=s.accept();c.recv(65536)
+        status=b'{"state":"reconnecting","attempt":2,"retry_in_ms":1500}'
+        c.sendall(struct.pack('>cQI',b'T',1,len(status))+status)
+        time.sleep(.3)
         message=b'authentication failed'
-        c.sendall(struct.pack('>cQI',b'E',0,len(message))+message)
+        c.sendall(struct.pack('>cQI',b'E',1,len(message))+message)
+        time.sleep(.4)
         c.close();s.close()
         """, socket.path]
         try server.run()
@@ -148,13 +189,33 @@ struct SessionRuntimeConnectionTests {
         config.environmentVariables["OMG_RUNTIME_PANE_ID"] = UUID().uuidString.lowercased()
         let view = Ghostty.SurfaceView(native, baseConfig: config)
         view.runtimeDescriptor = .init(connection: try GitSSHConnection(destination: "host"), revision: "test", policy: .init())
+        view.runtimeConnectionState = .connecting(attempt: 0)
         let controller = TerminalController(app, withSurfaceTree: .init(view: view))
         defer { controller.window?.delegate = nil; controller.window?.close() }
-        for _ in 0..<150 where !view.runtimeDisconnected {
+        for _ in 0..<150 where view.runtimeConnectionState != .reconnecting(attempt: 2, retryInMilliseconds: 1_500) {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(view.runtimeDisconnected)
-        #expect(view.contextSignal?.id == "omg-runtime-disconnected")
+        #expect(view.runtimeConnectionState == .reconnecting(attempt: 2, retryInMilliseconds: 1_500))
+        for _ in 0..<150 where view.runtimeConnectionState != .failed(message: "authentication failed") {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(view.runtimeConnectionState == .failed(message: "authentication failed"))
+        #expect(controller.surfaceTree.first === view)
+        #expect(view.contextSignal?.id == "omg-runtime-state")
+    }
+
+    @MainActor
+    @Test func inMemoryCloseQueueKeepsTestIntentWithoutStartingUserConnections() throws {
+        let queue = SessionRuntimeCloseQueue(url: nil)
+        let descriptor = SessionRuntimeDescriptor(connection: try GitSSHConnection(destination: "test-only-host"),
+                                                   revision: "test", policy: .init())
+        let request = SessionRuntimeCloseRequest(pane: UUID(), descriptor: descriptor)
+        try queue.enqueue([request])
+        queue.start()
+        queue.retry()
+        #expect(queue.requests == [request])
+        try queue.acknowledge(request)
+        #expect(queue.requests.isEmpty)
     }
 
     @MainActor
@@ -178,29 +239,30 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
-    @Test func remoteExitRestoresRetainedLocalSurfaceAndClearsDescriptor() throws {
+    @Test func sshHandoffOpensSiblingTabAndLeavesLocalSurfaceVisible() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
-        let native = try #require(app.app)
         var config = Ghostty.SurfaceConfiguration()
         config.command = "/bin/sleep 60"
-        let local = Ghostty.SurfaceView(native, baseConfig: config)
-        let remote = Ghostty.SurfaceView(native, baseConfig: config)
-        remote.runtimeDescriptor = .init(connection: try GitSSHConnection(destination: "host", localWorkingDirectory: "/tmp"), revision: "test", policy: .init())
-        remote.runtimeLocalSurface = local
-        let completion = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        remote.runtimeLocalCompletion = completion
-        let controller = TerminalController(app, withSurfaceTree: .init(view: remote))
+        let controller = TerminalController(app, withBaseConfig: config)
         _ = controller.window
-        controller.focusedSurface = remote
-        defer { controller.window?.delegate = nil; controller.window?.close(); try? FileManager.default.removeItem(at: completion) }
-        SessionRuntimeHandoff.shared.returnToLocal(from: remote)
+        let local = try #require(controller.surfaceTree.first)
+        let descriptor = SessionRuntimeDescriptor(
+            connection: try GitSSHConnection(destination: "host", localWorkingDirectory: "/tmp"),
+            revision: "unavailable-test-revision",
+            policy: .init()
+        )
+        let remoteController = try SessionRuntimeHandoff().openRemoteTab(descriptor, in: controller)
+        defer {
+            remoteController.window?.delegate = nil
+            remoteController.window?.close()
+            controller.window?.delegate = nil
+            controller.window?.close()
+        }
+        let remote = try #require(remoteController.surfaceTree.first)
         #expect(controller.surfaceTree.first === local)
-        #expect(controller.focusedSurface === local)
-        #expect(remote.runtimeDescriptor == nil)
-        #expect(remote.runtimeLocalSurface == nil)
-        #expect(FileManager.default.fileExists(atPath: completion.path))
-        let data = try JSONEncoder().encode(TerminalRestorableState(from: controller))
-        #expect(!(String(data: data, encoding: .utf8) ?? "").contains("runtimeDescriptor"))
+        #expect(remoteController !== controller)
+        #expect(remote.runtimeDescriptor == descriptor)
+        #expect(remoteController.workspaceID == controller.workspaceID)
     }
 
     @MainActor
@@ -239,18 +301,586 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
+    @Test func localRuntimeStaysLocalAndNewTabsInheritItsDurableBackend() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let view = Ghostty.SurfaceView(try #require(app.app), baseConfig: config)
+        var descriptor = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "local-test",
+            policy: .init(detachedTTLSeconds: 86_400, closeOnAgentDone: false),
+            localWorkingDirectory: "/tmp"
+        )
+        descriptor.initialWorkingDirectory = "/tmp"
+        view.runtimeDescriptor = descriptor
+        view.pwd = "/tmp/project"
+        let controller = TerminalController(app, withSurfaceTree: .init(view: view))
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        var currentPolicy = SessionRuntimePolicy()
+        currentPolicy.detachedTTLSeconds = 3_600
+        currentPolicy.expiresAt = 1_900_000_000
+        currentPolicy.closeOnAgentDone = true
+        currentPolicy.agentDoneGraceSeconds = 20
+        currentPolicy.recordRetentionSeconds = 172_800
+
+        var context = PaneSessionContext(workingDirectory: "/tmp", terminalTitle: "local")
+        context.applyRuntimeConnection(descriptor, workingDirectory: "/tmp/project", state: .ready)
+        #expect(!context.isSSHSession)
+        #expect(context.workingDirectory == "/tmp/project")
+        #expect(context.workspace == nil)
+
+        let tab = try #require(controller.tabConfiguration(
+            inherited: config,
+            from: view,
+            runtimeRevision: "local-current",
+            runtimePolicy: currentPolicy
+        ))
+        let tabEncoded = try #require(tab.environmentVariables[SessionRuntimeDescriptor.environmentKey])
+        let tabDescriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data(tabEncoded.utf8))
+        #expect(tabDescriptor.isLocal)
+        #expect(tabDescriptor.revision == "local-current")
+        #expect(tabDescriptor.policy == currentPolicy)
+        #expect(view.runtimeDescriptor == descriptor)
+        #expect(tabDescriptor.initialWorkingDirectory == nil)
+        #expect(tab.workingDirectory == nil)
+        #expect(tab.command == config.command)
+        #expect(tab.initialInput == config.initialInput)
+
+        let split = try #require(try controller.splitConfiguration(
+            inherited: config,
+            from: view,
+            runtimeRevision: "local-next",
+            runtimePolicy: currentPolicy
+        ))
+        let splitEncoded = try #require(split.environmentVariables[SessionRuntimeDescriptor.environmentKey])
+        let splitDescriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: Data(splitEncoded.utf8))
+        #expect(splitDescriptor.isLocal)
+        #expect(splitDescriptor.revision == "local-next")
+        #expect(splitDescriptor.policy == currentPolicy)
+        #expect(splitDescriptor.initialWorkingDirectory == nil)
+        #expect(view.runtimeDescriptor == descriptor)
+        #expect(split.workingDirectory == nil)
+        #expect(split.command == config.command)
+        #expect(split.initialInput == config.initialInput)
+    }
+
+    @MainActor
+    @Test func localRuntimeTabsAndSplitsKeepCustomDefaultAndDisabledCwdInheritance() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/usr/bin/env"
+        config.workingDirectory = "/tmp/custom-default"
+        config.initialInput = "start"
+        config.environmentVariables["CUSTOM_VALUE"] = "kept"
+        let view = Ghostty.SurfaceView(try #require(app.app), baseConfig: config)
+        view.runtimeDescriptor = .init(
+            connection: nil,
+            revision: "local-test",
+            policy: .init(),
+            localWorkingDirectory: "/tmp/original"
+        )
+        view.pwd = "/tmp/terminal-current"
+        let controller = TerminalController(app, withSurfaceTree: .init(view: view))
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+
+        let tab = try #require(controller.tabConfiguration(
+            inherited: config,
+            from: view,
+            runtimeRevision: "local-current"
+        ))
+        let tabDescriptor = try JSONDecoder().decode(
+            SessionRuntimeDescriptor.self,
+            from: Data(try #require(tab.environmentVariables[SessionRuntimeDescriptor.environmentKey]).utf8)
+        )
+        #expect(tab.workingDirectory == "/tmp/custom-default")
+        #expect(tabDescriptor.initialWorkingDirectory == "/tmp/custom-default")
+        #expect(tab.command == config.command)
+        #expect(tab.initialInput == config.initialInput)
+        #expect(tab.environmentVariables["CUSTOM_VALUE"] == "kept")
+
+        let split = try #require(try controller.splitConfiguration(
+            inherited: config,
+            from: view,
+            runtimeRevision: "local-current"
+        ))
+        let splitDescriptor = try JSONDecoder().decode(
+            SessionRuntimeDescriptor.self,
+            from: Data(try #require(split.environmentVariables[SessionRuntimeDescriptor.environmentKey]).utf8)
+        )
+        #expect(split.workingDirectory == "/tmp/custom-default")
+        #expect(splitDescriptor.initialWorkingDirectory == "/tmp/custom-default")
+        #expect(split.command == config.command)
+        #expect(split.initialInput == config.initialInput)
+        #expect(split.environmentVariables["CUSTOM_VALUE"] == "kept")
+
+        config.workingDirectory = nil
+        let defaultTab = try #require(controller.tabConfiguration(
+            inherited: config,
+            from: view,
+            runtimeRevision: "local-current"
+        ))
+        let defaultDescriptor = try JSONDecoder().decode(
+            SessionRuntimeDescriptor.self,
+            from: Data(try #require(defaultTab.environmentVariables[SessionRuntimeDescriptor.environmentKey]).utf8)
+        )
+        #expect(defaultTab.workingDirectory == nil)
+        #expect(defaultDescriptor.initialWorkingDirectory == nil)
+        let defaultSplit = try #require(try controller.splitConfiguration(
+            inherited: config,
+            from: view,
+            runtimeRevision: "local-current"
+        ))
+        let defaultSplitDescriptor = try JSONDecoder().decode(
+            SessionRuntimeDescriptor.self,
+            from: Data(try #require(defaultSplit.environmentVariables[SessionRuntimeDescriptor.environmentKey]).utf8)
+        )
+        #expect(defaultSplit.workingDirectory == nil)
+        #expect(defaultSplitDescriptor.initialWorkingDirectory == nil)
+    }
+
+    @MainActor
+    @Test func windowCloseSuspendsRetainedRuntimeSurfaceAndReattachResumesIt() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let native = try #require(app.app)
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let runtimeSurface = Ghostty.SurfaceView(native, baseConfig: config)
+        runtimeSurface.runtimeDescriptor = .init(
+            connection: nil,
+            revision: "window-lifecycle",
+            policy: .init()
+        )
+        let runtimeController = TerminalController(app, withSurfaceTree: .init(view: runtimeSurface))
+        let originalID = runtimeSurface.id
+        var restoredController: TerminalController?
+
+        let execSurface = Ghostty.SurfaceView(native, baseConfig: config)
+        let execController = TerminalController(app, withSurfaceTree: .init(view: execSurface))
+        defer {
+            for controller in [runtimeController, restoredController, execController].compactMap({ $0 }) {
+                controller.window?.delegate = nil
+                controller.window?.close()
+            }
+        }
+        _ = try #require(runtimeController.window)
+        runtimeController.closeWindowImmediately()
+        #expect(runtimeSurface.runtimeAttachmentSuspended)
+
+        restoredController = TerminalController(app, withSurfaceTree: .init(view: runtimeSurface))
+        _ = try #require(restoredController?.window)
+        #expect(runtimeSurface.id == originalID)
+        #expect(!runtimeSurface.runtimeAttachmentSuspended)
+
+        _ = try #require(execController.window)
+        execController.closeWindowImmediately()
+        #expect(!execSurface.runtimeAttachmentSuspended)
+    }
+
+    @MainActor
+    @Test func disablingLocalRuntimePreservesInheritedGhosttyLaunchConfiguration() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let native = try #require(app.app)
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/usr/bin/env"
+        config.workingDirectory = nil
+        config.initialInput = "initial draft"
+        config.waitAfterCommand = true
+        config.environmentVariables["CUSTOM_VALUE"] = "kept"
+        let descriptor = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "old-local",
+            policy: .init(),
+            localWorkingDirectory: "/tmp/original"
+        )
+        let view = Ghostty.SurfaceView(native, baseConfig: config)
+        view.runtimeDescriptor = descriptor
+        view.pwd = "/tmp/current-terminal"
+        let controller = TerminalController(app, withSurfaceTree: .init(view: view))
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        try descriptor.configure(&config)
+        config.environmentVariables["OMG_RUNTIME_SOCKET"] = "/tmp/old.sock"
+        config.environmentVariables["OMG_RUNTIME_PANE_ID"] = "old-pane"
+
+        let tab = try #require(controller.tabConfiguration(
+            inherited: config,
+            from: view,
+            localRuntimeEnabled: false
+        ))
+        let split = try #require(try controller.splitConfiguration(
+            inherited: config,
+            from: view,
+            localRuntimeEnabled: false
+        ))
+        let routingKeys = [
+            SessionRuntimeDescriptor.environmentKey,
+            SessionRuntimeDescriptor.localRuntimeEnvironmentKey,
+            SessionRuntimeDescriptor.attachExistingEnvironmentKey,
+            "OMG_RUNTIME_SOCKET",
+            "OMG_RUNTIME_PANE_ID",
+        ]
+
+        for result in [tab, split] {
+            #expect(result.workingDirectory == nil)
+            #expect(result.command == config.command)
+            #expect(result.initialInput == config.initialInput)
+            #expect(result.waitAfterCommand == config.waitAfterCommand)
+            #expect(result.environmentVariables["CUSTOM_VALUE"] == "kept")
+            for key in routingKeys { #expect(result.environmentVariables[key] == nil) }
+        }
+    }
+
+    @Test func runtimeDescriptorsReadLegacySSHArchivesAndLocalRequests() throws {
+        let remote = SessionRuntimeDescriptor(
+            connection: try GitSSHConnection(destination: "devbox"),
+            revision: "old",
+            policy: .init()
+        )
+        var legacyObject = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(remote)) as? [String: Any])
+        legacyObject.removeValue(forKey: "localWorkingDirectory")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let restored = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: legacyData)
+        #expect(restored.connection?.destination == "devbox")
+
+        let local = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "new",
+            policy: .init(),
+            localWorkingDirectory: "/tmp/project",
+            initialWorkingDirectory: "/tmp/project"
+        )
+        let id = UUID()
+        let fresh = try #require(try JSONSerialization.jsonObject(with:
+            Data(local.openRequest(pane: id, attachExisting: false).utf8)) as? [String: Any])
+        let restoredRequest = try #require(try JSONSerialization.jsonObject(with:
+            Data(local.openRequest(pane: id, attachExisting: true).utf8)) as? [String: Any])
+        #expect(fresh["cwd"] as? String == "/tmp/project")
+        #expect(fresh["create"] as? Bool == true)
+        #expect(restoredRequest["cwd"] == nil)
+        #expect(restoredRequest["create"] as? Bool == false)
+
+        var config = Ghostty.SurfaceConfiguration()
+        try local.configure(&config)
+        #expect(config.environmentVariables[SessionRuntimeDescriptor.localRuntimeEnvironmentKey] == "1")
+        #expect(config.environmentVariables[SessionRuntimeDescriptor.attachExistingEnvironmentKey] == "")
+        try local.configureAttachExisting(&config)
+        #expect(config.environmentVariables[SessionRuntimeDescriptor.attachExistingEnvironmentKey] == "1")
+    }
+
+    @MainActor
+    @Test func automaticLocalRuntimePreservesGhosttyLaunchConfiguration() throws {
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/usr/bin/python3 -c 'print(1)'"
+        config.workingDirectory = "/tmp/custom default"
+        config.initialInput = "initial draft"
+        config.waitAfterCommand = true
+        config.environmentVariables["CUSTOM_LAUNCH_ENV"] = "kept"
+
+        let descriptor = try SessionRuntimeConnections.configureLocalRuntime(
+            &config,
+            policy: .init(),
+            revision: "launch-test"
+        )
+        #expect(descriptor.isLocal)
+        #expect(descriptor.localWorkingDirectory == "/tmp/custom default")
+        #expect(config.command == "/usr/bin/python3 -c 'print(1)'")
+        #expect(config.workingDirectory == "/tmp/custom default")
+        #expect(config.initialInput == "initial draft")
+        #expect(config.waitAfterCommand)
+        #expect(config.environmentVariables["CUSTOM_LAUNCH_ENV"] == "kept")
+
+        var inheritedDefault = Ghostty.SurfaceConfiguration()
+        let noInheritedDirectory = try SessionRuntimeConnections.configureLocalRuntime(
+            &inheritedDefault,
+            policy: .init(),
+            revision: "launch-test"
+        )
+        #expect(inheritedDefault.workingDirectory == nil)
+        #expect(noInheritedDirectory.initialWorkingDirectory == nil)
+    }
+
+    @MainActor
+    @Test func automaticLocalRuntimeFallsBackWithoutPackagedResourcesOrDuringTests() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtime = root.appendingPathComponent("session-runtime", isDirectory: true)
+        try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
+        try Data("revision\n".utf8).write(to: runtime.appendingPathComponent("revision"))
+        try Data("snapshot\n".utf8).write(to: runtime.appendingPathComponent("snapshot-revision"))
+        let helper = runtime.appendingPathComponent("omgd")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: helper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+
+        #expect(!SessionRuntimeConnections.hasAutomaticLocalRuntimeResources(at: nil, isRunningTests: false))
+        #expect(!SessionRuntimeConnections.hasAutomaticLocalRuntimeResources(at: root, isRunningTests: true))
+        #expect(SessionRuntimeConnections.hasAutomaticLocalRuntimeResources(at: root, isRunningTests: false))
+
+        var enabledConfig = Ghostty.SurfaceConfiguration()
+        #expect(SessionRuntimeConnections.automaticallyConfigureLocalRuntime(
+            &enabledConfig,
+            policy: .init(),
+            enabled: true,
+            resources: root,
+            isRunningTests: false
+        ))
+        #expect(enabledConfig.environmentVariables[SessionRuntimeDescriptor.localRuntimeEnvironmentKey] == "1")
+
+        var testConfig = Ghostty.SurfaceConfiguration()
+        #expect(!SessionRuntimeConnections.automaticallyConfigureLocalRuntime(
+            &testConfig,
+            policy: .init(),
+            enabled: true,
+            resources: root,
+            isRunningTests: true
+        ))
+        #expect(testConfig.environmentVariables[SessionRuntimeDescriptor.environmentKey] == nil)
+
+        try FileManager.default.removeItem(at: helper)
+        #expect(!SessionRuntimeConnections.hasAutomaticLocalRuntimeResources(at: root, isRunningTests: false))
+    }
+
+    @MainActor
+    @Test func persistedSessionUsesItsCachedRevisionHelper() throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let version = support.appendingPathComponent("session-runtime/versions/older", isDirectory: true)
+        try FileManager.default.createDirectory(at: version, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: support) }
+        try Data("older\n".utf8).write(to: version.appendingPathComponent("revision"))
+        try Data("snapshot-older\n".utf8).write(to: version.appendingPathComponent("snapshot-revision"))
+        let helper = version.appendingPathComponent("omgd")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: helper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+
+        #expect(try SessionRuntimeConnections.cachedHelperURL(
+            forRevision: "older",
+            applicationSupportRoot: support
+        ) == helper)
+        #expect(throws: (any Error).self) {
+            try SessionRuntimeConnections.cachedHelperURL(forRevision: "current", applicationSupportRoot: support)
+        }
+    }
+
+    @Test func localStateNamespacesAreStableAndSeparateForAppUsersAndRevisions() {
+        let descriptor = SessionRuntimeDescriptor(connection: nil, revision: "current", policy: .init())
+        let home = URL(fileURLWithPath: "/tmp/local-runtime-user-a", isDirectory: true)
+        let support = URL(fileURLWithPath: "/tmp/OMG Dev", isDirectory: true)
+        let first = SessionRuntimeConnections.localStateDirectory(
+            for: descriptor,
+            applicationSupportRoot: support,
+            homeDirectory: home
+        )
+        let same = SessionRuntimeConnections.localStateDirectory(
+            for: descriptor,
+            applicationSupportRoot: support,
+            homeDirectory: home
+        )
+        let otherUser = SessionRuntimeConnections.localStateDirectory(
+            for: descriptor,
+            applicationSupportRoot: URL(fileURLWithPath: "/tmp/OMG", isDirectory: true),
+            homeDirectory: URL(fileURLWithPath: "/tmp/local-runtime-user-b", isDirectory: true)
+        )
+        var older = descriptor
+        older.revision = "older"
+        let olderRevision = SessionRuntimeConnections.localStateDirectory(
+            for: older,
+            applicationSupportRoot: support,
+            homeDirectory: home
+        )
+        #expect(first == same)
+        #expect(first != otherUser)
+        #expect(first != olderRevision)
+    }
+
+    @Test func localRuntimeBridgeCapabilityIsStablePrivateAndRejectsSymlinks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let descriptor = SessionRuntimeDescriptor(connection: nil, revision: "bridge-test", policy: .init())
+        let pane = UUID()
+        let first = try SessionRuntimeBridgeStorage.directory(
+            for: descriptor,
+            pane: pane,
+            purpose: "handoff",
+            applicationSupportRoot: support,
+            homeDirectory: home
+        )
+        let second = try SessionRuntimeBridgeStorage.directory(
+            for: descriptor,
+            pane: pane,
+            purpose: "handoff",
+            applicationSupportRoot: support,
+            homeDirectory: home
+        )
+        #expect(first == second)
+        let token = try SessionRuntimeBridgeStorage.capabilityToken(in: first)
+        #expect(token == (try SessionRuntimeBridgeStorage.capabilityToken(in: second)))
+        let attributes = try FileManager.default.attributesOfItem(atPath: first.appendingPathComponent("capability").path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
+        let capability = first.appendingPathComponent("capability")
+        try FileManager.default.removeItem(at: capability)
+        let target = root.appendingPathComponent("outside")
+        try Data(token.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: capability, withDestinationURL: target)
+        #expect(throws: (any Error).self) {
+            try SessionRuntimeBridgeStorage.capabilityToken(in: first)
+        }
+    }
+
+    @Test func privateRuntimeDirectoryValidationChecksOwnerModeAndSymlink() throws {
+        let directoryMode = S_IFDIR | mode_t(0o700)
+        #expect(SessionRuntimeBridgeStorage.hasPrivateDirectoryMetadata(
+            owner: getuid(),
+            mode: directoryMode
+        ))
+        #expect(!SessionRuntimeBridgeStorage.hasPrivateDirectoryMetadata(
+            owner: getuid() &+ 1,
+            mode: directoryMode
+        ))
+        #expect(!SessionRuntimeBridgeStorage.hasPrivateDirectoryMetadata(
+            owner: getuid(),
+            mode: S_IFDIR | mode_t(0o755)
+        ))
+        #expect(!SessionRuntimeBridgeStorage.hasPrivateDirectoryMetadata(
+            owner: getuid(),
+            mode: S_IFLNK | mode_t(0o700)
+        ))
+
+    }
+
+    @MainActor
+    @Test func relayPreparationRejectsUnsafeRootBeforeWritingRuntimeFiles() throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let target = parent.appendingPathComponent("target", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: target,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let unsafeRoot = parent.appendingPathComponent("runtime", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: unsafeRoot, withDestinationURL: target)
+
+        let descriptor = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "unsafe-root-\(UUID().uuidString)",
+            policy: .init()
+        )
+        #expect(throws: (any Error).self) {
+            try SessionRuntimeConnections.shared.prepare(descriptor, runtimeRoot: unsafeRoot)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty)
+
+        let sharedRoot = parent.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sharedRoot,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o755]
+        )
+        let sharedDescriptor = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "unsafe-mode-\(UUID().uuidString)",
+            policy: .init()
+        )
+        #expect(throws: (any Error).self) {
+            try SessionRuntimeConnections.shared.prepare(sharedDescriptor, runtimeRoot: sharedRoot)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: sharedRoot.path).isEmpty)
+    }
+
+    @Test func runtimeStatusFramesDecodeRetryStateAndBoundUntrustedDetails() throws {
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"reconnecting","attempt":3,"retry_in_ms":1200,"message":"network offline"}"#
+        ) == .reconnecting(attempt: 3, retryInMilliseconds: 1_200))
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"attention","attempt":5,"message":"credential expired"}"#
+        ) == .attention(attempt: 5, message: "credential expired"))
+        #expect(SessionRuntimeConnectionState.decode(#"{"state":"ready","attempt":0}"#) == .ready)
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"exited","attempt":0,"exit_code":17}"#
+        ) == .exited(exitCode: 17))
+        #expect(SessionRuntimeConnectionState.decode(#"{"state":"exited","attempt":0}"#) == nil)
+        #expect(SessionRuntimeConnectionState.decode(#"{"state":"other","attempt":0}"#) == nil)
+        #expect(SessionRuntimeConnectionState.decode(String(repeating: "x", count: 9_000)) == nil)
+        #expect(SessionRuntimeConnectionState.failed(message: nil).canRetry)
+        #expect(SessionRuntimeConnectionState.decode(
+            #"{"state":"failed","retryable":false,"message":"incompatible"}"#
+        ) == .failed(message: "incompatible", retryable: false))
+        #expect(!SessionRuntimeConnectionState.failed(message: "incompatible", retryable: false).canRetry)
+        #expect(!SessionRuntimeConnectionState.ready.canRetry)
+        #expect(!SessionRuntimeConnectionState.exited(exitCode: 17).canRetry)
+        #expect(SessionRuntimeConnectionState.reconnecting(attempt: 2, retryInMilliseconds: 1_000).canRetry)
+        #expect(!SessionRuntimeConnectionState.reconnecting(attempt: 2, retryInMilliseconds: nil).canRetry)
+    }
+
+    @Test func startupModesAttachOnlySavedSessionArchives() {
+        #expect(SessionRuntimeRestorationPolicy.attachesSavedRuntime(for: .restoreSessions))
+        #expect(!SessionRuntimeRestorationPolicy.attachesSavedRuntime(for: .restoreTabs))
+        #expect(!SessionRuntimeRestorationPolicy.attachesSavedRuntime(for: .newTerminal))
+        #expect(SessionRuntimeRestorationPolicy.createsFreshPaneIDsFromSavedState(for: .restoreTabs))
+        #expect(!SessionRuntimeRestorationPolicy.createsFreshPaneIDsFromSavedState(for: .newTerminal))
+        #expect(!SessionRuntimeRestorationPolicy.createsFreshPaneIDsFromSavedState(for: .restoreSessions))
+    }
+
+    @MainActor
+    @Test func terminationCopyMatchesOrdinaryPersistentAndMixedTargets() {
+        let english = SettingsStrings(language: .english)
+        let chinese = SettingsStrings(language: .simplifiedChinese)
+        let ordinary = SessionRuntimeCloseCopy(hasPersistentRuntime: false, hasOrdinaryProcess: true)
+        let persistent = SessionRuntimeCloseCopy(hasPersistentRuntime: true, hasOrdinaryProcess: false)
+        let mixed = SessionRuntimeCloseCopy(hasPersistentRuntime: true, hasOrdinaryProcess: true)
+
+        #expect(ordinary.windowMessage(allWindows: false, strings: english)
+                == "All terminal sessions in this window will be terminated.")
+        #expect(ordinary.quitMessage(multipleWindows: false, strings: english)
+                == "The terminal still has a running process. If you quit, the process will be killed.")
+        #expect(ordinary.quitButtonTitle(multipleWindows: true, strings: english) == "Terminate Processes")
+
+        #expect(persistent.windowMessage(allWindows: false, strings: english)
+                == "Persistent sessions in this window will continue running in the background.")
+        #expect(persistent.quitButtonTitle(multipleWindows: false, strings: english) == "Quit")
+
+        #expect(mixed.windowMessage(allWindows: true, strings: english)
+                == "Ordinary terminal processes will be terminated; persistent sessions will continue in the background.")
+        #expect(mixed.quitMessage(multipleWindows: true, strings: english)
+                == "If you quit without reviewing windows, ordinary terminal processes will be terminated; persistent sessions will continue in the background.")
+        #expect(mixed.quitButtonTitle(multipleWindows: true, strings: english) == "Quit")
+        #expect(mixed.windowMessage(allWindows: false, strings: chinese)
+                == "此窗口中的普通终端进程将被终止；持久会话会在后台继续运行。")
+        #expect(mixed.quitButtonTitle(multipleWindows: false, strings: chinese) == "退出")
+    }
+
+    @MainActor
     @Test func runtimeSettingsStringsFollowLanguageAndSearch() {
         let en = SettingsStrings(language: .english)
         let zh = SettingsStrings(language: .simplifiedChinese)
-        #expect(en.runtimeTitle == "Persistent SSH sessions")
-        #expect(zh.runtimeTitle == "SSH 后台会话")
+        #expect(en.runtimeTitle == "Persistent terminal sessions")
+        #expect(zh.runtimeTitle == "持久终端会话")
         #expect(en.runtimeTitle != zh.runtimeTitle)
+        #expect(en.runtimeLocalOpen == "New Local Session")
+        #expect(zh.runtimeLocalOpen == "新建本地会话")
+        #expect(en.runtimeLocalRuntimeEnabled == "Use durable runtime for new local terminals")
+        #expect(zh.runtimeLocalRuntimeEnabled == "新建本地终端使用后台会话运行时")
+        #expect(en.runtimeLibrary == "Browse Sessions…")
         #expect(en.runtimeCloseOnDone.contains("[Beta]"))
         #expect(zh.runtimeCloseOnDone.contains("【Beta】"))
         #expect(SettingsStrings(language: .system, preferredLanguages: ["zh-CN"]).runtimeTitle == zh.runtimeTitle)
         #expect(zh.runtimeDoneGraceCaption.contains("最长保留期限"))
         let entries = SettingsSearchCatalog.entries(strings: zh)
         #expect(entries.contains { $0.settingIDs.contains("sessions.runtimeDetachedHours") && $0.title == zh.runtimeTitle })
+        #expect(entries.contains { $0.settingIDs.contains("sessions.localRuntimeEnabled") && $0.title == zh.runtimeTitle })
     }
 
     @Test func hostIdentityIncludesExactRoutingAndRuntimeRevision() throws {
@@ -272,9 +902,9 @@ struct SessionRuntimeConnectionTests {
         #expect(split.identity == descriptor.identity)
         let id = UUID()
         let fresh = try #require(try JSONSerialization.jsonObject(with:
-            Data(split.openRequest(pane: id, restoring: false).utf8)) as? [String: Any])
+            Data(split.openRequest(pane: id, attachExisting: false).utf8)) as? [String: Any])
         let restored = try #require(try JSONSerialization.jsonObject(with:
-            Data(split.openRequest(pane: id, restoring: true).utf8)) as? [String: Any])
+            Data(split.openRequest(pane: id, attachExisting: true).utf8)) as? [String: Any])
         #expect(fresh["cwd"] as? String == split.initialWorkingDirectory)
         #expect(restored["cwd"] == nil)
         #expect(restored["create"] as? Bool == false)
@@ -289,8 +919,8 @@ struct SessionRuntimeConnectionTests {
     @Test func restoredPaneCannotSilentlyCreateANewRemoteProcess() throws {
         let descriptor = SessionRuntimeDescriptor(connection: try GitSSHConnection(destination: "devbox"), revision: "abc", policy: .init())
         let id = UUID()
-        let fresh = try #require(try JSONSerialization.jsonObject(with: Data(descriptor.openRequest(pane: id, restoring: false).utf8)) as? [String: Any])
-        let restored = try #require(try JSONSerialization.jsonObject(with: Data(descriptor.openRequest(pane: id, restoring: true).utf8)) as? [String: Any])
+        let fresh = try #require(try JSONSerialization.jsonObject(with: Data(descriptor.openRequest(pane: id, attachExisting: false).utf8)) as? [String: Any])
+        let restored = try #require(try JSONSerialization.jsonObject(with: Data(descriptor.openRequest(pane: id, attachExisting: true).utf8)) as? [String: Any])
         #expect(fresh["id"] as? String == id.uuidString.lowercased())
         #expect(fresh["create"] as? Bool == true)
         #expect(restored["create"] as? Bool == false)
@@ -306,11 +936,14 @@ struct SessionRuntimeConnectionTests {
         let settings = OhMyGhosttySettings(fileURL: url)
         #expect(settings.runtimePolicy.detachedTTLSeconds == 259200)
         #expect(!settings.runtimePolicy.closeOnAgentDone)
+        #expect(settings.localRuntimeEnabled)
         settings.runtimeDetachedHours = 2
         settings.runtimeCloseOnAgentDone = true
         settings.runtimeDoneGraceSeconds = 15
         settings.runtimeExpiration = "2030-01-01T00:00:00Z"
+        settings.localRuntimeEnabled = false
         let restored = OhMyGhosttySettings(fileURL: url)
+        #expect(!restored.localRuntimeEnabled)
         #expect(restored.runtimePolicy.detachedTTLSeconds == 7200)
         #expect(restored.runtimePolicy.closeOnAgentDone)
         #expect(restored.runtimePolicy.agentDoneGraceSeconds == 15)
@@ -326,7 +959,7 @@ struct SessionRuntimeConnectionTests {
         context.applyRuntimeConnection(descriptor, workingDirectory: nil)
         #expect(context.isSSHSession)
         #expect(context.presentationTitle == "user@devbox")
-        context.applyRuntimeConnection(descriptor, workingDirectory: "/srv/project")
+        context.applyRuntimeConnection(descriptor, workingDirectory: "/srv/project", state: .ready)
         #expect(context.workingDirectory == "/srv/project")
         #expect(context.remoteTabBreadcrumb?.host == "user@devbox")
         #expect(context.remoteTabBreadcrumb?.directory == "project")

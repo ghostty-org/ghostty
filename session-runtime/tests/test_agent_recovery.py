@@ -37,12 +37,19 @@ class AgentRecoveryTests(unittest.TestCase):
                                     env={**os.environ, 'HOME': str(home)})
             pane = str(uuid.uuid4())
             clients = []
-            def attach():
+            def attach(resume_generation=None):
                 s = socket.socket(socket.AF_UNIX)
                 s.settimeout(8)
                 s.connect(str(root/'host.sock'))
                 clients.append(s)
-                s.sendall(encode(b'H', 1, pane.encode()))
+                if resume_generation is None:
+                    s.sendall(encode(b'H', 1, pane.encode()))
+                else:
+                    request = json.dumps({
+                        'id': pane,
+                        'generation': resume_generation,
+                    }).encode()
+                    s.sendall(encode(b'U', 1, request))
                 info = None
                 while True:
                     kind, stream, data = frame(s)
@@ -76,7 +83,27 @@ class AgentRecoveryTests(unittest.TestCase):
                     time.sleep(.02)
                 self.assertEqual(record['ended'], 'agent_completed')
                 self.assertIsNone(record['pid'])
-                restored, current = attach()
+                attach_only = socket.socket(socket.AF_UNIX)
+                attach_only.settimeout(5)
+                attach_only.connect(str(root/'host.sock'))
+                clients.append(attach_only)
+                policy = json.loads((root/'policy.json').read_text())
+                request = json.dumps({
+                    'id': pane,
+                    'policy': policy,
+                    'create': False,
+                    'cwd': None,
+                }).encode()
+                attach_only.sendall(encode(b'C', 2, request))
+                while True:
+                    kind, stream, _ = frame(attach_only)
+                    if stream == 2:
+                        self.assertEqual(kind, b'E')
+                        break
+                record = json.loads(record_path.read_text())
+                self.assertEqual(record['ended'], 'agent_completed')
+                self.assertIsNone(record['pid'])
+                restored, current = attach(original['generation'])
                 self.assertNotEqual(current['pid'], original['pid'])
                 self.assertEqual(current['session_id'], original['session_id'])
                 self.assertNotEqual(current['generation'], original['generation'])

@@ -68,9 +68,9 @@ pub fn request(ssh: &str, args: &[String]) -> io::Result<()> {
     print!("\x1b]3008;start=omg-runtime-request-{id};type=app\x07");
     io::stdout().flush()?;
     // Preserve the local shell while its surface is parked behind the remote
-    // pane. Only GUI-owned completion returns to that exact shell environment.
+    // pane. The GUI accepts the request into a separate native tab, after which
+    // this local shell is immediately available for more commands.
     let accepted = std::path::Path::new(&directory).join(format!("{id}.accepted"));
-    let done = std::path::Path::new(&directory).join(format!("{id}.done"));
     let failed = std::path::Path::new(&directory).join(format!("{id}.failed"));
     let start = std::time::Instant::now();
     loop {
@@ -80,9 +80,9 @@ pub fn request(ssh: &str, args: &[String]) -> io::Result<()> {
             let _ = std::fs::remove_file(&accepted);
             return Err(io::Error::other(format!("OMG native SSH: {message}")));
         }
-        if done.exists() {
-            let _ = std::fs::remove_file(done);
+        if accepted.exists() {
             let _ = std::fs::remove_file(accepted);
+            let _ = std::fs::remove_file(&path);
             return Ok(());
         }
         if !accepted.exists() && start.elapsed() > Duration::from_secs(60) {

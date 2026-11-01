@@ -13,6 +13,89 @@ struct TerminalRestorableTests {
         #expect(QuickTerminalRestorableState.minimumVersion == 1)
     }
 
+    @Test func paneIDDecodeScopesRestoreNestedAndThrowingContexts() throws {
+        enum DecodeFailure: Error { case expected }
+        let outer = TerminalPaneIDRemapping()
+        let nested = TerminalPaneIDRemapping()
+        let first = UUID()
+        let firstRestored = UUID()
+        let second = UUID()
+        let secondRestored = UUID()
+
+        try TerminalPaneIDDecodeContext.withRemapping(outer) {
+            TerminalPaneIDDecodeContext.record(archivedID: first, restoredID: firstRestored)
+            #expect(outer.ids[first.uuidString] == firstRestored.uuidString)
+            do {
+                try TerminalPaneIDDecodeContext.withRemapping(nested) {
+                    TerminalPaneIDDecodeContext.record(archivedID: second, restoredID: secondRestored)
+                    throw DecodeFailure.expected
+                }
+            } catch DecodeFailure.expected {
+                #expect(nested.ids[second.uuidString] == secondRestored.uuidString)
+            }
+            #expect(outer.ids[second.uuidString] == nil)
+            TerminalPaneIDDecodeContext.record(archivedID: second, restoredID: secondRestored)
+            #expect(outer.ids[second.uuidString] == secondRestored.uuidString)
+        }
+
+        let later = TerminalPaneIDRemapping()
+        try TerminalPaneIDDecodeContext.withRemapping(later) {
+            #expect(later.ids.isEmpty)
+            TerminalPaneIDDecodeContext.record(archivedID: first, restoredID: firstRestored)
+        }
+        #expect(later.ids[first.uuidString] == firstRestored.uuidString)
+        #expect(outer.ids[first.uuidString] == firstRestored.uuidString)
+    }
+
+    @MainActor
+    @Test func nativeRestoreTabsArchiveKeepsFocusedSplitPosition() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let native = try #require(app.app)
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let panes = (0..<2).map { _ in Ghostty.SurfaceView(native, baseConfig: config) }
+        let tree = SplitTree<Ghostty.SurfaceView>(root: .split(.init(
+            direction: .horizontal,
+            ratio: 0.5,
+            left: .leaf(view: panes[0]),
+            right: .leaf(view: panes[1])
+        )), zoomed: nil)
+        let original = TerminalController(app, withSurfaceTree: tree)
+        original.focusedSurface = panes[1]
+        let originalIDs = panes.map(\.id)
+        let originalWindow = try #require(original.window)
+
+        let settings = OhMyGhosttySettings.shared
+        let previousMode = settings.startupMode
+        settings.startupMode = .restoreTabs
+        var restoredController: TerminalController?
+        defer {
+            restoredController?.window?.delegate = nil
+            restoredController?.window?.close()
+            originalWindow.delegate = nil
+            originalWindow.close()
+            settings.startupMode = previousMode
+        }
+
+        let archive = try archive(
+            CodableBridge(TerminalRestorableState(from: original)),
+            className: nil
+        )
+        let decoded = try unarchive(
+            archive,
+            className: nil,
+            as: CodableBridge<TerminalRestorableState>.self
+        ).value
+        let restoredIDs = Array(decoded.surfaceTree).map(\.id)
+        let focusedID = try #require(decoded.focusedSurface)
+        #expect(restoredIDs.count == originalIDs.count)
+        #expect(Set(restoredIDs).isDisjoint(with: Set(originalIDs)))
+        #expect(focusedID == restoredIDs[1].uuidString)
+
+        restoredController = TerminalController(app, withSurfaceTree: decoded.surfaceTree)
+        _ = try #require(restoredController?.window)
+    }
+
     @MainActor
     @Test func quickTerminalRestorableFromV1() throws {
         /* v1

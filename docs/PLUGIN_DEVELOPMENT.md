@@ -21,7 +21,11 @@ runtime yet. There is no public SDK, socket listener, or hot reload command.
 
 ## Native Session Runtime lifecycle
 
-The internal runtime keeps a single `omgd` host with per-session actor threads.
+The remote runtime keeps a single `omgd` host with per-session actor threads.
+Local sessions use a broker and independent PTY/VT holders. A restarted broker
+adopts a holder only after verifying its UUID, generation and private capability;
+recorded PIDs are never authority to signal a process. Inventory and adoption
+probes do not attach a viewer or refresh a detached session's lifetime.
 Explicit pane/tab closure is persisted in `session-runtime/pending-closes.json`
 before local removal; detached/network-lost sessions retain their existing TTL
 and Agent-completion policy. Completion cleanup is an opt-in Beta feature,
@@ -147,7 +151,7 @@ CLI remains a separate non-daemon command interface.
 
 ## Native Session Runtime hooks (Experimental)
 
-The SSH runtime is an independent PTY owner, not a third-party plugin loader.
+The local/SSH session runtime is an independent PTY owner, not a third-party plugin loader.
 Managed hook generation version 11 additionally reports Codex/Claude/Pi activity
 through `OMG_RUNTIME_BIN report` when that variable is present. The runtime injects
 `OMG_RUNTIME_EVENT_SOCKET`, `OMG_RUNTIME_EVENT_TOKEN` and `OMG_RUNTIME_GENERATION`
@@ -164,10 +168,83 @@ UTC deadline decisions are made remotely even while the Mac App is closed.
 Recovery launches allowlisted manifest-equivalent arguments for the original
 conversation ID and project directory; it does not replay arbitrary hook commands.
 Closing a pane/tab explicitly sends the session CLOSE frame and retires only that
-owned process group; App termination and detach do not send it. Transport failure
-emits an internal disconnected context event, leaves the remote session running,
-and presents a clickable reconnect action that rebuilds the relay before attach.
-Remote shell exit returns to the retained local shell and is distinct from loss.
+owned process group; App termination and detach do not send it. The client relay
+retains its local pane connections across transport loss and retries the host with
+bounded backoff. Authentication/configuration failures require attention; automatic
+attempts use noninteractive SSH. Retry Now requests one explicit retry without
+replacing a native Surface or restarting healthy sibling panes.
+
+The local relay's `T` frame carries a pane attachment generation and bounded JSON
+connection state (`connecting`, `reconnecting`, `attention`). The backend projects
+this as the host-owned `omg-runtime-state` context, with `ready` only after snapshot
+restore and writer acquisition, `failed` for session-level rejection, and
+`exited` with an exit code when the session actually ends. Exit remains visible
+even when the pane is parked, and does not offer transport retry.
+An unrecoverable local protocol/snapshot error marks `failed` as non-retryable;
+an output gap instead reconnects the existing UUID for a fresh snapshot.
+These internal lifecycle messages are not a plugin control API. Input, resize,
+writer requests and snapshot ACKs are fenced by generation; disconnected input
+is discarded, never replayed. Once creation is confirmed, reconnect only attaches
+the saved session UUID. A missing session is not replaced by a fresh shell.
+The host must advertise `strict-open/1` before streams open; an older runtime
+without that guarantee receives a compatibility error while its processes remain
+untouched. Snapshot-format compatibility alone does not authorize implicit resume.
+
+SSH handoff opens a sibling native tab in the same workspace and acknowledges the
+local helper immediately. The original local Surface/shell remains visible and
+interactive; remote exit does not replace it. New local windows/tabs/splits use
+the runtime by default (`sessions.localRuntimeEnabled`); disabling it applies
+only to newly created local terminals. Local sessions share descriptors, relay
+and snapshot protocol while bypassing SSH;
+their context remains local for Git, files and Agent/history providers. Existing
+ordinary Ghostty Exec sessions retain their current process ownership. Restored
+SSH descriptors without local transport fields remain supported.
+`restoreSessions` attaches saved runtime identities; `restoreTabs` creates fresh
+local processes and UUIDs; `newTerminal` also skips saved workspace restoration.
+Closing a window or quitting the app detaches its viewers. Explicit pane/tab
+closure ends those sessions; local child exit honors Ghostty's configured
+wait-after-command behavior.
+Window closure explicitly suspends the runtime attachment even when Undo still
+retains the Surface. The host-only `ghostty_surface_set_session_attached` adapter
+pauses/resumes that connection without ending the process. Reusing the Surface
+for Undo resumes the same UUID through the snapshot/writer barrier; workspace
+parking and ordinary tab selection do not suspend it. This avoids an invisible,
+retained view occupying the writer or preventing detached-session expiry.
+
+Local creation uses Ghostty's resolved argv, environment, cwd, dimensions and
+one-time initial input. The `local-launch/1` capability is required before
+creation; SSH refuses local launch payloads. The payload is never persisted in
+workspace/session records and is discarded after creation is confirmed.
+Local launch also carries `scrollback_max_bytes` and optional
+`scrollback_max_lines`. Persistent runtime history has a 4 MiB logical byte
+ceiling; a lower user byte limit (including zero) and the configured line limit
+are preserved. Unlimited bytes use the runtime ceiling. The authoritative VT
+and its first/restored snapshot share these limits. This is deliberately lower
+than Ghostty's native default of 50,000,000 bytes and is disclosed in settings;
+users needing larger history can opt new local terminals into ordinary PTYs.
+The byte limit includes active-screen storage and is not a process RSS limit.
+Reattach cannot replay it. Local Handoff and Quick Input helpers have private,
+stable scopes so an existing shell remains usable after the app restarts.
+User keystrokes during the first local creation have a bounded queue that drains
+only after snapshot restoration and writer acquisition. Any connection failure,
+writer rejection or explicit close discards that queue permanently; SSH and
+reattaching sessions never buffer disconnected input.
+The J version-2 and M metadata frames carry cwd, password-input state and child
+runtime; validated foreground process-group ID and PTY name are exposed only for
+local sessions. Password transitions use the existing balanced Secure Input
+lifecycle. Version-2 resize also carries pixel dimensions; version 1 remains
+accepted for existing compatible hosts.
+
+The native Session Library queries only the selected endpoint through read-only
+`list-local`/L, cancels superseded requests and excludes launch data/capabilities
+from its inventory projection. Attaching an already open UUID focuses its
+existing pane, including parked workspaces. Explicit End uses the same durable
+close queue as pane/tab closure. Inventory is not a new plugin permission or API.
+Local background sessions use already enabled local Agent integrations; opening
+one does not install hooks or edit local dotfiles. Without those integrations,
+completion cleanup does not activate, while detached TTL/deadline rules still apply.
+App-hosted tests use an in-memory shared close queue; they never read or retry
+the user's pending remote-close requests. Persistence fixtures supply private URLs.
 
 The new process gets a new generation and PID. No-ID or unsupported Agents do not
 qualify for completion-driven cleanup; process TTL can still end their session.
@@ -673,6 +750,11 @@ entry point invokes that interpreter by its quoted absolute path, supporting
 spaces in both the interpreter and helper paths. If Python is unavailable,
 ordinary editor configuration remains intact and draft import is unavailable.
 Interpreter selection during terminal creation performs filesystem checks only.
+Persistent local runtime panes use the same guarded launcher in their stable
+private bridge directory. Recreating the App bridge keeps the editor path and
+request scope intact; both the Python payload and launcher are written without
+following file symlinks. A missing interpreter still leaves the original editor
+configuration unchanged.
 
 OMG SSH bootstrap provisions one versioned remote OMG command (`~/.local/share/oh-my-ghostty/remote/omg`) for Host-owned remote capabilities. Its initial protocol v1 commands manage session start/end, Quick Input editor draft requests and an internal `exec` entry point for existing Host-owned SSH shell tasks (Git/files/inventory/Hooks); it runs on demand with Python 3 and has no separate daemon. Session-specific editor entry points delegate to the user's original editor unless a matching, unexpired request exists. All built-in Agent commands receive transient remote startup identity wrappers when no user alias/function exists, so draft import can identify newly launched Agents without waiting for Hooks; native Hooks remain authoritative for task state. Before importing, the Host also probes the matching remote TTY's foreground process group over the existing SSH transport and applies the local Agent process detector. This covers user aliases/functions which bypass startup wrappers; background Agents on the same TTY are excluded and the probe validates the session/TTY binding. Local and SSH imports share the same auto-mode eligibility and shortcut resolver (OpenCode `control+x,e`, otherwise the local `control+g` default), including explicit custom chords and disabling. This generic bridge requires the CLI to support external editing through `VISUAL`/`EDITOR`; it does not assert that every CLI implements that capability. The Host uses the exact captured SSH connection, session ID, request UUID and remote TTY before sending editor keys; responses are UTF-8, NUL-free and bounded to 1 MiB. Private runtime directories/files use 0700/0600, executable entry points use 0700, normal shell exit removes session data, and later session startup removes abandoned directories older than seven days. Existing agents must restart or resume to inherit the editor environment. Auxiliary shell tasks preserve their module-specific protocols, stdin and limits; unprepared hosts retain direct SSH execution, and SFTP remains the native OpenSSH subsystem. Unprepared/plain SSH sessions never receive draft-import keys. This transport and editor protocol are internal Host capabilities and grant no plugin filesystem, process or network permissions.
 

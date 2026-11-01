@@ -123,6 +123,10 @@ const ThreadEnterState = struct {
             Input,
             self.input.list.items.len,
         );
+        var initialized: usize = 0;
+        errdefer for (input[0..initialized]) |item| {
+            if (item == .file) item.file.close(global.io());
+        };
         for (self.input.list.items, 0..) |item, i| {
             input[i] = switch (item) {
                 .raw => |v| .{ .string = try alloc.dupe(u8, v) },
@@ -142,6 +146,7 @@ const ThreadEnterState = struct {
                     break :file .{ .file = f };
                 },
             };
+            initialized += 1;
         }
 
         return input;
@@ -343,10 +348,16 @@ pub fn threadEnter(
     // If we have thread enter state then we're going to validate
     // and set that all up now so that we can error before we actually
     // start the command and pty.
-    const inputs: ?[]const ThreadEnterState.Input = if (self.thread_enter_state) |v|
+    const runtime = if (self.backend == .omg_session) &self.backend.omg_session else null;
+    const inputs: ?[]const ThreadEnterState.Input = if (runtime != null and !runtime.?.acceptsInitialInput())
+        null
+    else if (self.thread_enter_state) |v|
         try v.prepareInput()
     else
         null;
+    defer for (inputs orelse &.{}) |input| {
+        if (input == .file) input.file.close(global.io());
+    };
 
     data.* = .{
         .alloc = self.alloc,
@@ -357,30 +368,44 @@ pub fn threadEnter(
         .backend = undefined, // Backend must replace this on threadEnter
     };
 
+    // A durable local process consumes startup input exactly once at creation.
+    // It must reach the daemon before the asynchronous attachment becomes ready.
+    if (runtime) |session| {
+        for (inputs orelse &.{}) |input| switch (input) {
+            .string => |v| try session.appendInitialInput(v),
+            .file => |f| {
+                const bytes = try compat_file.readToEndAlloc(f, self.alloc, 10 * 1024 * 1024);
+                defer self.alloc.free(bytes);
+                try session.appendInitialInput(bytes);
+            },
+        };
+    }
+
     // Setup our backend
     try self.backend.threadEnter(self.alloc, self, data);
     errdefer self.backend.threadExit(data);
 
     // If we have inputs, then queue them all up.
+    if (runtime != null) return;
     for (inputs orelse &.{}) |input| switch (input) {
         .string => |v| self.queueWrite(data, v, false) catch |err| {
             log.warn("failed to queue input string err={}", .{err});
             return error.InputFailed;
         },
-        .file => |f| self.queueWrite(
-            data,
-            compat_file.readToEndAlloc(
+        .file => |f| {
+            const bytes = compat_file.readToEndAlloc(
                 f,
                 self.alloc,
                 10 * 1024 * 1024, // 10 MiB max
             ) catch |err| {
                 log.warn("failed to read input file err={}", .{err});
                 return error.InputFailed;
-            },
-            false,
-        ) catch |err| {
-            log.warn("failed to queue input file err={}", .{err});
-            return error.InputFailed;
+            };
+            defer self.alloc.free(bytes);
+            self.queueWrite(data, bytes, false) catch |err| {
+                log.warn("failed to queue input file err={}", .{err});
+                return error.InputFailed;
+            };
         },
     };
 }

@@ -366,6 +366,19 @@ fn drainMailbox(
                     self.flags.linefeed_mode,
                 );
             },
+            .omg_session_write => |v| {
+                defer v.data.deinit();
+                if (io.backend == .omg_session) {
+                    io.backend.omg_session.queueWriteGeneration(
+                        v.generation,
+                        v.data.slice(),
+                        self.flags.linefeed_mode,
+                    ) catch |err| switch (err) {
+                        error.SessionNotReady, error.Disconnected, error.InitialInputTooLarge, error.FrameTooLarge => {},
+                        error.OutOfMemory => return err,
+                    };
+                }
+            },
         }
     }
 

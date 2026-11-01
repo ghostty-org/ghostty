@@ -665,9 +665,7 @@ pub fn init(
 
         // Initialize our IO backend
         const session_socket = config.env.map.get("OMG_RUNTIME_SOCKET");
-        var io_backend: termio.Backend = if (session_socket) |path| .{
-            .omg_session = try termio.OmgSession.init(alloc, path, config.env.map.get("OMG_RUNTIME_PANE_ID")),
-        } else .{ .exec = try termio.Exec.init(alloc, .{
+        const exec_config: termio.Exec.Config = .{
             .command = command,
             .env = env,
             .env_override = config.env,
@@ -679,9 +677,49 @@ pub fn init(
             .term = config.term,
             .rt_pre_exec_info = .init(config),
             .rt_post_fork_info = .init(config),
-        }) };
-        if (session_socket != null) env.deinit();
-        env_owned = false; // Exec owns it, or the daemon backend released it.
+        };
+        var io_backend: termio.Backend = if (session_socket) |path| session: {
+            const local = std.mem.eql(u8, config.env.map.get("OMG_RUNTIME_LOCAL") orelse "", "1");
+            const request = config.env.map.get("OMG_RUNTIME_PANE_ID");
+            const launch = @import("omg/session/LocalLaunch.zig");
+            if (local and launch.createsSession(alloc, request)) {
+                // Reuse Ghostty's shell/config preparation without starting a
+                // second PTY. Only the daemon may execute this launch request.
+                var prepared = try termio.Exec.init(alloc, exec_config);
+                env_owned = false;
+                defer prepared.deinit();
+                const cwd = try launch.workingDirectory(alloc, global.io(), prepared.subprocess.cwd);
+                defer alloc.free(cwd);
+                try prepared.subprocess.env.?.put("PWD", cwd);
+                const encoded = try launch.prepare(
+                    alloc,
+                    request.?,
+                    prepared.subprocess.args,
+                    &prepared.subprocess.env.?,
+                    cwd,
+                    size.grid(),
+                    size.terminal(),
+                    config.@"scrollback-limit-bytes".optional(),
+                    config.@"scrollback-limit-lines".optional(),
+                );
+                defer {
+                    std.crypto.secureZero(u8, encoded);
+                    alloc.free(encoded);
+                }
+                break :session .{ .omg_session = try termio.OmgSession.init(alloc, path, encoded, .{
+                    .is_local = true,
+                    .working_directory = cwd,
+                }) };
+            }
+            const backend = try termio.OmgSession.init(alloc, path, request, .{ .is_local = local });
+            env.deinit();
+            env_owned = false;
+            break :session .{ .omg_session = backend };
+        } else exec: {
+            const backend = try termio.Exec.init(alloc, exec_config);
+            env_owned = false;
+            break :exec .{ .exec = backend };
+        };
         errdefer io_backend.deinit();
 
         // Initialize our IO mailbox
@@ -890,12 +928,29 @@ fn queueIo(
             .write_small,
             .write_stable,
             .write_alloc,
+            .omg_session_write,
             => {
                 msg.deinit();
                 return;
             },
 
             else => {},
+        }
+    }
+
+    // Durable-session input belongs to the connection generation that was
+    // current when the user event entered the mailbox. If the session is
+    // offline, drop the write now instead of replaying it after reconnect.
+    if (self.io.backend == .omg_session) {
+        const session = &self.io.backend.omg_session;
+        if (session.inputGeneration()) |generation| {
+            if (msg.withOmgSessionGeneration(generation)) |tagged| {
+                self.io.queueMessage(tagged, mutex);
+                return;
+            }
+        } else if (msg.isWriteRequest()) {
+            msg.deinit();
+            return;
         }
     }
 
@@ -1303,9 +1358,9 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
     // Mark our flag that we exited immediately
     self.child_exited = true;
 
-    // A native SSH exit is handled by the host's return-to-local lifecycle,
-    // regardless of duration. Transport disconnect never emits this message.
-    if (self.io.backend == .omg_session) {
+    // Remote exits retain their session view. Local sessions honor the same
+    // exit and wait-after-command policy as a native Exec process.
+    if (self.io.backend == .omg_session and !self.io.backend.omg_session.is_local) {
         _ = self.rt_app.performAction(.{ .surface = self }, .show_child_exited, info) catch false;
         return;
     }

@@ -11,25 +11,29 @@ struct SessionRuntimeCloseRequest: Codable, Equatable {
 
 @MainActor
 final class SessionRuntimeCloseQueue: ObservableObject {
-    static let shared = SessionRuntimeCloseQueue(url: OMGApplicationEnvironment.applicationSupportURL()
-        .appendingPathComponent("session-runtime/pending-closes.json"))
-    private let url: URL
+    static let shared = SessionRuntimeCloseQueue(url: OMGApplicationEnvironment.isRunningTests ? nil :
+        OMGApplicationEnvironment.applicationSupportURL().appendingPathComponent("session-runtime/pending-closes.json"))
+    private let url: URL?
     @Published private(set) var requests: [SessionRuntimeCloseRequest] = []
     private var loadError: Error?
     private var timer: Timer?
     private var running = false
     private var stopped = false
 
-    init(url: URL) {
+    init(url: URL?) {
         self.url = url
         do {
-            if FileManager.default.fileExists(atPath: url.path) {
+            if let url, FileManager.default.fileExists(atPath: url.path) {
                 requests = try JSONDecoder().decode([SessionRuntimeCloseRequest].self, from: Data(contentsOf: url))
             }
         } catch { loadError = error }
     }
 
     private func save(_ value: [SessionRuntimeCloseRequest]) throws {
+        guard let url else {
+            requests = value
+            return
+        }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         try JSONEncoder().encode(value).write(to: url, options: .atomic)
@@ -49,7 +53,7 @@ final class SessionRuntimeCloseQueue: ObservableObject {
     }
 
     func start() {
-        guard timer == nil else { return }
+        guard url != nil, timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
             Task { @MainActor in SessionRuntimeCloseQueue.shared.retry() }
         }
@@ -63,7 +67,7 @@ final class SessionRuntimeCloseQueue: ObservableObject {
     }
 
     func retry() {
-        guard !stopped, !running, !requests.isEmpty else { return }
+        guard url != nil, !stopped, !running, !requests.isEmpty else { return }
         running = true
         Task { @MainActor in
             defer { running = false }

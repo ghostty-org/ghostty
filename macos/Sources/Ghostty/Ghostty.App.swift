@@ -1784,12 +1784,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                if surfaceView.runtimeDescriptor != nil {
-                    DispatchQueue.main.async {
-                        SessionRuntimeHandoff.shared.returnToLocal(from: surfaceView)
-                    }
-                    return true
-                }
                 // We handle this when the window is visible and timetime_ms is greater than 0,
                 // which will rule out exit codes on launch
                 guard surfaceView.window != nil, v.timetime_ms > 0 else { return false }

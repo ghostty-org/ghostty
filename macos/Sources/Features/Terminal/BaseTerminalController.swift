@@ -1361,9 +1361,13 @@ class BaseTerminalController: NSWindowController,
             return true
         }
         // We require confirmation, so show an alert as long as we aren't already.
+        let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(surfaceTree))
         confirmClose(
             messageText: "Close Terminal?",
-            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
+            informativeText: closeCopy.windowMessage(
+                allWindows: false,
+                strings: SettingsStrings(language: OhMyGhosttySettings.shared.language)
+            )
         ) { [weak self] in
             self?.window?.close()
         }
@@ -1375,6 +1379,7 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
 
         for surfaceView in surfaceTree {
+            surfaceView.suspendRuntimeAttachment()
             cancelPendingClipboardConfirmation(for: surfaceView)
         }
 

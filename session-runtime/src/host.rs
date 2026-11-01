@@ -13,6 +13,8 @@ use std::{
     time::{Duration, Instant},
 };
 const MAX_STREAMS: usize = 64;
+const MAX_LIST_ENTRIES: usize = 2048;
+const MAX_LIST_BYTES: usize = 8 * 1024 * 1024;
 struct HostLock(fs::File);
 impl HostLock {
     fn acquire(directory: &Path) -> io::Result<Self> {
@@ -39,7 +41,7 @@ impl Drop for HostLock {
         }
     }
 }
-fn inner_frame(data: &[u8]) -> io::Result<Frame> {
+pub(crate) fn inner_frame(data: &[u8]) -> io::Result<Frame> {
     let mut input = data;
     let frame = Frame::read(&mut input)?;
     if !input.is_empty() {
@@ -47,7 +49,7 @@ fn inner_frame(data: &[u8]) -> io::Result<Frame> {
     }
     Ok(frame)
 }
-fn private(path: &Path) -> io::Result<()> {
+pub(crate) fn private(path: &Path) -> io::Result<()> {
     let m = fs::symlink_metadata(path)?;
     if !m.is_dir() || m.uid() != unsafe { libc::geteuid() } || m.mode() & 0o077 != 0 {
         return Err(io::Error::other(
@@ -69,6 +71,14 @@ pub fn valid_id(id: &str) -> bool {
 /// Outer protocol: H(stream, UUID), D(stream, encoded inner frame), E(stream,error),
 /// Q(stream) detach. Outer stream IDs are local to one transport connection.
 pub fn serve(directory: &Path, command: Vec<String>) -> io::Result<()> {
+    serve_mode(directory, command, false)
+}
+
+pub fn serve_local(directory: &Path, command: Vec<String>) -> io::Result<()> {
+    serve_mode(directory, command, true)
+}
+
+fn serve_mode(directory: &Path, command: Vec<String>, local: bool) -> io::Result<()> {
     private(directory)?;
     let policy_path = directory.join("policy.json");
     let policy: Policy = if policy_path.exists() {
@@ -89,8 +99,14 @@ pub fn serve(directory: &Path, command: Vec<String>) -> io::Result<()> {
         fs::Permissions::from_mode(0o600),
     )?;
     listener.set_nonblocking(true)?;
-    let mut initial = Registry::new(root, command, policy.clone());
-    initial.set_containment_root(crate::containment::host_root()?);
+    let mut initial = if local {
+        Registry::new_local(root, command, policy.clone())
+    } else {
+        Registry::new(root, command, policy.clone())
+    };
+    if !local {
+        initial.set_containment_root(crate::containment::host_root()?);
+    }
     initial.maintenance();
     let registry = Arc::new(Mutex::new(initial));
     let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -138,7 +154,12 @@ fn host_connection(socket: UnixStream, registry: Arc<Mutex<Registry>>) -> io::Re
             match f.kind {
                 b'P' if f.seq == 0 => {
                     last_heartbeat = Instant::now();
-                    transport.push(Frame::new(b'P', 0, b"durable-close/1"));
+                    let capabilities = if registry.lock().unwrap().is_local() {
+                        b"durable-close/1,strict-open/1,local-launch/1".as_slice()
+                    } else {
+                        b"durable-close/1,strict-open/1".as_slice()
+                    };
+                    transport.push(Frame::new(b'P', 0, capabilities));
                 }
                 b'K' if f.seq != 0 => {
                     let result = std::str::from_utf8(&f.data)
@@ -154,9 +175,31 @@ fn host_connection(socket: UnixStream, registry: Arc<Mutex<Registry>>) -> io::Re
                         Err(e) => transport.push(Frame::new(b'E', f.seq, e.to_string().as_bytes())),
                     }
                 }
+                b'L' if f.seq == 0 && f.data.is_empty() => {
+                    let response = (|| {
+                        let records = registry.lock().unwrap().catalogue()?;
+                        if records.len() > MAX_LIST_ENTRIES {
+                            return Err(io::Error::other("session catalogue exceeds entry limit"));
+                        }
+                        let summary = records
+                            .iter()
+                            .map(crate::record::SessionSummary::from)
+                            .collect::<Vec<_>>();
+                        let bytes = serde_json::to_vec(&summary)?;
+                        if bytes.len() > MAX_LIST_BYTES {
+                            return Err(io::Error::other("session catalogue exceeds size limit"));
+                        }
+                        Ok(bytes)
+                    })();
+                    match response {
+                        Ok(bytes) => transport.push(Frame::new(b'L', 0, &bytes)),
+                        Err(error) => {
+                            transport.push(Frame::new(b'E', 0, error.to_string().as_bytes()))
+                        }
+                    }
+                }
                 b'L' if f.seq == 0 => {
-                    let list = registry.lock().unwrap().list()?;
-                    transport.push(Frame::new(b'L', 0, &serde_json::to_vec(&list)?));
+                    transport.push(Frame::new(b'E', 0, b"invalid catalogue request"));
                 }
                 b'U' if f.seq != 0
                     && !streams.contains_key(&f.seq)
@@ -209,21 +252,7 @@ fn host_connection(socket: UnixStream, registry: Arc<Mutex<Registry>>) -> io::Re
                                     }
                                 }
                             }
-                            let connected = state.connect(id, None);
-                            if connected.is_err() && valid_id(id) {
-                                if let Ok(record) = crate::record::Record::load(
-                                    &state.root.join(format!("{id}.json")),
-                                ) {
-                                    if record
-                                        .ended
-                                        .is_some_and(crate::lifecycle::EndReason::resumable)
-                                        && record.resume.is_some()
-                                    {
-                                        return state.connect(id, Some(&record.generation));
-                                    }
-                                }
-                            }
-                            connected
+                            state.connect(id, None)
                         });
                     match result {
                         Ok(s) => {
@@ -261,137 +290,6 @@ fn host_connection(socket: UnixStream, registry: Arc<Mutex<Registry>>) -> io::Re
             }
         }
         streams.retain(|_, p| !p.dead);
-        transport.flush()?;
-        if transport.dead {
-            return Err(io::Error::other("transport backlog exceeded"));
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-}
-pub fn relay(local: &Path, socket: UnixStream, lease: bool) -> io::Result<()> {
-    private(
-        local
-            .parent()
-            .ok_or_else(|| io::Error::other("missing parent"))?,
-    )?;
-    let listener = UnixListener::bind(local)?;
-    fs::set_permissions(local, fs::Permissions::from_mode(0o600))?;
-    listener.set_nonblocking(true)?;
-    let mut transport = Peer::new(socket, 0)?;
-    let mut peers: std::collections::HashMap<u64, (Peer, bool, bool)> = Default::default();
-    let mut next = 1;
-    let mut heartbeat = Instant::now() - Duration::from_secs(10);
-    let mut pong = Instant::now();
-    let mut durable_close = false;
-    let mut idle = Instant::now();
-    loop {
-        if !peers.is_empty() {
-            idle = Instant::now();
-        }
-        if idle.elapsed() > Duration::from_secs(30) {
-            return Ok(());
-        }
-        if lease && heartbeat.elapsed() >= Duration::from_secs(10) {
-            transport.push(Frame::new(b'P', 0, &[]));
-            heartbeat = Instant::now();
-        }
-        if lease && pong.elapsed() > Duration::from_secs(45) {
-            return Err(io::Error::other("host heartbeat timed out"));
-        }
-        for _ in 0..8 {
-            match listener.accept() {
-                Ok((s, _)) => {
-                    if peers.len() < MAX_STREAMS {
-                        peers.insert(next, (Peer::new(s, next)?, false, false));
-                        next += 1;
-                    }
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            }
-        }
-        for f in transport.read()? {
-            if f.kind == b'P' && f.seq == 0 {
-                pong = Instant::now();
-                durable_close = f.data == b"durable-close/1";
-                continue;
-            }
-            if let Some((p, _, closing)) = peers.get_mut(&f.seq) {
-                match f.kind {
-                    b'D' => p.push(inner_frame(&f.data)?),
-                    b'Q' | b'E' => {
-                        if f.kind == b'E' {
-                            eprintln!("session {}: {}", f.seq, String::from_utf8_lossy(&f.data));
-                            p.push(Frame::new(b'E', 0, &f.data));
-                        }
-                        // Drain already queued final output/Exit before closing.
-                        *closing = true;
-                    }
-                    _ => return Err(io::Error::other("invalid multiplex response")),
-                }
-            }
-        }
-        for (&id, (p, opened, closing)) in &mut peers {
-            let frames = if *closing { Ok(vec![]) } else { p.read() };
-            match frames {
-                Ok(frames) => {
-                    for f in frames {
-                        if !*opened {
-                            if f.kind == b'K' && std::str::from_utf8(&f.data).is_ok_and(valid_id) {
-                                if durable_close {
-                                    transport.push(Frame::new(b'K', id, &f.data));
-                                } else {
-                                    p.push(Frame::new(
-                                        b'E',
-                                        0,
-                                        b"host does not advertise durable close",
-                                    ));
-                                    *closing = true;
-                                }
-                                continue;
-                            }
-                            if f.kind != b'H' {
-                                p.dead = true;
-                                break;
-                            }
-                            let kind = if std::str::from_utf8(&f.data).is_ok_and(valid_id) {
-                                b'H'
-                            } else {
-                                match serde_json::from_slice::<crate::registry::OpenRequest>(
-                                    &f.data,
-                                ) {
-                                    Ok(request)
-                                        if valid_id(&request.id)
-                                            && request.policy.validate().is_ok() =>
-                                    {
-                                        b'C'
-                                    }
-                                    _ => {
-                                        p.dead = true;
-                                        break;
-                                    }
-                                }
-                            };
-                            transport.push(Frame::new(kind, id, &f.data));
-                            *opened = true;
-                        } else {
-                            transport.push(Frame::new(b'D', id, &f.encode()));
-                        }
-                    }
-                }
-                Err(_) => p.dead = true,
-            }
-            if p.flush().is_err() {
-                p.dead = true;
-            }
-            if *closing && p.queued == 0 {
-                p.dead = true;
-            }
-            if p.dead && *opened {
-                transport.push(Frame::new(b'Q', id, &[]));
-            }
-        }
-        peers.retain(|_, (p, _, _)| !p.dead);
         transport.flush()?;
         if transport.dead {
             return Err(io::Error::other("transport backlog exceeded"));

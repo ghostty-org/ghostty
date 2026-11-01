@@ -54,6 +54,7 @@ class AppDelegate: NSObject,
 
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
+    @IBOutlet private var menuSessionLibrary: NSMenuItem?
     @IBOutlet private var menuBringAllToFront: NSMenuItem?
     @IBOutlet private var menuZoomSplit: NSMenuItem?
     @IBOutlet private var menuPreviousSplit: NSMenuItem?
@@ -554,7 +555,7 @@ class AppDelegate: NSObject,
         // If our app says we don't need to confirm, we can exit now.
         if !ghostty.needsConfirmQuit { return .terminateNow }
 
-        return terminate()
+        return MainActor.assumeIsolated { terminate() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -1157,6 +1158,10 @@ class AppDelegate: NSObject,
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @IBAction func showSessionLibrary(_ sender: Any?) {
+        SessionRuntimeLibrary.show()
+    }
+
     @IBAction func openConfig(_ sender: Any?) {
         ghostty.openConfig()
     }
@@ -1338,6 +1343,7 @@ extension AppDelegate {
         self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
         self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
         self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
+        self.menuSessionLibrary?.setImageIfDesired(systemSymbolName: "rectangle.stack")
         self.menuChangeTabTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
         self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
         self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
@@ -1531,6 +1537,7 @@ extension AppDelegate: NSMenuItemValidation {
 
 // MARK: - Termination Flow
 
+@MainActor
 extension AppDelegate {
     func terminate() -> NSApplication.TerminateReply {
         let controllersNeedConfirmation = NSApplication.shared.windows
@@ -1542,11 +1549,14 @@ extension AppDelegate {
         }
 
         if controllersNeedConfirmation.count == 1 {
+            let controller = controllersNeedConfirmation[0]
+            let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(controller.surfaceTree))
+            let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
             Task {
-                let response = await controllersNeedConfirmation[0].confirmCloseAsync(
+                let response = await controller.confirmCloseAsync(
                     messageText: "Quit OMG?",
-                    informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
+                    informativeText: closeCopy.quitMessage(multipleWindows: false, strings: strings),
+                    confirmButtonTitle: closeCopy.quitButtonTitle(multipleWindows: false, strings: strings),
                 )
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {
@@ -1560,11 +1570,15 @@ extension AppDelegate {
 
             return .terminateLater
         } else {
+            let closeCopy = SessionRuntimeCloseCopy(
+                surfaces: controllersNeedConfirmation.flatMap { Array($0.surfaceTree) }
+            )
+            let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
             let alert = NSAlert()
             alert.messageText = "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?"
-            alert.informativeText = "If you don't review your windows, any running processes will be terminated"
+            alert.informativeText = closeCopy.quitMessage(multipleWindows: true, strings: strings)
             alert.addButton(withTitle: "Review Windows...")
-            alert.addButton(withTitle: "Terminate Processes")
+            alert.addButton(withTitle: closeCopy.quitButtonTitle(multipleWindows: true, strings: strings))
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .warning
 
@@ -1587,10 +1601,12 @@ extension AppDelegate {
     private func reviewWindows(_ controllers: [BaseTerminalController]) {
         Task {
             for controller in controllers {
+                let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(controller.surfaceTree))
+                let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
                 let response = await controller.confirmCloseAsync(
                     messageText: "Quit OMG?",
-                    informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
+                    informativeText: closeCopy.quitMessage(multipleWindows: false, strings: strings),
+                    confirmButtonTitle: closeCopy.quitButtonTitle(multipleWindows: false, strings: strings),
                 )
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {

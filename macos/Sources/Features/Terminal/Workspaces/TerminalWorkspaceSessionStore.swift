@@ -87,6 +87,7 @@ final class TerminalWorkspaceSessionStore {
 
     func prepare() {
         guard testing || !OMGApplicationEnvironment.isRunningTests else { return }
+        guard OhMyGhosttySettings.shared.startupMode.restoresTabs else { return }
         preparing = true
         defer { preparing = false }
         let candidates = [url, url.appendingPathExtension("previous"),
@@ -198,7 +199,10 @@ final class TerminalWorkspaceSessionStore {
         restoring = true
         if ownsRestoration {
             let transaction = TerminalWorkspacePresentationTransaction([])
-            for tab in saved.tabs { _ = restore(tab, app: app) }
+            let restoreSessions = SessionRuntimeRestorationPolicy.attachesSavedRuntime(
+                for: OhMyGhosttySettings.shared.startupMode
+            )
+            for tab in saved.tabs { _ = restore(tab, app: app, restoreSessions: restoreSessions) }
             // Assembly uses the same checked native adapter as runtime handoff.
             let catalog = workspaces.snapshot
             var groups: [TerminalWorkspaceNativeAdapter.Group] = []
@@ -259,13 +263,19 @@ final class TerminalWorkspaceSessionStore {
         let ids = workspaces.group(window: window, workspace: id)?.tabs ?? []
         let records = saved.tabs.filter { ids.contains($0.id) && closing[$0.id]?.value == nil }
         return records.sorted { (ids.firstIndex(of: $0.id) ?? 0) < (ids.firstIndex(of: $1.id) ?? 0) }
-            .compactMap { restore($0, app: app, parent: parent) }
+            .compactMap { restore($0, app: app, parent: parent, restoreSessions: true) }
     }
 
-    private func restore(_ tab: Tab, app: Ghostty.App, parent: NSWindow? = nil) -> TerminalController? {
+    private func restore(
+        _ tab: Tab,
+        app: Ghostty.App,
+        parent: NSWindow? = nil,
+        restoreSessions: Bool
+    ) -> TerminalController? {
         guard !runtime.liveControllers.contains(where: { $0.tabSessionID == tab.id }),
               let owner = workspaces.snapshot.owner(of: tab.id),
-              let descriptor = descriptors[tab.id], let state = try? descriptor.instantiate() else { return nil }
+              let descriptor = descriptors[tab.id],
+              let state = try? descriptor.instantiate(restoreSessions: restoreSessions) else { return nil }
         let controller = TerminalController(app, withSurfaceTree: state.surfaceTree, parent: parent,
             tabLayout: (parent?.windowController as? TerminalController)?.tabLayout,
             tabSessionID: tab.id, tabCreatedAt: state.tabCreatedAt, workspaceID: owner.workspace,

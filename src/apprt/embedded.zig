@@ -1911,6 +1911,11 @@ pub const CAPI = struct {
         surface.focusCallback(focused);
     }
 
+    /// Pause or resume a session backend attachment while retaining its session.
+    export fn ghostty_surface_set_session_attached(surface: *Surface, attached: bool) bool {
+        return surface.core_surface.io.backend.setSessionAttached(attached);
+    }
+
     /// Update the occlusion state of a surface.
     export fn ghostty_surface_set_occlusion(surface: *Surface, visible: bool) void {
         surface.occlusionCallback(visible);

@@ -14,10 +14,9 @@ Implemented in this change:
   private token/generation-bound local socket and wait for acknowledgment while the
   reporting process can be validated. Completion cleanup requires a conversation
   file; reattach resumes with a new PID and the same conversation identity.
-- Per-pane host/revision/policy descriptors and restoration. New tabs/splits inherit
-  the host, with a new pane UUID; restored panes cannot silently create missing
-  sessions. Ended eligible Agent sessions can resume; explicit close/lost/no-record
-  sessions return an error.
+- Per-pane host/revision/policy descriptors and restoration. Splits inherit the
+  host with a new pane UUID; restored panes cannot silently create missing sessions.
+  Explicit eligible Agent resume is distinct from automatic reattachment.
 - Settings connection entry and policy controls. System SSH uses exact routing,
   keys/config and askpass for interactive authentication. Runtime deployment is
   automatic from bundled artifacts, not from a remote toolchain or arbitrary URL.
@@ -25,7 +24,7 @@ Implemented in this change:
   local helper, nested code signing and manifest hash refresh. Versioned app cache
   and remote directories preserve active old runtimes instead of restarting them.
 
-Validation so far:
+Historical validation before the 2026-11-01 local-holder changes:
 
 - Runtime Rust unit/integration tests pass; fixture Agent completion/termination/
   resume test passes; detached output-producing process expires and empty host exits.
@@ -50,13 +49,25 @@ Release gaps (do not advertise these as completed):
 - Real Codex/Claude/Pi task completion and resume acceptance, Linux arm64/macOS remote
   execution and password/host-key UI still need acceptance.
 - Runtime revisions are cached independently from the snapshot compatibility hash.
-  Old runtime descriptors work while the terminal core hash matches; incompatible
-  snapshot cores are rejected visibly with the process retained. A production
+  Cached runtime descriptors require both a matching terminal core hash and the
+  host's `strict-open/1` capability. Older hosts and incompatible snapshot cores
+  are rejected visibly with their processes retained. A production
   upgrade/migration UI is still needed.
-- Explicit pane close sends CLOSE and terminates that remote session; app quit
-  detaches. Transport loss shows a reconnect banner which recreates the relay and
-  attaches the original session. Automatic reconnect remains pending.
-- Metadata/status list and explicit restore protocol exist, but full session manager
-  UI and local process death reconciliation are still pending.
+- Explicit pane close sends CLOSE and terminates that session; app quit detaches.
+  The 2026-11-01 relay refactor adds automatic transport recovery while preserving
+  local sockets and native Surfaces, generation-fenced input, and an attention/
+  retry state for authentication and session rejection. Real network sleep/wake
+  and password-dialog acceptance are still separate gates.
+- New local terminals use the runtime by default and share SSH's descriptor,
+  snapshot and close lifecycle. Local independent holders preserve PTYs across
+  broker restart; remote Linux retains its single supervised host and cgroups.
+  SSH handoff opens a sibling native tab and releases the source local prompt.
+  Ordinary existing local PTYs are not migrated.
+- The native Session Library provides on-demand inventory, existing-pane focus,
+  explicit attachment and durable End. It preserves exact endpoint routing and
+  does not poll every saved SSH connection. Local adoption verifies a private
+  holder capability rather than trusting persisted PIDs. Current implementation
+  and validation evidence is tracked in
+  `docs/plans/local-session-runtime-completion-2026-11-01.md`.
 - Existing terminal side effects and capabilities need parity checks. Arbitrary
   escaped descendants cannot be guaranteed killed without platform containment.

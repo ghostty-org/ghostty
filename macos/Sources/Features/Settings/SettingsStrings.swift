@@ -591,11 +591,6 @@ struct SettingsStrings: Equatable, Sendable {
         t("Replace this pane's terminal with a new SSH connection using the saved arguments. Output from the interrupted session is discarded.",
           "用已保存的参数在这个面板里重新连接，替换当前终端；断线前的输出会被丢弃。")
     }
-    var runtimeRecoveryReconnect: String { t("Reconnect Session", "重新连接会话") }
-    var runtimeRecoveryHelp: String {
-        t("Reconnect to the original remote session in this pane. Recovery requires the session to still exist on the remote host.",
-          "在当前面板重新连接原远端会话；恢复需要该会话仍保留在远端主机上。")
-    }
     var sshRecoveryReconnect: String { t("Reconnect in New Tab", "在新标签页重连") }
     var sshRecoveryDismissHelp: String {
         t("Dismiss this prompt and keep using this pane as a local terminal.",
@@ -764,12 +759,29 @@ struct SettingsStrings: Equatable, Sendable {
 
     // MARK: Native Session Runtime
 
-    var runtimeTitle: String { t("Persistent SSH sessions", "SSH 后台会话") }
+    var runtimeTitle: String { t("Persistent terminal sessions", "持久终端会话") }
     var runtimeHostPlaceholder: String { t("SSH host or user@host", "SSH 主机别名或 user@host") }
     var runtimeConnect: String { t("Connect", "连接") }
     var runtimeConnectCaption: String {
-        t("Uses your SSH configuration and keys. Installs the runtime and, when Python 3 is available, OMG recovery hooks for Codex, Claude and Pi in the remote user's directory.",
-          "使用现有 SSH 配置与密钥，自动在远端用户目录安装 Runtime；有 Python 3 时同时安装 Codex、Claude、Pi 的 OMG 对话恢复 hooks。")
+        t("SSH sessions use your configured keys and run in native tabs. OMG installs the remote runtime and, when Python 3 is available, recovery hooks for Codex, Claude and Pi.",
+          "SSH 会话使用现有密钥并在原生标签页中打开。OMG 会安装远端 Runtime；有 Python 3 时同时安装 Codex、Claude、Pi 的对话恢复 hooks。")
+    }
+    var runtimeLocalDirectory: String { t("Local working directory", "本地工作目录") }
+    var runtimeLocalOpen: String { t("New Local Session", "新建本地会话") }
+    var runtimeLocalRuntimeEnabled: String { t("Use durable runtime for new local terminals", "新建本地终端使用后台会话运行时") }
+    var runtimeLocalRuntimeCaption: String {
+        t("New windows, tabs and splits use the local session runtime, which keeps up to 4 MiB of terminal history and respects any lower Ghostty scrollback limit. Turn this off for larger history and native PTYs. Existing terminals keep their current process.",
+          "新建窗口、标签页和分屏使用本地会话运行时，最多保留 4 MiB 终端历史，并遵循 Ghostty 更低的滚动历史限制。需要更多历史时可关闭此选项使用原生 PTY；已打开的终端继续使用原进程。")
+    }
+    var runtimeLibrary: String { t("Browse Sessions…", "浏览后台会话…") }
+    var runtimeLocalCaption: String {
+        t("Runs a background session on this Mac beside your existing tabs. Agent completion cleanup requires enabled local Agent integrations.",
+          "在本机启动后台会话，与现有标签页并列打开。按 Agent 任务完成回收需要先启用本机 Agent 集成。")
+    }
+    var runtimeRetryNow: String { t("Retry Now", "立即重试") }
+    var runtimeRetryHelp: String {
+        t("Retry this host connection and reattach the existing session. No new session will be started.",
+          "重新连接主机并附加到原会话；不会新建会话。")
     }
     var runtimeDetachedHours: String { t("Keep disconnected sessions (hours)", "断开后最长保留（小时）") }
     var runtimeDetachedCaption: String {

@@ -366,4 +366,102 @@ struct QuickInputDraftBridgeTests {
         #expect(configuration.environmentVariables == expected)
         #expect(throws: CocoaError.self) { try bridge.begin(surfaceID: surfaceID) }
     }
+
+    @Test func localRuntimeEditorBridgePathSurvivesBridgeRecreation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        let temporary = root.appendingPathComponent("temporary", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let settings = OhMyGhosttySettings.shared
+        let previous = settings.quickInputImportShortcut
+        settings.quickInputImportShortcut = "control+g"
+        defer { settings.quickInputImportShortcut = previous }
+
+        let descriptor = SessionRuntimeDescriptor(
+            connection: nil,
+            revision: "local-bridge-test",
+            policy: .init(),
+            localWorkingDirectory: home.path
+        )
+        let surfaceID = UUID()
+        let first = QuickInputDraftBridge(
+            applicationSupportRoot: support,
+            homeDirectory: home,
+            temporaryDirectory: temporary
+        )
+        var firstConfig = Ghostty.SurfaceConfiguration()
+        first.configure(&firstConfig, surfaceID: surfaceID, runtimeDescriptor: descriptor)
+        let helperPath = try #require(firstConfig.environmentVariables["EDITOR"])
+        let bridgePath = try #require(firstConfig.environmentVariables["OMG_QUICK_INPUT_BRIDGE"])
+        #expect(FileManager.default.isExecutableFile(atPath: helperPath))
+
+        let second = QuickInputDraftBridge(
+            applicationSupportRoot: support,
+            homeDirectory: home,
+            temporaryDirectory: temporary
+        )
+        var secondConfig = Ghostty.SurfaceConfiguration()
+        second.configure(&secondConfig, surfaceID: surfaceID, runtimeDescriptor: descriptor)
+        #expect(secondConfig.environmentVariables["EDITOR"] == helperPath)
+        #expect(secondConfig.environmentVariables["OMG_QUICK_INPUT_BRIDGE"] == bridgePath)
+        let request = try second.begin(surfaceID: surfaceID)
+        defer { second.finish(request) }
+        #expect(request.input ==
+                firstConfig.environmentVariables["OMG_QUICK_INPUT_BRIDGE"].map {
+                    URL(fileURLWithPath: $0).appendingPathComponent("\(surfaceID.uuidString).request")
+                })
+        let draft = root.appendingPathComponent("persistent draft.txt")
+        let content = "Draft from the reattached local session"
+        try content.write(to: draft, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: helperPath)
+        process.arguments = [draft.path]
+        process.environment = secondConfig.environmentVariables
+        process.environment?["SDKROOT"] = "/nonexistent/omg-test-sdk"
+        process.environment?["DEVELOPER_DIR"] = "/nonexistent/omg-test-developer"
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(try second.receive(request) == content)
+        #expect(try String(contentsOf: draft, encoding: .utf8) == content)
+    }
+
+    @Test func readonlyAndDisconnectedSurfacesCannotImportEditorDrafts() {
+        #expect(QuickInputDraftBridge.canImportDraft(
+            isReadOnly: false,
+            isRuntime: true,
+            runtimeState: .ready,
+            isSSHConnecting: false,
+            hasPendingSSHRecovery: false
+        ))
+        #expect(!QuickInputDraftBridge.canImportDraft(
+            isReadOnly: true,
+            isRuntime: true,
+            runtimeState: .ready,
+            isSSHConnecting: false,
+            hasPendingSSHRecovery: false
+        ))
+        #expect(!QuickInputDraftBridge.canImportDraft(
+            isReadOnly: false,
+            isRuntime: true,
+            runtimeState: .attention(attempt: 3, message: "offline"),
+            isSSHConnecting: false,
+            hasPendingSSHRecovery: false
+        ))
+        #expect(!QuickInputDraftBridge.canImportDraft(
+            isReadOnly: false,
+            isRuntime: false,
+            runtimeState: nil,
+            isSSHConnecting: true,
+            hasPendingSSHRecovery: false
+        ))
+    }
 }
