@@ -99,7 +99,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     // We'll be putting our fonts into a list categorized by family
     // so it is easier to read the output.
     var families: std.ArrayList([]const u8) = .empty;
-    var map: std.StringHashMap(std.ArrayListUnmanaged([]const u8)) = .init(alloc);
+    var map: std.StringHashMap(std.ArrayList([]const u8)) = .init(alloc);
 
     // Look up all available fonts. The library is only used by backends
     // that need it (the Windows backend opens candidate font files with

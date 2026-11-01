@@ -4628,7 +4628,7 @@ test "stream: osc 52 large payload in chunks" {
 
     const H = struct {
         const Self = @This();
-        data: std.ArrayListUnmanaged(u8) = .empty,
+        data: std.ArrayList(u8) = .empty,
         kind: u8 = 0,
         terminator: ?osc.Terminator = null,
         count: usize = 0,
@@ -4658,7 +4658,7 @@ test "stream: osc 52 large payload in chunks" {
     // sequence so the bulk path sees every kind of boundary.
     const prefix = "\x1b]52;c;";
     const payload_len = 150_000;
-    var input: std.ArrayListUnmanaged(u8) = .empty;
+    var input: std.ArrayList(u8) = .empty;
     defer input.deinit(alloc);
     try input.appendSlice(alloc, prefix);
     for (0..payload_len) |i| try input.append(
@@ -4697,7 +4697,7 @@ test "stream: osc bulk path matches per-byte path" {
     const H = struct {
         const Self = @This();
         alloc: Allocator,
-        journal: std.ArrayListUnmanaged(u8) = .empty,
+        journal: std.ArrayList(u8) = .empty,
 
         fn record(self: *Self, comptime fmt: []const u8, args: anytype) void {
             const s = self.alloc.print(

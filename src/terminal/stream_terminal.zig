@@ -7016,7 +7016,7 @@ test "continuation reconstructs standard stream without duplicate effects" {
 
 test "kitty dnd: query response" {
     const S = struct {
-        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
         }
@@ -7038,7 +7038,7 @@ test "kitty dnd: query response" {
 
 test "kitty dnd: register, drop, and serve data" {
     const S = struct {
-        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
         }
@@ -7114,7 +7114,7 @@ test "kitty dnd: state updates work without write_pty effect" {
 
 test "kitty dnd: registration survives terminal reset" {
     const S = struct {
-        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
         }
@@ -7145,8 +7145,8 @@ test "kitty dnd: registration survives terminal reset" {
 
 test "kitty dnd: effect reports registration, acceptance, and conclusion" {
     const S = struct {
-        var events: std.ArrayListUnmanaged(kitty_dnd.Event) = .empty;
-        var mimes: std.ArrayListUnmanaged(u8) = .empty;
+        var events: std.ArrayList(kitty_dnd.Event) = .empty;
+        var mimes: std.ArrayList(u8) = .empty;
 
         fn clear() void {
             events.deinit(testing.allocator);
