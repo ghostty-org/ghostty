@@ -1,0 +1,17 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyTabColorDialog: Adw.AlertDialog {
+  heading: _("Tab Color");
+  close-response: "cancel";
+
+  responses [
+    cancel: _("Cancel"),
+  ]
+
+  extra-child: Box swatches {
+    orientation: horizontal;
+    spacing: 6;
+    halign: center;
+  };
+}
