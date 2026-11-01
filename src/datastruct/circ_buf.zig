@@ -39,7 +39,8 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
                 return &self.buf.storage[storage_idx];
             }
 
-            /// Seek the iterator by a given amount.
+            /// Seek the iterator by a given amount. This will clamp
+            /// the index to the range of usize so overflows are not possible.
             pub fn seekBy(self: *Iterator, amount: isize) void {
                 if (amount > 0) {
                     self.idx +|= @intCast(amount);
@@ -221,6 +222,8 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             const slices = self.getPtrSlice(0, n);
             inline for (slices) |slice| @memset(slice, default);
 
+            // Advance the tail by the number of deleted values, wrapping
+            // at the end of storage without overflowing the index.
             const amount = @min(self.len(), n);
             const until_end = self.storage.len - self.tail;
 
@@ -253,6 +256,8 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             // We use exclusive because it makes the math easier and it
             // matches Zigs slicing parameterization.
             const end_offset = offset + slice_len;
+
+            // If our slice can't fit it in our length, then we need to advance.
             if (end_offset > self.len()) {
                 self.advance(end_offset - self.len());
             }
@@ -280,6 +285,7 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
         fn advance(self: *Self, amount: usize) void {
             assert(amount <= self.storage.len - self.len());
 
+            // Advance the head, wrapping at the end of storage without overflow.
             const until_end = self.storage.len - self.head;
 
             self.head = if (amount < until_end)
@@ -287,7 +293,12 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             else
                 amount - until_end;
 
+            // If we're full, we have to keep tail lined up.
             if (self.full) self.tail = self.head;
+
+            // We're full if the head reached the tail. The head can never
+            // pass the tail because advance asserts amount is only in
+            // available space left.
             self.full = self.head == self.tail;
         }
 
