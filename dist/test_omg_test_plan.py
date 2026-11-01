@@ -3,8 +3,10 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -313,6 +315,18 @@ class GitSelectionTests(unittest.TestCase):
         self.assertFalse(planner.version_only_change(self.root, self.run_git("rev-parse", "HEAD").strip()))
 
 
+class DevToolContractTests(unittest.TestCase):
+    def test_shell_helper_contract(self):
+        result = subprocess.run(
+            ["/bin/bash", str(ROOT / "dist/test_macos_dev_tool.sh")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 @unittest.skipUnless(shutil.which("nu"), "Nushell is needed for wrapper contract tests")
 class RunnerTests(unittest.TestCase):
     def setUp(self):
@@ -325,8 +339,24 @@ class RunnerTests(unittest.TestCase):
         fake_env = fakebin / "env"
         fake_env.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$TEST_CAPTURE"\nexit "${TEST_EXIT:-0}"\n')
         fake_env.chmod(0o755)
+        fake_python = fakebin / "python3"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            'printf "%s\\n" "${SDKROOT-<unset>}" > "$TEST_PYTHON_SDKROOT"\n'
+            f"exec {shlex.quote(sys.executable)} \"$@\"\n"
+        )
+        fake_python.chmod(0o755)
         self.capture = self.root / "captured-args"
-        self.env = dict(os.environ, PATH=str(fakebin) + os.pathsep + os.environ.get("PATH", ""), TEST_CAPTURE=str(self.capture))
+        self.python_capture_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.python_capture_dir.cleanup)
+        self.python_sdkroot = Path(self.python_capture_dir.name) / "python-sdkroot"
+        self.env = dict(
+            os.environ,
+            PATH=str(fakebin) + os.pathsep + os.environ.get("PATH", ""),
+            SDKROOT="/missing/MacOSX-stale.sdk",
+            TEST_CAPTURE=str(self.capture),
+            TEST_PYTHON_SDKROOT=str(self.python_sdkroot),
+        )
 
     def runner(self, *args, script=None):
         return subprocess.run(["nu", str(script or ROOT / "macos/build.nu"), *args], cwd=self.root,
@@ -337,6 +367,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["modules"], ["editor", "git", "inspector"])
         self.assertFalse(self.capture.exists())
+        self.assertEqual(self.python_sdkroot.read_text().strip(), "<unset>")
 
     def test_comma_selections_accept_whitespace(self):
         result = self.runner("--action", "test", "--test-modules", "git, editor", "--test-plan-only")
@@ -378,7 +409,11 @@ class RunnerTests(unittest.TestCase):
                 self.assertFalse(self.capture.exists())
 
     def test_docs_only_change_does_not_run_empty_xcode_selection(self):
-        for relative in ["macos/build.nu", "dist/omg_test_plan.py"]:
+        for relative in [
+            "macos/build.nu",
+            "dist/omg_test_plan.py",
+            "dist/macos/dev-tool.sh",
+        ]:
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, destination)

@@ -5,7 +5,8 @@
 
 def test-plan [arguments: list<string>] {
     let planner = ($env.FILE_PWD | path join ".." "dist" "omg_test_plan.py")
-    let result = (^python3 $planner ...$arguments | complete)
+    let python_runner = ($env.FILE_PWD | path join ".." "dist" "macos" "dev-tool.sh")
+    let result = (^bash $python_runner python3 $planner ...$arguments | complete)
     if $result.exit_code != 0 {
         error make {msg: ($result.stderr | str trim)}
     }

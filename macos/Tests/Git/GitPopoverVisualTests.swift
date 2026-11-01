@@ -31,10 +31,10 @@ struct GitPopoverVisualTests {
 
     @Test func opaquePopoverBackgroundFollowsAppearanceChanges() throws {
         let view = GitPopoverBackgroundView(backgroundColor: .windowBackgroundColor)
-        view.appearance = try #require(NSAppearance(named: .aqua))
+        view.appearance = NSAppearance(named: .aqua)
         view.updateLayer()
         let light = try #require(view.layer?.backgroundColor)
-        view.appearance = try #require(NSAppearance(named: .darkAqua))
+        view.appearance = NSAppearance(named: .darkAqua)
         view.updateLayer()
         let dark = try #require(view.layer?.backgroundColor)
         #expect(light.alpha == 1 && dark.alpha == 1)

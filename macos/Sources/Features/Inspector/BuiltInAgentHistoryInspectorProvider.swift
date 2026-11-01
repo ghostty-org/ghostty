@@ -15,8 +15,8 @@ final class BuiltInAgentHistoryInspectorProvider {
     typealias SessionLoader = () async -> [AgentHistorySession]
     typealias RemoteSessionLoader = (AgentHistoryRemoteAccess) async -> [AgentHistorySession]
     typealias TranscriptLoader = (AgentHistorySession) async -> AgentHistoryTranscript
-    typealias SessionResumer = (AgentHistorySession, InspectorPaneContext) -> Void
-    typealias SessionForker = (AgentHistorySession, InspectorPaneContext) -> Void
+    typealias SessionResumer = @MainActor (AgentHistorySession, InspectorPaneContext) -> Void
+    typealias SessionForker = @MainActor (AgentHistorySession, InspectorPaneContext) -> Void
 
     private struct TabState {
         var hostKey: String = "local"

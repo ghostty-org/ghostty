@@ -667,6 +667,13 @@ hooks into a separate bounded, presentation-only OSC path owned by Core.
 
 The Host's optional `keyboard.quickInputImportShortcut` integration uses the standard external-editor file convention, independently of agent manifests or plugin wire messages. A user-configured chord triggers the CLI editor; a private helper copies up to 1 MiB of UTF-8 text into the requesting Surface's Quick Input draft without modifying the source file. Custom local agents may participate by honoring `VISUAL`/`EDITOR` and passing one file argument. Ordinary editor calls delegate to the previous editor. The bridge grants no new plugin capability, and it does not clear the CLI's original input; users must clear it before Quick Input submission to avoid duplicate text. See `docs/settings/configuration.md` for configuration and limitations.
 
+The local bridge only overrides `VISUAL`/`EDITOR` when an installed Python
+interpreter can be resolved without running Apple's installer shim. A shell
+entry point invokes that interpreter by its quoted absolute path, supporting
+spaces in both the interpreter and helper paths. If Python is unavailable,
+ordinary editor configuration remains intact and draft import is unavailable.
+Interpreter selection during terminal creation performs filesystem checks only.
+
 OMG SSH bootstrap provisions one versioned remote OMG command (`~/.local/share/oh-my-ghostty/remote/omg`) for Host-owned remote capabilities. Its initial protocol v1 commands manage session start/end, Quick Input editor draft requests and an internal `exec` entry point for existing Host-owned SSH shell tasks (Git/files/inventory/Hooks); it runs on demand with Python 3 and has no separate daemon. Session-specific editor entry points delegate to the user's original editor unless a matching, unexpired request exists. All built-in Agent commands receive transient remote startup identity wrappers when no user alias/function exists, so draft import can identify newly launched Agents without waiting for Hooks; native Hooks remain authoritative for task state. Before importing, the Host also probes the matching remote TTY's foreground process group over the existing SSH transport and applies the local Agent process detector. This covers user aliases/functions which bypass startup wrappers; background Agents on the same TTY are excluded and the probe validates the session/TTY binding. Local and SSH imports share the same auto-mode eligibility and shortcut resolver (OpenCode `control+x,e`, otherwise the local `control+g` default), including explicit custom chords and disabling. This generic bridge requires the CLI to support external editing through `VISUAL`/`EDITOR`; it does not assert that every CLI implements that capability. The Host uses the exact captured SSH connection, session ID, request UUID and remote TTY before sending editor keys; responses are UTF-8, NUL-free and bounded to 1 MiB. Private runtime directories/files use 0700/0600, executable entry points use 0700, normal shell exit removes session data, and later session startup removes abandoned directories older than seven days. Existing agents must restart or resume to inherit the editor environment. Auxiliary shell tasks preserve their module-specific protocols, stdin and limits; unprepared hosts retain direct SSH execution, and SFTP remains the native OpenSSH subsystem. Unprepared/plain SSH sessions never receive draft-import keys. This transport and editor protocol are internal Host capabilities and grant no plugin filesystem, process or network permissions.
 
 Quick Input presentation and focus remain Host-owned. The built-in composer participates in macOS `Option-Command` directional focus navigation, but this does not grant a plugin focus control. When the user enables `agents.openQuickInputOnStart`, the Host may expand Quick Input on the focused Pane's first Agent activity without changing first responder. `agents.openQuickInputOnComplete` applies the same Host-owned presentation policy to a newly completed focused Agent session. Plugin lifecycle messages cannot force focus or override either preference.
@@ -943,6 +950,14 @@ immediately, including reads already in flight. An initial pending read defers t
 probe until a later polling tick. This presence check accepts stale installed
 hooks; complete hook-version auditing remains part of integration maintenance.
 It never reads or scans the YAML configuration on the UI thread during polling.
+
+Local Hermes probing and the local Agent CLI manager resolve an already
+installed Python interpreter before launching it. They skip the Apple
+`/usr/bin/python3` shim, including aliases to the same file, remove inherited
+`SDKROOT` and invalid developer-directory overrides, and fail without opening an
+installer when no interpreter is available. The CLI manager still uses the
+user's login shell for CLI environment setup, with an explicitly quoted Python
+executable. SSH probes continue to resolve Python on the remote account.
 
 Local panes share one in-flight Hermes status probe and a two-second snapshot
 cache across all windows and workspaces, including parked tabs. A single Python

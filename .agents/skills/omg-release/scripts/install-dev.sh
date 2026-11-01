@@ -20,6 +20,25 @@ done
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+# Resolve a real Python before running build helpers. The system /usr/bin/python3
+# shim consults SDKROOT and can request Command Line Tools for stale SDK paths.
+unset SDKROOT
+if [[ -n "${DEVELOPER_DIR:-}" ]]; then
+  if [[ -d "$DEVELOPER_DIR/Contents/Developer" &&
+        ( -x "$DEVELOPER_DIR/Contents/Developer/usr/bin/xcodebuild" ||
+          -x "$DEVELOPER_DIR/Contents/Developer/usr/bin/clang" ) ]]; then
+    export DEVELOPER_DIR="$DEVELOPER_DIR/Contents/Developer"
+  elif [[ ! -x "$DEVELOPER_DIR/usr/bin/xcodebuild" &&
+          ! -x "$DEVELOPER_DIR/usr/bin/clang" ]]; then
+    unset DEVELOPER_DIR
+  fi
+fi
+dev_tool="$repo_root/dist/macos/dev-tool.sh"
+dev_python=$(bash "$dev_tool" resolve-python)
+dev_python_dir=${dev_python%/*}
+[[ -n "$dev_python_dir" ]] || dev_python_dir=/
+export PATH="$dev_python_dir:${PATH:-}"
+
 # Builds and the launched app must not inherit an agent's short-lived temp root.
 launch_tmpdir=$(getconf DARWIN_USER_TEMP_DIR)
 [[ -d "$launch_tmpdir" ]] || { echo "missing macOS user temporary directory" >&2; exit 1; }
@@ -89,13 +108,14 @@ if [[ "$skip_build" != true ]]; then
     --configuration Debug \
     --action build \
     --marketing-version "$dev_version"
-  python3 dist/macos/build-session-runtime.py \
+  bash "$dev_tool" python3 dist/macos/build-session-runtime.py \
     --output "$source_app/Contents/Resources/session-runtime"
 fi
 
 # --skip-build must validate the same complete artifact, never install a Swift
 # app missing the native SSH helper or its remote platform dependencies.
-python3 dist/macos/check-session-runtime.py "$source_app/Contents/Resources/session-runtime"
+bash "$dev_tool" python3 dist/macos/check-session-runtime.py \
+  "$source_app/Contents/Resources/session-runtime"
 
 [[ "$(git rev-parse HEAD)" == "$head_commit" ]] || {
   echo "HEAD changed during the Dev build; refusing to install or tag it" >&2
@@ -140,7 +160,7 @@ build_mode=$(awk '/build mode/{print $NF}' <<<"$version_output")
   exit 1
 }
 
-OMG_TEST_BINARY="$source_bin" python3 dist/test_ssh_agent_wrappers.py
+OMG_TEST_BINARY="$source_bin" bash "$dev_tool" python3 dist/test_ssh_agent_wrappers.py
 
 if pgrep -f '/Applications/OMG Dev.app/Contents/MacOS/omg' >/dev/null; then
   osascript -e 'tell application id "com.jischeng.omg.debug" to quit' >/dev/null 2>&1 || true
@@ -159,7 +179,8 @@ rm -rf "$target_app"
 ditto "$source_app" "$target_app"
 
 codesign --verify --deep --strict "$target_app"
-python3 dist/macos/check-session-runtime.py "$target_app/Contents/Resources/session-runtime"
+bash "$dev_tool" python3 dist/macos/check-session-runtime.py \
+  "$target_app/Contents/Resources/session-runtime"
 source_sha=$(shasum -a 256 "$source_bin" | awk '{print $1}')
 target_sha=$(shasum -a 256 "$target_bin" | awk '{print $1}')
 [[ "$source_sha" == "$target_sha" ]] || {

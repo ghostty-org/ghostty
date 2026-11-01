@@ -606,11 +606,21 @@ final class AgentIntegrationManager: ObservableObject {
         if let scriptRunner { return try await scriptRunner(script, target, loginShell) }
         let executable: String
         let arguments: [String]
-        // Feed scripts through stdin, avoiding remote command/ARG_MAX limits.
-        let invocation = "exec python3 -"
+        let environment: [String: String]?
         if target == Self.localID {
             executable = getpwuid(getuid())?.pointee.pw_shell.map { String(cString: $0) } ?? "/bin/zsh"
+            let interpreter: LocalPythonInterpreter
+            do {
+                interpreter = try await LocalPythonInterpreter.resolve()
+            } catch LocalPythonInterpreterError.unavailable {
+                interpreter = try await LocalPythonInterpreter.resolveFromLoginShell(
+                    shellPath: executable,
+                    loginShell: loginShell
+                )
+            }
+            let invocation = "\(interpreter.shellEnvironmentPreamble); exec \(interpreter.shellQuotedExecutable) -"
             arguments = [loginShell ? "-lic" : "-lc", invocation]
+            environment = interpreter.environment
         } else {
             guard let host = registry.host(target) else { throw AgentHistoryRemoteError.unavailable }
             return try await SSHSessionTransport.python(script, connection: registry.connections[target] ?? host.connection, loginShell: loginShell)
@@ -621,6 +631,7 @@ final class AgentIntegrationManager: ObservableObject {
         let result = try await GitProcessRunner().run(
             executablePath: executable, arguments: arguments,
             workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            environment: environment,
             stdin: Data(wrapped.utf8), maxOutputBytes: 1_048_576, timeout: 360
         )
         guard result.isSuccess else {

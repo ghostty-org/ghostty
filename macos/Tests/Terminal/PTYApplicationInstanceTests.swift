@@ -13,7 +13,7 @@ struct PTYApplicationInstanceTests {
         }
         first = nil
         let replacement = try PTYApplicationInstance(directory: directory)
-        withExtendedLifetime(replacement) {
+        _ = withExtendedLifetime(replacement) {
             #expect(throws: PTYApplicationInstance.Failure.self) {
                 try PTYApplicationInstance(directory: directory)
             }

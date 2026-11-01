@@ -2,10 +2,12 @@ import Foundation
 
 private enum HermesLocalStatusProbe {
     static func load() async throws -> [String: HermesPaneStatus.Snapshot] {
+        let interpreter = try await LocalPythonInterpreter.resolve()
         let result = try await GitProcessRunner().run(
-            executablePath: "/usr/bin/python3",
+            executablePath: interpreter.executablePath,
             arguments: ["-"],
             workingDirectory: "/tmp",
+            environment: interpreter.environment,
             stdin: Data(HermesPaneStatus.localScript.utf8),
             maxOutputBytes: 1_048_576,
             timeout: 5

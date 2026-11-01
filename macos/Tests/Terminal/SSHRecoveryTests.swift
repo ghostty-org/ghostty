@@ -76,7 +76,7 @@ struct SSHRecoveryTests {
         surface.contextSignal = .init(action: .start, id: id,
             metadata: "type=remote;targethost=cloud;cwd=/remote/project")
         let agent = AgentResumeDescriptor(agent: .pi,
-            conversationID: try #require(AgentConversationID("conversation-123")),
+            conversationID: AgentConversationID("conversation-123"),
             scope: .remote, workingDirectory: "/remote/project", sshReplay: replay)
         controller.adoptAgentResumeDescriptor(agent, for: surface)
         surface.contextSignal = .init(action: .end, id: id, metadata: "status=255;cwd=/tmp")
@@ -126,7 +126,7 @@ struct SSHRecoveryTests {
         let replay = SSHReplayDescriptor(version: 1, ssh: "/usr/bin/ssh", forwardEnv: false,
             terminfo: false, cache: false, args: ["-o", "ProxyCommand=/usr/bin/false", "cloud"])
         let agent = AgentResumeDescriptor(agent: .pi,
-            conversationID: try #require(AgentConversationID("conversation-123")),
+            conversationID: AgentConversationID("conversation-123"),
             scope: .remote, workingDirectory: "/remote/work", sshReplay: replay)
         controller.adoptSSHRecoveryDescriptor(.init(sshReplay: replay,
             remoteWorkingDirectory: "/remote/work", localWorkingDirectory: "/tmp",

@@ -4077,7 +4077,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     func closeOtherTabsImmediately() {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
+        guard window.tabGroup != nil else { return }
         let activeWindows = workspaceTabWindows
         guard activeWindows.count > 1 else { return }
 
@@ -4127,7 +4127,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     func closeTabsOnTheRightImmediately() {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
+        guard window.tabGroup != nil else { return }
         let activeWindows = workspaceTabWindows
         guard let currentIndex = activeWindows.firstIndex(of: window) else { return }
 
@@ -4189,7 +4189,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         registerUndoForCloseWindow()
 
-        if let tabGroup = window.tabGroup, activeWindows.count > 1 {
+        if window.tabGroup != nil, activeWindows.count > 1 {
             activeWindows.forEach { window in
                 // Clear out the surfacetree to ensure there is no undo state.
                 // This prevents unnecessary undos registered since AppKit may
@@ -4213,7 +4213,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If we don't have a tab group or we don't have multiple tabs, then
         // do a normal single window close.
-        guard let tabGroup = window.tabGroup,
+        guard window.tabGroup != nil,
               workspaceTabWindows.count > 1 else {
             // No tabs, just save this window's state
             if let undoState {
@@ -4370,7 +4370,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         var workspaceID: UUID = TerminalWorkspace.defaultID
         var windowSessionID: UUID = UUID()
         var workspaceGroupID: UUID = UUID()
-        var workspaceCoordinator: TerminalWorkspaceCoordinator = .shared
+        let workspaceCoordinator: TerminalWorkspaceCoordinator
         let paneSessionStates: [UUID: PaneSessionStateSnapshot]
     }
 
@@ -4806,7 +4806,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @IBAction func closeOtherTabs(_ sender: Any?) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
+        guard window.tabGroup != nil else { return }
         let activeWindows = workspaceTabWindows
 
         // If we only have one window then we have no other tabs to close
@@ -4839,7 +4839,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @IBAction func closeTabsOnTheRight(_ sender: Any?) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
+        guard window.tabGroup != nil else { return }
         let activeWindows = workspaceTabWindows
         guard let currentIndex = activeWindows.firstIndex(of: window) else { return }
 
@@ -4873,7 +4873,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction override func closeWindow(_ sender: Any?) {
-        guard let window = window else { return }
+        guard self.window != nil else { return }
 
         // We need to check all the windows in our tab group for confirmation
         // if we're closing the window. If we don't have a tabgroup for any

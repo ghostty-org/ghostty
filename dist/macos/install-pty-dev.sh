@@ -3,11 +3,29 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Commit intended changes before installing OMG Dev PTY.' >&2; exit 1; }
+unset SDKROOT
+if [[ -n "${DEVELOPER_DIR:-}" ]]; then
+  if [[ -d "$DEVELOPER_DIR/Contents/Developer" &&
+        ( -x "$DEVELOPER_DIR/Contents/Developer/usr/bin/xcodebuild" ||
+          -x "$DEVELOPER_DIR/Contents/Developer/usr/bin/clang" ) ]]; then
+    export DEVELOPER_DIR="$DEVELOPER_DIR/Contents/Developer"
+  elif [[ ! -x "$DEVELOPER_DIR/usr/bin/xcodebuild" &&
+          ! -x "$DEVELOPER_DIR/usr/bin/clang" ]]; then
+    unset DEVELOPER_DIR
+  fi
+fi
+dev_tool="$repo_root/dist/macos/dev-tool.sh"
+dev_python=$(bash "$dev_tool" resolve-python)
+dev_python_dir=${dev_python%/*}
+[[ -n "$dev_python_dir" ]] || dev_python_dir=/
+export PATH="$dev_python_dir:${PATH:-}"
+
 commit=$(git rev-parse HEAD)
 short=${commit:0:8}
 identity=${OMG_DEV_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | awk '$1 ~ /^[0-9]+\)$/ {print $2; exit}')}
 [[ -n "$identity" && "$identity" != '-' ]] || { echo 'Persistent signing identity required.' >&2; exit 1; }
-base_version=$(python3 -c 'import re; print(re.search(r"MARKETING_VERSION = ([0-9.]+);", open("macos/Ghostty.xcodeproj/project.pbxproj").read()).group(1))')
+base_version=$(bash "$dev_tool" python3 -c \
+  'import re; print(re.search(r"MARKETING_VERSION = ([0-9.]+);", open("macos/Ghostty.xcodeproj/project.pbxproj").read()).group(1))')
 version="${base_version}-pty.${short}"
 ghostty_version=$(plutil -extract GhosttyBaseVersion raw macos/Ghostty-Info.plist)
 env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
@@ -18,9 +36,10 @@ macos/build.nu --configuration Debug --action build --pty-app --marketing-versio
 source_app="$repo_root/macos/build-pty/Debug/OMG.app"
 target_app='/Applications/OMG Dev PTY.app'
 [[ "$(plutil -extract CFBundleIdentifier raw "$source_app/Contents/Info.plist")" == 'com.jischeng.omg.debug.pty' ]]
-python3 dist/macos/build-session-runtime.py --output "$source_app/Contents/Resources/session-runtime"
+bash "$dev_tool" python3 dist/macos/build-session-runtime.py \
+  --output "$source_app/Contents/Resources/session-runtime"
 [[ "$(git rev-parse HEAD)" == "$commit" && -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Source changed while packaging runtime.' >&2; exit 1; }
-python3 - "$source_app/Contents/Info.plist" <<'PY'
+bash "$dev_tool" python3 - "$source_app/Contents/Info.plist" <<'PY'
 import plistlib, sys
 path = sys.argv[1]
 with open(path, 'rb') as f: info = plistlib.load(f)
@@ -36,7 +55,8 @@ PY
 OMG_SIGNING_MODE=development OMG_SIGNING_IDENTITY="$identity" OMG_SIGNING_KEYCHAIN= \
   OMG_SIGNING_ENTITLEMENTS="$repo_root/macos/GhosttyDebug.entitlements" dist/macos/sign_omg_app.sh "$source_app"
 "$source_app/Contents/MacOS/omg" --version | grep -q '.ReleaseFast'
-OMG_TEST_BINARY="$source_app/Contents/MacOS/omg" python3 dist/test_ssh_agent_wrappers.py
+OMG_TEST_BINARY="$source_app/Contents/MacOS/omg" \
+  bash "$dev_tool" python3 dist/test_ssh_agent_wrappers.py
 if pgrep -f '^/Applications/OMG Dev PTY.app/Contents/MacOS/omg' >/dev/null; then
   osascript -e 'tell application id "com.jischeng.omg.debug.pty" to quit' || true
   for _ in {1..40}; do

@@ -23,7 +23,7 @@ struct TerminalWorkspaceTabActionsTests {
             personal.append(try fixture.tab(parent: try #require(personal.last)))
         }
         try await Task.sleep(for: .milliseconds(100))
-        let personalSelection = try #require(personal.last)
+        let personalSelection = personal[personal.count - 1]
         personalSelection.window?.makeKeyAndOrderFront(nil)
         fixture.coordinator.didActivate(personalSelection)
 
@@ -35,7 +35,7 @@ struct TerminalWorkspaceTabActionsTests {
             work.append(try fixture.tab(workspace: workID, parent: try #require(work.last)))
         }
         try await Task.sleep(for: .milliseconds(100))
-        let workSelection = try #require(work.last)
+        let workSelection = work[work.count - 1]
         workSelection.window?.makeKeyAndOrderFront(nil)
         fixture.coordinator.didActivate(workSelection)
         try await Task.sleep(for: .milliseconds(80))

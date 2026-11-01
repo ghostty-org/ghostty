@@ -260,7 +260,7 @@ struct TerminalWorkspaceManagementDesktopTests {
             let id = controller.tabSessionID
             if contents[id] == nil {
                 contents[id] = try #require(controller.window?.contentView)
-                surfaces[id] = try #require(controller.focusedSurface ?? controller.surfaceTree.first)
+                surfaces[id] = controller.focusedSurface ?? controller.surfaceTree.first
             }
         }
         for controller in controllers { try remember(controller) }

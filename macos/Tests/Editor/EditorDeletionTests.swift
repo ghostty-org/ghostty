@@ -15,7 +15,7 @@ import Testing
 @Suite(.serialized) @MainActor
 struct EditorDeletionTests {
     /// Capture coordinator that keeps the controller reachable from the test.
-    private final class ControllerCapture: @preconcurrency TextViewCoordinator {
+    private final class ControllerCapture: TextViewCoordinator {
         weak var controller: TextViewController?
         func prepareCoordinator(controller: TextViewController) { self.controller = controller }
     }
@@ -68,7 +68,7 @@ struct EditorDeletionTests {
         // completion anchoring.
         #expect(textView.layoutManager.rectForOffset(selection.location) != nil)
         // Keep the mount and coordinator alive for the whole test.
-        withExtendedLifetime(capture) {}
+        withExtendedLifetime((capture, host)) {}
     }
 
     /// Deleting the tail of the document is the exact path that trapped the
@@ -94,7 +94,7 @@ struct EditorDeletionTests {
         #expect(textView.string == expected)
         #expect(textView.layoutManager.lineCount == (expected as NSString).components(separatedBy: "\n").count)
         // Keep the mount and coordinator alive for the whole test.
-        withExtendedLifetime(capture) {}
+        withExtendedLifetime((capture, host)) {}
     }
 
     /// Repeated deletes keep exercising the same store; the bug only showed up
@@ -124,6 +124,6 @@ struct EditorDeletionTests {
         }
         #expect(expectedLocation == remaining.length)
         // Keep the mount and coordinator alive for the whole test.
-        withExtendedLifetime(capture) {}
+        withExtendedLifetime((capture, host)) {}
     }
 }

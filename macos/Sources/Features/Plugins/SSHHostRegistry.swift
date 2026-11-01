@@ -44,7 +44,7 @@ final class SSHHostRegistry: ObservableObject {
 
     init(defaults: UserDefaults = .standard,
          live: @escaping @MainActor () -> [GitSSHConnection] = SSHHostRegistry.liveConnections,
-         inventory: @escaping Inventory = SSHHostRegistry.readInventory) {
+         inventory: @escaping Inventory = { try await SSHHostRegistry.readInventory($0) }) {
         self.defaults = defaults
         self.live = live
         self.inventory = inventory

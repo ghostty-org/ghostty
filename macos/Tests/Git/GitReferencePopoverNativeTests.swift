@@ -49,8 +49,8 @@ struct GitReferencePopoverNativeTests {
         coordinator.activate(row: row)
         #expect(pasteboard.string(forType: .string) == "release/2026")
         #expect(controller.copiedLabelForTesting.stringValue == GitL10n.text("Copied"))
-        controller.control(controller.searchFieldForTesting, textView: NSTextView(),
-                           doCommandBy: NSSelectorFromString("cancelOperation:"))
+        #expect(controller.control(controller.searchFieldForTesting, textView: NSTextView(),
+                                   doCommandBy: NSSelectorFromString("cancelOperation:")))
         #expect(closed)
     }
 }

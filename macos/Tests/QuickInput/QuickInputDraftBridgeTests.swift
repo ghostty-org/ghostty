@@ -284,8 +284,14 @@ struct QuickInputDraftBridgeTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let helper = root.appendingPathComponent("editor.py")
-        try QuickInputDraftBridge.helper.write(to: helper, atomically: true, encoding: .utf8)
+        let python = try #require(LocalPythonInterpreter.cached())
+        let pythonAlias = root.appendingPathComponent("python with ' spaces")
+        try FileManager.default.createSymbolicLink(atPath: pythonAlias.path,
+                                                  withDestinationPath: python.executablePath)
+        let helper = try QuickInputDraftBridge.installHelper(
+            in: root.appendingPathComponent("bridge with ' spaces"),
+            pythonExecutable: pythonAlias.path
+        )
         let surface = UUID().uuidString
         let identifier = UUID().uuidString
         let request = root.appendingPathComponent("\(surface).request")
@@ -296,11 +302,13 @@ struct QuickInputDraftBridgeTests {
             "id": identifier, "expires": Date().timeIntervalSince1970 + 30,
         ]).write(to: request)
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [helper.path, draft.path]
+        process.executableURL = helper
+        process.arguments = [draft.path]
         process.environment = [
             "OMG_QUICK_INPUT_BRIDGE": root.path,
             "OMG_QUICK_INPUT_SURFACE": surface,
+            "SDKROOT": "/nonexistent/omg-test-sdk",
+            "DEVELOPER_DIR": "/nonexistent/omg-test-developer",
         ]
         try process.run()
         process.waitUntilExit()
@@ -325,12 +333,14 @@ struct QuickInputDraftBridgeTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let helper = root.appendingPathComponent("editor.py")
-        try QuickInputDraftBridge.helper.write(to: helper, atomically: true, encoding: .utf8)
+        let python = try #require(LocalPythonInterpreter.cached())
+        let helper = try QuickInputDraftBridge.installHelper(
+            in: root, pythonExecutable: python.executablePath
+        )
         let draft = root.appendingPathComponent("file with spaces.txt")
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [helper.path, draft.path]
+        process.executableURL = helper
+        process.arguments = [draft.path]
         process.environment = [
             "OMG_QUICK_INPUT_BRIDGE": root.path,
             "OMG_QUICK_INPUT_SURFACE": UUID().uuidString,
@@ -340,5 +350,20 @@ struct QuickInputDraftBridgeTests {
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
         #expect(FileManager.default.fileExists(atPath: draft.path))
+    }
+
+    @Test func missingPythonKeepsOriginalEditorAndDisablesDraftRequests() {
+        let settings = OhMyGhosttySettings.shared
+        let previous = settings.quickInputImportShortcut
+        settings.quickInputImportShortcut = "auto"
+        defer { settings.quickInputImportShortcut = previous }
+        let bridge = QuickInputDraftBridge(pythonExecutable: { nil })
+        let surfaceID = UUID()
+        var configuration = Ghostty.SurfaceConfiguration()
+        configuration.environmentVariables = ["EDITOR": "/usr/bin/vi", "VISUAL": "/usr/bin/vi"]
+        let expected = configuration.environmentVariables
+        bridge.configure(&configuration, surfaceID: surfaceID)
+        #expect(configuration.environmentVariables == expected)
+        #expect(throws: CocoaError.self) { try bridge.begin(surfaceID: surfaceID) }
     }
 }

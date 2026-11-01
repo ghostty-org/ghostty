@@ -137,7 +137,7 @@ struct TerminalWorkspaceIntegrationTests {
         #expect(!closed.surfaceTree.isEmpty)
         #expect(closedWindow.contentView == nil)
         #expect(!coordinator.controllers(in: closedID).contains { $0 === closed })
-        reopened = try #require(coordinator.switchWorkspace(to: closedID, from: source))
+        reopened = coordinator.switchWorkspace(to: closedID, from: source)
         #expect(reopened !== closed)
         #expect(reopened?.workspaceID == closedID)
         #expect(reopened?.window?.contentView != nil)

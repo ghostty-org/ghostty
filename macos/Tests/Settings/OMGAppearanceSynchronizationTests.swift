@@ -62,7 +62,7 @@ struct OMGAppearanceSynchronizationTests {
             if let appearance = change.newValue, tracker.consume(isDark: appearance.isDark) { reports += 1 }
         }
         defer { observation.invalidate() }
-        let policy = OMGAppearancePolicy(override: nil, configured: try #require(NSAppearance(named: .darkAqua)))
+        let policy = OMGAppearancePolicy(override: nil, configured: NSAppearance(named: .darkAqua))
         for _ in 0..<100 { policy.apply(to: application) }
         #expect(assignments <= 1)
         #expect(reports <= 1)

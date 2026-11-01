@@ -84,7 +84,13 @@ enum ShellScrollbackRestoreStore {
     }
 
     static func captureOpenSurfaces(
-        controllers: [TerminalController] = TerminalController.all,
+        baseURL: URL = OMGApplicationEnvironment.applicationSupportURL()
+    ) {
+        captureOpenSurfaces(controllers: TerminalController.all, baseURL: baseURL)
+    }
+
+    static func captureOpenSurfaces(
+        controllers: [TerminalController],
         baseURL: URL = OMGApplicationEnvironment.applicationSupportURL()
     ) {
         guard OhMyGhosttySettings.shared.startupMode.restoresSessions else { return }

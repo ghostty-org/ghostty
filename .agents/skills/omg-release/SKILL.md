@@ -1,7 +1,8 @@
 ---
 name: omg-release
 description: Builds, validates, installs, and publishes Oh My Ghostty macOS development and patch releases. Use when asked to install or replace OMG Dev, prepare a release, bump OMG versions, build arm64/x86_64/universal DMGs, generate the Sparkle appcast, tag, push, or publish a GitHub Release.
-compatibility: macOS, Xcode, Zig 0.16.0 via mise, Nushell, SwiftLint, GitHub CLI, and Sparkle tools.
+metadata:
+  compatibility: macOS, Xcode, Zig 0.16.0 via mise, Nushell, SwiftLint, GitHub CLI, and Sparkle tools.
 ---
 
 # OMG Build and Release
@@ -33,6 +34,13 @@ Use this skill in the `oh-my-ghostty` repo. Never open the Xcode GUI. Never touc
 ```bash
 .agents/skills/omg-release/scripts/install-dev.sh
 ```
+
+The Dev installers resolve an installed Python interpreter and clear inherited
+`SDKROOT` before running build/validation tools. For standalone checks, use
+`dist/macos/dev-tool.sh python3 ...`, `... xcrun ...`, or `... swiftlint ...`.
+Do not invoke `/usr/bin/python3` to probe for Python: its Apple launcher can
+open a Command Line Tools installer when SDK selection is stale. This does
+not change the separately pinned signing interpreter or its Keychain ACL.
 
 **Prerequisites**:
 - Working tree **must be clean** (commit changes first).

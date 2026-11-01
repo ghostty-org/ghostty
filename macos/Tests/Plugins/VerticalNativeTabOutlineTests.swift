@@ -154,7 +154,7 @@ struct VerticalNativeTabOutlineTests {
         }
 
         let state = VerticalTabWindowLayoutState(isSidebarVisible: true)
-        var tabs = [GhosttyOrganizedTab(controller: first, actualIndex: 1)]
+        let tabs = [GhosttyOrganizedTab(controller: first, actualIndex: 1)]
         var presentationCalls = 0
         func view() -> NativeTabOutlineConfiguration {
             NativeTabOutlineConfiguration(

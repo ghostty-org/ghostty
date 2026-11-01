@@ -211,15 +211,17 @@ struct EditorTextSearchTests {
             var didReplaceInvoked = false
 
             func textView(_ textView: TextView, shouldReplaceContentsIn range: NSRange, with string: String) -> Bool {
-                shouldReplaceContentsInInvoked = true
-                if string.isEmpty && (textView.string as NSString).substring(with: range) == "(" {
-                    let closeRange = NSRange(location: range.location + 1, length: 1)
-                    if closeRange.location + closeRange.length <= textView.textStorage.length,
-                       (textView.string as NSString).substring(with: closeRange) == ")" {
-                        textView.textStorage.replaceCharacters(in: closeRange, with: "")
+                MainActor.assumeIsolated {
+                    shouldReplaceContentsInInvoked = true
+                    if string.isEmpty && (textView.string as NSString).substring(with: range) == "(" {
+                        let closeRange = NSRange(location: range.location + 1, length: 1)
+                        if closeRange.location + closeRange.length <= textView.textStorage.length,
+                           (textView.string as NSString).substring(with: closeRange) == ")" {
+                            textView.textStorage.replaceCharacters(in: closeRange, with: "")
+                        }
                     }
+                    return true
                 }
-                return true
             }
 
             func textView(_ textView: TextView, willReplaceContentsIn range: NSRange, with string: String) {

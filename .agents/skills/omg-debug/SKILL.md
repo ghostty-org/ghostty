@@ -13,6 +13,21 @@ sampling commands, read `docs/omg-dev-memory-diagnostics.md` from the repo root.
 If building, testing, or preparing a separate debuggable app, also read
 `.agents/skills/omg-build/SKILL.md` **before** running commands.
 
+## Local tool environment
+
+Run local Python, `xcrun` and SwiftLint through `dist/macos/dev-tool.sh`, for
+example `dist/macos/dev-tool.sh python3 script.py` or
+`dist/macos/dev-tool.sh xcrun xctrace record ...`. It removes inherited `SDKROOT`
+and skips Apple's `/usr/bin/python3` installer shim when selecting an installed
+interpreter. This also applies to ad hoc diagnostic scripts and their Python
+children: use the resolved interpreter or `sys.executable`, not
+`/usr/bin/python3`.
+
+A stale SDK path can make that shim display a Command Line Tools installation
+prompt even with Xcode installed. Check the selected developer directory and
+existing interpreter first; do not install tools or change the system selection
+to work around an inherited environment variable.
+
 ## Safety
 
 - Never quit, rebuild over, replace, or modify the release app at
@@ -54,7 +69,7 @@ If building, testing, or preparing a separate debuggable app, also read
    current CPU-time delta from lifetime averages.
 3. For an authorized diagnosis or repair, collect a separate **bounded,
    low-frequency** system trace
-   using `python3 .agents/skills/omg-debug/scripts/observe.py sample --pid PID
+   using `dist/macos/dev-tool.sh python3 .agents/skills/omg-debug/scripts/observe.py sample --pid PID
    --output-dir /tmp/unique-private-dir --interval 60 --duration-minutes 120`.
    It verifies the Debug bundle, identity and private output location, stops
    automatically, and saves `system-samples.csv` with heap/graphics/IOSurface
@@ -85,10 +100,10 @@ If building, testing, or preparing a separate debuggable app, also read
   logger, use:
   `macos/build.nu --action test --only-testing GhosttyTests/DevMemoryDiagnosticsTests`.
 - Validate Swift lint for changed Swift code. For logger changes:
-  `swiftlint lint --strict --config macos/.swiftlint.yml macos/Sources/Features/Terminal/DevMemoryDiagnostics.swift macos/Tests/Terminal/DevMemoryDiagnosticsTests.swift`.
+  `dist/macos/dev-tool.sh swiftlint lint --strict --config macos/.swiftlint.yml macos/Sources/Features/Terminal/DevMemoryDiagnostics.swift macos/Tests/Terminal/DevMemoryDiagnosticsTests.swift`.
 - When changing the sampler, validate it with
-  `python3 -m unittest discover -s .agents/skills/omg-debug/scripts -p 'test_*.py'`.
-- Check `python3 dist/check_omg_docs.py`. The skill is not a plugin API. If
+  `dist/macos/dev-tool.sh python3 -m unittest discover -s .agents/skills/omg-debug/scripts -p 'test_*.py'`.
+- Check `dist/macos/dev-tool.sh python3 dist/check_omg_docs.py`. The skill is not a plugin API. If
   later work changes plugin APIs, manifests, wire messages, capabilities,
   lifecycle, loading/discovery, package layout, Inspector provider behavior
   or permissions, update `docs/PLUGIN_DEVELOPMENT.md` and relevant tests in

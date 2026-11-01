@@ -30,10 +30,14 @@ struct MenuShortcutManagerTests {
     func overrideDefault() async throws {
         let config = try TemporaryConfig("keybind=super+h=goto_split:left")
 
-        let hideItem = NSMenuItem(title: "Hide OMG", action: "hide:", keyEquivalent: "h")
+        let hideItem = NSMenuItem(title: "Hide OMG", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         hideItem.keyEquivalentModifierMask = .command
 
-        let goToLeftItem = NSMenuItem(title: "Select Split Left", action: "splitMoveFocusLeft:", keyEquivalent: "")
+        let goToLeftItem = NSMenuItem(
+            title: "Select Split Left",
+            action: #selector(BaseTerminalController.splitMoveFocusLeft(_:)),
+            keyEquivalent: ""
+        )
 
         let manager = await Ghostty.MenuShortcutManager()
         await manager.reset()

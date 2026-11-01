@@ -11,6 +11,13 @@ final class QuickInputDraftBridge {
         .appendingPathComponent("omg-quick-input-\(UUID().uuidString)", isDirectory: true)
     private var installed = false
     private var configuredSurfaces: Set<UUID> = []
+    private let pythonExecutable: () -> String?
+
+    init(pythonExecutable: @escaping () -> String? = {
+        LocalPythonInterpreter.cached()?.executablePath
+    }) {
+        self.pythonExecutable = pythonExecutable
+    }
 
     static func keys(_ value: String) -> [Ghostty.Input.KeyEvent]? {
         let parts = value.split(separator: ",", omittingEmptySubsequences: false)
@@ -58,11 +65,8 @@ final class QuickInputDraftBridge {
         guard Self.keys(Self.shortcut(setting: setting, agent: nil)) != nil else { return }
         do {
             if !installed {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                        attributes: [.posixPermissions: 0o700])
-                let helper = directory.appendingPathComponent("editor")
-                try Self.helper.write(to: helper, atomically: true, encoding: .utf8)
-                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+                guard let pythonExecutable = pythonExecutable() else { return }
+                _ = try Self.installHelper(in: directory, pythonExecutable: pythonExecutable)
                 installed = true
             }
             let inherited = ProcessInfo.processInfo.environment
@@ -117,9 +121,28 @@ final class QuickInputDraftBridge {
         try? FileManager.default.removeItem(at: request.output)
     }
 
+    static func installHelper(in directory: URL, pythonExecutable: String) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        let script = directory.appendingPathComponent("editor.py")
+        try helper.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: script.path)
+        // A shell entry point handles spaces in the interpreter path; a shebang cannot.
+        let launcher = """
+        #!/bin/sh
+        unset SDKROOT
+        if [ -n "${DEVELOPER_DIR-}" ] && [ ! -d "$DEVELOPER_DIR" ]; then unset DEVELOPER_DIR; fi
+        exec \(Ghostty.Shell.quote(pythonExecutable)) \(Ghostty.Shell.quote(script.path)) "$@"
+
+        """
+        let executable = directory.appendingPathComponent("editor")
+        try launcher.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        return executable
+    }
+
     // Python is also used by the bundled agent integrations. No third-party module is required.
     static let helper = #"""
-    #!/usr/bin/python3
     import json
     import os
     import sys

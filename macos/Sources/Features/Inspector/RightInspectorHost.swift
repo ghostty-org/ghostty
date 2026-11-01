@@ -406,7 +406,7 @@ private struct InspectorTitlebarPaneButton: View {
 struct TerminalShellLayoutContainer<Content: View>: View {
     @ObservedObject var controller: TerminalController
     @ObservedObject var layoutState: VerticalTabWindowLayoutState
-    @ObservedObject var statusStore: TabActivityStore
+    let statusStore: TabActivityStore
     @ObservedObject var inspectorRegistry: InspectorRegistry
     let showsTabSidebar: Bool
     let backgroundColor: Color

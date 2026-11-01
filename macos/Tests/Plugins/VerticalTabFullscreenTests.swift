@@ -111,7 +111,7 @@ struct VerticalTabFullscreenTests {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         try String(ProcessInfo.processInfo.processIdentifier).write(
             toFile: "/tmp/omg-fullscreen-test.pid", atomically: true, encoding: .utf8
         )

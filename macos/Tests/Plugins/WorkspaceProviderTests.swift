@@ -23,7 +23,7 @@ struct WorkspaceProviderTests {
         #expect(context.workspace == nil)
         #expect(pending.remoteWorkingDirectory == "/remote/my project")
         pending.interruptedAgent = AgentResumeDescriptor(agent: .pi,
-            conversationID: try #require(AgentConversationID("conversation-123")),
+            conversationID: AgentConversationID("conversation-123"),
             scope: .remote, workingDirectory: "/remote/my project", sshReplay: replay)
         let archived = try JSONDecoder().decode(SSHResumeDescriptor.self, from: JSONEncoder().encode(pending))
         #expect(archived == pending)

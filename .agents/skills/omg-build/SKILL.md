@@ -1,7 +1,8 @@
 ---
 name: omg-build
 description: Build, compile, test, and run Oh My Ghostty (OMG) on macOS without opening the Xcode GUI. Use when asked to build OMG, compile GhosttyKit, run tests, diagnose build errors, or run OMG from source. Covers Xcode command-line workflows, Nushell scripts, Zig core builds, and fast targeted testing.
-compatibility: macOS, Xcode command-line tools, Zig 0.16.0 via mise, Nushell, SwiftLint.
+metadata:
+  compatibility: macOS, Xcode command-line tools, Zig 0.16.0 via mise, Nushell, SwiftLint.
 ---
 
 # OMG Build Guide
@@ -20,6 +21,15 @@ Use this skill in the `oh-my-ghostty` repository to build, compile, and test the
    - **macOS Swift app**: `macos/build.nu` (wraps `xcodebuild` cleanly).
    - **Ghostty Zig core / GhosttyKit**: `mise exec zig@0.16.0 -- zig build`.
    - **Dev install**: `.agents/skills/omg-release/scripts/install-dev.sh`.
+4. **Resolve local tools without the Apple Python installer shim**:
+   - Use `dist/macos/dev-tool.sh python3 ...`, `... xcrun ...`, and
+     `... swiftlint ...` for standalone checks and diagnostic scripts.
+   - `macos/build.nu` and the Dev installers use this entry point themselves.
+     It removes inherited `SDKROOT`, which can reference a removed SDK after
+     Xcode updates, and selects an existing interpreter without launching an
+     installer. Use `sys.executable` for Python children.
+   - Keep the separate signing interpreter pin; this helper does not replace
+     `OMG_SIGNING_PYTHON` or alter Keychain authorization.
 
 ---
 
@@ -72,8 +82,12 @@ macos/build.nu --action test --only-testing GhosttyTests/AgentIntegrationManager
 macos/build.nu --action test --only-testing GhosttyTests/SSHHostRegistryTests,GhosttyTests/SettingsLayoutTests
 
 # Run a single test method
-macos/build.nu --action test --only-testing GhosttyTests/SSHHostRegistryTests/testRegistrationPersistsExactConnectionsAndSwitchingOnlyReadsCache
+macos/build.nu --action test --only-testing 'GhosttyTests/SSHHostRegistryTests/registrationPersistsExactConnectionsAndSwitchingOnlyReadsCache()'
 ```
+
+For Swift Testing methods, copy the exact function name and include `()`.
+Check the executed test count, not just `TEST SUCCEEDED`: a mismatched method
+filter can otherwise finish successfully without running the intended test.
 
 ### B. Broad Routine and Optional Desktop Tests
 
@@ -102,7 +116,7 @@ drag assertion. XCUITest remains excluded; this flag does not enable it. Raw
 Validate selector changes without launching Xcode:
 
 ```bash
-python3 -m unittest discover -s dist -p 'test_omg_test_plan.py'
+dist/macos/dev-tool.sh python3 -m unittest discover -s dist -p 'test_omg_test_plan.py'
 ```
 
 ### C. Zig Core Testing
@@ -129,7 +143,7 @@ The Swift app links against `macos/GhosttyKit.xcframework`. When Zig files (`src
 ### Native (Current Architecture, Fast for Development)
 
 ```bash
-env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+env -u SDKROOT -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
   -u ALL_PROXY -u all_proxy \
   mise exec zig@0.16.0 -- zig build \
     -Doptimize=ReleaseFast \
@@ -142,7 +156,7 @@ env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
 ### Universal (arm64 + x86_64, Required for Release)
 
 ```bash
-env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+env -u SDKROOT -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
   -u ALL_PROXY -u all_proxy \
   mise exec zig@0.16.0 -- zig build \
     -Doptimize=ReleaseFast \
@@ -160,17 +174,17 @@ Before committing changes or installing to OMG Dev, run the validation gate:
 
 ```bash
 # 1. Swift formatting and linting
-swiftlint lint --strict --config macos/.swiftlint.yml macos
+dist/macos/dev-tool.sh swiftlint lint --strict --config macos/.swiftlint.yml macos
 
 # 2. Zig formatting
 git ls-files -z '*.zig' | xargs -0 mise exec zig@0.16.0 -- zig fmt --check
 
 # 3. OMG documentation contract (checks PLUGIN_DEVELOPMENT.md & friends)
-python3 dist/check_omg_docs.py
+dist/macos/dev-tool.sh python3 dist/check_omg_docs.py
 
 # 4. Plist & settings schema
 plutil -lint macos/Ghostty-Info.plist
-python3 -m json.tool docs/settings/schema.json >/dev/null
+dist/macos/dev-tool.sh python3 -m json.tool docs/settings/schema.json >/dev/null
 
 # 5. Clean up any profraw files from test runs
 rm -f default.profraw

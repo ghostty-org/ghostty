@@ -43,7 +43,7 @@ For independent system measurements, from a **separate terminal**, identify the
 running OMG Dev Debug PID and use the bounded read-only sampler:
 
 ```sh
-python3 .agents/skills/omg-debug/scripts/observe.py sample \
+dist/macos/dev-tool.sh python3 .agents/skills/omg-debug/scripts/observe.py sample \
   --pid <DEBUG_DEV_PID> --output-dir /tmp/omg-debug-session \
   --interval 60 --duration-minutes 120
 ```
@@ -62,9 +62,16 @@ Sampling has some cost and itself can perturb short peaks; use a 60-second
 interval for routine work. To correlate existing data with the app events:
 
 ```sh
-python3 .agents/skills/omg-debug/scripts/observe.py report \
+dist/macos/dev-tool.sh python3 .agents/skills/omg-debug/scripts/observe.py report \
   --csv /tmp/omg-debug-session/system-samples.csv
 ```
+
+The tool entry point removes inherited SDK selection and chooses an installed
+Python interpreter without invoking Apple's `/usr/bin/python3` installer shim.
+A stale `SDKROOT` can otherwise trigger a Command Line Tools installation prompt
+even when Xcode is installed. Use the same entry point for `xcrun xctrace` and
+SwiftLint; ad hoc Python subprocesses should reuse `sys.executable`. Missing
+tools produce a diagnostic instead of starting an installation.
 
 The report sorts current and rotated JSONL by UTC time, keeps only the newest
 `start` run boundary, shows baseline/peak/final *system* measurements and maps

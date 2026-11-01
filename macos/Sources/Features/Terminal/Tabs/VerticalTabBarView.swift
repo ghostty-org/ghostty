@@ -122,7 +122,11 @@ final class VerticalTabWindowLayoutState: ObservableObject {
     private var appliedWorkspaceChrome: WorkspaceChrome?
     private var applyingWorkspace = false
 
-    func bindWorkspace(_ id: UUID, store: TerminalWorkspaceStore = .shared) {
+    func bindWorkspace(_ id: UUID) {
+        bindWorkspace(id, store: .shared)
+    }
+
+    func bindWorkspace(_ id: UUID, store: TerminalWorkspaceStore) {
         guard workspaceID != id || workspaceStore !== store else { return }
         workspaceID = id
         workspaceStore = store

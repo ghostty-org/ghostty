@@ -101,11 +101,27 @@ struct VerticalNativeTabSidebarTests {
         first.tabLayoutState.setSidebarVisible(true)
         first.showWindow(nil)
         try await Task.sleep(for: .milliseconds(80))
+        let activities = try #require(NSApp.delegate as? AppDelegate).tabActivities
+        defer { activities.removeSession(first.tabSessionID) }
         let initialHost = try #require(first.tabLayoutState.sidebarHost.liveView as? NativeTabSidebarHostingView)
         let sidebar = initialHost.sidebar
         let header = try #require(descendants(initialHost).compactMap { $0 as? TerminalWorkspaceHeaderButton }.first)
-        let originalHeaderLabel = header.accessibilityLabel()
         let activeRefreshCount = sidebar.refreshCount
+        #expect(activities.set(.init(
+            sessionID: first.tabSessionID, revision: 1,
+            status: .init(agent: "codex", title: nil, state: .completed,
+                          icon: .init(kind: .systemSymbol, name: "terminal")),
+            ttlMilliseconds: nil
+        ), pluginID: "test.sidebar", sessionExists: { $0 == first.tabSessionID }) == nil)
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(sidebar.refreshCount > activeRefreshCount,
+                "The native sidebar controller must observe Agent status updates itself")
+        let activeHeaderLabel = header.accessibilityLabel()
+        let firstCell = try #require(sidebar.list.outline.view(atColumn: 0, row: 0, makeIfNecessary: true))
+        let activityStatus = descendants(firstCell).compactMap { $0 as? NSImageView }
+            .first { $0.toolTip == TabActivityState.done.rawValue }
+        #expect(activityStatus?.isHidden == false && activityStatus?.image != nil,
+                "The native row must render the activity status after its own store update")
 
         let work = try #require(fixture.store.create(name: "Work sidebar", symbol: "briefcase", color: "blue"))
         let workTab = try #require(fixture.coordinator.switchWorkspace(to: work, from: first))
@@ -120,9 +136,15 @@ struct VerticalNativeTabSidebarTests {
 
         fixture.store.update(id: personal, name: "Personal deferred", symbol: "house", color: "sage")
         first.titleOverride = "Deferred row title"
+        #expect(activities.set(.init(
+            sessionID: first.tabSessionID, revision: 2,
+            status: .init(agent: "codex", title: nil, state: .running,
+                          icon: .init(kind: .systemSymbol, name: "terminal")),
+            ttlMilliseconds: nil
+        ), pluginID: "test.sidebar", sessionExists: { $0 == first.tabSessionID }) == nil)
         try await Task.sleep(for: .milliseconds(30))
         #expect(sidebar.refreshCount == parkedRefreshCount)
-        #expect(header.accessibilityLabel() == originalHeaderLabel)
+        #expect(header.accessibilityLabel() == activeHeaderLabel)
 
         let returned = try #require(fixture.coordinator.switchWorkspace(to: personal, from: workTab))
         #expect(returned === first)

@@ -103,7 +103,12 @@ struct OMGKeyboardShortcut: Equatable {
     }
 
     @MainActor
-    func conflictingMenuItemTitle(in menu: NSMenu? = NSApp.mainMenu) -> String? {
+    func conflictingMenuItemTitle() -> String? {
+        conflictingMenuItemTitle(in: NSApp.mainMenu)
+    }
+
+    @MainActor
+    func conflictingMenuItemTitle(in menu: NSMenu?) -> String? {
         if self == .quickInputHistory { return "Quick Input History (⌘⇧H)" }
         guard let menu else { return nil }
         for item in menu.items {

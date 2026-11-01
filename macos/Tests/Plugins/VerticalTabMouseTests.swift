@@ -44,7 +44,7 @@ struct VerticalTabMouseTests {
         try #require(CGPreflightPostEventAccess(), "Optional pointer test requires permission to post system mouse events")
         let group = try #require(window.tabGroup)
         for index in 0..<20 {
-            let source = try #require(group.selectedWindow ?? window)
+            let source = group.selectedWindow ?? window
             let event = try #require(NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: .command,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: source.windowNumber,
