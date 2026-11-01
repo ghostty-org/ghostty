@@ -318,7 +318,7 @@ pub const StreamHandler = struct {
             .resize_window => self.surfaceMessageWriter(.{ .resize_window = value }),
             .xtversion => try self.reportXtversion(),
             .device_attributes => try self.deviceAttributes(value),
-            .device_status => try self.deviceStatusReport(value.request),
+            .device_status => try self.deviceStatusReport(value),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
             .kitty_keyboard_push => {
                 log.debug("pushing kitty keyboard mode: {}", .{value.flags});
@@ -855,10 +855,38 @@ pub const StreamHandler = struct {
 
     pub fn deviceStatusReport(
         self: *StreamHandler,
-        req: terminal.device_status.Request,
+        value: terminal.StreamAction.DeviceStatus,
     ) !void {
-        switch (req) {
+        switch (value.request) {
             .operating_status => self.messageWriter(.{ .write_stable = "\x1B[0n" }),
+
+            .printer_status,
+            .udk_status,
+            .locator_status,
+            .locator_type,
+            .macro_space,
+            .data_integrity,
+            .multiple_sessions,
+            => self.messageWriter(.{
+                .write_stable = terminal.device_status.fixedReport(value.request).?,
+            }),
+
+            .keyboard_status => {
+                var msg: termio.Message = .{ .write_small = .{} };
+                var writer: std.Io.Writer = .fixed(&msg.write_small.data);
+                // The level we report in deviceAttributes.
+                try terminal.device_status.encodeKeyboardReport(&writer, .vt220);
+                msg.write_small.len = @intCast(writer.end);
+                self.messageWriter(msg);
+            },
+
+            .memory_checksum => {
+                var msg: termio.Message = .{ .write_small = .{} };
+                var writer: std.Io.Writer = .fixed(&msg.write_small.data);
+                try terminal.device_status.encodeMemoryChecksumReport(&writer, value.id);
+                msg.write_small.len = @intCast(writer.end);
+                self.messageWriter(msg);
+            },
 
             .cursor_position => {
                 const pos = self.cursorReportPos();
