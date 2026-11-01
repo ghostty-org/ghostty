@@ -1425,24 +1425,38 @@ pub const Application = extern struct {
 
     fn syncStyleManager(self: *Self, config: *const CoreConfig) void {
         self.as(adw.Application).getStyleManager().setColorScheme(
-            switch (self.private().window_theme_override) {
-                .config => switch (config.@"window-theme") {
-                    .auto, .ghostty => auto: {
-                        const lum = config.background.toTerminalRGB().perceivedLuminance();
-                        break :auto if (lum > 0.5)
-                            .prefer_light
-                        else
-                            .prefer_dark;
-                    },
-                    .system => .prefer_light,
-                    .dark => .force_dark,
-                    .light => .force_light,
+            colorScheme(self.private().window_theme_override, config),
+        );
+    }
+
+    fn colorScheme(
+        override: apprt.action.WindowTheme,
+        config: *const CoreConfig,
+    ) adw.ColorScheme {
+        return switch (override) {
+            .config => switch (config.@"window-theme") {
+                .auto, .ghostty => auto: {
+                    // A conditional theme's background follows the scheme,
+                    // so deriving the scheme from it can recurse forever
+                    // through the soft reload a scheme change triggers.
+                    if (config._conditional_set.contains(.theme)) {
+                        break :auto .prefer_light;
+                    }
+
+                    const lum = config.background.toTerminalRGB().perceivedLuminance();
+                    break :auto if (lum > 0.5)
+                        .prefer_light
+                    else
+                        .prefer_dark;
                 },
                 .system => .prefer_light,
-                .light => .force_light,
                 .dark => .force_dark,
+                .light => .force_light,
             },
-        );
+            .system => .prefer_light,
+            .light => .force_light,
+            .dark => .force_dark,
+        };
     }
 
     /// Setup signal handlers
@@ -3354,4 +3368,36 @@ fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) 
     // but we want to return 0 to indicate equality.
     // Abusing integers to be enums and booleans is a terrible idea, C.
     return if (window.isActive() != 0) 0 else -1;
+}
+
+test "colorScheme" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var config: CoreConfig = try .default(alloc);
+    defer config.deinit();
+
+    const white: CoreConfig.Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
+    const black: CoreConfig.Color = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+
+    for ([_]CoreConfig.WindowTheme{ .auto, .ghostty }) |theme| {
+        config.@"window-theme" = theme;
+        config._conditional_set = .{};
+
+        config.background = white;
+        try testing.expectEqual(.prefer_light, Application.colorScheme(.config, &config));
+        config.background = black;
+        try testing.expectEqual(.prefer_dark, Application.colorScheme(.config, &config));
+
+        // The scheme must not depend on a background that depends on the scheme.
+        config._conditional_set.insert(.theme);
+        config.background = white;
+        try testing.expectEqual(.prefer_light, Application.colorScheme(.config, &config));
+        config.background = black;
+        try testing.expectEqual(.prefer_light, Application.colorScheme(.config, &config));
+    }
+
+    config.@"window-theme" = .light;
+    try testing.expectEqual(.force_light, Application.colorScheme(.config, &config));
+    try testing.expectEqual(.force_dark, Application.colorScheme(.dark, &config));
+    try testing.expectEqual(.prefer_light, Application.colorScheme(.system, &config));
 }
