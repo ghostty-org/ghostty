@@ -1259,6 +1259,14 @@ pub const Resize = struct {
     /// rows back and would otherwise get out of sync with us.
     pull_scrollback: bool = true,
 
+    /// Rows that the shell will redraw. During column reflow, copy these
+    /// as blank, hard-ended rows so their old text cannot wrap. The source
+    /// pages remain untouched until the normal reflow replaces them.
+    clear: ?struct {
+        start: *Pin,
+        only_one: bool = false,
+    } = null,
+
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
@@ -1491,12 +1499,24 @@ fn resizeCols(
     // Reflow all our rows.
     {
         var reflow_cursor: ReflowCursor = .init(first_rewritten_node);
+        var clear_start = opts.clear;
+        var clearing = false;
         while (it.next()) |row| {
+            if (clear_start) |clear| {
+                if (row.node == clear.start.node and row.y == clear.start.y) {
+                    clearing = true;
+                    clear_start = null;
+                }
+            }
             try reflow_cursor.reflowRow(
                 self,
                 row,
                 if (preserved_cursor) |c| c.tracked_pin else null,
+                clearing,
             );
+            if (opts.clear) |clear| {
+                if (clear.only_one) clearing = false;
+            }
 
             // Once we're done reflowing a page, we're done with it, so
             // make it available for reuse (or destroy it). Making it
@@ -1669,15 +1689,22 @@ const ReflowCursor = struct {
         list: *PageList,
         row: Pin,
         cursor_pin: ?*Pin,
+        clear: bool,
     ) Allocator.Error!void {
         const src_page: *Page = row.node.page();
-        const src_row = row.rowAndCell().row;
+        const row_and_cell = row.rowAndCell();
+        var cleared_row: Row = .{ .cells = row_and_cell.row.cells };
+        const src_row = if (clear) row: {
+            cleared_row.semantic_prompt = row_and_cell.row.semantic_prompt;
+            break :row &cleared_row;
+        } else row_and_cell.row;
         const src_y = row.y;
-        const cells = src_row.cells.ptr(src_page.memory)[0..src_page.size.cols];
+        const cells = row_and_cell.row.cells.ptr(src_page.memory)[0..src_page.size.cols];
+        const blank: pagepkg.Cell = .{};
 
         // Calculate the columns in this row. First up we trim non-semantic
         // rightmost blanks.
-        var cols_len = src_page.size.cols;
+        var cols_len = if (clear) @as(size.CellCountInt, 0) else src_page.size.cols;
         if (!src_row.wrap) {
             while (cols_len > 0) {
                 if (!cells[cols_len - 1].isEmpty()) break;
@@ -1708,7 +1735,7 @@ const ReflowCursor = struct {
                 // This row has pins
                 row_has_pins = true;
 
-                if (cursor_pin != null and p == cursor_pin.?) continue;
+                if (!clear and cursor_pin != null and p == cursor_pin.?) continue;
 
                 // If this pin is in the blanks on the right and past the end
                 // of the dst col width then we move it to the end of the dst
@@ -1727,7 +1754,7 @@ const ReflowCursor = struct {
 
         // If the cursor is after blanks on the right, those cells are still
         // before the next write and must reflow with it.
-        if (cursor_pin) |p| {
+        if (if (clear) null else cursor_pin) |p| {
             if (p.node == row.node and p.y == src_y) {
                 cols_len = @max(cols_len, p.x + 1);
             }
@@ -1781,7 +1808,7 @@ const ReflowCursor = struct {
             // per-cell state machine below for most of the work.
             // Rows with tracked pins take the slow path so pin
             // remapping behaves identically.
-            if (!row_has_pins) {
+            if (!clear and !row_has_pins) {
                 const max_run = @min(
                     cols_len - x,
                     @as(usize, self.page.size.cols) - self.x,
@@ -1810,7 +1837,7 @@ const ReflowCursor = struct {
 
             if (self.writeCell(
                 list,
-                &cells[x],
+                if (clear) &blank else &cells[x],
                 src_page,
             )) |result| switch (result) {
                 // Wrote the cell, move to the next.
