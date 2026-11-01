@@ -787,16 +787,10 @@ pub const Page = struct {
         // rounds the raw slot count to a power of two. We need enough
         // hyperlink_bytes for that requested entry count to accommodate all
         // hyperlink cells. This is unit tested.
-        const hyperlink_cap = cap: {
-            const hyperlink_count = id_set.count();
-            const hyperlink_set_cap = hyperlink.Set.capacityForCount(hyperlink_count);
-            const hyperlink_map_min = std.math.divCeil(
-                usize,
-                hyperlink_cells,
-                hyperlink_cell_multiplier,
-            ) catch 0;
-            break :cap @max(hyperlink_set_cap, hyperlink_map_min);
-        };
+        const hyperlink_bytes = hyperlinkBytesForCounts(
+            id_set.count(),
+            hyperlink_cells,
+        );
 
         // All the intCasts below are safe because we should have a
         // capacity strictly less than or equal to this page's capacity.
@@ -805,9 +799,25 @@ pub const Page = struct {
             .rows = @intCast(y_end - y_start),
             .styles = @intCast(styles_cap),
             .grapheme_bytes = @intCast(grapheme_bytes),
-            .hyperlink_bytes = @intCast(hyperlink_cap * @sizeOf(hyperlink.Set.Item)),
+            .hyperlink_bytes = @intCast(hyperlink_bytes),
             .string_bytes = @intCast(string_bytes),
         };
+    }
+
+    /// Return the smallest `Capacity.hyperlink_bytes` that can store
+    /// `unique` distinct hyperlinks used by `cells` cells in total.
+    ///
+    /// For large counts the result can exceed the range of
+    /// `size.HyperlinkCountInt`. Callers must clamp it or check that it
+    /// fits before casting it.
+    pub fn hyperlinkBytesForCounts(unique: usize, cells: usize) usize {
+        const set_cap = hyperlink.Set.capacityForCount(unique);
+        const map_min = std.math.divCeil(
+            usize,
+            cells,
+            hyperlink_cell_multiplier,
+        ) catch unreachable;
+        return @max(set_cap, map_min) * @sizeOf(hyperlink.Set.Item);
     }
 
     /// Clone the contents of another page into this page. The capacities
@@ -1719,6 +1729,84 @@ pub const Page = struct {
         return false;
     }
 
+    /// How much managed memory a page is using.
+    pub const Usage = struct {
+        /// Styles in use, out of the number of styles the style set can
+        /// hold. Note that this capacity is not the `Capacity.styles`
+        /// value, which is the size requested for the set's hash table.
+        styles: Amount,
+
+        /// Bytes of grapheme data in use, out of the bytes available.
+        grapheme_bytes: Amount,
+
+        /// Bytes of string data (such as hyperlink URIs) in use, out of
+        /// the bytes available.
+        string_bytes: Amount,
+
+        /// Unique hyperlinks in use, out of the number of hyperlinks the
+        /// hyperlink set can hold.
+        hyperlink_set: Amount,
+
+        /// Cells with a hyperlink, out of the number of cells the
+        /// hyperlink map can hold.
+        hyperlink_map: Amount,
+
+        /// An amount in use and the amount available, in the same unit.
+        pub const Amount = struct {
+            used: usize,
+            capacity: usize,
+        };
+
+        /// Returns whichever hyperlink table is fuller relative to its
+        /// capacity. Both tables are sized from `Capacity.hyperlink_bytes`,
+        /// so this is the one that runs out of room first.
+        pub fn hyperlinks(self: Usage) Amount {
+            const set = self.hyperlink_set;
+            const map = self.hyperlink_map;
+            return if (set.used * map.capacity >= map.used * set.capacity) set else map;
+        }
+    };
+
+    /// Measures how much of its style, grapheme, string, and hyperlink
+    /// storage this page uses. This only reads counters kept by each
+    /// kind of storage and does not scan the page's cells.
+    ///
+    /// This is useful to decide what capacity a page with similar
+    /// contents needs. For example, a page that holds 300 styles in a
+    /// set with room for 1664 could get by with a smaller style set:
+    ///
+    ///     const u = page.usage();
+    ///     if (u.styles.used * 3 < u.styles.capacity) {
+    ///         // Less than a third of the style set is in use.
+    ///     }
+    ///
+    /// To measure exactly what a range of rows needs instead, see
+    /// `exactRowCapacity`.
+    pub fn usage(self: *const Page) Usage {
+        return .{
+            .styles = .{
+                .used = self.styles.count(),
+                .capacity = self.styles.layout.cap,
+            },
+            .grapheme_bytes = .{
+                .used = self.grapheme_alloc.usedBytes(self.memory),
+                .capacity = self.grapheme_alloc.capacityBytes(),
+            },
+            .string_bytes = .{
+                .used = self.string_alloc.usedBytes(self.memory),
+                .capacity = self.string_alloc.capacityBytes(),
+            },
+            .hyperlink_set = .{
+                .used = self.hyperlink_set.count(),
+                .capacity = self.hyperlink_set.layout.cap,
+            },
+            .hyperlink_map = .{
+                .used = self.hyperlinkCount(),
+                .capacity = self.hyperlinkCapacity(),
+            },
+        };
+    }
+
     pub const Layout = struct {
         total_size: usize,
         rows_start: usize,
@@ -1995,39 +2083,51 @@ pub const Capacity = struct {
     pub fn adjust(self: Capacity, req: Adjustment) Allocator.Error!Capacity {
         var adjusted = self;
         if (req.cols) |cols| {
-            const total_size = Page.layout(self).total_size;
-            const available = self.availableBytesForGrid();
-
-            // The size per row is:
-            //   - The row metadata itself
-            //   - The cells per row (n=cols)
-            const bytes_per_row: usize = @sizeOf(Row) + @sizeOf(Cell) * @as(usize, @intCast(cols));
-
-            // A page can't hold more than maxInt(CellCountInt) rows, so cap
-            // the count here. Using fewer rows than would fit is always safe
-            // because it only makes the page smaller.
-            var new_rows: usize = @min(
-                @divFloor(available, bytes_per_row),
-                std.math.maxInt(size.CellCountInt),
-            );
-
-            // The cell array is aligned to a cache line, so the padding
-            // between the row headers and the cells depends on the row
-            // count. Trim rows until the layout fits the original size.
-            // The padding is less than a cache line so this takes a
-            // handful of iterations at most.
             adjusted.cols = cols;
-            while (new_rows > 0) : (new_rows -= 1) {
-                adjusted.rows = @intCast(new_rows);
-                if (Page.layout(adjusted).total_size <= total_size) break;
-            }
-
-            // If our rows go to zero then we can't fit any row metadata
-            // for the desired number of columns.
-            if (new_rows == 0) return error.OutOfMemory;
+            adjusted = adjusted.fitRows(Page.layout(self).total_size) orelse
+                return error.OutOfMemory;
         }
 
         return adjusted;
+    }
+
+    /// Returns a copy of this capacity with as many rows as fit in
+    /// `total_size` bytes, or null if not even one row fits.
+    ///
+    /// All other fields are unchanged. The memory left for rows is
+    /// `total_size` minus what the rest of the page needs (styles,
+    /// graphemes, and so on), so the result can have more or fewer rows
+    /// than this capacity. It never has more than
+    /// `maxInt(size.CellCountInt)` rows.
+    pub fn fitRows(self: Capacity, total_size: usize) ?Capacity {
+        const meta_size = Page.MetaLayout.init(self).total_size;
+        if (meta_size >= total_size) return null;
+
+        // The size per row is:
+        //   - The row metadata itself
+        //   - The cells per row (n=cols)
+        const bytes_per_row: usize = @sizeOf(Row) + @sizeOf(Cell) * @as(usize, self.cols);
+
+        // A page can't hold more than maxInt(CellCountInt) rows, so cap
+        // the count here. Using fewer rows than would fit is always safe
+        // because it only makes the page smaller.
+        var rows: usize = @min(
+            (total_size - meta_size) / bytes_per_row,
+            std.math.maxInt(size.CellCountInt),
+        );
+
+        // The cell array is aligned to a cache line, so the padding
+        // between the row headers and the cells depends on the row
+        // count. Trim rows until the layout fits. The padding is less
+        // than a cache line so this takes a handful of iterations at
+        // most.
+        var fitted = self;
+        while (rows > 0) : (rows -= 1) {
+            fitted.rows = @intCast(rows);
+            if (Page.layout(fitted).total_size <= total_size) return fitted;
+        }
+
+        return null;
     }
 
     /// Computes the number of bytes available for the row headers and
@@ -2938,6 +3038,94 @@ test "Capacity adjust clamps rows to CellCountInt" {
     const adjusted = try cap.adjust(.{ .cols = 1 });
     try testing.expectEqual(std.math.maxInt(size.CellCountInt), adjusted.rows);
     try testing.expect(Page.layout(adjusted).total_size <= Page.layout(cap).total_size);
+}
+
+test "Capacity fitRows" {
+    const cap = std_capacity;
+    const total_size = Page.layout(cap).total_size;
+
+    // The same size fits at least the same rows, and one row more
+    // would not fit.
+    const same = cap.fitRows(total_size).?;
+    try testing.expect(same.rows >= cap.rows);
+    try testing.expect(Page.layout(same).total_size <= total_size);
+    var more = same;
+    more.rows += 1;
+    try testing.expect(Page.layout(more).total_size > total_size);
+
+    // Half the size fits fewer rows and keeps every other field.
+    const half = cap.fitRows(total_size / 2).?;
+    try testing.expect(half.rows < cap.rows);
+    try testing.expect(Page.layout(half).total_size <= total_size / 2);
+    try testing.expectEqual(cap.cols, half.cols);
+    try testing.expectEqual(cap.styles, half.styles);
+
+    // No room for even one row.
+    try testing.expectEqual(null, cap.fitRows(0));
+    try testing.expectEqual(null, cap.fitRows(Page.MetaLayout.init(cap).total_size));
+}
+
+test "Page usage" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // An empty page uses nothing, out of everything it has room for.
+    const empty = page.usage();
+    try testing.expectEqual(0, empty.styles.used);
+    try testing.expectEqual(page.styles.layout.cap, empty.styles.capacity);
+    try testing.expectEqual(0, empty.grapheme_bytes.used);
+    try testing.expectEqual(page.grapheme_alloc.capacityBytes(), empty.grapheme_bytes.capacity);
+    try testing.expectEqual(0, empty.string_bytes.used);
+    try testing.expectEqual(0, empty.hyperlink_set.used);
+    try testing.expectEqual(0, empty.hyperlink_map.used);
+
+    // One style.
+    _ = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    try testing.expectEqual(1, page.usage().styles.used);
+
+    // One hyperlink on one cell. The link's URI is string data.
+    const id = try page.insertHyperlink(.{
+        .id = .{ .implicit = 0 },
+        .uri = "https://example.com",
+    });
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 'X' } },
+        };
+        page.hyperlink_set.use(page.memory, id);
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    const linked = page.usage();
+    try testing.expect(linked.string_bytes.used > 0);
+    try testing.expectEqual(1, linked.hyperlink_set.used);
+    try testing.expectEqual(1, linked.hyperlink_map.used);
+
+    // The set holds far fewer items than the map, so one link on one
+    // cell fills more of the set.
+    try testing.expectEqual(linked.hyperlink_set, linked.hyperlinks());
+
+    // The same link on half the map's capacity fills more of the map
+    // than the one link fills of the set.
+    try testing.expect(linked.hyperlink_set.capacity > 2);
+    const half_map = page.hyperlinkCapacity() / 2;
+    for (1..half_map) |i| {
+        const rac = page.getRowAndCell(i % page.size.cols, i / page.size.cols);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 'X' } },
+        };
+        page.hyperlink_set.use(page.memory, id);
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    const spread = page.usage();
+    try testing.expectEqual(half_map, spread.hyperlink_map.used);
+    try testing.expectEqual(spread.hyperlink_map, spread.hyperlinks());
 }
 
 test "Page init" {
