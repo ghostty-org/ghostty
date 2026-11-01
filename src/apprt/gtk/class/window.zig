@@ -2128,6 +2128,8 @@ pub const Window = extern struct {
         box.as(gtk.Widget).setHalign(.center);
         dialog.setExtraChild(box.as(gtk.Widget));
 
+        const current = tab.getTabColor();
+
         for (std.meta.tags(TabColor)) |color| {
             const tooltip: [*:0]const u8 = switch (color) {
                 .none => i18n._("None"),
@@ -2142,7 +2144,7 @@ pub const Window = extern struct {
                 .graphite => i18n._("Graphite"),
             };
 
-            const texture = color.createIndicatorIcon();
+            const texture = color.createSwatchTexture(color == current);
             const image = gtk.Image.newFromPaintable(texture.as(gdk.Paintable));
             texture.unref();
             image.setPixelSize(18);

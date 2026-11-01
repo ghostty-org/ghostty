@@ -730,6 +730,7 @@ fn addGtk(
         .{ "glibunix", "glibunix2" },
         .{ "gobject", "gobject2" },
         .{ "graphene", "graphene1" },
+        .{ "gsk", "gsk4" },
         .{ "gtk", "gtk4" },
         .{ "xlib", "xlib2" },
     };
