@@ -3,6 +3,7 @@
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Satrio Bayu Aji <halosatrio@gmail.com>, 2026.
 # Mikail Muzakki <mikailmmuzakki@gmail.com>, 2026.
+# Jun <jun@clavinjune.dev>, 2026.
 #
 msgid ""
 msgstr ""
