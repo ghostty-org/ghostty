@@ -1,8 +1,11 @@
 const std = @import("std");
 const adw = @import("adw");
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const graphene = @import("graphene");
+const gsk = @import("gsk");
 const gtk = @import("gtk");
 
 const configpkg = @import("../../../config.zig");
@@ -19,6 +22,155 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
+
+pub const TabColor = enum {
+    none,
+    blue,
+    purple,
+    pink,
+    red,
+    orange,
+    yellow,
+    green,
+    teal,
+    graphite,
+
+    fn rgb(self: TabColor) ?[3]u8 {
+        return switch (self) {
+            .none => null,
+            .blue => .{ 0x3b, 0x8b, 0xff },
+            .purple => .{ 0xbf, 0x5a, 0xf2 },
+            .pink => .{ 0xff, 0x4d, 0x7a },
+            .red => .{ 0xff, 0x5a, 0x52 },
+            .orange => .{ 0xff, 0x9f, 0x0a },
+            .yellow => .{ 0xff, 0xd6, 0x0a },
+            .green => .{ 0x30, 0xd1, 0x58 },
+            .teal => .{ 0x40, 0xe0, 0xd0 },
+            .graphite => .{ 0x98, 0x98, 0x9d },
+        };
+    }
+
+    fn rgba(channels: [3]u8) gdk.RGBA {
+        return .{
+            .f_red = @as(f32, @floatFromInt(channels[0])) / 255.0,
+            .f_green = @as(f32, @floatFromInt(channels[1])) / 255.0,
+            .f_blue = @as(f32, @floatFromInt(channels[2])) / 255.0,
+            .f_alpha = 1.0,
+        };
+    }
+
+    /// Draw the swatch into `snap` as vector paths (circle, or ring+slash for none).
+    /// When `selected`, draw an outer ring using the user accent color.
+    pub fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32, selected: bool) void {
+        const mid = size / 2.0;
+        const radius = size * 0.3125;
+        const stroke_width = @max(1.0, size * (1.5 / 16.0));
+        var center: graphene.Point = undefined;
+        _ = graphene.Point.init(&center, mid, mid);
+
+        if (self.rgb()) |channels| {
+            const builder = gsk.PathBuilder.new();
+            builder.addCircle(&center, radius);
+            const path = builder.freeToPath();
+            defer path.unref();
+            const fill = rgba(channels);
+            snap.appendFill(path, .winding, &fill);
+        } else {
+            // None: outlined circle with a slash so it reads as "no color".
+            const stroke_color = rgba(.{ 0x9a, 0x9a, 0x9e });
+            const stroke = gsk.Stroke.new(stroke_width);
+            defer stroke.free();
+
+            const circle_builder = gsk.PathBuilder.new();
+            circle_builder.addCircle(&center, radius);
+            const circle = circle_builder.freeToPath();
+            defer circle.unref();
+            snap.appendStroke(circle, stroke, &stroke_color);
+
+            const inset = radius * 0.72;
+            const slash_builder = gsk.PathBuilder.new();
+            slash_builder.moveTo(mid - inset, mid + inset);
+            slash_builder.lineTo(mid + inset, mid - inset);
+            const slash = slash_builder.freeToPath();
+            defer slash.unref();
+            snap.appendStroke(slash, stroke, &stroke_color);
+        }
+
+        if (selected) {
+            const accent = adw.StyleManager.getDefault().getAccentColorRgba();
+            defer accent.free();
+            const ring = gsk.Stroke.new(@max(1.5, size * (2.0 / 16.0)));
+            defer ring.free();
+            const ring_builder = gsk.PathBuilder.new();
+            ring_builder.addCircle(&center, size * 0.45);
+            const ring_path = ring_builder.freeToPath();
+            defer ring_path.unref();
+            snap.appendStroke(ring_path, ring, accent);
+        }
+    }
+
+    /// Snapshot vector swatch at 3x (48px) so GTK can scale for HiDPI.
+    pub fn createIndicatorIcon(self: TabColor) *gdk.Texture {
+        const size: f32 = 48;
+        const size_i: c_int = 48;
+
+        const snap = gtk.Snapshot.new();
+        self.appendSwatch(snap, size, false);
+        const node = snap.freeToNode() orelse {
+            const transparent: [48 * 48 * 4]u8 = @splat(0);
+            const bytes = glib.Bytes.new(&transparent, transparent.len);
+            defer bytes.unref();
+            return gdk.MemoryTexture.new(size_i, size_i, .r8g8b8a8_premultiplied, bytes, 48 * 4).as(gdk.Texture);
+        };
+        defer node.unref();
+
+        const cairo_renderer = gsk.CairoRenderer.new();
+        defer cairo_renderer.unref();
+        const renderer = cairo_renderer.as(gsk.Renderer);
+        var err: ?*glib.Error = null;
+        if (renderer.realize(null, &err) == 0) {
+            if (err) |e| {
+                defer e.free();
+                log.warn("failed to realize swatch renderer: {s}", .{e.f_message orelse "unknown"});
+            }
+            const transparent: [48 * 48 * 4]u8 = @splat(0);
+            const bytes = glib.Bytes.new(&transparent, transparent.len);
+            defer bytes.unref();
+            return gdk.MemoryTexture.new(size_i, size_i, .r8g8b8a8_premultiplied, bytes, 48 * 4).as(gdk.Texture);
+        }
+        defer renderer.unrealize();
+
+        var viewport: graphene.Rect = undefined;
+        _ = graphene.Rect.init(&viewport, 0, 0, size, size);
+        return renderer.renderTexture(node, &viewport);
+    }
+};
+
+test "TabColor.rgb" {
+    const testing = std.testing;
+    try testing.expect(TabColor.none.rgb() == null);
+    try testing.expectEqual([3]u8{ 0x3b, 0x8b, 0xff }, TabColor.blue.rgb().?);
+    try testing.expectEqual([3]u8{ 0xbf, 0x5a, 0xf2 }, TabColor.purple.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0x4d, 0x7a }, TabColor.pink.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0x5a, 0x52 }, TabColor.red.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0x9f, 0x0a }, TabColor.orange.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0xd6, 0x0a }, TabColor.yellow.rgb().?);
+    try testing.expectEqual([3]u8{ 0x30, 0xd1, 0x58 }, TabColor.green.rgb().?);
+    try testing.expectEqual([3]u8{ 0x40, 0xe0, 0xd0 }, TabColor.teal.rgb().?);
+    try testing.expectEqual([3]u8{ 0x98, 0x98, 0x9d }, TabColor.graphite.rgb().?);
+}
+
+test "TabColor tags cover palette" {
+    const testing = std.testing;
+    const tags = std.meta.tags(TabColor);
+    try testing.expectEqual(@as(usize, 10), tags.len);
+    for (tags) |color| {
+        switch (color) {
+            .none => try testing.expect(color.rgb() == null),
+            else => try testing.expect(color.rgb() != null),
+        }
+    }
+}
 
 pub const Tab = extern struct {
     const Self = @This();
@@ -169,6 +321,9 @@ pub const Tab = extern struct {
         /// The tooltip of this tab. This is usually bound to the active surface.
         tooltip: ?[:0]const u8 = null,
 
+        /// Color chosen from the tab context menu.
+        tab_color: TabColor = .none,
+
         // Template bindings
         split_tree: *SplitTree,
 
@@ -264,6 +419,28 @@ pub const Tab = extern struct {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
     }
+
+    pub fn getTabColor(self: *Self) TabColor {
+        return self.private().tab_color;
+    }
+
+    pub fn setTabColor(self: *Self, color: TabColor) void {
+        self.private().tab_color = color;
+        self.syncColorIndicator();
+    }
+
+    pub fn syncColorIndicator(self: *Self) void {
+        const page = self.getTabPage() orelse return;
+        const color = self.private().tab_color;
+        if (color == .none) {
+            page.setIndicatorIcon(null);
+            return;
+        }
+        const texture = color.createIndicatorIcon();
+        defer texture.unref();
+        page.setIndicatorIcon(texture.as(gio.Icon));
+    }
+
     pub fn promptTabTitle(self: *Self) void {
         const priv = self.private();
         const dialog = TitleDialog.new(.tab, priv.title_override orelse priv.title);
