@@ -107,12 +107,11 @@ pub const TabColor = enum {
         }
     }
 
-    /// Circle swatch for the tab indicator and the color picker dialog.
-    /// Drawn with `gtk.Snapshot` paths, then rasterized to a texture for `GIcon`.
     pub fn createIndicatorIcon(self: TabColor) *gdk.Texture {
         return self.createSwatchTexture(false);
     }
 
+    /// Snapshot vector swatch, rasterized to a texture for use as a GIcon.
     pub fn createSwatchTexture(self: TabColor, selected: bool) *gdk.Texture {
         const size: f32 = 16;
 

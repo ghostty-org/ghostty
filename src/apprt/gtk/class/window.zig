@@ -2117,8 +2117,7 @@ pub const Window = extern struct {
         self.promptTabColor(tab);
     }
 
-    /// Adwaita menus do not reliably show GMenu icons, so tab colors are
-    /// picked from a small dialog of circle buttons (same pattern as title).
+    /// Adwaita menus omit GMenu icons; use a dialog of swatch buttons instead.
     fn promptTabColor(self: *Self, tab: *Tab) void {
         const dialog = adw.AlertDialog.new(i18n._("Tab Color"), null);
         dialog.addResponse("cancel", i18n._("Cancel"));
