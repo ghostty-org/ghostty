@@ -135,47 +135,85 @@ struct TerminalApplicationTerminationTests {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
 
-        let first = try fixture.tab()
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 180"
+        let first = TerminalController(fixture.app, withBaseConfig: config, tabLayout: .vertical,
+                                       workspaceCoordinator: fixture.coordinator)
+        fixture.controllers.append(first)
         first.showWindow(nil)
         first.tabLayoutState.setSidebarVisible(true)
         var tabs = [first]
-        for _ in 1..<60 { tabs.append(try fixture.tab(parent: tabs.last)) }
+        for _ in 1..<60 {
+            let parentWindow = try #require(tabs.last?.window)
+            let next = try #require(TerminalController.newTab(
+                fixture.app, from: parentWindow, withBaseConfig: config
+            ))
+            tabs.append(next)
+            fixture.controllers.append(next)
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        try #require(fixture.coordinator.controllers(in: first.workspaceID).count == 60)
 
-        let selected = try #require(tabs.last)
+        let selected = first
         let selectedWindow = try #require(selected.window)
+        let group = try #require(selectedWindow.tabGroup)
+        group.selectedWindow = selectedWindow
+        fixture.coordinator.didActivate(selected)
+
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         selectedWindow.makeKeyAndOrderFront(nil)
         selectedWindow.orderFrontRegardless()
-        fixture.coordinator.didActivate(selected)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         try String(ProcessInfo.processInfo.processIdentifier).write(
             toFile: "/tmp/omg-fullscreen-test.pid", atomically: true, encoding: .utf8
         )
-        for _ in 0..<200 {
-            if NSApp.isActive && selectedWindow.isKeyWindow { break }
+        for _ in 0..<1_200 {
+            if NSApp.isActive && selectedWindow.isKeyWindow && selectedWindow.isOnActiveSpace { break }
             if NSApp.isActive { selectedWindow.makeKeyAndOrderFront(nil) }
             try await Task.sleep(for: .milliseconds(50))
         }
-        try #require(NSApp.isActive && selectedWindow.isKeyWindow, "Requires an unlocked foreground desktop")
-        let group = try #require(selectedWindow.tabGroup)
+        try #require(NSApp.isActive && selectedWindow.isKeyWindow && selectedWindow.isOnActiveSpace,
+                     """
+                     Requires an unlocked foreground desktop on the active Space:
+                     active=\(NSApp.isActive) key=\(selectedWindow.isKeyWindow) onActiveSpace=\(selectedWindow.isOnActiveSpace)
+                     """)
         #expect(group.windows.count == 60)
         #expect(group.selectedWindow === selectedWindow)
 
+        let native = fixture.coordinator.native
         var didEnterFullscreen = false
         let enterObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didEnterFullScreenNotification, object: selectedWindow, queue: .main
         ) { _ in MainActor.assumeIsolated { didEnterFullscreen = true } }
         defer { NotificationCenter.default.removeObserver(enterObserver) }
+        func fullscreenEntryState() -> String {
+            "active=\(NSApp.isActive) key=\(selectedWindow.isKeyWindow) " +
+                "onActiveSpace=\(selectedWindow.isOnActiveSpace) " +
+                "styleFullScreen=\(selectedWindow.styleMask.contains(.fullScreen)) " +
+                "groupSelected=\(group.selectedWindow === selectedWindow) " +
+                "windowVisible=\(selectedWindow.isVisible) " +
+                "transitionHostCount=\(native.transitioningWindows.count) didEnter=\(didEnterFullscreen)"
+        }
+        let entryStateBefore = fullscreenEntryState()
+        print("TERMINATION_FULLSCREEN_ENTRY stage=before \(entryStateBefore)")
         selected.toggleFullscreen(mode: .native)
         for _ in 0..<200 {
             if didEnterFullscreen && selectedWindow.styleMask.contains(.fullScreen) &&
-                fixture.coordinator.native.transitioningWindows.isEmpty { break }
+                native.transitioningWindows.isEmpty { break }
             try await Task.sleep(for: .milliseconds(50))
         }
-        try #require(didEnterFullscreen && selectedWindow.styleMask.contains(.fullScreen) &&
-                     fixture.coordinator.native.transitioningWindows.isEmpty,
-                     "Requires a completed real native fullscreen transition")
+        let fullscreenEntered = didEnterFullscreen && selectedWindow.styleMask.contains(.fullScreen) &&
+            native.transitioningWindows.isEmpty
+        let entryStateAfter = fullscreenEntryState()
+        if !fullscreenEntered {
+            print("TERMINATION_FULLSCREEN_ENTRY stage=failed \(entryStateAfter)")
+        }
+        try #require(fullscreenEntered,
+                     """
+                     Requires a completed real native fullscreen transition;
+                     before={\(entryStateBefore)} after={\(entryStateAfter)}
+                     """)
 
         let windows = try tabs.map { try #require($0.window) }
         let backgroundWindows = windows.filter { $0 !== selectedWindow }

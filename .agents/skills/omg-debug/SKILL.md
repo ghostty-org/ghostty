@@ -121,3 +121,17 @@ row state or reconcile against the same delivered event, so a tracking child
 cannot disagree with its row. Repaint only the changed rows. A test that calls
 the hover setter directly does not verify event routing or the AppKit
 row-background display path.
+
+## Foreground desktop test hosts
+
+An unlocked desktop alone does not make a test host active. Confirm
+`NSApp.isActive`, the intended window's `isKeyWindow` and `isOnActiveSpace`
+before native fullscreen or pointer assertions. Where a test writes a ready
+PID, verify that PID's executable is this checkout's `macos/build/Debug/OMG.app`
+and activate that already-running app with `open -a "<absolute app path>"`.
+Do not use `open -n` or resolve only the shared Debug bundle identifier.
+
+Read app state only while the verified test PID is alive. Desktop app lookup
+can launch a fresh non-test instance after the test host exits; such a launch
+can restore the real Dev workspace and is not part of the test fixture.
+Keep test setup and teardown separate from installed-app quit timing.

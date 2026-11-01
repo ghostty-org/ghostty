@@ -156,11 +156,13 @@ struct TerminalWorkspacePopoverSwitchTests {
         }
 
         let started: Bool
+        var mouseSwitchStarted: TimeInterval?
         switch route {
         case .performClick, .queuedPerformClick, .childWindowClick:
             button.performClick(nil)
             started = source.workspacePopover.isManagementActionPerforming
         case .nativeFullscreenMouse:
+            mouseSwitchStarted = ProcessInfo.processInfo.systemUptime
             let duration = try sendButtonMouseDown(button)
             #expect(duration < 2, "Pre-posted mouse-up must release AppKit's button tracking loop")
             started = source.workspacePopover.isManagementActionPerforming
@@ -200,6 +202,8 @@ struct TerminalWorkspacePopoverSwitchTests {
             #expect(destination.window?.isKeyWindow == true)
             #expect(destination.window?.isOnActiveSpace == true)
             #expect(destination.window?.styleMask.contains(.fullScreen) == true)
+            let leaveMilliseconds = (ProcessInfo.processInfo.systemUptime - (try #require(mouseSwitchStarted))) * 1_000
+            print("FULLSCREEN_WORKSPACE_MOUSE_LEAVE tabs=\(sourceTabCount) milliseconds=\(leaveMilliseconds)")
         }
 
         if route == .nativeFullscreenMouse {
@@ -234,6 +238,21 @@ struct TerminalWorkspacePopoverSwitchTests {
             !source.workspacePopover.isManagementActionPerforming && targetButton()?.isEnabled == true
         }
         #expect(modelReady, "The original picker session must be reusable after the switch commits")
+        if route == .nativeFullscreenMouse {
+            let warmStart = ProcessInfo.processInfo.systemUptime
+            _ = try sendButtonMouseDown(try #require(targetButton()))
+            let warmSwitched = await waitUntil(attempts: 500) {
+                fixture.store.snapshot.windows?[windowID]?.currentWorkspace == targetID &&
+                    !source.workspacePopover.isShown && native.transitioningWindows.isEmpty
+            }
+            #expect(warmSwitched)
+            #expect(destination.window?.isKeyWindow == true)
+            #expect(destination.window?.styleMask.contains(.fullScreen) == true)
+            let warmMilliseconds = (ProcessInfo.processInfo.systemUptime - warmStart) * 1_000
+            print("FULLSCREEN_WORKSPACE_MOUSE_WARM_LEAVE tabs=\(sourceTabCount) milliseconds=\(warmMilliseconds)")
+            try #require(fixture.coordinator.switchWorkspace(to: sourceWorkspace, from: destination) === source)
+            #expect(await waitUntil { window.isKeyWindow && native.transitioningWindows.isEmpty })
+        }
         source.workspaceSwitcherIsPresented = false
         #expect(await waitUntil { !source.workspacePopover.isShown })
         #expect(source.workspacePopover.contentController == nil)

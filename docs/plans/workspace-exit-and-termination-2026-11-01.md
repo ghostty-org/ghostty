@@ -183,3 +183,58 @@ its last observed fullscreen checkpoint flag is false. The new foreground
 60-tab termination regression and the real unlocked quit/switch acceptance
 remain outstanding. Further UI retries/restarts were stopped at this concrete
 desktop prerequisite.
+
+## Unlocked desktop follow-up
+
+After the user unlocked the Mac, the installed `972d2699` app was placed in
+native fullscreen through its actual window control. Its 60-tab Personal group
+and all 75 tabs / 76 panes were checked before Cmd-Q. Two actual Cmd-Q runs
+observed process exit 2.277 and 2.605 seconds after the automation dispatched
+the shortcut. These times include dispatch/activation overhead and external
+sampling; they are not unsampled input-to-pixel timings or a controlled
+percentage improvement over the earlier locked runs. Neither unlocked sample
+contains the repeated native successor-selection/fullscreen-promotion paths.
+
+The first run copied the checkpoint both before quit and after process exit,
+before reopening the app. Both copies retained generation 1540, all 75 tabs,
+and `fullscreen=true` / native mode for Personal. Reopening on the unlocked
+desktop again retained that fullscreen flag and all tab/pane identities and
+owners. Thus confirmed termination did not erase the fullscreen checkpoint;
+the earlier locked observation does not establish a termination regression.
+
+The 60-tab native fullscreen termination regression now passes on the actual
+foreground desktop. It observes no background-tab key or fullscreen promotion,
+keeps the selected window in fullscreen, releases background content views and
+preserves the checkpoint. Its background-only close phase took 157.754 ms;
+this excludes application persistence/final exit and must not replace the
+installed-app timings above.
+
+The foreground gate required activating the already-running test app through
+the normal launcher, using its exact path and verified ready PID. Raising a
+background test window was insufficient. The fixture now creates its tabs
+through the real `TerminalController.newTab` path, waits for presentation and
+selects its already-shown first window. It reports active/key/active-Space and
+fullscreen transition state separately. The debugging skill documents this
+activation procedure and warns that app lookup after a test exits can launch
+a non-test instance against the real Dev session.
+
+Four additional desktop tests passed: the 60-tab fullscreen workspace mouse
+round trip, both parameterized fullscreen layout tests, and native tab clicks.
+The workspace stress fixture also exercises an attached transient child panel.
+Its cold leave, which creates the destination's first terminal, measured
+655-684 ms; return to the existing large workspace measured 190-213 ms. Warm
+mouse leave to the already-created destination measured 343-504 ms. Those
+event-to-committed-state timings include popover dismissal and run-loop work;
+they are not directly comparable with the 81.6 ms windowed coordinator-only
+benchmark.
+
+One instrumented warm run spent 51.787 ms inside `native.show`, out of 342.843
+ms total. That does not identify `showWindow` as the dominant remaining cost,
+so the fullscreen selection/geometry path was not changed on that hypothesis.
+The cut-out latency remains an explicit limitation, despite functional
+fullscreen switching and quit acceptance now passing.
+
+Final validation of the updated test tree passed seven focused routine tests
+in two suites and reran the real fullscreen workspace mouse test successfully.
+No production implementation changed in this follow-up; the installed app
+remains `0.18.0-dev.972d2699`.
