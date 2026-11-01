@@ -83,3 +83,46 @@ environment. Nothing is uploaded.
 This repair does not change native window selection, focus, hover or drag
 routing. Interactive desktop tests were not rerun for the polling-only change.
 Runtime CPU acceptance is separate from these functional tests.
+
+## Installed result
+
+Implementation commit `61327f96` was installed with the standard Dev installer
+as `0.18.0-dev.61327f96` at `/Applications/OMG Dev.app`. The verified process was
+PID 71991. The installed binary hash matched the built artifact; signing and
+session-runtime checks passed, as did the installer's six SSH wrapper tests.
+
+Before restarting, the Dev bundle, settings and workspace checkpoint were
+backed up privately. After restart, all 75 persisted tab IDs and workspace
+assignments matched, all 14 workspaces remained, and the live terminal surface
+count remained 76. AppleScript tab object IDs are process-local pointers, so
+persistent identity comparison uses the workspace checkpoint rather than
+comparing those scripting IDs across restarts.
+
+Both post-install CPU observations lasted 30 seconds with 15 two-second
+intervals. No build/test host or profiler was running during them. The same
+75-tab workload remained loaded; the investigator did not operate OMG during
+the intervals. These are observations across a restart, not a controlled replay
+of every terminal child workload or user action.
+
+| Measure | Before repeat | After | After repeat |
+| --- | ---: | ---: | ---: |
+| Mean process CPU | 7.35% | 2.82% | 2.99% |
+| Median process CPU | 7.404% | 2.950% | 2.952% |
+| Maximum two-second CPU | 7.935% | 3.446% | 3.459% |
+
+The same six-second child observer saw 153 distinct Python children before
+(70 polls, 6.057 seconds) and three afterward (68 polls, 6.081 seconds).
+Peak concurrent Python children dropped from ten to one. Both counts remain
+polling lower bounds and include no child CPU-time measurements.
+
+The separate 15-second post-install profile recorded 473 ms of total CPU sample
+weight versus 1,096 ms before. Inclusive `GitProcessRunner` weight dropped from
+558 ms to 25 ms, and `pollHermesPanes` from 225 ms to 51 ms. Main-thread sample
+weight was 254 ms afterward versus 223 ms before: this experiment demonstrates
+less process-launch work, not a measured main-thread or input-to-pixel latency
+improvement. Remaining samples include the retained Agent/SSH polling and
+workspace checkpoint capture.
+
+The two post-install means are approximately 59-62% lower than the repeat
+baseline. This does not establish that all future peaks are below 3.5%, nor
+identify the exact context of the user's historical 80% peak.
