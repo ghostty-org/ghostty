@@ -146,6 +146,32 @@ pub const TabColor = enum {
     }
 };
 
+test "TabColor.rgb" {
+    const testing = std.testing;
+    try testing.expect(TabColor.none.rgb() == null);
+    try testing.expectEqual([3]u8{ 0x3b, 0x8b, 0xff }, TabColor.blue.rgb().?);
+    try testing.expectEqual([3]u8{ 0xbf, 0x5a, 0xf2 }, TabColor.purple.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0x4d, 0x7a }, TabColor.pink.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0x5a, 0x52 }, TabColor.red.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0x9f, 0x0a }, TabColor.orange.rgb().?);
+    try testing.expectEqual([3]u8{ 0xff, 0xd6, 0x0a }, TabColor.yellow.rgb().?);
+    try testing.expectEqual([3]u8{ 0x30, 0xd1, 0x58 }, TabColor.green.rgb().?);
+    try testing.expectEqual([3]u8{ 0x40, 0xe0, 0xd0 }, TabColor.teal.rgb().?);
+    try testing.expectEqual([3]u8{ 0x98, 0x98, 0x9d }, TabColor.graphite.rgb().?);
+}
+
+test "TabColor tags cover palette" {
+    const testing = std.testing;
+    const tags = std.meta.tags(TabColor);
+    try testing.expectEqual(@as(usize, 10), tags.len);
+    for (tags) |color| {
+        switch (color) {
+            .none => try testing.expect(color.rgb() == null),
+            else => try testing.expect(color.rgb() != null),
+        }
+    }
+}
+
 pub const Tab = extern struct {
     const Self = @This();
     parent_instance: Parent,
