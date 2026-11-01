@@ -8,13 +8,6 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
     return struct {
         const Self = @This();
 
-        // Implementation note: there's a lot of unsafe addition of usize
-        // here in this implementation that can technically overflow. If someone
-        // wants to fix this and make it overflow safe (use subtractions for
-        // checks prior to additions) then I welcome it. In reality, we'd
-        // have to be a really, really large terminal screen to even worry
-        // about this so I'm punting it.
-
         storage: []T,
         head: usize,
         tail: usize,
@@ -41,14 +34,13 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
                 };
 
                 // Translate the tail index to a storage index
-                const storage_idx = (self.buf.tail + tail_idx) % self.buf.capacity();
+                const storage_idx = self.buf.storageOffset(tail_idx);
                 self.idx += 1;
                 return &self.buf.storage[storage_idx];
             }
 
             /// Seek the iterator by a given amount. This will clamp
-            /// the values to the bounds of the buffer so overflows are
-            /// not possible.
+            /// the index to the range of usize so overflows are not possible.
             pub fn seekBy(self: *Iterator, amount: isize) void {
                 if (amount > 0) {
                     self.idx +|= @intCast(amount);
@@ -152,7 +144,9 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             alloc: Allocator,
             amount: usize,
         ) Allocator.Error!void {
-            const new_cap = self.len() + amount;
+            const new_cap = std.math.add(usize, self.len(), amount) catch
+                return error.OutOfMemory;
+
             if (new_cap <= self.capacity()) return;
             try self.resize(alloc, new_cap);
         }
@@ -228,10 +222,16 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             const slices = self.getPtrSlice(0, n);
             inline for (slices) |slice| @memset(slice, default);
 
-            // If we're not full, we can just advance the tail. We know
-            // it'll be less than the length because otherwise we'd be full.
-            self.tail += @min(self.len(), n);
-            if (self.tail >= self.storage.len) self.tail -= self.storage.len;
+            // Advance the tail by the number of deleted values, wrapping
+            // at the end of storage without overflowing the index.
+            const amount = @min(self.len(), n);
+            const until_end = self.storage.len - self.tail;
+
+            self.tail = if (amount < until_end)
+                self.tail + amount
+            else
+                amount - until_end;
+
             self.full = false;
         }
 
@@ -248,7 +248,9 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
 
             // Note: this assertion is very important, it hints the compiler
             // which generates ~10% faster code than without it.
-            assert(offset + slice_len <= self.capacity());
+            const cap = self.capacity();
+            assert(offset <= cap);
+            assert(slice_len <= cap - offset);
 
             // End offset is the last offset (exclusive) for our slice.
             // We use exclusive because it makes the math easier and it
@@ -256,7 +258,9 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
             const end_offset = offset + slice_len;
 
             // If our slice can't fit it in our length, then we need to advance.
-            if (end_offset > self.len()) self.advance(end_offset - self.len());
+            if (end_offset > self.len()) {
+                self.advance(end_offset - self.len());
+            }
 
             // Our start and end indexes into the storage buffer
             const start_idx = self.storageOffset(offset);
@@ -281,18 +285,20 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
         fn advance(self: *Self, amount: usize) void {
             assert(amount <= self.storage.len - self.len());
 
-            // Optimistically add our amount
-            self.head += amount;
+            // Advance the head, wrapping at the end of storage without overflow.
+            const until_end = self.storage.len - self.head;
 
-            // If we exceeded the length of the buffer, wrap around.
-            if (self.head >= self.storage.len) self.head = self.head - self.storage.len;
+            self.head = if (amount < until_end)
+                self.head + amount
+            else
+                amount - until_end;
 
             // If we're full, we have to keep tail lined up.
             if (self.full) self.tail = self.head;
 
             // We're full if the head reached the tail. The head can never
             // pass the tail because advance asserts amount is only in
-            // available space left
+            // available space left.
             self.full = self.head == self.tail;
         }
 
@@ -301,11 +307,13 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
         fn storageOffset(self: Self, offset: usize) usize {
             assert(offset < self.storage.len);
 
-            // This should be subtraction ideally to avoid overflows but
-            // it would take a really, really, huge buffer to overflow.
-            const fits_offset = self.tail + offset;
-            if (fits_offset < self.storage.len) return fits_offset;
-            return fits_offset - self.storage.len;
+            const until_end = self.storage.len - self.tail;
+
+            if (offset < until_end) {
+                return self.tail + offset;
+            }
+
+            return offset - until_end;
         }
     };
 }
@@ -930,4 +938,79 @@ test "CircBuf clear zero capacity" {
 
     buf.clear();
     try testing.expectError(error.OutOfMemory, buf.append(1));
+}
+
+test "CircBuf ensureUnusedCapacity rejects overflow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 1);
+    defer buf.deinit(alloc);
+
+    try buf.append(42);
+    try testing.expectError(
+        error.OutOfMemory,
+        buf.ensureUnusedCapacity(alloc, std.math.maxInt(usize)),
+    );
+    try testing.expectEqual(@as(usize, 1), buf.len());
+    try testing.expectEqual(@as(u8, 42), buf.first().?.*);
+}
+
+// A void element occupies zero bytes. These tests can represent enormous
+// capacities without allocating an enormous block of memory.
+test "CircBuf storageOffset near usize maximum" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(void, {});
+    const cap = std.math.maxInt(usize);
+    var buf = try Buf.init(alloc, cap);
+    defer buf.deinit(alloc);
+
+    buf.head = 2;
+    buf.tail = cap - 2;
+    try testing.expectEqual(@as(usize, 4), buf.len());
+    try testing.expectEqual(@as(usize, 1), buf.storageOffset(3));
+
+    var it = buf.iterator(.reverse);
+    for (0..4) |_| try testing.expect(it.next() != null);
+    try testing.expect(it.next() == null);
+}
+
+test "CircBuf getPtrSlice advances near usize maximum" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(void, {});
+    const cap = std.math.maxInt(usize);
+    var buf = try Buf.init(alloc, cap);
+    defer buf.deinit(alloc);
+
+    buf.head = cap - 1;
+    buf.tail = cap - 2;
+    const parts = buf.getPtrSlice(0, 5);
+
+    try testing.expectEqual(@as(usize, 3), buf.head);
+    try testing.expectEqual(@as(usize, 5), buf.len());
+    try testing.expectEqual(@as(usize, 2), parts[0].len);
+    try testing.expectEqual(@as(usize, 3), parts[1].len);
+}
+
+test "CircBuf deleteOldest near usize maximum" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(void, {});
+    const cap = std.math.maxInt(usize);
+    var buf = try Buf.init(alloc, cap);
+    defer buf.deinit(alloc);
+
+    buf.head = 2;
+    buf.tail = cap - 2;
+    buf.deleteOldest(3);
+
+    try testing.expectEqual(@as(usize, 1), buf.tail);
+    try testing.expectEqual(@as(usize, 1), buf.len());
+    try testing.expect(!buf.full);
 }
