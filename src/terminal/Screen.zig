@@ -1125,6 +1125,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
         if (self.cursor.style.bgCell()) |blank_cell| {
             const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
             const cells = cell_current - self.cursor.x;
+            self.cursor.page_row.blank = false;
             @memset(cells[0..self.pages.cols], blank_cell);
         }
     }
@@ -1225,6 +1226,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
         if (self.cursor.style.bgCell()) |blank_cell| {
             const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
             const cells = cell_current - self.cursor.x;
+            self.cursor.page_row.blank = false;
             @memset(cells[0..self.pages.cols], blank_cell);
         }
     }
@@ -1476,6 +1478,7 @@ fn cursorScrollRegionUpSlow(self: *Screen, limit: usize) !void {
     const blank = self.blankCell();
     if (!blank.isZero()) {
         const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
+        self.cursor.page_row.blank = false;
         @memset((cells - self.cursor.x)[0..self.pages.cols], blank);
     }
 }
@@ -1831,12 +1834,19 @@ pub inline fn eraseActive(
     if (comptime build_options.kitty_graphics) self.kitty_images.markDirty();
 }
 
-// Clear the region specified by tl and bl, inclusive. Cleared cells are
-// colored with the current style background color. This will clear all
-// cells in the rows.
-//
-// If protected is true, the protected flag will be respected and only
-// unprotected cells will be cleared. Otherwise, all cells will be cleared.
+/// Clear the rows from tl to bl, inclusive. If bl is null, clear to the
+/// end of tl's region. Cleared cells take the current background color,
+/// and row metadata such as wrap state is reset.
+///
+/// If protected is true, protected cells and row metadata are kept.
+///
+/// ```zig
+/// // Clear the whole active area, like `ESC [ 2 J`.
+/// screen.clearRows(.{ .active = .{} }, null, false);
+/// ```
+///
+/// Rows that are already empty (see `Row.blank`) are skipped and not
+/// marked dirty, which makes clearing a mostly empty screen cheap.
 pub fn clearRows(
     self: *Screen,
     tl: point.Point,
@@ -1845,11 +1855,30 @@ pub fn clearRows(
 ) void {
     defer self.assertIntegrity();
 
+    // If the blank cell is the zero cell, a row already marked blank
+    // already holds exactly what the clear would write.
+    const blank_zero = self.blankCell().isZero();
+
     var it = self.pages.pageIterator(.right_down, tl, bl);
     while (it.next()) |chunk| {
         const page = chunk.node.page();
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
+
+            // Already empty: only reset metadata. The cells don't
+            // change, so the dirty state is kept as is.
+            if (row.blank and blank_zero) {
+                @branchHint(.likely);
+
+                // A protected clear keeps metadata, so it has nothing to do.
+                if (!protected) row.* = .{
+                    .cells = cells_offset,
+                    .blank = true,
+                    .dirty = row.dirty,
+                };
+                continue;
+            }
+
             const cells = page.getCells(row);
 
             // Clear all cells
@@ -1860,7 +1889,9 @@ pub fn clearRows(
                 row.cells = cells_offset;
             } else {
                 self.clearCells(page, row, cells);
-                row.* = .{ .cells = cells_offset };
+                // Reset the metadata but keep the blank flag that
+                // clearCells just set.
+                row.* = .{ .cells = cells_offset, .blank = row.blank };
             }
 
             row.dirty = true;
@@ -1871,6 +1902,10 @@ pub fn clearRows(
 /// Clear the cells with the blank cell.
 ///
 /// This takes care to handle cleaning up graphemes and styles.
+///
+/// It also updates `Row.blank`. A full-row clear with a zero blank cell
+/// sets it, a colored blank cell clears it, and a partial clear with a
+/// zero blank cell leaves it unchanged.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1967,7 +2002,15 @@ pub fn clearCells(
         }
     }
 
-    @memset(cells, self.blankCell());
+    const blank = self.blankCell();
+    @memset(cells, blank);
+
+    // Update Row.blank as described in the doc comment above.
+    if (cells.len == page.size.cols) {
+        row.blank = blank.isZero();
+    } else if (!blank.isZero()) {
+        row.blank = false;
+    }
 }
 
 /// Clear cells but only if they are not protected.
@@ -3982,6 +4025,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
         }
 
         assert(width == 1 or width == 2);
+        self.cursor.page_row.blank = false;
         switch (width) {
             1 => {
                 self.cursor.page_cell.* = .{
@@ -4021,6 +4065,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     try self.cursorDownOrScroll();
                     self.cursorHorizontalAbsolute(0);
                     self.cursor.page_row.wrap_continuation = true;
+                    self.cursor.page_row.blank = false;
                 }
 
                 // Write our wide char

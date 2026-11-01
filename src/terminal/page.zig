@@ -351,6 +351,7 @@ pub const Page = struct {
         InvalidSpacerTailLocation,
         InvalidSpacerHeadLocation,
         UnwrappedSpacerHead,
+        BlankRowHasContent,
     };
 
     /// Temporarily pause integrity checks. This is useful when you are
@@ -433,6 +434,28 @@ pub const Page = struct {
         for (rows, 0..) |*row, y| {
             const graphemes_start = graphemes_seen;
             const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+
+            // A row marked blank must contain only zero cells and must
+            // not use any managed memory. See Row.blank.
+            if (row.blank) {
+                if (row.managedMemory()) {
+                    log.warn(
+                        "page integrity violation y={} blank row has managed memory",
+                        .{y},
+                    );
+                    return IntegrityError.BlankRowHasContent;
+                }
+                for (cells, 0..) |*cell, x| {
+                    if (!cell.isZero()) {
+                        log.warn(
+                            "page integrity violation y={} x={} blank row has content",
+                            .{ y, x },
+                        );
+                        return IntegrityError.BlankRowHasContent;
+                    }
+                }
+            }
+
             for (cells, 0..) |*cell, x| {
                 if (cell.hasGrapheme()) {
                     // If a cell has grapheme data, it must be present in
@@ -907,6 +930,9 @@ pub const Page = struct {
                 copy.grapheme = dst_row.grapheme;
                 copy.hyperlink = dst_row.hyperlink;
                 copy.styled = dst_row.styled;
+
+                // Empty only if both the copied and kept parts were.
+                copy.blank = dst_row.blank and src_row.blank;
                 copy.dirty |= dst_row.dirty;
             }
 
@@ -1116,6 +1142,9 @@ pub const Page = struct {
 
         // Clear our destination now matter what
         self.clearCells(dst_row, dst_left, dst_left + len);
+
+        // The source cells may have content.
+        dst_row.blank = false;
 
         // If src has no managed memory, this is very fast.
         if (!src_row.managedMemory()) {
@@ -2209,7 +2238,29 @@ pub const Row = packed struct(u64) {
     /// screen.
     dirty: bool = false,
 
-    _padding: u23 = 0,
+    /// True if every cell in the row is the zero cell (no text, style,
+    /// or background color) and the row has no managed memory.
+    ///
+    /// This may be false for an empty row, but must never be true for
+    /// a row with content. `Page.verifyIntegrity` checks this. It is set
+    /// only by a full-row clear with a zero blank cell (see
+    /// `Screen.clearCells`) or by copying a row that has it set.
+    ///
+    /// Any code that writes cells must clear it, usually with
+    /// `markWritten`. Otherwise `Screen.clearRows` will skip the row
+    /// and leave the old content on screen.
+    ///
+    /// ```zig
+    /// cells[x] = new_cell;
+    /// row.markWritten(); // dirty = true, blank = false
+    /// ```
+    ///
+    /// `Screen.clearRows` skips rows with this set and does not mark them
+    /// dirty. Their cells don't change, and the metadata it resets (wrap
+    /// and semantic prompt state) doesn't change how the row looks.
+    blank: bool = false,
+
+    _padding: u22 = 0,
 
     /// The semantic prompt state of the row. See `semantic_prompt`.
     pub const SemanticPrompt = enum(u2) {
@@ -2238,6 +2289,18 @@ pub const Row = packed struct(u64) {
     /// Returns this row as a C ABI value.
     pub fn cval(self: Row) C {
         return @bitCast(self);
+    }
+
+    /// Mark the row dirty and not blank. Call this after writing cells.
+    ///
+    /// This is equivalent to `dirty = true` and `blank = false`, but does
+    /// a single load and store of the row instead of two. The difference
+    /// is measurable when printing text.
+    pub inline fn markWritten(self: *Row) void {
+        const set: Backing = comptime fieldMask(Row, &.{"dirty"});
+        const clear: Backing = comptime fieldMask(Row, &.{"blank"});
+        const v: Backing = @bitCast(self.*);
+        self.* = @bitCast((v | set) & ~clear);
     }
 
     /// Returns true if this row has any managed memory outside of the
