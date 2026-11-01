@@ -94,17 +94,20 @@ final class TerminalTabChromeController {
     }
 
     func schedule() {
-        guard !stopped, !scheduled else { return }
+        guard !stopped, !scheduled,
+              controller?.workspaceCoordinator.isTerminating != true else { return }
         scheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.scheduled = false
+            guard self.controller?.workspaceCoordinator.isTerminating != true else { return }
             self.refresh()
         }
     }
 
     func refresh() {
-        guard !stopped, let controller, controller.isAvailableForWorkspace, let window else { return }
+        guard !stopped, let controller, !controller.workspaceCoordinator.isTerminating,
+              controller.isAvailableForWorkspace, let window else { return }
         // Check the style before touching NSWindowTab; borderless fullscreen has
         // no tab titlebar and AppKit can raise while resolving its accessory.
         guard window.styleMask.contains(.titled) else {

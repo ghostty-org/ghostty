@@ -22,6 +22,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     private var draft: TerminalWorkspaceState?
     private var restoring = true
     private var quitting = false
+    private(set) var isTerminating = false
     private var applying = false
     private var deferredSwitches: [UUID: UUID] = [:]
     private var scheduledSwitches = Set<UUID>()
@@ -59,7 +60,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         self.native = native ?? TerminalWorkspaceNativeAdapter()
         sessions?.coordinator = self
         self.native.transitionCompleted = { [weak self] host in
-            guard let self else { return }
+            guard let self, !self.isTerminating else { return }
             self.scheduleWorkspaceSwitch(in: host)
             if let mode = self.deferredTabLayouts.removeValue(forKey: host),
                let source = self.liveControllers.first(where: { $0.windowSessionID == host }) {
@@ -276,6 +277,13 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func didClose(_ controller: TerminalController) {
+        if isTerminating {
+            // The checkpoint was committed before teardown; release retained
+            // parked controllers without publishing another workspace state.
+            registry.removeValue(forKey: controller.tabSessionID)
+            retainedParked.removeValue(forKey: controller.tabSessionID)
+            return
+        }
         guard !quitting else { return }
         let host = controller.windowSessionID
         if switchDismissals[host]?.source == controller.tabSessionID { cancelWorkspaceSwitch(in: host) }
@@ -727,7 +735,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func prepareToQuit() {
-        guard !quitting else { return }
+        guard !quitting, !isTerminating else { return }
         savePresentation()
         quitting = true
         let completions = Array(deferredSwitchCompletions.values)
@@ -737,7 +745,19 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         deferredSwitchCompletions.removeAll()
         completions.forEach { $0(.superseded) }
     }
-    func cancelQuit() { quitting = false; savePresentation() }
+
+    /// Commit only after NSApp accepts termination; quit prompts can still cancel.
+    func commitTermination() {
+        guard !isTerminating else { return }
+        isTerminating = true
+        TerminalController.cancelPendingTabRefreshesForTermination(in: self)
+    }
+
+    func cancelQuit() {
+        guard !isTerminating else { return }
+        quitting = false
+        savePresentation()
+    }
 
     /// Presentation sampling updates geometry only. Ownership/order enter via
     /// native events or commands, never through the persistence timer.

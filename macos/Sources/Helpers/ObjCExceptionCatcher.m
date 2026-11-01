@@ -55,6 +55,23 @@ BOOL GhosttyShowWindowSafely(
     }
 }
 
+BOOL GhosttyMakeKeyAndOrderFrontSafely(
+    id window,
+    id _Nullable sender,
+    NSError * _Nullable * _Nullable error
+) {
+    @try {
+        [((NSWindow *)window) makeKeyAndOrderFront:sender];
+        return YES;
+    } @catch (NSException *exception) {
+        if (error != NULL) {
+            *error = GhosttyErrorFromException(exception, 5);
+        }
+
+        return NO;
+    }
+}
+
 BOOL GhosttyUndoSafely(
     id undoManager,
     NSError * _Nullable * _Nullable error

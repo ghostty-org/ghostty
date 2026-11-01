@@ -87,8 +87,28 @@ struct TerminalWorkspaceRetainedTabsTests {
         fixture.controllers.append(workTab)
         let workAttachCalls = attachCalls
 
+        let showBeforeNewTab = native.show
+        let selectBeforeNewTab = native.selectRetained
+        var newTabShowCalls = 0
+        var newTabRetainedSelectionCalls = 0
+        native.show = { controller in
+            newTabShowCalls += 1
+            return showBeforeNewTab(controller)
+        }
+        native.selectRetained = { controller in
+            newTabRetainedSelectionCalls += 1
+            return selectBeforeNewTab(controller)
+        }
+        defer {
+            native.show = showBeforeNewTab
+            native.selectRetained = selectBeforeNewTab
+        }
         let notesTab = try #require(fixture.coordinator.switchWorkspace(to: notes, from: workTab))
+        native.show = showBeforeNewTab
+        native.selectRetained = selectBeforeNewTab
         fixture.controllers.append(notesTab)
+        #expect(newTabShowCalls > 0, "A newly created retained tab must use the normal presentation path")
+        #expect(newTabRetainedSelectionCalls == 0, "A newly attached window must not use retained selection")
         try await Task.sleep(for: .milliseconds(120))
 
         let host = first.windowSessionID
@@ -118,6 +138,22 @@ struct TerminalWorkspaceRetainedTabsTests {
             ($0.tabSessionID, Array($0.surfaceTree).map(ObjectIdentifier.init))
         })
         attachCalls = 0
+        let originalShow = native.show
+        let originalRetainedSelection = native.selectRetained
+        var warmShowCalls = 0
+        var warmRetainedSelectionCalls = 0
+        native.show = { controller in
+            warmShowCalls += 1
+            return originalShow(controller)
+        }
+        native.selectRetained = { controller in
+            warmRetainedSelectionCalls += 1
+            return originalRetainedSelection(controller)
+        }
+        defer {
+            native.show = originalShow
+            native.selectRetained = originalRetainedSelection
+        }
         var warmSwitchMilliseconds: [Double] = []
         var enterLargeMilliseconds: [Double] = []
         var leaveLargeMilliseconds: [Double] = []
@@ -179,6 +215,8 @@ struct TerminalWorkspaceRetainedTabsTests {
         }
 
         #expect(attachCalls == 0, "Warm vertical workspace switches must not reattach native tabs")
+        #expect(warmShowCalls == 0, "Warm retained switches must not rerun window-controller positioning")
+        #expect(warmRetainedSelectionCalls == warmSwitchMilliseconds.count)
         #expect(nativeGroupStable, "Warm switches must keep the retained native group membership stable")
         #expect(surfacesStable, "Warm switches must preserve each tab's surfaces")
 
@@ -198,7 +236,8 @@ struct TerminalWorkspaceRetainedTabsTests {
             format: "RETAINED_TABS_BENCHMARK pid=%d tabs=%d rounds=%d switches=%d " +
                 "cold_to_work_ms=%.3f cold_attach_calls=%d warm_p50_ms=%.3f warm_p95_ms=%.3f " +
                 "warm_max_ms=%.3f enter_large_mean_ms=%.3f leave_large_mean_ms=%.3f " +
-                "warm_attach_calls=%d surfaces=%d surfaces_stable=%@ native_group_members=%d native_group_stable=%@",
+                "warm_attach_calls=%d warm_show_calls=%d warm_retained_select_calls=%d " +
+                "surfaces=%d surfaces_stable=%@ native_group_members=%d native_group_stable=%@",
             ProcessInfo.processInfo.processIdentifier,
             profile.tabCount,
             profile.rounds,
@@ -211,11 +250,90 @@ struct TerminalWorkspaceRetainedTabsTests {
             mean(enterLargeMilliseconds),
             mean(leaveLargeMilliseconds),
             attachCalls,
+            warmShowCalls,
+            warmRetainedSelectionCalls,
             totalSurfaceCount,
             surfacesStable ? "true" : "false",
             retainedGroup.windows.count,
             nativeGroupStable ? "true" : "false"
         ))
+    }
+
+    @Test func failedRetainedSelectionRollsBackWithoutUsingTheFastPathAgain() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        first.showWindow(nil)
+        let second = try fixture.tab(parent: first)
+        let work = try #require(fixture.store.create(name: "Warm rollback", symbol: "briefcase", color: "blue"))
+        let workTab = try #require(fixture.coordinator.switchWorkspace(to: work, from: second))
+        fixture.controllers.append(workTab)
+        try await Task.sleep(for: .milliseconds(100))
+
+        let native = fixture.coordinator.native
+        let originalRetainedSelection = native.selectRetained
+        var retainedSelectionCalls = 0
+        native.selectRetained = { _ in
+            retainedSelectionCalls += 1
+            return false
+        }
+        defer { native.selectRetained = originalRetainedSelection }
+
+        #expect(fixture.coordinator.switchWorkspace(to: fixture.store.defaultID, from: workTab) == nil)
+        #expect(retainedSelectionCalls == 1)
+        #expect(fixture.store.snapshot.windows?[first.windowSessionID]?.currentWorkspace == work)
+        let group = try #require(workTab.window?.tabGroup)
+        let expectedWindowIDs = Set(try [first, second, workTab].map {
+            ObjectIdentifier(try #require($0.window))
+        })
+        #expect(Set(group.windows.map(ObjectIdentifier.init)) == expectedWindowIDs)
+        #expect(group.selectedWindow === workTab.window)
+    }
+
+    @Test func warmRetainedSelectionKeepsCurrentFrameAndNativeSelection() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        first.showWindow(nil)
+        let work = try #require(fixture.store.create(name: "Warm frame", symbol: "briefcase", color: "blue"))
+        let workTab = try #require(fixture.coordinator.switchWorkspace(to: work, from: first))
+        fixture.controllers.append(workTab)
+        try await Task.sleep(for: .milliseconds(80))
+
+        let firstWindow = try #require(first.window)
+        let workWindow = try #require(workTab.window)
+        let group = try #require(workWindow.tabGroup)
+        let visibleFrame = try #require(workWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame)
+        let expectedFrame = NSRect(
+            x: visibleFrame.minX + 31,
+            y: visibleFrame.minY + 43,
+            width: min(920, visibleFrame.width - 62),
+            height: min(610, visibleFrame.height - 86)
+        )
+        workWindow.setFrame(expectedFrame, display: false)
+
+        let originalShow = fixture.coordinator.native.show
+        var showCalls = 0
+        fixture.coordinator.native.show = { controller in
+            showCalls += 1
+            return originalShow(controller)
+        }
+        defer { fixture.coordinator.native.show = originalShow }
+
+        let returned = try #require(fixture.coordinator.switchWorkspace(to: first.workspaceID, from: workTab))
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(returned === first)
+        #expect(firstWindow.frame == expectedFrame)
+        #expect(group.selectedWindow === firstWindow)
+        if NSApp.isActive { #expect(firstWindow.isKeyWindow) }
+
+        let restored = try #require(fixture.coordinator.switchWorkspace(to: work, from: first))
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(restored === workTab)
+        #expect(workWindow.frame == expectedFrame)
+        #expect(group.selectedWindow === workWindow)
+        #expect(showCalls == 0)
+        if NSApp.isActive { #expect(workWindow.isKeyWindow) }
     }
 
     @Test func workspaceReturnPreparesOnlyTheSelectedTabsGeometry() async throws {

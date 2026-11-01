@@ -3151,7 +3151,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func setupTabObservation(refresh: Bool = true, observationOwner: TerminalController? = nil) {
-        guard !tabPresentationIsClosing else { return }
+        guard !tabPresentationIsClosing, !workspaceCoordinator.isTerminating else { return }
         let currentGroup = window?.tabGroup
         let owner = observationOwner ?? currentGroup?.windows.compactMap {
             $0.windowController as? TerminalController
@@ -3180,29 +3180,73 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         verticalTabWindowsObservation = currentGroup.observe(
             \.windows,
             options: []
-        ) { [weak currentGroup] _, _ in
-            Self.scheduleTabRefresh(in: currentGroup)
+        ) { [weak self, weak currentGroup] _, _ in
+            guard let self else { return }
+            Self.scheduleTabRefresh(in: currentGroup, coordinator: self.workspaceCoordinator)
         }
         verticalTabSelectionObservation = currentGroup.observe(
             \.selectedWindow,
             options: []
-        ) { [weak currentGroup] _, _ in
-            Self.scheduleTabRefresh(in: currentGroup)
+        ) { [weak self, weak currentGroup] _, _ in
+            guard let self else { return }
+            Self.scheduleTabRefresh(in: currentGroup, coordinator: self.workspaceCoordinator)
         }
         if refresh { refreshTabs() }
     }
 
-    private static var pendingTabRefreshes: [ObjectIdentifier: DispatchWorkItem] = [:]
+    private final class PendingTabRefresh {
+        weak var coordinator: TerminalWorkspaceCoordinator?
+        let token: UUID
+        let work: DispatchWorkItem
 
-    private static func scheduleTabRefresh(in group: NSWindowTabGroup?) {
+        init(coordinator: TerminalWorkspaceCoordinator, token: UUID, work: DispatchWorkItem) {
+            self.coordinator = coordinator
+            self.token = token
+            self.work = work
+        }
+    }
+
+    private static var pendingTabRefreshes: [ObjectIdentifier: PendingTabRefresh] = [:]
+
+    static func cancelPendingTabRefreshesForTermination(in coordinator: TerminalWorkspaceCoordinator) {
+        let entries = pendingTabRefreshes.filter { $0.value.coordinator === coordinator }
+        for (id, entry) in entries {
+            pendingTabRefreshes.removeValue(forKey: id)
+            entry.work.cancel()
+        }
+    }
+
+    private static func scheduleTabRefresh(
+        in group: NSWindowTabGroup?,
+        coordinator: TerminalWorkspaceCoordinator
+    ) {
         guard let group else { return }
         let id = ObjectIdentifier(group)
-        guard pendingTabRefreshes[id] == nil else { return }
-        let work = DispatchWorkItem { [weak group] in
-            pendingTabRefreshes.removeValue(forKey: id)
-            refreshTabs(in: group)
+        if coordinator.isTerminating {
+            if let entry = pendingTabRefreshes[id], entry.coordinator === coordinator {
+                pendingTabRefreshes.removeValue(forKey: id)
+                entry.work.cancel()
+            }
+            return
         }
-        pendingTabRefreshes[id] = work
+        if let entry = pendingTabRefreshes[id] {
+            if entry.coordinator === coordinator { return }
+            pendingTabRefreshes.removeValue(forKey: id)
+            entry.work.cancel()
+        }
+
+        let token = UUID()
+        let work = DispatchWorkItem { [weak group, weak coordinator] in
+            guard pendingTabRefreshes[id]?.token == token else { return }
+            pendingTabRefreshes.removeValue(forKey: id)
+            guard let coordinator, !coordinator.isTerminating else { return }
+            refreshTabs(in: group, coordinator: coordinator)
+        }
+        pendingTabRefreshes[id] = PendingTabRefresh(
+            coordinator: coordinator,
+            token: token,
+            work: work
+        )
         DispatchQueue.main.async(execute: work)
     }
 
@@ -3217,6 +3261,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private func refreshTabs() {
         guard !tabPresentationIsClosing, !workspacePresentationIsParked,
+              !workspaceCoordinator.isTerminating,
               !TerminalWorkspacePresentation.isChanging else { return }
         if workspaceCoordinator.projectNonNativeTabs(for: self) { return }
         guard let window else {
@@ -3269,13 +3314,34 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if selectedTabID != selectedID { selectedTabID = selectedID }
     }
 
-    static func refreshTabs(in tabGroup: NSWindowTabGroup?) {
-        guard let tabGroup, !TerminalWorkspacePresentation.isChanging else { return }
-        if let selected = tabGroup.selectedWindow?.windowController as? TerminalController,
-           selected.workspacePresentationIsParked {
+    static func refreshTabs(
+        in tabGroup: NSWindowTabGroup?,
+        coordinator: TerminalWorkspaceCoordinator? = nil
+    ) {
+        if coordinator?.isTerminating == true || TerminalWorkspaceCoordinator.shared.isTerminating {
+            if let tabGroup,
+               let entry = pendingTabRefreshes[ObjectIdentifier(tabGroup)],
+               coordinator == nil || entry.coordinator === coordinator {
+                pendingTabRefreshes.removeValue(forKey: ObjectIdentifier(tabGroup))
+                entry.work.cancel()
+            }
             return
         }
-        pendingTabRefreshes.removeValue(forKey: ObjectIdentifier(tabGroup))?.cancel()
+        guard let tabGroup else { return }
+        guard !TerminalWorkspacePresentation.isChanging else { return }
+        let selected = tabGroup.selectedWindow?.windowController as? TerminalController
+        if selected?.workspaceCoordinator.isTerminating == true {
+            if let entry = pendingTabRefreshes[ObjectIdentifier(tabGroup)],
+               entry.coordinator === selected?.workspaceCoordinator {
+                pendingTabRefreshes.removeValue(forKey: ObjectIdentifier(tabGroup))
+                entry.work.cancel()
+            }
+            return
+        }
+        if selected?.workspacePresentationIsParked == true {
+            return
+        }
+        pendingTabRefreshes.removeValue(forKey: ObjectIdentifier(tabGroup))?.work.cancel()
         let controllers = tabGroup.windows.compactMap { $0.windowController as? TerminalController }
             .filter { !$0.tabPresentationIsClosing && !$0.workspacePresentationIsParked }
         guard let first = controllers.first, let window = first.window else { return }
@@ -3777,6 +3843,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// changes, when a window is closed, and when tabs are reordered
     /// with the mouse.
     func relabelTabs() {
+        guard !workspaceCoordinator.isTerminating else { return }
         // We only listen for frame changes if we have more than 1 window,
         // otherwise the accessory view doesn't matter.
         tabListenForFrame = window?.tabbedWindows?.count ?? 0 > 1
@@ -4626,6 +4693,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     lazy private(set) var tabGroupCloseCoordinator = TabGroupCloseCoordinator()
 
     override func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if workspaceCoordinator.isTerminating { return true }
         // Native bulk close can snapshot foreign tabs before AppKit asks each
         // controller, so a parked workspace always declines this delegate
         // path. Explicit tab/window actions use the workspace projection.
@@ -4648,38 +4716,48 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     override func windowWillClose(_ notification: Notification) {
-        workspacePopover.close()
-        workspaceCoordinator.sessions.capture()
+        let terminating = workspaceCoordinator.isTerminating
+        if !terminating {
+            workspacePopover.close()
+            workspaceCoordinator.sessions.capture()
+        }
         tabPresentationIsClosing = true
         workspaceCoordinator.didClose(self)
         tabLayoutState.cancelPendingTabSelection(ObjectIdentifier(self))
         verticalTabWindowsObservation?.invalidate()
         verticalTabSelectionObservation?.invalidate()
-        // Native close/window-close paths also need to transfer the group's
-        // single observer after AppKit removes this window.
-        Self.scheduleTabRefresh(in: window?.tabGroup)
+        if !terminating {
+            // Native close/window-close paths also need to transfer the group's
+            // single observer after AppKit removes this window.
+            Self.scheduleTabRefresh(in: window?.tabGroup, coordinator: workspaceCoordinator)
+        }
         DevMemoryDiagnostics.tabClosed()
         DevMemoryDiagnostics.windowClosing()
-        if let window, let group = window.tabGroup {
-            let remaining = group.windows.filter { $0 !== window }
-            let nextIndex = min(group.windows.firstIndex(of: window) ?? 0, max(0, remaining.count - 1))
-            let successor = remaining.first(where: {
-                ($0.windowController as? TerminalController).map(ObjectIdentifier.init) == tabLayoutState.tabSnapshot.selectedID
-            }) ?? (remaining.isEmpty ? nil : remaining[nextIndex])
-            // closeTabImmediately already prepares its successor before closing.
-            // Cover native window-close paths while their old selection is still
-            // published, without redrawing every background tab on each resize.
-            if tabLayoutState.tabSnapshot.selectedID == ObjectIdentifier(self) {
-                (successor?.windowController as? TerminalController)?.prepareTabPresentation(from: window)
+        // During app teardown AppKit owns the close pass. Rebuilding the native
+        // tab group here selects each successor and reattaches the sidebar.
+        if !terminating {
+            if let window, let group = window.tabGroup {
+                let remaining = group.windows.filter { $0 !== window }
+                let nextIndex = min(group.windows.firstIndex(of: window) ?? 0, max(0, remaining.count - 1))
+                let successor = remaining.first(where: {
+                    ($0.windowController as? TerminalController).map(ObjectIdentifier.init) == tabLayoutState.tabSnapshot.selectedID
+                }) ?? (remaining.isEmpty ? nil : remaining[nextIndex])
+                // closeTabImmediately already prepares its successor before closing.
+                // Cover native window-close paths while their old selection is still
+                // published, without redrawing every background tab on each resize.
+                if tabLayoutState.tabSnapshot.selectedID == ObjectIdentifier(self) {
+                    (successor?.windowController as? TerminalController)?.prepareTabPresentation(from: window)
+                }
+                tabLayoutState.sidebarHost.windowWillClose(window, successor: successor)
             }
-            tabLayoutState.sidebarHost.windowWillClose(window, successor: successor)
         }
         super.windowWillClose(notification)
         EditorWorkspaceStore.shared.remove(tabID: tabSessionID)
         (NSApp.delegate as? AppDelegate)?.releaseInspectorState(tabID: tabSessionID)
         (NSApp.delegate as? AppDelegate)?.tabActivities.removeSession(tabSessionID)
         cancelPendingInitialPresentation()
-        self.relabelTabs()
+        guard !terminating else { return }
+        relabelTabs()
 
         // If we remove a window, we reset the cascade point to the key window so that
         // the next window cascade's from that one.
@@ -4725,6 +4803,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     override func windowDidBecomeKey(_ notification: Notification) {
+        guard !workspaceCoordinator.isTerminating else { return }
         super.windowDidBecomeKey(notification)
         guard !TerminalWorkspacePresentation.isChanging else { return }
         markTabActivated()
@@ -4756,6 +4835,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
+        guard !workspaceCoordinator.isTerminating else { return }
         // Whenever we get focused, use that as our last window position for
         // restart. This differs from Terminal.app but matches iTerm2 behavior
         // and I think its sensible.

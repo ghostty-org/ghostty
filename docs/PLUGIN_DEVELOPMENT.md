@@ -951,6 +951,13 @@ probe until a later polling tick. This presence check accepts stale installed
 hooks; complete hook-version auditing remains part of integration maintenance.
 It never reads or scans the YAML configuration on the UI thread during polling.
 
+Application quit has a separate confirmed termination phase. Pending quit
+confirmation remains cancellable; only `applicationWillTerminate` stops native
+terminal/sidebar presentation updates. Final tab teardown still releases
+Editor, Inspector and Agent activity state, while the durable session checkpoint
+prepared for restart is retained. Background status polling is not disabled
+merely because a workspace is parked.
+
 Local Hermes probing and the local Agent CLI manager resolve an already
 installed Python interpreter before launching it. They skip the Apple
 `/usr/bin/python3` shim, including aliases to the same file, remove inherited

@@ -18,6 +18,9 @@ final class TerminalWorkspaceNativeAdapter {
         $0.addTabbedWindowSafely($1, ordered: $2)
     }
     var show: (TerminalController) -> Bool = { $0.showWindowSafely(nil) }
+    var selectRetained: (TerminalController) -> Bool = {
+        $0.window?.makeKeyAndOrderFrontSafely(nil) ?? false
+    }
     private struct Transition {
         weak var window: NSWindow?
         let host: UUID
@@ -150,6 +153,7 @@ final class TerminalWorkspaceNativeAdapter {
                 target.toggleFullscreen(mode: mode)
             }
         }
+        var frontedWindows = Set<ObjectIdentifier>()
         for group in groups where group.visible {
             guard let selectedWindow = group.selected.window else { return false }
             let outgoing = previousVisible.first {
@@ -161,7 +165,14 @@ final class TerminalWorkspaceNativeAdapter {
             let keepsExistingGroup = retainedBefore.contains(group.selected.windowSessionID) &&
                 retainedHosts.contains(group.selected.windowSessionID)
             let attachedWindows = anchor.tabGroup?.windows ?? [anchor]
-            var attached = Set(attachedWindows.map(ObjectIdentifier.init))
+            let attachedAtEntry = Set(attachedWindows.map(ObjectIdentifier.init))
+            // Capture entry membership before the reconciliation loop mutates `attached`.
+            let physicalMembersWereAttachedAtEntry = attachedWindows.count == physicalMembers.count &&
+                physicalMembers.allSatisfy {
+                    guard let window = $0.window else { return false }
+                    return attachedAtEntry.contains(ObjectIdentifier(window))
+                }
+            var attached = attachedAtEntry
             if retainedHosts.contains(group.selected.windowSessionID) {
                 anchor = attachedWindows.last ?? anchor
             }
@@ -186,7 +197,31 @@ final class TerminalWorkspaceNativeAdapter {
                 anchor = window
             }
             if outgoing !== selectedWindow {
-                guard group.selected.withNewTabPresentation(from: outgoing, show: { self.show(group.selected) }) else { return false }
+                let canSelectRetained = keepsExistingGroup && !restoringTopology &&
+                    !selectedWindow.styleMask.contains(.fullScreen) &&
+                    !(outgoing?.styleMask.contains(.fullScreen) ?? false) &&
+                    !physicalMembers.contains(where: \.workspaceTabAttachmentIsPending) &&
+                    physicalMembersWereAttachedAtEntry &&
+                    physicalMembers.allSatisfy {
+                        guard let window = $0.window else { return false }
+                        return attached.contains(ObjectIdentifier(window))
+                    }
+                let retainedSelection: (() -> Bool)? = canSelectRetained ? {
+                    let selected = self.selectRetained(group.selected)
+                    if selected { frontedWindows.insert(ObjectIdentifier(selectedWindow)) }
+                    return selected
+                } : nil
+                guard group.selected.withNewTabPresentation(
+                    from: outgoing,
+                    selectRetained: retainedSelection,
+                    show: {
+                        let shown = self.show(group.selected)
+                        if shown, selectedWindow.isKeyWindow {
+                            frontedWindows.insert(ObjectIdentifier(selectedWindow))
+                        }
+                        return shown
+                    }
+                ) else { return false }
             }
         }
         // Only the completed destination can now occupy the fullscreen stack.
@@ -232,7 +267,13 @@ final class TerminalWorkspaceNativeAdapter {
                 if native.selectedWindow !== window { native.selectedWindow = window }
             } else if windows.count != 1 { return false }
             if window.isMiniaturized { window.deminiaturize(nil) }
-            if group.selected === focus { window.makeKeyAndOrderFront(nil) } else if !window.isVisible { window.orderFront(nil) }
+            if group.selected === focus {
+                let id = ObjectIdentifier(window)
+                if !window.isKeyWindow, !frontedWindows.contains(id),
+                   !window.makeKeyAndOrderFrontSafely(nil) { return false }
+            } else if !window.isVisible {
+                window.orderFront(nil)
+            }
         }
         completed = true
         return true

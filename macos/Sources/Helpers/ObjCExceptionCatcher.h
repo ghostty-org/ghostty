@@ -19,6 +19,13 @@ FOUNDATION_EXPORT BOOL GhosttyShowWindowSafely(
     NSError * _Nullable * _Nullable error
 );
 
+/// NSWindow.makeKeyAndOrderFront wrapper
+FOUNDATION_EXPORT BOOL GhosttyMakeKeyAndOrderFrontSafely(
+    id _Nonnull window,
+    id _Nullable sender,
+    NSError * _Nullable * _Nullable error
+);
+
 /// NSUndoManager.undo wrapper
 FOUNDATION_EXPORT BOOL GhosttyUndoSafely(
     id _Nonnull undoManager,

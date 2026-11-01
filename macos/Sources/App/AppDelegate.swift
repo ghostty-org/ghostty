@@ -559,6 +559,7 @@ class AppDelegate: NSObject,
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
+            TerminalWorkspaceCoordinator.shared.commitTermination()
             TerminalWorkspaceSessionStore.shared.capture()
             SessionRuntimeConnections.shared.shutdown()
             TerminalWorkspaceCoordinator.shared.savePresentation()

@@ -9,9 +9,11 @@ final class VerticalTabSidebarHost {
     private weak var hostingView: NativeTabSidebarHostingView?
     private var containers: [ObjectIdentifier: Weak<VerticalTabSidebarContainer>] = [:]
     private weak var outgoingContainer: VerticalTabSidebarContainer?
+    private weak var workspaceCoordinator: TerminalWorkspaceCoordinator?
     private(set) var mountCount = 0
 
     var liveView: NSView? { hostingView }
+    private var isTerminating: Bool { workspaceCoordinator?.isTerminating == true }
     private var pendingScrollOffset: Double?
     private var rememberedScrollOffset: Double?
     private var scrollRestorationGeneration = 0
@@ -62,6 +64,8 @@ final class VerticalTabSidebarHost {
     }
 
     func register(_ container: VerticalTabSidebarContainer) {
+        workspaceCoordinator = container.controller?.workspaceCoordinator
+        guard !isTerminating else { return }
         containers[ObjectIdentifier(container)] = Weak(container)
         presentSelectedWindow()
     }
@@ -69,20 +73,26 @@ final class VerticalTabSidebarHost {
     func unregister(_ container: VerticalTabSidebarContainer) {
         containers.removeValue(forKey: ObjectIdentifier(container))
         if hostingView?.superview === container {
+            if isTerminating {
+                // The closing window releases its content view; don't mount the
+                // live sidebar in another tab while AppKit is tearing down.
+                outgoingContainer = nil
+                return
+            }
             presentSelectedWindow()
             if hostingView?.superview === container { hostingView?.removeFromSuperview() }
         }
     }
 
     func presentSelectedWindow(updateContent: Bool = false) {
-        guard !TerminalWorkspacePresentation.isChanging else { return }
+        guard !isTerminating, !TerminalWorkspacePresentation.isChanging else { return }
         containers = containers.filter { $0.value.value != nil }
         guard let destination = containers.values.compactMap(\.value).first(where: { $0.isSelectedWindow }) else { return }
         present(in: destination, updateContent: updateContent)
     }
 
     func windowWillClose(_ window: NSWindow, successor: NSWindow?) {
-        guard hostingView?.window === window, let successor,
+        guard !isTerminating, hostingView?.window === window, let successor,
               let destination = containers.values.compactMap(\.value).first(where: { $0.window === successor }) else { return }
         // BaseTerminalController clears contentView during willClose. Move the
         // existing host first so its row state survives that teardown too.
@@ -129,6 +139,7 @@ final class VerticalTabSidebarContainer: NSView {
 
     var isSelectedWindow: Bool {
         guard let window, let controller, controller.window === window,
+              !controller.workspaceCoordinator.isTerminating,
               !controller.workspacePresentationIsParked,
               controller.tabLayoutState.sidebarHost === owner else { return false }
         // A newly loaded window temporarily has its own native tab group while
@@ -149,7 +160,8 @@ final class VerticalTabSidebarContainer: NSView {
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
         ) { [weak self] notification in
             MainActor.assumeIsolated {
-                guard let self, let window = notification.object as? NSWindow, self.window === window else { return }
+                guard let self, let window = notification.object as? NSWindow, self.window === window,
+                      self.controller?.workspaceCoordinator.isTerminating != true else { return }
                 self.owner?.presentSelectedWindow()
             }
         }
@@ -161,6 +173,7 @@ final class VerticalTabSidebarContainer: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
+            guard controller?.workspaceCoordinator.isTerminating != true else { return }
             owner?.register(self)
         } else {
             owner?.unregister(self)
@@ -169,6 +182,7 @@ final class VerticalTabSidebarContainer: NSView {
 
     override func layout() {
         super.layout()
+        guard controller?.workspaceCoordinator.isTerminating != true else { return }
         // Fullscreen tab attachment may register while selection/publication is
         // suspended. A later layout must complete the mount even if SwiftUI's
         // representable content did not change and updateNSView is not called.
@@ -182,6 +196,13 @@ final class VerticalTabSidebarContainer: NSView {
         owner: VerticalTabSidebarHost,
         content: NativeTabSidebarConfiguration
     ) {
+        if controller.workspaceCoordinator.isTerminating {
+            if self.owner !== owner { self.owner?.unregister(self) }
+            self.controller = controller
+            self.owner = owner
+            self.content = content
+            return
+        }
         if self.owner !== owner { self.owner?.unregister(self) }
         self.controller = controller
         self.owner = owner

@@ -1,6 +1,18 @@
 import AppKit
 
 extension NSWindow {
+    /// Wraps makeKeyAndOrderFront because selecting an existing native tab can
+    /// raise in the same AppKit stack paths as NSWindowController.showWindow.
+    @discardableResult
+    func makeKeyAndOrderFrontSafely(_ sender: Any?) -> Bool {
+        var error: NSError?
+        let success = GhosttyMakeKeyAndOrderFrontSafely(self, sender, &error)
+        if let error {
+            Ghostty.logger.error("makeKeyAndOrderFront failed: \(error.localizedDescription, privacy: .public)")
+        }
+        return success
+    }
+
     /// Get the CGWindowID type for the window (used for low level CoreGraphics APIs).
     var cgWindowId: CGWindowID? {
         // "If the window doesn’t have a window device, the value of this

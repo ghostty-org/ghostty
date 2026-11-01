@@ -9,6 +9,7 @@ extension TerminalController {
     func finishWorkspacePresentation(attempt: Int = 0, generation: UInt64? = nil) {
         let generation = generation ?? workspacePresentationGeneration
         guard generation == workspacePresentationGeneration,
+              !workspaceCoordinator.isTerminating,
               !workspaceCoordinator.native.transitioningWindows.contains(windowSessionID),
               isAvailableForWorkspace, !workspacePresentationIsParked,
               let window, (window.tabGroup?.selectedWindow ?? window) === window else { return }
@@ -48,13 +49,31 @@ extension TerminalController {
     /// AppKit gives a newly attached tab its fullscreen content rect only when
     /// selecting it. Keep that selection, the sidebar handoff, and the first
     /// correctly sized terminal frame in one nonanimated presentation update.
-    func withNewTabPresentation(from outgoingWindow: NSWindow?, show: () -> Bool) -> Bool {
+    func withNewTabPresentation(
+        from outgoingWindow: NSWindow?,
+        selectRetained: (() -> Bool)? = nil,
+        show: () -> Bool
+    ) -> Bool {
         guard let targetWindow = window, let outgoingWindow,
               targetWindow !== outgoingWindow,
-              outgoingWindow.styleMask.contains(.fullScreen),
               targetWindow.tabGroup === outgoingWindow.tabGroup else {
             let shown = show()
             if shown, tabLayout == .vertical { Self.refreshTabs(in: window?.tabGroup) }
+            return shown
+        }
+
+        if !outgoingWindow.styleMask.contains(.fullScreen), let selectRetained {
+            guard selectRetained() else { return false }
+            syncTabPresentationAppearance()
+            if tabLayout == .vertical { Self.refreshTabs(in: targetWindow.tabGroup) }
+            prepareTabPresentation(from: outgoingWindow)
+            targetWindow.contentView?.displayIfNeeded()
+            return true
+        }
+
+        guard outgoingWindow.styleMask.contains(.fullScreen) else {
+            let shown = show()
+            if shown, tabLayout == .vertical { Self.refreshTabs(in: targetWindow.tabGroup) }
             return shown
         }
 

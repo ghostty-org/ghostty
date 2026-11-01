@@ -90,6 +90,7 @@ final class NativeTabSidebarController: NSViewController {
     }
 
     func configure(_ next: NativeTabSidebarConfiguration) {
+        guard !next.controller.workspaceCoordinator.isTerminating else { return }
         let rebind = configuration.controller !== next.controller || configuration.layoutState !== next.layoutState ||
             configuration.statusStore !== next.statusStore
         if configuration.controller !== next.controller {
@@ -155,18 +156,21 @@ final class NativeTabSidebarController: NSViewController {
     }
 
     private func scheduleRefresh() {
-        guard !scheduled, isActivePresentation else { return }
+        guard !scheduled, !configuration.controller.workspaceCoordinator.isTerminating,
+              isActivePresentation else { return }
         scheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.scheduled = false
+            guard !self.configuration.controller.workspaceCoordinator.isTerminating else { return }
             self.refresh()
         }
     }
 
     private var isActivePresentation: Bool {
         let controller = configuration.controller
-        guard !TerminalWorkspacePresentation.isChanging, !controller.workspacePresentationIsParked,
+        guard !controller.workspaceCoordinator.isTerminating,
+              !TerminalWorkspacePresentation.isChanging, !controller.workspacePresentationIsParked,
               !controller.workspaceTabAttachmentIsPending, let window = controller.window else { return false }
         if controller.workspaceCoordinator.hasNonNativeFullscreen(in: controller.windowSessionID),
            !window.isVisible { return false }
@@ -177,6 +181,7 @@ final class NativeTabSidebarController: NSViewController {
 
     private func refresh(force: Bool = false) {
         guard isViewLoaded else { return }
+        guard !configuration.controller.workspaceCoordinator.isTerminating else { return }
         guard force || isActivePresentation else { return }
         refreshCount += 1
         observeMetadata()

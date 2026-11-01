@@ -35,9 +35,15 @@ struct TerminalWorkspaceRefactorTests {
         }
 
         func close() {
+            sessions.prepareToQuit()
             coordinator.prepareToQuit()
+            coordinator.commitTermination()
             let all = controllers + coordinator.liveControllers
-            for controller in all { controller.cancelWorkspacePendingPresentation(); controller.window?.close() }
+            var closed = Set<ObjectIdentifier>()
+            for controller in all where closed.insert(ObjectIdentifier(controller)).inserted {
+                controller.cancelWorkspacePendingPresentation()
+                controller.window?.close()
+            }
             sessions.flush()
             try? FileManager.default.removeItem(at: directory)
         }
