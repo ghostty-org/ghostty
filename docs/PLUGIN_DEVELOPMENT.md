@@ -957,6 +957,11 @@ terminal/sidebar presentation updates. Final tab teardown still releases
 Editor, Inspector and Agent activity state, while the durable session checkpoint
 prepared for restart is retained. Background status polling is not disabled
 merely because a workspace is parked.
+After the final checkpoint, runtime shutdown and scrollback capture, confirmed
+termination closes background native tabs before each group's selected window.
+The selected windows remain for AppKit's final close pass, avoiding repeated
+successor selection and fullscreen promotion. This ordering does not apply to
+a pending quit, individual Close actions, or remote session Close requests.
 
 Local Hermes probing and the local Agent CLI manager resolve an already
 installed Python interpreter before launching it. They skip the Apple

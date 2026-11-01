@@ -23,6 +23,8 @@ release does not automatically require every unrelated feature suite.
    `TerminalWorkspaceManagementDesktopTests` (creation through the popover's
    form in native and non-native fullscreen), the 60-tab
    `TerminalWorkspacePopoverSwitchTests.nativeFullscreenMouseSelectionClosesAndSwitchesWithoutAnotherKey`,
+   `TerminalApplicationTerminationTests.confirmedTerminationKeepsSelectedTabDuringRealSixtyTabFullscreenTeardown`
+   (background tabs close without promoting fullscreen successors),
    and the borderless focus/membership methods
    `TerminalWorkspaceManagementTests.nativeTabObservationSurvivesRepeatedBorderlessStyleChanges`
    and `TerminalWorkspaceManagementTests.nonNativeFullscreenSupportsWorkspaceCreationAndReturn`.

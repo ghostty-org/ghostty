@@ -572,6 +572,7 @@ class AppDelegate: NSObject,
             } else {
                 ShellScrollbackRestoreStore.discardPendingSnapshots()
             }
+            TerminalWorkspaceCoordinator.shared.closeBackgroundTabsForTermination()
         }
         builtInInfoInspector.shutdown()
         // We have no notifications we want to persist after death,

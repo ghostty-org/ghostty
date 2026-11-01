@@ -112,3 +112,40 @@ without creating tabs. It measures application scripting request to persisted
 workspace checkpoint, including process launch and asynchronous focus handling,
 so its timings are not comparable to the in-process switch benchmark. AppKit
 window selection remained its largest active main-thread path.
+
+## Fullscreen termination follow-up
+
+A second installed-app comparison selected Personal's 60 tabs in native
+fullscreen before quitting. Baseline `105c84f6` took 20.182 seconds and the
+presentation-guard implementation `312b27f9` still took 18.511 seconds.
+Both used the same normal AppleScript quit path and external sampling. The
+baseline process additionally retained two closed, empty test surfaces; all
+75 user tab identities, owners and 76 persisted surfaces were verified across
+the restart. These are single observations, not a distribution.
+
+The follow-up confirms a separate AppKit cost. In the guard implementation's
+main-thread sample, 7,836 of 8,768 observations were under
+`NSWindow._closeForTermination`; 5,696 were under native tab selection and 2,738
+under fullscreen successor promotion. The old OMG `window.tabGroup` reads from
+the close callback had disappeared, but AppKit's default close ordering still
+promoted each successor into fullscreen. Counts are inclusive and overlap.
+
+Confirmed termination now snapshots nonselected windows before teardown and
+closes them first, leaving each group's selected window for AppKit's final
+close pass. This runs only after checkpoint flush, runtime shutdown and
+scrollback capture. It uses normal `NSWindow.close()` with existing delegate
+cleanup, and only closes windows owned by the terminating coordinator.
+
+The focused termination suite passes all three routine tests, including the
+new background-close ordering, pending-quit no-op, independent coordinator and
+unchanged checkpoint checks. The new 60-tab fullscreen regression requires an
+unlocked foreground desktop. Its initial attempts stopped at the activation
+prerequisite before any teardown assertions; native desktop inspection
+confirmed the Mac was locked. That is not a passing fullscreen result.
+
+The final ordered-close tree passes 1,329 routine tests across 167 suites in
+16 serial batches. This reruns the complete routine regression after the
+ordering change; the earlier 1,328-test result applies to `312b27f9`.
+The desktop-selector contract includes the new opt-in method and passes all
+42 offline checks. Strict lint on the three changed Swift files and the
+documentation contract also pass.

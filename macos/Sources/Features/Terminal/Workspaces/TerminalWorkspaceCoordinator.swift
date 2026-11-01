@@ -753,6 +753,28 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         TerminalController.cancelPendingTabRefreshesForTermination(in: self)
     }
 
+    /// Call after the final checkpoint and scrollback capture. Keep each selected
+    /// window for AppKit's final close pass so it does not promote every remaining
+    /// tab into fullscreen while tearing down a native group.
+    func closeBackgroundTabsForTermination() {
+        guard isTerminating else { return }
+        var seen = Set<ObjectIdentifier>()
+        var closing: [NSWindow] = []
+        for controller in liveControllers {
+            guard let group = controller.window?.tabGroup,
+                  seen.insert(ObjectIdentifier(group)).inserted,
+                  let selected = group.selectedWindow else { continue }
+            closing += group.windows.filter { window in
+                guard window !== selected,
+                      let terminal = window.windowController as? TerminalController else { return false }
+                return terminal.workspaceCoordinator === self && terminal.isAvailableForWorkspace
+            }
+        }
+        // Snapshot before closing anything; reading a dismantled group's
+        // tabGroup can cause AppKit to reconstruct its stack controller.
+        for window in closing { window.close() }
+    }
+
     func cancelQuit() {
         guard !isTerminating else { return }
         quitting = false
