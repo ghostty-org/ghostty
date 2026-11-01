@@ -3551,10 +3551,7 @@ pub fn selectWord(
         var it = pin.cellIterator(.right_down, null);
         var prev = it.next().?; // Consume one, our start
         while (it.next()) |p| {
-            // Only cross a row boundary if the previous row wraps.
-            if (prev.x == prev.node.cols() - 1 and !prev.rowAndCell().row.wrap) {
-                break :end prev;
-            }
+            if (crossesHardBreak(.right_down, prev, p)) break :end prev;
 
             // If we reached an empty cell its always a boundary
             const codepoint = selectWordCodepoint(p) orelse break :end prev;
@@ -3578,13 +3575,7 @@ pub fn selectWord(
         var it = pin.cellIterator(.left_up, null);
         var prev = it.next().?; // Consume one, our start
         while (it.next()) |p| {
-            const rac = p.rowAndCell();
-
-            // If we are going to the next row and it isn't wrapped, we
-            // return the previous.
-            if (p.x == p.node.cols() - 1 and !rac.row.wrap) {
-                break :start prev;
-            }
+            if (crossesHardBreak(.left_up, prev, p)) break :start prev;
 
             // If we reached an empty cell its always a boundary
             const codepoint = selectWordCodepoint(p) orelse break :start prev;
@@ -3607,7 +3598,7 @@ pub fn selectWord(
 }
 
 /// Return the codepoint for word selection, following wide-character spacers.
-fn selectWordCodepoint(pin: Pin) ?u21 {
+pub fn selectWordCodepoint(pin: Pin) ?u21 {
     const rac = pin.rowAndCell();
     const cell = switch (rac.cell.wide) {
         .narrow, .wide => rac.cell,
@@ -3620,6 +3611,19 @@ fn selectWordCodepoint(pin: Pin) ?u21 {
         },
     };
     return if (cell.hasText()) cell.content.codepoint.data else null;
+}
+
+/// True if moving from `prev` to `next` crosses a hard line break, i.e.
+/// the row being left doesn't wrap. Going right the row being left is
+/// `prev`; going left we land on the previous row's last column, so the
+/// row being entered is `next`.
+pub fn crossesHardBreak(dir: PageList.Direction, prev: Pin, next: Pin) bool {
+    return switch (dir) {
+        .right_down => prev.x == prev.node.cols() - 1 and
+            !prev.rowAndCell().row.wrap,
+        .left_up => next.x == next.node.cols() - 1 and
+            !next.rowAndCell().row.wrap,
+    };
 }
 
 /// Select the command output under the given point. The limits of the output
