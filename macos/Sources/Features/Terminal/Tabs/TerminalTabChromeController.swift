@@ -13,6 +13,7 @@ final class TerminalTabChromeController {
     private let newTab = NativeActionControl()
     private let icon = NativeTabIconView()
     private let status = NSImageView()
+    private let originalTabAccessoryView: NSView?
     private var subscriptions = Set<AnyCancellable>()
     private var surfaceSubscriptions = Set<AnyCancellable>()
     private var scheduled = false
@@ -20,6 +21,7 @@ final class TerminalTabChromeController {
     private weak var observedLayout: VerticalTabWindowLayoutState?
     private var layoutSubscription: AnyCancellable?
     private var layoutMode: Ghostty.Config.MacOSTabLayout?
+    private var tabAccessoryLayout: Ghostty.Config.MacOSTabLayout?
     private weak var observedGroup: NSWindowTabGroup?
     private var groupObservations: [NSKeyValueObservation] = []
     private(set) var refreshCount = 0
@@ -28,6 +30,8 @@ final class TerminalTabChromeController {
     init(controller: TerminalController, window: TerminalWindow) {
         self.controller = controller
         self.window = window
+        let tabAccessoryView = window.tab.accessoryView
+        originalTabAccessoryView = tabAccessoryView
         window.titlebarSeparatorStyle = .none
         let stack = NSStackView(views: [workspace, sidebar, newTab])
         stack.orientation = .horizontal
@@ -56,7 +60,7 @@ final class TerminalTabChromeController {
         status.heightAnchor.constraint(equalToConstant: 12).isActive = true
         status.imageScaling = .scaleProportionallyDown
         status.isHidden = true
-        if let accessory = window.tab.accessoryView as? NSStackView {
+        if let accessory = tabAccessoryView as? NSStackView {
             accessory.insertArrangedSubview(icon, at: 0)
             accessory.insertArrangedSubview(status, at: 1)
         }
@@ -100,20 +104,26 @@ final class TerminalTabChromeController {
     }
 
     func refresh() {
-        guard !stopped, let controller, !controller.workspacePresentationIsParked,
-              controller.isAvailableForWorkspace, let window else { return }
-        refreshCount += 1
-        // A newly created tab has not joined its destination yet. Reading
-        // tabGroup here builds a throwaway native group and its titlebar.
-        guard !controller.workspaceTabAttachmentIsPending else { return }
-        // Borderless fullscreen has no titlebar; even reading its accessory list
-        // raises an AppKit exception. Restore chrome after the style returns.
+        guard !stopped, let controller, controller.isAvailableForWorkspace, let window else { return }
+        // Check the style before touching NSWindowTab; borderless fullscreen has
+        // no tab titlebar and AppKit can raise while resolving its accessory.
         guard window.styleMask.contains(.titled) else {
-            if controller.horizontalWorkspaceInTitlebar { controller.horizontalWorkspaceInTitlebar = false }
-            icon.isHidden = true
-            status.isHidden = true
+            if !controller.workspacePresentationIsParked {
+                if controller.horizontalWorkspaceInTitlebar {
+                    controller.horizontalWorkspaceInTitlebar = false
+                }
+                icon.isHidden = true
+                status.isHidden = true
+            }
             return
         }
+        // Apply host layout to each window, including parked and not-yet-attached tabs.
+        synchronizeTabAccessory(for: controller.tabLayout)
+        // A newly created tab has not joined its destination yet. Reading
+        // tabGroup here builds a throwaway native group and its titlebar.
+        guard !controller.workspaceTabAttachmentIsPending,
+              !controller.workspacePresentationIsParked else { return }
+        refreshCount += 1
         if observedLayout !== controller.tabLayoutState {
             observedLayout = controller.tabLayoutState
             layoutSubscription = controller.tabLayoutState.objectWillChange.sink { [weak self] _ in self?.schedule() }
@@ -221,6 +231,20 @@ final class TerminalTabChromeController {
             status.setAccessibilityLabel(help)
             if window.tab.toolTip != help { window.tab.toolTip = help }
         }
+    }
+
+    private func synchronizeTabAccessory(for layout: Ghostty.Config.MacOSTabLayout) {
+        guard tabAccessoryLayout != layout,
+              let window,
+              let originalTabAccessoryView else { return }
+        if layout == .horizontal {
+            if window.tab.accessoryView !== originalTabAccessoryView {
+                window.tab.accessoryView = originalTabAccessoryView
+            }
+        } else if window.tab.accessoryView != nil {
+            window.tab.accessoryView = nil
+        }
+        tabAccessoryLayout = layout
     }
 
     private func stop() {

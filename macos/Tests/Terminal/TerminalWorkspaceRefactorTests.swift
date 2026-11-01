@@ -35,6 +35,7 @@ struct TerminalWorkspaceRefactorTests {
         }
 
         func close() {
+            coordinator.prepareToQuit()
             let all = controllers + coordinator.liveControllers
             for controller in all { controller.cancelWorkspacePendingPresentation(); controller.window?.close() }
             sessions.flush()

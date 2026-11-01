@@ -40,6 +40,7 @@ final class NativeTabSidebarController: NSViewController {
     private var scheduled = false
     private var workspaceWidth: NSLayoutConstraint?
     private let themeObserver = OMGNativeThemeObserver()
+    private(set) var refreshCount = 0
 
     init(configuration: NativeTabSidebarConfiguration) {
         self.configuration = configuration
@@ -85,7 +86,7 @@ final class NativeTabSidebarController: NSViewController {
         view = root
         themeObserver.onChange = { [weak self] _ in self?.scheduleRefresh() }
         bind()
-        refresh()
+        refresh(force: true)
     }
 
     func configure(_ next: NativeTabSidebarConfiguration) {
@@ -98,7 +99,7 @@ final class NativeTabSidebarController: NSViewController {
         configuration = next
         guard isViewLoaded else { return }
         if rebind { bind() }
-        refresh()
+        refresh(force: true)
     }
 
     override func viewDidLayout() {
@@ -154,7 +155,7 @@ final class NativeTabSidebarController: NSViewController {
     }
 
     private func scheduleRefresh() {
-        guard !scheduled else { return }
+        guard !scheduled, isActivePresentation else { return }
         scheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -163,8 +164,21 @@ final class NativeTabSidebarController: NSViewController {
         }
     }
 
-    private func refresh() {
+    private var isActivePresentation: Bool {
+        let controller = configuration.controller
+        guard !TerminalWorkspacePresentation.isChanging, !controller.workspacePresentationIsParked,
+              !controller.workspaceTabAttachmentIsPending, let window = controller.window else { return false }
+        if controller.workspaceCoordinator.hasNonNativeFullscreen(in: controller.windowSessionID),
+           !window.isVisible { return false }
+        guard (window.tabGroup?.selectedWindow ?? window) === window else { return false }
+        let selectedID = configuration.layoutState.tabSnapshot.selectedID
+        return selectedID == nil || selectedID == ObjectIdentifier(controller)
+    }
+
+    private func refresh(force: Bool = false) {
         guard isViewLoaded else { return }
+        guard force || isActivePresentation else { return }
+        refreshCount += 1
         observeMetadata()
         let config = configuration
         view.layer?.backgroundColor = config.backgroundColor.withAlphaComponent(config.backgroundOpacity).cgColor

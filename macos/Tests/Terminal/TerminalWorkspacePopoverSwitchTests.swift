@@ -33,6 +33,7 @@ struct TerminalWorkspacePopoverSwitchTests {
     }
 
     private func exercisePopoverSwitch(route: ClickRoute) async throws {
+        let sourceTabCount = 60
         let fixture = try TerminalWorkspaceManagementTests.Fixture()
         defer {
             fixture.controller.workspacePopover.close()
@@ -49,13 +50,13 @@ struct TerminalWorkspacePopoverSwitchTests {
             var config = Ghostty.SurfaceConfiguration()
             config.command = "/bin/sleep 120"
             var parent = source
-            for _ in 1..<40 {
+            for _ in 1..<sourceTabCount {
                 let parentWindow = try #require(parent.window)
                 parent = try #require(TerminalController.newTab(source.ghostty, from: parentWindow,
                                                                 withBaseConfig: config))
             }
             try await Task.sleep(for: .milliseconds(100))
-            try #require(fixture.coordinator.controllers(in: sourceWorkspace).count == 40)
+            try #require(fixture.coordinator.controllers(in: sourceWorkspace).count == sourceTabCount)
             window.tabGroup?.selectedWindow = window
             fixture.coordinator.didActivate(source)
         }
@@ -209,14 +210,17 @@ struct TerminalWorkspacePopoverSwitchTests {
             let backButton = try #require(views(NSButton.self, in: backContent).first {
                 $0.accessibilityIdentifier() == "workspace.open.\(sourceWorkspace)"
             })
+            let returnStart = ProcessInfo.processInfo.systemUptime
             _ = try sendButtonMouseDown(backButton)
             let returned = await waitUntil(attempts: 500) {
                 fixture.store.snapshot.windows?[windowID]?.currentWorkspace == sourceWorkspace &&
                     !destination.workspacePopover.isShown && native.transitioningWindows.isEmpty
             }
-            #expect(returned, "A mouse click must return to the 40-tab workspace without another key")
+            #expect(returned, "A mouse click must return to the large workspace without another key")
             #expect(window.isKeyWindow && window.isOnActiveSpace && window.styleMask.contains(.fullScreen))
-            #expect(window.tabGroup?.windows.count == 41)
+            #expect(window.tabGroup?.windows.count == sourceTabCount + 1)
+            let returnMilliseconds = (ProcessInfo.processInfo.systemUptime - returnStart) * 1_000
+            print("FULLSCREEN_WORKSPACE_MOUSE_RETURN tabs=\(sourceTabCount) milliseconds=\(returnMilliseconds)")
         } else {
             let returnedSource = try #require(
                 fixture.coordinator.switchWorkspace(to: sourceWorkspace, from: destination)

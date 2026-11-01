@@ -21,7 +21,11 @@ release does not automatically require every unrelated feature suite.
    and `TerminalWorkspacePresentationTests.clickingWorkspaceButtonOpensItsNativePopover`
    (actual mouseDown/mouseUp opening the transient workspace popover), plus
    `TerminalWorkspaceManagementDesktopTests` (creation through the popover's
-   form in native and non-native fullscreen).
+   form in native and non-native fullscreen), the 60-tab
+   `TerminalWorkspacePopoverSwitchTests.nativeFullscreenMouseSelectionClosesAndSwitchesWithoutAnotherKey`,
+   and the borderless focus/membership methods
+   `TerminalWorkspaceManagementTests.nativeTabObservationSurvivesRepeatedBorderlessStyleChanges`
+   and `TerminalWorkspaceManagementTests.nonNativeFullscreenSupportsWorkspaceCreationAndReturn`.
    Real CoreDrag, menu focus routing, native window appearance, and screenshots
    need an unlocked desktop and foreground test application. Lockscreen,
    background, and unattended runs cannot establish that behavior. Other methods

@@ -18,6 +18,10 @@ WORKSPACE_POPOVER_DESKTOP_TEST = (
     "GhosttyTests/TerminalWorkspacePopoverSwitchTests/"
     "nativeFullscreenMouseSelectionClosesAndSwitchesWithoutAnotherKey()"
 )
+BORDERLESS_DESKTOP_TESTS = {
+    "GhosttyTests/TerminalWorkspaceManagementTests/nativeTabObservationSurvivesRepeatedBorderlessStyleChanges()",
+    "GhosttyTests/TerminalWorkspaceManagementTests/nonNativeFullscreenSupportsWorkspaceCreationAndReturn()",
+}
 DESKTOP_TESTS = {
     "GhosttyTests/VerticalTabMouseTests",
     "GhosttyTests/VerticalTabFullscreenTests",
@@ -27,6 +31,7 @@ DESKTOP_TESTS = {
     VISUAL_DESKTOP_TEST,
     LINK_HOVER_DESKTOP_TEST,
     WORKSPACE_POPOVER_DESKTOP_TEST,
+    *BORDERLESS_DESKTOP_TESTS,
     "GhosttyTests/TerminalWorkspacePresentationTests/clickingWorkspaceButtonOpensItsNativePopover()",
 }
 
@@ -102,7 +107,8 @@ class PlannerTests(unittest.TestCase):
                      "GhosttyTests/VerticalTabFullscreenTests",
                      VISUAL_DESKTOP_TEST, VISUAL_DESKTOP_TEST[:-2],
                      LINK_HOVER_DESKTOP_TEST, LINK_HOVER_DESKTOP_TEST[:-2], QUICK_INPUT_DESKTOP_TEST,
-                     WORKSPACE_POPOVER_DESKTOP_TEST, WORKSPACE_POPOVER_DESKTOP_TEST[:-2]]:
+                     WORKSPACE_POPOVER_DESKTOP_TEST, WORKSPACE_POPOVER_DESKTOP_TEST[:-2],
+                     *BORDERLESS_DESKTOP_TESTS, *(test[:-2] for test in BORDERLESS_DESKTOP_TESTS)]:
             with self.subTest(test=test), self.assertRaisesRegex(ValueError, "requires --include-desktop-tests"):
                 self.plan(only_testing=[test])
             self.assertEqual(self.plan(only_testing=[test], include_desktop=True)["only_testing"], [test])

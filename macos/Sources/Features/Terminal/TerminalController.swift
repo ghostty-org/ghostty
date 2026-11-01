@@ -2539,6 +2539,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let selectedWindow = tabGroup.selectedWindow.flatMap {
             windows.contains($0) ? $0 : window
         }
+        // AppKit may select a parked neighbor between removal and insertion.
+        // Publish only the completed order and restored selection.
+        let presentation = TerminalWorkspacePresentationTransaction([])
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             tabGroup.removeWindow(movedWindow)
@@ -2548,7 +2551,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             tabGroup.selectedWindow = selectedWindow
         }
         movedWindow.invalidateRestorableState()
-        Self.refreshTabs(in: tabGroup)
+        presentation.publish { Self.refreshTabs(in: tabGroup) }
         return workspaceTabWindows == reordered
     }
 
@@ -2596,6 +2599,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             activeWindows.contains($0) ? $0 : window
         }
 
+        let presentation = TerminalWorkspacePresentationTransaction([])
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             for (logicalIndex, candidate) in windows.enumerated() {
@@ -2617,7 +2621,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         for candidate in workspaceTabWindows {
             candidate.invalidateRestorableState()
         }
-        Self.refreshTabs(in: tabGroup)
+        presentation.publish { Self.refreshTabs(in: tabGroup) }
     }
 
     func newVerticalTab() {

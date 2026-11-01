@@ -103,6 +103,68 @@ struct TerminalLiveTabLayoutTests {
         #expect(other.titlebarSeparatorStyle == .none)
     }
 
+    @Test func nativeTabAccessoriesAreDetachedAndRestoredAcrossLayoutChanges() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        first.showWindow(nil)
+        let second = try fixture.tab(parent: first)
+        let other = try #require(fixture.coordinator.createWorkspace(
+            name: "Accessory retention", symbol: "briefcase", color: "blue", from: first
+        ))
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(first.workspacePresentationIsParked)
+        #expect(second.workspacePresentationIsParked)
+
+        fixture.coordinator.requestTabLayout(.horizontal, from: other)
+        try await Task.sleep(for: .milliseconds(120))
+
+        let controllers = [first, second, other]
+        let windows = try controllers.map { try #require($0.window as? TerminalWindow) }
+        let originalAccessories = try windows.map { try #require($0.tab.accessoryView as? NSStackView) }
+        let originalContents = originalAccessories.map {
+            $0.arrangedSubviews.map(ObjectIdentifier.init)
+        }
+        #expect(originalAccessories.allSatisfy {
+            $0.arrangedSubviews.contains { $0 is NativeTabIconView } &&
+                $0.arrangedSubviews.contains { $0 is NSImageView }
+        })
+
+        let allWindowIDs = Set(windows.map(ObjectIdentifier.init))
+        let otherWindowID = ObjectIdentifier(windows[2])
+
+        for mode in [Ghostty.Config.MacOSTabLayout.vertical, .horizontal, .vertical, .horizontal] {
+            fixture.coordinator.requestTabLayout(mode, from: other)
+            try await Task.sleep(for: .milliseconds(120))
+
+            for (index, window) in windows.enumerated() {
+                if mode == .vertical {
+                    #expect(window.tab.accessoryView == nil)
+                } else {
+                    #expect(window.tab.accessoryView === originalAccessories[index])
+                    #expect(originalAccessories[index].arrangedSubviews.map(ObjectIdentifier.init) ==
+                        originalContents[index])
+                }
+                #expect(window === controllers[index].window)
+            }
+
+            if mode == .vertical {
+                let group = try #require(windows[0].tabGroup)
+                #expect(Set(group.windows.map(ObjectIdentifier.init)) == allWindowIDs)
+                #expect(windows.allSatisfy { $0.tabGroup === group })
+            } else {
+                let otherGroup = try #require(windows[2].tabGroup)
+                #expect(Set(otherGroup.windows.map(ObjectIdentifier.init)) == Set([otherWindowID]))
+                for parked in windows.prefix(2) {
+                    #expect(parked.tabGroup !== otherGroup)
+                    #expect(parked.tabGroup?.windows.allSatisfy {
+                        ($0.windowController as? TerminalController)?.workspaceID == first.workspaceID
+                    } != false)
+                }
+            }
+        }
+    }
+
     @Test func splitPreviewKeepsItsWidthInAnActualPopover() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }

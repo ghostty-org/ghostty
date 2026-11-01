@@ -158,6 +158,8 @@ final class TerminalWorkspaceNativeAdapter {
             var anchor = outgoing ?? selectedWindow
             let physicalMembers = physicalMembers(for: group, in: groups, retaining: retainedHosts)
             let activeIDs = Set(group.members.map(ObjectIdentifier.init))
+            let keepsExistingGroup = retainedBefore.contains(group.selected.windowSessionID) &&
+                retainedHosts.contains(group.selected.windowSessionID)
             let attachedWindows = anchor.tabGroup?.windows ?? [anchor]
             var attached = Set(attachedWindows.map(ObjectIdentifier.init))
             if retainedHosts.contains(group.selected.windowSessionID) {
@@ -169,7 +171,10 @@ final class TerminalWorkspaceNativeAdapter {
                 if !activeIDs.contains(ObjectIdentifier(member)), alreadyAttached { continue }
                 if activeIDs.contains(ObjectIdentifier(member)) {
                     member.cancelWorkspacePendingPresentation()
-                    if let outgoing, !window.styleMask.contains(.fullScreen), window.frame != outgoing.frame {
+                    // A warm retained group only prepares its selected tab.
+                    // Other tabs keep their geometry until selected.
+                    if !keepsExistingGroup || member === group.selected, let outgoing,
+                       !window.styleMask.contains(.fullScreen), window.frame != outgoing.frame {
                         window.setFrame(outgoing.frame, display: false)
                     }
                 }

@@ -57,7 +57,10 @@ struct TerminalWorkspaceManagementTests {
             controller = TerminalController(app, withBaseConfig: config, workspaceCoordinator: coordinator)
             _ = controller.window
         }
-        func close() { for controller in coordinator.liveControllers { controller.window?.close() } }
+        func close() {
+            coordinator.prepareToQuit()
+            for controller in coordinator.liveControllers { controller.window?.close() }
+        }
     }
 
     @Test func deferredRestoreDoesNotToggleOffUserEnteredFullscreen() async throws {
@@ -411,7 +414,8 @@ struct TerminalWorkspaceManagementTests {
         #expect(window.frame == restored)
     }
 
-    @Test func nativeTabObservationSurvivesRepeatedBorderlessStyleChanges() async throws {
+    @Test(.tags(.interactiveDesktop))
+    func nativeTabObservationSurvivesRepeatedBorderlessStyleChanges() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
@@ -422,6 +426,7 @@ struct TerminalWorkspaceManagementTests {
         try await Task.sleep(for: .milliseconds(80))
         fixture.controller.selectVerticalTab(fixture.controller)
         let pane = try #require(fixture.controller.surfaceTree.first)
+        try await requireForeground(fixture.controller)
         let host = fixture.controller.windowSessionID
         let workspace = fixture.controller.workspaceID
         for _ in 0..<8 {
@@ -441,7 +446,8 @@ struct TerminalWorkspaceManagementTests {
         }
     }
 
-    @Test func nonNativeFullscreenSupportsWorkspaceCreationAndReturn() async throws {
+    @Test(.tags(.interactiveDesktop))
+    func nonNativeFullscreenSupportsWorkspaceCreationAndReturn() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
@@ -451,6 +457,7 @@ struct TerminalWorkspaceManagementTests {
         try await Task.sleep(for: .milliseconds(80))
         fixture.controller.selectVerticalTab(fixture.controller)
         fixture.controller.window?.makeKeyAndOrderFront(nil)
+        try await requireForeground(fixture.controller)
         fixture.controller.toggleFullscreen(mode: .nonNative)
         try await Task.sleep(for: .milliseconds(100))
         try #require(fixture.controller.fullscreenStyle?.isFullscreen == true)
@@ -486,5 +493,22 @@ struct TerminalWorkspaceManagementTests {
         #expect(Set(restoredGroup.windows.map(ObjectIdentifier.init)) ==
                 Set(hostWindows.map(ObjectIdentifier.init)))
         #expect(fixture.store.snapshot.validationErrors.isEmpty)
+    }
+
+    private func requireForeground(_ controller: TerminalController) async throws {
+        let window = try #require(controller.window)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        try String(ProcessInfo.processInfo.processIdentifier).write(
+            toFile: "/tmp/omg-fullscreen-test.pid", atomically: true, encoding: .utf8
+        )
+        for _ in 0..<200 {
+            if NSApp.isActive { window.makeKeyAndOrderFront(nil) }
+            if NSApp.isActive && window.isKeyWindow && window.isOnActiveSpace { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try #require(NSApp.isActive && window.isKeyWindow && window.isOnActiveSpace,
+                     "Borderless focus/membership checks require an unlocked foreground test window")
     }
 }

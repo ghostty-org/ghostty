@@ -1265,6 +1265,12 @@ plugin capabilities or change the pane's local/remote filesystem context. Inspec
 providers continue consuming the selected pane's existing context. No public
 workspace-control wire message or plugin permission is introduced.
 
+Parked tab sidebars defer catalog-driven list and header refreshes and read
+the latest metadata when activated. Workspace switching prepares only the
+selected terminal's geometry; other tabs retain their existing Surface and
+image until selected. Plugins must not use native attachment or background
+sidebar redraws as a signal to start work.
+
 The host stores names, symbol/color choices, shortcut slots, tab membership and
 parked-group order in the channel-specific `workspaces/catalog.json` under
 Application Support (0700 directory, 0600 file, atomic writes). Terminal output,

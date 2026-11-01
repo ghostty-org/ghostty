@@ -91,6 +91,50 @@ struct VerticalNativeTabSidebarTests {
         }
     }
 
+    @Test func parkedSidebarDefersStoreAndTabUpdatesUntilNativeSelectionReturns() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+
+        let personal = fixture.store.defaultID
+        let first = try fixture.tab()
+        first.titleOverride = "Original row title"
+        first.tabLayoutState.setSidebarVisible(true)
+        first.showWindow(nil)
+        try await Task.sleep(for: .milliseconds(80))
+        let initialHost = try #require(first.tabLayoutState.sidebarHost.liveView as? NativeTabSidebarHostingView)
+        let sidebar = initialHost.sidebar
+        let header = try #require(descendants(initialHost).compactMap { $0 as? TerminalWorkspaceHeaderButton }.first)
+        let originalHeaderLabel = header.accessibilityLabel()
+        let activeRefreshCount = sidebar.refreshCount
+
+        let work = try #require(fixture.store.create(name: "Work sidebar", symbol: "briefcase", color: "blue"))
+        let workTab = try #require(fixture.coordinator.switchWorkspace(to: work, from: first))
+        fixture.controllers.append(workTab)
+        try await Task.sleep(for: .milliseconds(30))
+        let group = try #require(first.window?.tabGroup)
+        #expect(first.workspacePresentationIsParked)
+        #expect(first.window?.tabGroup === workTab.window?.tabGroup)
+        #expect(group.selectedWindow === workTab.window)
+        let parkedRefreshCount = sidebar.refreshCount
+        #expect(parkedRefreshCount >= activeRefreshCount)
+
+        fixture.store.update(id: personal, name: "Personal deferred", symbol: "house", color: "sage")
+        first.titleOverride = "Deferred row title"
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(sidebar.refreshCount == parkedRefreshCount)
+        #expect(header.accessibilityLabel() == originalHeaderLabel)
+
+        let returned = try #require(fixture.coordinator.switchWorkspace(to: personal, from: workTab))
+        #expect(returned === first)
+        #expect(!first.workspacePresentationIsParked)
+        #expect(group.selectedWindow === first.window)
+        #expect(sidebar.refreshCount > parkedRefreshCount)
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(descendants(initialHost).compactMap { $0 as? NSTextField }
+            .contains { $0.stringValue == "Deferred row title" })
+        #expect(header.accessibilityLabel()?.contains("Personal deferred") == true)
+    }
+
     @Test func crossWindowMovePreservesTheWholeSplitTreeAndNativeSelection() throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }

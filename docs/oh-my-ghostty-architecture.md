@@ -154,6 +154,8 @@ Vertical Tabs 不是独立 Sidebar 产品，而是 Ghostty tab bar 的另一种 
 
 后台 tab 可以保留旧尺寸的 IOSurface 并停止自动重绘。窗口放大后关闭或切换 tab 时，Host 先同步即将显示窗口的尺寸和布局；仅当该 tab 的保留图像尺寸不匹配时，通过 app-thread 的显式 `ghostty_surface_draw` 同步准备一帧，再交给 AppKit 显示。普通隐藏层的 display 回调仍跳过绘制，不在 resize 时刷新整组后台 tab；恢复可见时先更新 renderer visibility，再立即重建并绘制，避免首帧被 hidden guard 丢弃。该准备路径沿用 renderer 的背景色和透明度，不叠加不透明兜底层。
 
+已保留原生组的纵向工作区切换只准备选中目标的窗口尺寸，不逐个 resize 后台标签；组重建或模式变更继续使用完整尺寸准备流程。原生横向 tab accessory 在纵向模式下从 `NSWindowTab` 脱离，由窗口 chrome 保留原实例，切回横向时恢复，避免隐藏的原生 tab bar 反复挂载每个标签的 SwiftUI accessory。已停放的 sidebar 推迟目录变化触发的整表与 header 刷新，激活时同步读取最新状态。完整首次发布与下一轮原生呈现修复继续保留。
+
 Layout 配置只对新窗口生效。运行时更换 orientation 需要替换 NSWindow class/titlebar hierarchy，当前不安全，因此不会重建已有 PTY、surface 或 scrollback。
 
 ### 6.2.1 Named terminal workspaces

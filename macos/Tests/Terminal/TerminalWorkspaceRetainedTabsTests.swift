@@ -1,9 +1,33 @@
 import AppKit
+import IOSurface
 import Testing
 @testable import Ghostty
 
 @Suite(.serialized) @MainActor
 struct TerminalWorkspaceRetainedTabsTests {
+    private struct RetainedTabProfile {
+        let tabCount: Int
+        let rounds: Int
+        let isProfile: Bool
+
+        static func consume() -> Self {
+            let configURL = URL(fileURLWithPath: "/tmp/omg-workspace-switch-profile.json")
+            guard let data = try? Data(contentsOf: configURL) else {
+                return Self(tabCount: 40, rounds: 4, isProfile: false)
+            }
+            try? FileManager.default.removeItem(at: configURL)
+
+            let values = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let requestedTabs = (values?["tabCount"] as? NSNumber)?.intValue ?? 40
+            let requestedRounds = (values?["rounds"] as? NSNumber)?.intValue ?? 4
+            return Self(
+                tabCount: min(max(requestedTabs, 2), 60),
+                rounds: min(max(requestedRounds, 1), 100),
+                isProfile: true
+            )
+        }
+    }
+
     @Test func scriptingWindowsKeepWorkspaceTabAndSelectionBoundaries() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
@@ -28,15 +52,16 @@ struct TerminalWorkspaceRetainedTabsTests {
         #expect(workTab.window?.tabGroup === first.window?.tabGroup)
     }
 
-    @Test func fortyTabVerticalWorkspacesReuseHostNativeGroup() async throws {
+    @Test func retainedTabVerticalWorkspacesReuseHostNativeGroup() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
 
+        let profile = RetainedTabProfile.consume()
         let personal = fixture.store.defaultID
         let first = try fixture.tab()
         first.showWindow(nil)
         var personalTabs = [first]
-        for _ in 1..<40 {
+        for _ in 1..<profile.tabCount {
             personalTabs.append(try fixture.tab(parent: personalTabs.last))
         }
         try await Task.sleep(for: .milliseconds(120))
@@ -94,27 +119,142 @@ struct TerminalWorkspaceRetainedTabsTests {
         })
         attachCalls = 0
         var warmSwitchMilliseconds: [Double] = []
+        var enterLargeMilliseconds: [Double] = []
+        var leaveLargeMilliseconds: [Double] = []
         var active = notesTab
-        for workspace in [personal, work, personal, notes, personal, work, personal, notes] {
-            let start = ProcessInfo.processInfo.systemUptime
-            active = try #require(fixture.coordinator.switchWorkspace(to: workspace, from: active))
-            warmSwitchMilliseconds.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+        var nativeGroupStable = true
+        var surfacesStable = true
+
+        if profile.isProfile {
+            let readyURL = URL(fileURLWithPath: "/tmp/omg-workspace-profile-ready.json")
+            try? FileManager.default.removeItem(at: readyURL)
+            let readyData = try JSONSerialization.data(withJSONObject: [
+                "pid": ProcessInfo.processInfo.processIdentifier,
+                "tabCount": profile.tabCount,
+                "rounds": profile.rounds,
+            ])
+            try readyData.write(to: readyURL, options: .atomic)
+            print(
+                "RETAINED_TABS_PROFILE_READY " +
+                    "pid=\(ProcessInfo.processInfo.processIdentifier) tabs=\(profile.tabCount) rounds=\(profile.rounds)"
+            )
+        }
+
+        for round in 0..<profile.rounds {
+            let enterStart = ProcessInfo.processInfo.systemUptime
+            active = try #require(fixture.coordinator.switchWorkspace(to: personal, from: active))
+            let enterDuration = (ProcessInfo.processInfo.systemUptime - enterStart) * 1_000
+            warmSwitchMilliseconds.append(enterDuration)
+            enterLargeMilliseconds.append(enterDuration)
             expectRetainedGroup()
-            expectWorkspaceProjection(active, workspace: workspace)
+            expectWorkspaceProjection(active, workspace: personal)
+            nativeGroupStable = nativeGroupStable &&
+                Set(retainedGroup.windows.map(ObjectIdentifier.init)) == hostWindowIDs &&
+                hostControllers.allSatisfy { $0.window?.tabGroup === retainedGroup }
+            surfacesStable = surfacesStable && hostControllers.allSatisfy { controller in
+                guard let expected = originalSurfaces[controller.tabSessionID] else { return false }
+                return Array(controller.surfaceTree).map(ObjectIdentifier.init) == expected
+            }
             try await Task.sleep(for: .milliseconds(20))
+
+            let leaveWorkspace = round.isMultiple(of: 2) ? work : notes
+            let leaveStart = ProcessInfo.processInfo.systemUptime
+            active = try #require(fixture.coordinator.switchWorkspace(to: leaveWorkspace, from: active))
+            let leaveDuration = (ProcessInfo.processInfo.systemUptime - leaveStart) * 1_000
+            warmSwitchMilliseconds.append(leaveDuration)
+            leaveLargeMilliseconds.append(leaveDuration)
+            expectRetainedGroup()
+            expectWorkspaceProjection(active, workspace: leaveWorkspace)
+            nativeGroupStable = nativeGroupStable &&
+                Set(retainedGroup.windows.map(ObjectIdentifier.init)) == hostWindowIDs &&
+                hostControllers.allSatisfy { $0.window?.tabGroup === retainedGroup }
+            surfacesStable = surfacesStable && hostControllers.allSatisfy { controller in
+                guard let expected = originalSurfaces[controller.tabSessionID] else { return false }
+                return Array(controller.surfaceTree).map(ObjectIdentifier.init) == expected
+            }
+            try await Task.sleep(for: .milliseconds(20))
+            if profile.isProfile {
+                try await Task.sleep(for: .milliseconds(100))
+            }
         }
 
         #expect(attachCalls == 0, "Warm vertical workspace switches must not reattach native tabs")
-        for controller in hostControllers {
-            let expected = try #require(originalSurfaces[controller.tabSessionID])
-            #expect(Array(controller.surfaceTree).map(ObjectIdentifier.init) == expected)
+        #expect(nativeGroupStable, "Warm switches must keep the retained native group membership stable")
+        #expect(surfacesStable, "Warm switches must preserve each tab's surfaces")
+
+        func mean(_ samples: [Double]) -> Double {
+            samples.reduce(0, +) / Double(samples.count)
         }
-        let warmMean = warmSwitchMilliseconds.reduce(0, +) / Double(warmSwitchMilliseconds.count)
+
+        func percentile(_ samples: [Double], _ fraction: Double) -> Double {
+            let sorted = samples.sorted()
+            let index = max(0, Int((Double(sorted.count) * fraction).rounded(.up)) - 1)
+            return sorted[index]
+        }
+
         let warmMax = warmSwitchMilliseconds.max() ?? 0
+        let totalSurfaceCount = originalSurfaces.values.reduce(0) { $0 + $1.count }
         print(String(
-            format: "RETAINED_TABS_BENCHMARK tabs=40 cold_A_to_B_ms=%.3f cold_attach_calls=%d warm_mean_ms=%.3f warm_max_ms=%.3f warm_attach_calls=%d",
-            coldSwitchMilliseconds, workAttachCalls, warmMean, warmMax, attachCalls
+            format: "RETAINED_TABS_BENCHMARK pid=%d tabs=%d rounds=%d switches=%d " +
+                "cold_to_work_ms=%.3f cold_attach_calls=%d warm_p50_ms=%.3f warm_p95_ms=%.3f " +
+                "warm_max_ms=%.3f enter_large_mean_ms=%.3f leave_large_mean_ms=%.3f " +
+                "warm_attach_calls=%d surfaces=%d surfaces_stable=%@ native_group_members=%d native_group_stable=%@",
+            ProcessInfo.processInfo.processIdentifier,
+            profile.tabCount,
+            profile.rounds,
+            warmSwitchMilliseconds.count,
+            coldSwitchMilliseconds,
+            workAttachCalls,
+            percentile(warmSwitchMilliseconds, 0.50),
+            percentile(warmSwitchMilliseconds, 0.95),
+            warmMax,
+            mean(enterLargeMilliseconds),
+            mean(leaveLargeMilliseconds),
+            attachCalls,
+            totalSurfaceCount,
+            surfacesStable ? "true" : "false",
+            retainedGroup.windows.count,
+            nativeGroupStable ? "true" : "false"
         ))
+    }
+
+    @Test func workspaceReturnPreparesOnlyTheSelectedTabsGeometry() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        first.showWindow(nil)
+        let second = try fixture.tab(parent: first)
+        first.selectVerticalTab(first)
+        let firstWindow = try #require(first.window)
+        let secondWindow = try #require(second.window)
+        let secondSurface = try #require(second.surfaceTree.first)
+        let work = try #require(fixture.store.create(name: "Geometry", symbol: "house", color: "blue"))
+        let workTab = try #require(fixture.coordinator.switchWorkspace(to: work, from: first))
+        fixture.controllers.append(workTab)
+        let workWindow = try #require(workTab.window)
+        var enlarged = workWindow.frame
+        enlarged.size.width += 160
+        enlarged.size.height += 100
+        workWindow.setFrame(enlarged, display: false)
+        workWindow.contentView?.layoutSubtreeIfNeeded()
+        let parkedFrame = secondWindow.frame
+        try #require(parkedFrame != workWindow.frame)
+        let surfaceID = ObjectIdentifier(secondSurface)
+
+        let returned = try #require(fixture.coordinator.switchWorkspace(to: first.workspaceID, from: workTab))
+        #expect(returned === first)
+        #expect(firstWindow.frame == workWindow.frame)
+        #expect(secondWindow.frame == parkedFrame, "A workspace return must not resize every inactive tab")
+        #expect(ObjectIdentifier(try #require(second.surfaceTree.first)) == surfaceID)
+
+        first.selectVerticalTab(second)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(secondWindow.frame == firstWindow.frame)
+        #expect(secondWindow.tabGroup?.selectedWindow === secondWindow)
+        let layer = try #require(secondSurface.layer)
+        let image = try #require(layer.contents as? IOSurface)
+        #expect(image.width == Int((layer.bounds.width * layer.contentsScale).rounded(.down)))
+        #expect(image.height == Int((layer.bounds.height * layer.contentsScale).rounded(.down)))
     }
 
     @Test func retainedVerticalGroupSplitsForHorizontalAndRejoins() async throws {

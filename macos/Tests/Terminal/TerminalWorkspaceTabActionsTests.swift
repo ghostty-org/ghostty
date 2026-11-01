@@ -184,10 +184,16 @@ struct TerminalWorkspaceTabActionsTests {
         let workTab = try #require(work.first)
         _ = try #require(fixture.coordinator.switchWorkspace(to: personal[0].workspaceID, from: workTab))
         let group = try #require(personal[0].window?.tabGroup)
+        let originalSelection = group.selectedWindow
         let interleavedForeignWindow = try #require(work.last?.window)
+        let arrangement = TerminalWorkspacePresentationTransaction([])
         group.removeWindow(interleavedForeignWindow)
         group.insertWindow(interleavedForeignWindow, at: 1)
+        group.selectedWindow = originalSelection
+        arrangement.publish { TerminalController.refreshTabs(in: group) }
         try await Task.sleep(for: .milliseconds(80))
+        try #require(fixture.store.snapshot.windows?[personal[0].windowSessionID]?.currentWorkspace == personal[0].workspaceID)
+        try #require(group.selectedWindow === personal[2].window)
         let foreignBefore = group.windows.filter {
             ($0.windowController as? TerminalController)?.workspaceID != personal[0].workspaceID
         }
@@ -208,14 +214,19 @@ struct TerminalWorkspaceTabActionsTests {
         #expect(sourceIndex > 0)
         #expect(personal[0].window?.tabGroup === group)
         #expect(personal[2].window?.tabGroup === group)
+        let selectedBefore = group.selectedWindow
         let committed = personal[0].reorderTab(personal[2], toInsertionIndex: 0)
         #expect(committed)
         #expect(personal[0].workspaceTabWindows == expectedActiveOrder)
+        #expect(group.selectedWindow === selectedBefore)
+        #expect(fixture.store.snapshot.windows?[personal[0].windowSessionID]?.currentWorkspace == personal[0].workspaceID)
         try await Task.sleep(for: .milliseconds(120))
         let foreignAfter = group.windows.filter {
             ($0.windowController as? TerminalController)?.workspaceID != personal[0].workspaceID
         }
         #expect(personal[0].workspaceTabWindows == expectedActiveOrder)
         #expect(foreignAfter == foreignBefore)
+        #expect(group.selectedWindow === selectedBefore)
+        #expect(work.allSatisfy { $0.workspacePresentationIsParked })
     }
 }
