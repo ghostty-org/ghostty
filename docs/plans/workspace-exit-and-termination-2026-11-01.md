@@ -149,3 +149,37 @@ ordering change; the earlier 1,328-test result applies to `312b27f9`.
 The desktop-selector contract includes the new opt-in method and passes all
 42 offline checks. Strict lint on the three changed Swift files and the
 documentation contract also pass.
+
+## Installed ordered-close result and unresolved desktop gate
+
+`0.18.0-dev.972d2699` is installed at `/Applications/OMG Dev.app`. Its executable
+and debug dylib match the built artifact; signing and bundled runtime checks,
+including six SSH wrapper checks, passed.
+
+While the desktop was locked, the preceding `312b27f9` build took 20.426
+seconds to quit and `972d2699` took 4.902 seconds. Both observations used the
+normal application quit request and external sampling. The session had 75 tabs,
+14 workspaces and 76 surfaces, with Personal's 60-tab workspace selected. The
+pre-quit checkpoint reported native fullscreen.
+
+The ordered-close sample no longer contains native successor selection or
+`_enterWindow:intoFullScreenWithWindow:`. Its remaining main-thread work includes
+background-window cleanup (749 observations), scrollback capture (537), and
+AppKit's final close pass (270), out of 1,772 observations. These counts overlap
+and are not durations.
+
+However, the post-quit restart saved `fullscreen=false` for the large host.
+Two bounded requests through the existing fullscreen action API were accepted
+but did not restore that flag while locked. Thus the apparent timing reduction
+is **not accepted as a verified foreground/fullscreen A/B result**: actual
+fullscreen restoration and pixel behavior could not be confirmed. This also
+needs a checkpoint captured between process exit and reopening to distinguish
+shutdown persistence from startup restoration. No session files were rewritten
+to manufacture a passing state.
+
+All 75 original tab IDs, their window/workspace/group owners, and all 76 pane
+IDs were verified after both restarts. The app remains running on Personal;
+its last observed fullscreen checkpoint flag is false. The new foreground
+60-tab termination regression and the real unlocked quit/switch acceptance
+remain outstanding. Further UI retries/restarts were stopped at this concrete
+desktop prerequisite.
