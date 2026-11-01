@@ -25,11 +25,11 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
-const TabColor = @import("tab.zig").TabColor;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
+const TabColorDialog = @import("tab_color_dialog.zig").TabColorDialog;
 const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
@@ -401,7 +401,7 @@ pub const Window = extern struct {
             .init("prompt-surface-title", actionPromptSurfaceTitle, null),
             .init("prompt-tab-title", actionPromptTabTitle, null),
             .init("prompt-context-tab-title", actionPromptContextTabTitle, null),
-            .init("prompt-tab-color", actionPromptTabColor, null),
+            .init("prompt-context-tab-color", actionPromptContextTabColor, null),
             .init("prompt-window-title", actionPromptWindowTitle, null),
             .init("ring-bell", actionRingBell, null),
             .init("split-right", actionSplitRight, null),
@@ -2107,7 +2107,7 @@ pub const Window = extern struct {
         tab.promptTabTitle();
     }
 
-    fn actionPromptTabColor(
+    fn actionPromptContextTabColor(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
         self: *Self,
@@ -2118,84 +2118,10 @@ pub const Window = extern struct {
     }
 
     /// Adwaita menus omit GMenu icons; use a dialog of swatch buttons instead.
-    fn promptTabColor(self: *Self, tab: *Tab) void {
-        const dialog = adw.AlertDialog.new(i18n._("Tab Color"), null);
-        dialog.addResponse("cancel", i18n._("Cancel"));
-        dialog.setCloseResponse("cancel");
-
-        const box = gtk.Box.new(.horizontal, 6);
-        box.as(gtk.Widget).setHalign(.center);
-        dialog.setExtraChild(box.as(gtk.Widget));
-
-        const current = tab.getTabColor();
-
-        for (std.meta.tags(TabColor)) |color| {
-            const tooltip: [*:0]const u8 = switch (color) {
-                .none => i18n._("None"),
-                .blue => i18n._("Blue"),
-                .purple => i18n._("Purple"),
-                .pink => i18n._("Pink"),
-                .red => i18n._("Red"),
-                .orange => i18n._("Orange"),
-                .yellow => i18n._("Yellow"),
-                .green => i18n._("Green"),
-                .teal => i18n._("Teal"),
-                .graphite => i18n._("Graphite"),
-            };
-
-            const texture = color.createSwatchTexture(color == current);
-            const image = gtk.Image.newFromPaintable(texture.as(gdk.Paintable));
-            texture.unref();
-            image.setPixelSize(18);
-
-            const button = gtk.Button.new();
-            button.setChild(image.as(gtk.Widget));
-            button.as(gtk.Widget).addCssClass("flat");
-            button.as(gtk.Widget).addCssClass("circular");
-            button.as(gtk.Widget).setTooltipText(tooltip);
-
-            const ud = glib.ext.create(TabColorPick);
-            ud.* = .{
-                .tab = tab.ref(),
-                .color = color,
-                .dialog = dialog,
-            };
-            _ = gtk.Button.signals.clicked.connect(
-                button,
-                *TabColorPick,
-                tabColorPickClicked,
-                ud,
-                .{ .destroyData = tabColorPickDestroy },
-            );
-
-            box.append(button.as(gtk.Widget));
-        }
-
-        const parent: *gtk.Widget = if (ext.getAncestor(
-            adw.ApplicationWindow,
-            tab.as(gtk.Widget),
-        )) |window|
-            window.as(gtk.Widget)
-        else
-            self.as(gtk.Widget);
-
-        dialog.choose(parent, null, null, null);
-    }
-
-    const TabColorPick = struct {
-        tab: *Tab,
-        color: TabColor,
-        dialog: *adw.AlertDialog,
-    };
-
-    fn tabColorPickClicked(_: *gtk.Button, ud: *TabColorPick) callconv(.c) void {
-        ud.tab.setTabColor(ud.color);
-        ud.dialog.as(adw.Dialog).forceClose();
-    }
-
-    fn tabColorPickDestroy(ud: *TabColorPick) callconv(.c) void {
-        ud.tab.unref();
-        glib.ext.destroy(ud);
+    fn promptTabColor(_: *Self, tab: *Tab) void {
+        const dialog = TabColorDialog.new(tab);
+        defer dialog.unref();
+        dialog.present(tab.as(gtk.Widget));
     }
 
     fn actionPromptSurfaceTitle(
@@ -2408,6 +2334,7 @@ pub const Window = extern struct {
             gobject.ext.ensureType(SplitTree);
             gobject.ext.ensureType(Surface);
             gobject.ext.ensureType(Tab);
+            gobject.ext.ensureType(TabColorDialog);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{

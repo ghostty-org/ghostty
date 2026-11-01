@@ -60,10 +60,11 @@ pub const TabColor = enum {
     }
 
     /// Draw the swatch into `snap` as vector paths (circle, or ring+slash for none).
-    /// When `selected`, draw an outer ring so the dialog can show the current color.
-    fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32, selected: bool) void {
+    /// When `selected`, draw an outer ring using the user accent color.
+    pub fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32, selected: bool) void {
         const mid = size / 2.0;
         const radius = size * 0.3125;
+        const stroke_width = @max(1.0, size * (1.5 / 16.0));
         var center: graphene.Point = undefined;
         _ = graphene.Point.init(&center, mid, mid);
 
@@ -77,7 +78,7 @@ pub const TabColor = enum {
         } else {
             // None: outlined circle with a slash so it reads as "no color".
             const stroke_color = rgba(.{ 0x9a, 0x9a, 0x9e });
-            const stroke = gsk.Stroke.new(1.5);
+            const stroke = gsk.Stroke.new(stroke_width);
             defer stroke.free();
 
             const circle_builder = gsk.PathBuilder.new();
@@ -96,33 +97,30 @@ pub const TabColor = enum {
         }
 
         if (selected) {
-            const ring_color = rgba(.{ 0x35, 0x84, 0xe4 }); // Adwaita blue
-            const ring = gsk.Stroke.new(2.0);
+            const accent = adw.StyleManager.getDefault().getAccentColorRgba();
+            defer accent.free();
+            const ring = gsk.Stroke.new(@max(1.5, size * (2.0 / 16.0)));
             defer ring.free();
             const ring_builder = gsk.PathBuilder.new();
             ring_builder.addCircle(&center, size * 0.45);
             const ring_path = ring_builder.freeToPath();
             defer ring_path.unref();
-            snap.appendStroke(ring_path, ring, &ring_color);
+            snap.appendStroke(ring_path, ring, accent);
         }
     }
 
+    /// Snapshot vector swatch at 3x (48px) so GTK can scale for HiDPI.
     pub fn createIndicatorIcon(self: TabColor) *gdk.Texture {
-        return self.createSwatchTexture(false);
-    }
-
-    /// Snapshot vector swatch, rasterized to a texture for use as a GIcon.
-    pub fn createSwatchTexture(self: TabColor, selected: bool) *gdk.Texture {
-        const size: f32 = 16;
+        const size: f32 = 48;
+        const size_i: c_int = 48;
 
         const snap = gtk.Snapshot.new();
-        self.appendSwatch(snap, size, selected);
+        self.appendSwatch(snap, size, false);
         const node = snap.freeToNode() orelse {
-            // Snapshot was empty; return a transparent texture as a safe fallback.
-            const transparent: [16 * 16 * 4]u8 = @splat(0);
+            const transparent: [48 * 48 * 4]u8 = @splat(0);
             const bytes = glib.Bytes.new(&transparent, transparent.len);
             defer bytes.unref();
-            return gdk.MemoryTexture.new(16, 16, .r8g8b8a8_premultiplied, bytes, 16 * 4).as(gdk.Texture);
+            return gdk.MemoryTexture.new(size_i, size_i, .r8g8b8a8_premultiplied, bytes, 48 * 4).as(gdk.Texture);
         };
         defer node.unref();
 
@@ -135,10 +133,10 @@ pub const TabColor = enum {
                 defer e.free();
                 log.warn("failed to realize swatch renderer: {s}", .{e.f_message orelse "unknown"});
             }
-            const transparent: [16 * 16 * 4]u8 = @splat(0);
+            const transparent: [48 * 48 * 4]u8 = @splat(0);
             const bytes = glib.Bytes.new(&transparent, transparent.len);
             defer bytes.unref();
-            return gdk.MemoryTexture.new(16, 16, .r8g8b8a8_premultiplied, bytes, 16 * 4).as(gdk.Texture);
+            return gdk.MemoryTexture.new(size_i, size_i, .r8g8b8a8_premultiplied, bytes, 48 * 4).as(gdk.Texture);
         }
         defer renderer.unrealize();
 
@@ -395,6 +393,7 @@ pub const Tab = extern struct {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
     }
+
     pub fn getTabColor(self: *Self) TabColor {
         return self.private().tab_color;
     }
