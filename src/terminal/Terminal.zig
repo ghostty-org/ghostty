@@ -4089,6 +4089,12 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
     try self.screens.active.setAttribute(attr);
 }
 
+/// Set all the style attributes of one SGR sequence. See
+/// `Screen.setAttributes`.
+pub fn setAttributes(self: *Terminal, parser: sgr.Parser) !void {
+    try self.screens.active.setAttributes(parser);
+}
+
 /// Print the active attributes as a string. This is used to respond to DECRQSS
 /// requests.
 ///

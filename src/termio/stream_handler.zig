@@ -204,7 +204,7 @@ pub const StreamHandler = struct {
         // which indicates that the most common actions are:
         //
         // 1. print
-        // 2. set_attribute
+        // 2. set_attributes
         // 3. carriage_return
         // 4. line_feed
         // 5. cursor_pos
@@ -357,23 +357,12 @@ pub const StreamHandler = struct {
                 if (self.terminal.flags.mouse_event != .none) .default else .text,
             ),
             .configure_charset => self.configureCharset(value.slot, value.charset),
-            .set_attribute => {
+            .set_attributes => {
                 @branchHint(.likely);
-                switch (value) {
-                    .unknown => |unk| {
-                        // We optimize for the happy path scenario here, since
-                        // unknown/invalid SGRs aren't that common in the wild.
-                        @branchHint(.unlikely);
-                        log.warn("unimplemented or unknown SGR attribute: {any}", .{unk});
-                    },
-                    else => {
-                        @branchHint(.likely);
-                        self.terminal.setAttribute(value) catch |err| {
-                            @branchHint(.cold);
-                            log.warn("error setting attribute {}: {}", .{ value, err });
-                        };
-                    },
-                }
+                self.terminal.setAttributes(value.parser()) catch |err| {
+                    @branchHint(.cold);
+                    log.warn("error setting attributes: {}", .{err});
+                };
             },
             .dcs_hook => try self.dcsHook(value),
             .dcs_put => try self.dcsPut(value),
