@@ -140,7 +140,15 @@ fn teardown(ptr: *anyopaque) void {
     }
 }
 
-fn step(ptr: *anyopaque) Benchmark.Error!void {
+// The whole stream parser is inlined into this function, and on Apple
+// Silicon its speed depends on where the function starts: CSI-heavy
+// input runs 3-5% faster at some start addresses than others. Without a
+// fixed alignment, any unrelated change that adds or removes code before
+// this function moves it, and that shows up as a speedup or slowdown in
+// comparisons between branches. Pinning the start makes those
+// comparisons measure the code under test instead of where the linker
+// placed this loop.
+fn step(ptr: *anyopaque) align(64) Benchmark.Error!void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
 
     // Get our buffered reader so we're not predominantly
