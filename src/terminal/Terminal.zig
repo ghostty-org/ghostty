@@ -15658,6 +15658,110 @@ test "Terminal: eraseDisplay complete twice leaves blank rows undirtied" {
     try testing.expect(t.flags.dirty.clear);
 }
 
+/// Returns the row at the given active y, for tests of Row.blank.
+fn testActiveRow(t: *const Terminal, y: size.CellCountInt) *pagepkg.Row {
+    return t.screens.active.pages.getCell(.{ .active = .{ .y = y } }).?.row;
+}
+
+test "Terminal: blank bit with colored blank cells" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.eraseDisplay(.complete, false);
+    try testing.expect(testActiveRow(&t, 0).blank);
+
+    // Erasing part of a row with a background color writes colored
+    // cells, so the row is no longer blank.
+    try t.setAttribute(.{ .direct_color_bg = .{ .r = 0xFF, .g = 0, .b = 0 } });
+    t.setCursorPos(1, 2);
+    t.eraseChars(2);
+    try testing.expect(!testActiveRow(&t, 0).blank);
+
+    // Erasing a whole row with a background color doesn't make it blank.
+    t.setCursorPos(2, 1);
+    t.eraseLine(.complete, false);
+    try testing.expect(!testActiveRow(&t, 1).blank);
+
+    // Erasing it again with no background color does.
+    try t.setAttribute(.{ .unset = {} });
+    t.eraseLine(.complete, false);
+    try testing.expect(testActiveRow(&t, 1).blank);
+
+    try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+}
+
+test "Terminal: eraseDisplay below skips blank rows" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.eraseDisplay(.complete, false);
+    t.setCursorPos(1, 1);
+    for ("ABC") |c| try t.print(c);
+    testActiveRow(&t, 1).wrap = true;
+    t.clearDirty();
+
+    t.setCursorPos(1, 1);
+    t.eraseDisplay(.below, false);
+
+    // The row with text is cleared, marked dirty and now blank.
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+    try testing.expect(testActiveRow(&t, 0).blank);
+
+    // The blank row is skipped. Its metadata is reset, but it isn't
+    // marked dirty because its cells didn't change.
+    try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(!testActiveRow(&t, 1).wrap);
+    try testing.expect(testActiveRow(&t, 1).blank);
+}
+
+test "Terminal: protected eraseDisplay leaves blank rows alone" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.eraseDisplay(.complete, false);
+    testActiveRow(&t, 1).wrap = true;
+    t.clearDirty();
+
+    // A protected erase keeps row metadata, so a blank row is untouched.
+    t.eraseDisplay(.complete, true);
+    try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(testActiveRow(&t, 1).wrap);
+    try testing.expect(testActiveRow(&t, 1).blank);
+}
+
+test "Terminal: blank bit moves with rows" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    // Every row is blank except the one with text.
+    t.eraseDisplay(.complete, false);
+    t.setCursorPos(3, 1);
+    try t.print('A');
+
+    // Scrolling a region moves the text up a row.
+    t.setTopAndBottomMargin(2, 4);
+    t.setCursorPos(4, 1);
+    try t.index();
+    try testing.expect(!testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 0).blank);
+
+    // Inserting and deleting lines move it down and back up.
+    t.setTopAndBottomMargin(0, 0);
+    t.setCursorPos(1, 1);
+    t.insertLines(1);
+    try testing.expect(!testActiveRow(&t, 2).blank);
+    t.deleteLines(1);
+    try testing.expect(!testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 0).blank);
+    try testing.expect(testActiveRow(&t, 2).blank);
+
+    try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+}
+
 test "Terminal: eraseDisplay simple erase below" {
     const alloc = testing.allocator;
     const io_impl = testing.io;

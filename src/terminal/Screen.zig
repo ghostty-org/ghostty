@@ -1868,6 +1868,7 @@ pub fn clearRows(
             // Already empty: only reset metadata. The cells don't
             // change, so the dirty state is kept as is.
             if (row.blank and blank_zero) {
+                // Most rows are empty when shells and `clear` redraw.
                 @branchHint(.likely);
 
                 // A protected clear keeps metadata, so it has nothing to do.
@@ -1887,14 +1888,17 @@ pub fn clearRows(
                 // We need to preserve other row attributes since we only
                 // cleared unprotected cells.
                 row.cells = cells_offset;
+                row.dirty = true;
             } else {
                 self.clearCells(page, row, cells);
                 // Reset the metadata but keep the blank flag that
                 // clearCells just set.
-                row.* = .{ .cells = cells_offset, .blank = row.blank };
+                row.* = .{
+                    .cells = cells_offset,
+                    .blank = row.blank,
+                    .dirty = true,
+                };
             }
-
-            row.dirty = true;
         }
     }
 }

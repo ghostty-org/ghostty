@@ -1339,7 +1339,10 @@ pub const Page = struct {
     /// metadata such as the wrap state and semantic prompt remain.
     pub inline fn resetRow(self: *Page, row: *Row) void {
         self.clearCells(row, 0, self.size.cols);
-        row.reset();
+
+        // Same as row.reset() but also marks the now zeroed row blank.
+        assert(!row.managedMemory());
+        row.* = .{ .cells = row.cells, .blank = true, .dirty = true };
     }
 
     /// Returns the hyperlink ID for the given cell.
@@ -2243,8 +2246,9 @@ pub const Row = packed struct(u64) {
     ///
     /// This may be false for an empty row, but must never be true for
     /// a row with content. `Page.verifyIntegrity` checks this. It is set
-    /// only by a full-row clear with a zero blank cell (see
-    /// `Screen.clearCells`) or by copying a row that has it set.
+    /// only by code that zeroes the whole row (`Page.resetRow`, or
+    /// `Screen.clearCells` with a zero blank cell) or by copying a row
+    /// that has it set.
     ///
     /// Any code that writes cells must clear it, usually with
     /// `markWritten`. Otherwise `Screen.clearRows` will skip the row
@@ -2313,6 +2317,10 @@ pub const Row = packed struct(u64) {
     /// Reset all row metadata to the default state, preserving only
     /// the cells offset, and mark the row dirty. This is a single
     /// 8-byte store.
+    ///
+    /// This also clears `blank`, which is always safe. Keeping it would
+    /// need a load of the old header, which is measurable on the scroll
+    /// region path that calls this for every scrolled line.
     ///
     /// This must be applied to any row whose storage is recycled as a
     /// blank row or retired into unused page capacity, in addition to
@@ -4312,6 +4320,116 @@ test "Page verifyIntegrity zero cols" {
         Page.IntegrityError.ZeroColCount,
         page.verifyIntegrity(testing.allocator),
     );
+}
+
+test "Page verifyIntegrity blank row with content" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // An empty row may be marked blank.
+    page.getRow(0).blank = true;
+    try page.verifyIntegrity(testing.allocator);
+
+    // A row with content may not.
+    const rac = page.getRowAndCell(3, 0);
+    rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    try testing.expectError(
+        Page.IntegrityError.BlankRowHasContent,
+        page.verifyIntegrity(testing.allocator),
+    );
+}
+
+test "Page resetRow marks the row blank" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(3, 0);
+    rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    rac.row.wrap = true;
+
+    page.resetRow(rac.row);
+    try testing.expect(rac.row.blank);
+    try testing.expect(rac.row.dirty);
+    try testing.expect(!rac.row.wrap);
+
+    // Row.reset is a single store and clears the flag, which is safe.
+    rac.row.reset();
+    try testing.expect(!rac.row.blank);
+}
+
+test "Page moveCells clears blank on the destination row" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const src = page.getRowAndCell(0, 0);
+    src.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    const dst = page.getRow(1);
+    dst.blank = true;
+
+    page.moveCells(src.row, 0, dst, 2, 3);
+    try testing.expect(!dst.blank);
+    try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page cloneRowFrom partial keeps blank only if both parts are blank" {
+    var src = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer src.deinit();
+    var dst = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer dst.deinit();
+
+    // Both blank: the result is blank.
+    src.getRow(0).blank = true;
+    dst.getRow(0).blank = true;
+    try dst.clonePartialRowFrom(&src, dst.getRow(0), src.getRow(0), 2, 8);
+    try testing.expect(dst.getRow(0).blank);
+
+    // The copied part has content: the result is not blank.
+    const rac = src.getRowAndCell(4, 1);
+    rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    dst.getRow(1).blank = true;
+    try dst.clonePartialRowFrom(&src, dst.getRow(1), src.getRow(1), 2, 8);
+    try testing.expect(!dst.getRow(1).blank);
+
+    // The kept part may have content: the result is not blank.
+    src.getRow(2).blank = true;
+    try dst.clonePartialRowFrom(&src, dst.getRow(2), src.getRow(2), 2, 8);
+    try testing.expect(!dst.getRow(2).blank);
 }
 
 test "Page exactRowCapacity empty rows" {
