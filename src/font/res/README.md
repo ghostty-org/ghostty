@@ -37,3 +37,7 @@ An accompanying FAQ is also available at <https://openfontlicense.org/>.
 A full copy of the MIT license can be found at [MIT.txt](./MIT.txt).
 
 A full copy of the BSD 2-Clause license can be found at [BSD-2-Clause.txt](./BSD-2-Clause.txt).
+
+## Notes
+
+`spleen-8x16-apple.ttf` is Spleen 8x16 as an Apple bitmap-only SFNT (it uses the `bhed` table rather than `head`), used only to test CoreText bitmap font support. CoreText can't load Spleen's `.dfont` from memory, so this file is the `sfnt` resource extracted from `spleen-8x16.dfont` in the Spleen 2.1.0 release — same font, version, and BSD 2-Clause license as the `spleen-8x16.{bdf,pcf,otb}` files.
