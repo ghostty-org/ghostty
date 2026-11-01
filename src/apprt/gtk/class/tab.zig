@@ -4,6 +4,8 @@ const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const graphene = @import("graphene");
+const gsk = @import("gsk");
 const gtk = @import("gtk");
 
 const configpkg = @import("../../../config.zig");
@@ -48,46 +50,102 @@ pub const TabColor = enum {
         };
     }
 
-    /// Circle swatch used for the tab indicator and the color picker dialog.
-    /// `none` is an empty ring; other values are a filled circle.
-    pub fn createIndicatorIcon(self: TabColor) *gdk.MemoryTexture {
-        const size: usize = 16;
-        const outer_sq: f32 = 5.0 * 5.0;
-        const inner_sq: f32 = 3.5 * 3.5;
-        var pixels: [size * size * 4]u8 = undefined;
-        @memset(&pixels, 0);
+    fn rgba(channels: [3]u8) gdk.RGBA {
+        return .{
+            .f_red = @as(f32, @floatFromInt(channels[0])) / 255.0,
+            .f_green = @as(f32, @floatFromInt(channels[1])) / 255.0,
+            .f_blue = @as(f32, @floatFromInt(channels[2])) / 255.0,
+            .f_alpha = 1.0,
+        };
+    }
 
-        const fill = self.rgb();
-        for (0..size) |y| {
-            for (0..size) |x| {
-                const dx: f32 = @as(f32, @floatFromInt(x)) - 7.5;
-                const dy: f32 = @as(f32, @floatFromInt(y)) - 7.5;
-                const dist_sq = dx * dx + dy * dy;
-                if (dist_sq > outer_sq) continue;
-                if (fill == null and dist_sq < inner_sq) continue;
-                const i = (y * size + x) * 4;
-                if (fill) |color| {
-                    pixels[i] = color[0];
-                    pixels[i + 1] = color[1];
-                    pixels[i + 2] = color[2];
-                } else {
-                    pixels[i] = 0x9a;
-                    pixels[i + 1] = 0x9a;
-                    pixels[i + 2] = 0x9e;
-                }
-                pixels[i + 3] = 0xff;
-            }
+    /// Draw the swatch into `snap` as vector paths (circle, or ring+slash for none).
+    /// When `selected`, draw an outer ring so the dialog can show the current color.
+    fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32, selected: bool) void {
+        const mid = size / 2.0;
+        const radius = size * 0.3125;
+        var center: graphene.Point = undefined;
+        _ = graphene.Point.init(&center, mid, mid);
+
+        if (self.rgb()) |channels| {
+            const builder = gsk.PathBuilder.new();
+            builder.addCircle(&center, radius);
+            const path = builder.freeToPath();
+            defer path.unref();
+            const fill = rgba(channels);
+            snap.appendFill(path, .winding, &fill);
+        } else {
+            // None: outlined circle with a slash so it reads as "no color".
+            const stroke_color = rgba(.{ 0x9a, 0x9a, 0x9e });
+            const stroke = gsk.Stroke.new(1.5);
+            defer stroke.free();
+
+            const circle_builder = gsk.PathBuilder.new();
+            circle_builder.addCircle(&center, radius);
+            const circle = circle_builder.freeToPath();
+            defer circle.unref();
+            snap.appendStroke(circle, stroke, &stroke_color);
+
+            const inset = radius * 0.72;
+            const slash_builder = gsk.PathBuilder.new();
+            slash_builder.moveTo(mid - inset, mid + inset);
+            slash_builder.lineTo(mid + inset, mid - inset);
+            const slash = slash_builder.freeToPath();
+            defer slash.unref();
+            snap.appendStroke(slash, stroke, &stroke_color);
         }
 
-        const bytes = glib.Bytes.new(&pixels, pixels.len);
-        defer bytes.unref();
-        return gdk.MemoryTexture.new(
-            @intCast(size),
-            @intCast(size),
-            .r8g8b8a8_premultiplied,
-            bytes,
-            size * 4,
-        );
+        if (selected) {
+            const ring_color = rgba(.{ 0x35, 0x84, 0xe4 }); // Adwaita blue
+            const ring = gsk.Stroke.new(2.0);
+            defer ring.free();
+            const ring_builder = gsk.PathBuilder.new();
+            ring_builder.addCircle(&center, size * 0.45);
+            const ring_path = ring_builder.freeToPath();
+            defer ring_path.unref();
+            snap.appendStroke(ring_path, ring, &ring_color);
+        }
+    }
+
+    /// Circle swatch for the tab indicator and the color picker dialog.
+    /// Drawn with `gtk.Snapshot` paths, then rasterized to a texture for `GIcon`.
+    pub fn createIndicatorIcon(self: TabColor) *gdk.Texture {
+        return self.createSwatchTexture(false);
+    }
+
+    pub fn createSwatchTexture(self: TabColor, selected: bool) *gdk.Texture {
+        const size: f32 = 16;
+
+        const snap = gtk.Snapshot.new();
+        self.appendSwatch(snap, size, selected);
+        const node = snap.freeToNode() orelse {
+            // Snapshot was empty; return a transparent texture as a safe fallback.
+            const transparent: [16 * 16 * 4]u8 = @splat(0);
+            const bytes = glib.Bytes.new(&transparent, transparent.len);
+            defer bytes.unref();
+            return gdk.MemoryTexture.new(16, 16, .r8g8b8a8_premultiplied, bytes, 16 * 4).as(gdk.Texture);
+        };
+        defer node.unref();
+
+        const cairo_renderer = gsk.CairoRenderer.new();
+        defer cairo_renderer.unref();
+        const renderer = cairo_renderer.as(gsk.Renderer);
+        var err: ?*glib.Error = null;
+        if (renderer.realize(null, &err) == 0) {
+            if (err) |e| {
+                defer e.free();
+                log.warn("failed to realize swatch renderer: {s}", .{e.f_message orelse "unknown"});
+            }
+            const transparent: [16 * 16 * 4]u8 = @splat(0);
+            const bytes = glib.Bytes.new(&transparent, transparent.len);
+            defer bytes.unref();
+            return gdk.MemoryTexture.new(16, 16, .r8g8b8a8_premultiplied, bytes, 16 * 4).as(gdk.Texture);
+        }
+        defer renderer.unrealize();
+
+        var viewport: graphene.Rect = undefined;
+        _ = graphene.Rect.init(&viewport, 0, 0, size, size);
+        return renderer.renderTexture(node, &viewport);
     }
 };
 
@@ -338,6 +396,10 @@ pub const Tab = extern struct {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
     }
+    pub fn getTabColor(self: *Self) TabColor {
+        return self.private().tab_color;
+    }
+
     pub fn setTabColor(self: *Self, color: TabColor) void {
         self.private().tab_color = color;
         self.syncColorIndicator();
