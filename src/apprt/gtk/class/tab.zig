@@ -1,5 +1,6 @@
 const std = @import("std");
 const adw = @import("adw");
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -19,6 +20,76 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
+
+pub const TabColor = enum {
+    none,
+    blue,
+    purple,
+    pink,
+    red,
+    orange,
+    yellow,
+    green,
+    teal,
+    graphite,
+
+    fn rgb(self: TabColor) ?[3]u8 {
+        return switch (self) {
+            .none => null,
+            .blue => .{ 0x3b, 0x8b, 0xff },
+            .purple => .{ 0xbf, 0x5a, 0xf2 },
+            .pink => .{ 0xff, 0x4d, 0x7a },
+            .red => .{ 0xff, 0x5a, 0x52 },
+            .orange => .{ 0xff, 0x9f, 0x0a },
+            .yellow => .{ 0xff, 0xd6, 0x0a },
+            .green => .{ 0x30, 0xd1, 0x58 },
+            .teal => .{ 0x40, 0xe0, 0xd0 },
+            .graphite => .{ 0x98, 0x98, 0x9d },
+        };
+    }
+
+    /// Circle swatch used for the tab indicator and the color picker dialog.
+    /// `none` is an empty ring; other values are a filled circle.
+    pub fn createIndicatorIcon(self: TabColor) *gdk.MemoryTexture {
+        const size: usize = 16;
+        const outer_sq: f32 = 5.0 * 5.0;
+        const inner_sq: f32 = 3.5 * 3.5;
+        var pixels: [size * size * 4]u8 = undefined;
+        @memset(&pixels, 0);
+
+        const fill = self.rgb();
+        for (0..size) |y| {
+            for (0..size) |x| {
+                const dx: f32 = @as(f32, @floatFromInt(x)) - 7.5;
+                const dy: f32 = @as(f32, @floatFromInt(y)) - 7.5;
+                const dist_sq = dx * dx + dy * dy;
+                if (dist_sq > outer_sq) continue;
+                if (fill == null and dist_sq < inner_sq) continue;
+                const i = (y * size + x) * 4;
+                if (fill) |color| {
+                    pixels[i] = color[0];
+                    pixels[i + 1] = color[1];
+                    pixels[i + 2] = color[2];
+                } else {
+                    pixels[i] = 0x9a;
+                    pixels[i + 1] = 0x9a;
+                    pixels[i + 2] = 0x9e;
+                }
+                pixels[i + 3] = 0xff;
+            }
+        }
+
+        const bytes = glib.Bytes.new(&pixels, pixels.len);
+        defer bytes.unref();
+        return gdk.MemoryTexture.new(
+            @intCast(size),
+            @intCast(size),
+            .r8g8b8a8_premultiplied,
+            bytes,
+            size * 4,
+        );
+    }
+};
 
 pub const Tab = extern struct {
     const Self = @This();
@@ -169,6 +240,9 @@ pub const Tab = extern struct {
         /// The tooltip of this tab. This is usually bound to the active surface.
         tooltip: ?[:0]const u8 = null,
 
+        /// Color chosen from the tab context menu.
+        tab_color: TabColor = .none,
+
         // Template bindings
         split_tree: *SplitTree,
 
@@ -264,6 +338,23 @@ pub const Tab = extern struct {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
     }
+    pub fn setTabColor(self: *Self, color: TabColor) void {
+        self.private().tab_color = color;
+        self.syncColorIndicator();
+    }
+
+    pub fn syncColorIndicator(self: *Self) void {
+        const page = self.getTabPage() orelse return;
+        const color = self.private().tab_color;
+        if (color == .none) {
+            page.setIndicatorIcon(null);
+            return;
+        }
+        const texture = color.createIndicatorIcon();
+        defer texture.unref();
+        page.setIndicatorIcon(texture.as(gio.Icon));
+    }
+
     pub fn promptTabTitle(self: *Self) void {
         const priv = self.private();
         const dialog = TitleDialog.new(.tab, priv.title_override orelse priv.title);
