@@ -1330,21 +1330,11 @@ fn printSliceMixed(
     // ensure that our screen remains in a consistent state.
     defer screen.assertIntegrity();
 
-    // The style can't change during a printSlice call, so the cell
-    // template holds for every row.
-    const style_id = cursor.style_id;
-    const template: Cell = .{
-        .content_tag = .codepoint,
-        .content = .{ .codepoint = .{ .data = 0 } },
-        .style_id = style_id,
-        .wide = .narrow,
-        .protected = cursor.protected,
-        .semantic_content = cursor.semantic_content,
-    };
+    // The cell template and expected bits are set per row below.
     var state: PrintSliceMixedRow = .{
         .cps = cps,
-        .template_bits = @bitCast(template),
-        .check_expected = printSliceCheckExpected(style_id),
+        .template_bits = undefined,
+        .check_expected = undefined,
         .prev = prev,
     };
 
@@ -1363,6 +1353,22 @@ fn printSliceMixed(
         // A degenerate 1-wide region can't hold a wide char; print()
         // has special handling so leave it the row.
         if (right_limit - self.scrolling_region.left <= 1) break;
+
+        // The style can't change during a printSlice call, but style
+        // IDs are per page and a wrap can move the cursor onto another
+        // page, which re-interns the style under a new ID. Read it for
+        // every row.
+        const style_id = cursor.style_id;
+        const template: Cell = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 0 } },
+            .style_id = style_id,
+            .wide = .narrow,
+            .protected = cursor.protected,
+            .semantic_content = cursor.semantic_content,
+        };
+        state.template_bits = @bitCast(template);
+        state.check_expected = printSliceCheckExpected(style_id);
 
         state.cells = @ptrCast(cursor.page_cell);
         state.avail = right_limit - cursor.x;
@@ -16156,6 +16162,99 @@ test "Terminal: printSlice wide, space, wide at the right edge" {
                 });
             }
         }
+    }
+}
+
+test "Terminal: printSlice styled mixed width onto a new page mid-slice" {
+    // Styled text that alternates width classes stays in printSliceMixed
+    // across rows. When a row wraps the cursor onto a new page, the new
+    // page interns the cursor's style under its own ID, and the rows
+    // after that must use it rather than the first page's. Other styles
+    // used on the first page make the two IDs differ. Linefeeds fill
+    // the first page so that the slice itself can stay short (Debug
+    // print() checks the whole page's integrity per codepoint).
+    const Setup = struct {
+        fn setup(t: *Terminal) !void {
+            for ([_]sgr.Attribute{
+                .{ .italic = {} },
+                .{ .faint = {} },
+                .{ .underline = .single },
+            }) |attr| {
+                try t.setAttribute(attr);
+                try t.print('y');
+                try t.setAttribute(.unset);
+            }
+            try t.setAttribute(.{ .bold = {} });
+            t.setCursorPos(t.rows, 1);
+            while (true) {
+                const page = t.screens.active.cursor.page_pin.node.page();
+                if (page.size.rows == page.capacity.rows) break;
+                try t.linefeed();
+            }
+        }
+    };
+
+    const alloc = testing.allocator;
+    const cols = 200;
+    var cps: [cols * 4 + 7]u32 = undefined;
+    for (&cps, 0..) |*cp, i| cp.* = if (i % 3 == 2) ' ' else 0x4E00 + @as(u32, @intCast(i % 512));
+    for ([_]?usize{ 10_000, 10_000_000 }) |max_scrollback| {
+        const opts: Options = .{
+            .cols = cols,
+            .rows = 3,
+            .max_scrollback_bytes = max_scrollback,
+        };
+        var t1 = try init(testing.io, alloc, opts);
+        defer t1.deinit(alloc);
+        var t2 = try init(testing.io, alloc, opts);
+        defer t2.deinit(alloc);
+        try Setup.setup(&t1);
+        try Setup.setup(&t2);
+
+        const node = t2.screens.active.cursor.page_pin.node;
+        const serial = node.serial;
+        for (cps) |cp| try t1.print(@intCast(cp));
+        try t2.printSlice(&cps);
+
+        // The slice did cross onto another page.
+        const now = t2.screens.active.cursor.page_pin.node;
+        try testing.expect(now != node or now.serial != serial);
+
+        const c1 = t1.screens.active.cursor;
+        const c2 = t2.screens.active.cursor;
+        try testing.expectEqual(c1.x, c2.x);
+        try testing.expectEqual(c1.y, c2.y);
+        try testing.expectEqual(c1.pending_wrap, c2.pending_wrap);
+        try testing.expectEqual(t1.previous_char, t2.previous_char);
+
+        // Every row the slice wrote (it fits in the screen and the
+        // last page of scrollback) has the same cells, in the same
+        // (bold) style, as print() wrote.
+        const rows = cps.len * 3 / 2 / cols + 2;
+        const total = t1.screens.active.pages.total_rows;
+        try testing.expectEqual(total, t2.screens.active.pages.total_rows);
+        for (total - rows..total) |y| {
+            const p1 = t1.screens.active.pages.pin(.{ .screen = .{ .y = @intCast(y) } }).?;
+            const p2 = t2.screens.active.pages.pin(.{ .screen = .{ .y = @intCast(y) } }).?;
+            const page1 = p1.node.page();
+            const page2 = p2.node.page();
+            for (p1.cells(.all), p2.cells(.all)) |a, b| {
+                var a_bits = a;
+                var b_bits = b;
+                a_bits.style_id = 0;
+                b_bits.style_id = 0;
+                try testing.expectEqual(@as(u64, @bitCast(a_bits)), @as(u64, @bitCast(b_bits)));
+                try testing.expectEqual(a.style_id == 0, b.style_id == 0);
+                if (a.style_id == 0) continue;
+                const s1 = page1.styles.get(page1.memory, a.style_id);
+                const s2 = page2.styles.get(page2.memory, b.style_id);
+                try testing.expect(s1.eql(s2.*));
+                try testing.expect(s2.flags.bold);
+            }
+        }
+
+        t1.screens.active.assertIntegrity();
+        t2.screens.active.assertIntegrity();
     }
 }
 
