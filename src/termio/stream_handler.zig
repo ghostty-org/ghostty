@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const global = @import("../global.zig");
 const xev = global.xev;
 const apprt = @import("../apprt.zig");
+const Message = apprt.surface.Message;
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
 const internal_os = @import("../os/main.zig");
@@ -137,7 +138,7 @@ pub const StreamHandler = struct {
 
     inline fn surfaceMessageWriter(
         self: *StreamHandler,
-        msg: apprt.surface.Message,
+        msg: Message,
     ) void {
         // See messageWriter which has similar logic and explains why
         // we may have to do this.
@@ -1476,7 +1477,18 @@ pub const StreamHandler = struct {
     ) !void {
         switch (cmd.action) {
             .end_input_start_output => {
-                self.surfaceMessageWriter(.start_command);
+                const message: Message = .{
+                    .start_command = c: {
+                        var w: std.Io.Writer.Allocating = .init(self.alloc);
+                        defer w.deinit();
+
+                        cmd.writeCommandLine(&w.writer) catch break :c .{ .command_line = null };
+
+                        break :c Message.StartCommand.init(self.alloc, w.written());
+                    },
+                };
+
+                self.surfaceMessageWriter(message);
             },
 
             .end_command => {
