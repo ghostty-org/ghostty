@@ -302,16 +302,29 @@ fn runInner(
 
     // A pane-scoped capability is injected only by the native GUI. Let its
     // helper classify arguments before any SSH setup or remote process launch.
-    if (opts.@"remote-agent" == null and opts.@"remote-working-directory" == null) {
+    if (opts.@"remote-agent" == null) {
         var handoff_env = try global.environMap();
         defer handoff_env.deinit();
-        if (handoff_env.get("OMG_SSH_HANDOFF_HELPER")) |helper| {
+        if (handoff_env.get("OMG_SSH_HANDOFF_HELPER")) |inherited_helper| {
+            var helper = inherited_helper;
+            // Persistent local shells may still name a helper from an older
+            // runtime. The current CLI and GUI negotiate the current handoff.
+            if (global.resourcesDir().app()) |resources| {
+                const bundled = try std.fs.path.resolve(alloc, &.{ resources, "..", "session-runtime", "omgd" });
+                if (std.Io.Dir.accessAbsolute(global.io(), bundled, .{})) {
+                    helper = bundled;
+                } else |_| {}
+            }
             const token = handoff_env.get("OMG_SSH_HANDOFF_TOKEN") orelse "";
             const directory = handoff_env.get("OMG_SSH_HANDOFF_DIRECTORY") orelse "";
             if (helper.len > 0 and token.len > 0 and directory.len > 0) {
                 const check = try std.mem.concat(alloc, []const u8, &.{ &.{ helper, "handoff-check" }, opts._ssh_args.items });
                 if ((childExec(check) catch 64) == 0) {
-                    const request = try std.mem.concat(alloc, []const u8, &.{ &.{ helper, "handoff", opts.ssh }, opts._ssh_args.items });
+                    const prefix: []const []const u8 = if (opts.@"remote-working-directory") |cwd|
+                        &.{ helper, "handoff-cwd", opts.ssh, cwd }
+                    else
+                        &.{ helper, "handoff", opts.ssh };
+                    const request = try std.mem.concat(alloc, []const u8, &.{ prefix, opts._ssh_args.items });
                     return try childExec(request);
                 }
             }

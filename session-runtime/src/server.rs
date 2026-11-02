@@ -21,9 +21,63 @@ use std::{
     time::{Duration, Instant},
 };
 static PTY_SPAWN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+struct ReplyBuffer {
+    bytes: VecDeque<u8>,
+    delegated: bool,
+    unclaimed: VecDeque<u8>,
+    awaiting_writer: bool,
+}
+impl ReplyBuffer {
+    fn new(bytes: VecDeque<u8>, delegated: bool) -> Self {
+        Self {
+            bytes,
+            delegated,
+            unclaimed: VecDeque::new(),
+            awaiting_writer: delegated,
+        }
+    }
+    fn claim(&mut self, delegated: bool) {
+        self.delegated = delegated;
+        self.awaiting_writer = false;
+        if !delegated {
+            self.bytes.append(&mut self.unclaimed);
+        }
+        self.unclaimed.clear();
+    }
+}
+impl std::ops::Deref for ReplyBuffer {
+    type Target = VecDeque<u8>;
+    fn deref(&self) -> &Self::Target {
+        &self.bytes
+    }
+}
+impl std::ops::DerefMut for ReplyBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bytes
+    }
+}
+struct OutputScreen<'a> {
+    vt: &'a mut Vt,
+    replies: *const ReplyBuffer,
+}
+impl crate::terminal_output::Screen for OutputScreen<'_> {
+    fn write(&mut self, bytes: &[u8]) {
+        self.vt.write(bytes);
+    }
+    fn pending_responses(&self) -> usize {
+        unsafe { (&*self.replies).len() }
+    }
+}
+
 extern "C" fn reply(context: *mut c_void, data: *const u8, len: usize) {
-    let queue = unsafe { &mut *(context as *mut VecDeque<u8>) };
-    if queue.len() + len <= 1024 * 1024 {
+    let queue = unsafe { &mut *(context as *mut ReplyBuffer) };
+    if queue.delegated {
+        if queue.awaiting_writer && queue.unclaimed.len() + len <= 64 * 1024 {
+            queue
+                .unclaimed
+                .extend(unsafe { std::slice::from_raw_parts(data, len) });
+        }
+    } else if queue.len() + len <= 1024 * 1024 {
         queue.extend(unsafe { std::slice::from_raw_parts(data, len) });
     }
 }
@@ -385,7 +439,11 @@ pub fn serve_managed(
         let _ = child.wait();
         return Err(io::Error::last_os_error());
     }
-    let mut input = Box::new(VecDeque::from(std::mem::take(&mut initial_input)));
+    let inline_viewer = managed.as_ref().is_some_and(|m| m.record.inline_viewer);
+    let mut input = Box::new(ReplyBuffer::new(
+        VecDeque::from(std::mem::take(&mut initial_input)),
+        inline_viewer,
+    ));
     let mut vt = Vt::with_reply_pixels_scrollback(
         size.ws_col,
         size.ws_row,
@@ -396,12 +454,18 @@ pub fn serve_managed(
             max_lines: scrollback_max_lines,
         },
         Some(reply),
-        (&mut *input as *mut VecDeque<u8>).cast(),
+        (&mut *input as *mut ReplyBuffer).cast(),
     )?;
+    let mut output = crate::terminal_output::Relay::default();
     let mut peers: Vec<Peer> = vec![];
     let mut close_after_flush = HashSet::new();
     let mut next_id = 1;
+    let mut had_peer = false;
     let mut writer = None;
+    // A first inline viewer can continue at its local shell cursor instead of
+    // clearing the screen to paint a newly-created, mostly empty terminal.
+    // Stop retaining this bounded prefix once anyone has claimed the PTY.
+    let mut initial_output = Some(Vec::<u8>::new());
     let mut seq = 0u64;
     let id = managed
         .as_ref()
@@ -544,6 +608,7 @@ pub fn serve_managed(
                         continue;
                     }
                     let mut peer = Peer::new(socket, next_id)?;
+                    had_peer = true;
                     next_id += 1;
                     let info = serde_json::json!({
                         "version": 2,
@@ -560,7 +625,12 @@ pub fn serve_managed(
                         "foreground_pid": if local_mode { last_foreground } else { None },
                         "tty_name": if local_mode { tty_name.as_deref() } else { None },
                         "password_input": last_password_input,
-                        "runtime_ms": runtime_millis(started_at)
+                        "runtime_ms": runtime_millis(started_at),
+                        "inline_viewer": inline_viewer,
+                        "initial_output": initial_output.as_ref().map(|bytes| {
+                            use base64::Engine;
+                            base64::engine::general_purpose::STANDARD.encode(bytes)
+                        })
                     });
                     peer.push(Frame::new(INFO, seq, info.to_string().as_bytes()));
                     if queue_snapshot(&mut peer, seq, vt.snapshot()) {
@@ -612,6 +682,12 @@ pub fn serve_managed(
                 }
                 match f.kind {
                     CLAIM if writer.is_none() || writer == Some(peer.id) => {
+                        if !f.data.is_empty() && f.data != b"inline/1" {
+                            peer.dead = true;
+                            continue;
+                        }
+                        initial_output = None;
+                        input.claim(f.data == b"inline/1");
                         writer = Some(peer.id);
                         peer.push(Frame::new(CLAIM, seq, &[]));
                     }
@@ -690,10 +766,25 @@ pub fn serve_managed(
             match pty.read(&mut bytes) {
                 Ok(0) => eof = true,
                 Ok(n) => {
-                    vt.write(&bytes[..n]);
-                    seq += n as u64;
-                    for peer in &mut peers {
-                        peer.push(Frame::new(OUTPUT, seq, &bytes[..n]));
+                    let visible = output.feed(
+                        &mut OutputScreen {
+                            vt: &mut vt,
+                            replies: &*input,
+                        },
+                        &bytes[..n],
+                    );
+                    if let Some(prefix) = &mut initial_output {
+                        if prefix.len() + visible.len() <= 8 * 1024 {
+                            prefix.extend_from_slice(&visible);
+                        } else {
+                            initial_output = None;
+                        }
+                    }
+                    seq += visible.len() as u64;
+                    if !visible.is_empty() {
+                        for peer in &mut peers {
+                            peer.push(Frame::new(OUTPUT, seq, &visible));
+                        }
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -784,6 +875,9 @@ pub fn serve_managed(
         }
         if writer.is_some_and(|id| !peers.iter().any(|p| p.id == id)) {
             writer = None;
+            input.claim(false);
+        } else if had_peer && peers.is_empty() && input.awaiting_writer {
+            input.claim(false);
         }
         if let (Some(code), true) = (exited, eof) {
             if draining.is_none() {
@@ -862,6 +956,77 @@ pub fn serve_managed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_writer_delegates_queries_and_detached_host_answers_them_once() {
+        let mut input = Box::new(ReplyBuffer::new(VecDeque::new(), true));
+        let mut vt = Vt::with_reply_pixels(
+            80,
+            24,
+            640,
+            384,
+            Some(reply),
+            (&mut *input as *mut ReplyBuffer).cast(),
+        )
+        .unwrap();
+        let mut output = crate::terminal_output::Relay::default();
+        let visible = output.feed(
+            &mut OutputScreen {
+                vt: &mut vt,
+                replies: &*input,
+            },
+            b"\x1b[6n",
+        );
+        assert_eq!(visible, b"\x1b[6n");
+        assert!(input.is_empty());
+        input.claim(true);
+        input.claim(false);
+        let visible = output.feed(
+            &mut OutputScreen {
+                vt: &mut vt,
+                replies: &*input,
+            },
+            b"\x1b[6n",
+        );
+        assert!(visible.is_empty());
+        assert_eq!(input.iter().copied().collect::<Vec<_>>(), b"\x1b[1;1R");
+    }
+
+    #[test]
+    fn snapshot_and_filtered_output_share_the_same_partial_sequence_boundary() {
+        let mut input = Box::new(ReplyBuffer::new(VecDeque::new(), false));
+        let mut vt = Vt::with_reply_pixels(
+            80,
+            24,
+            640,
+            384,
+            Some(reply),
+            (&mut *input as *mut ReplyBuffer).cast(),
+        )
+        .unwrap();
+        let mut output = crate::terminal_output::Relay::default();
+        assert!(output
+            .feed(
+                &mut OutputScreen {
+                    vt: &mut vt,
+                    replies: &*input
+                },
+                b"\x1b[3"
+            )
+            .is_empty());
+        let mut attached = Vt::new(80, 24).unwrap();
+        attached.restore(&vt.snapshot().unwrap()).unwrap();
+        let tail = output.feed(
+            &mut OutputScreen {
+                vt: &mut vt,
+                replies: &*input,
+            },
+            b"1mRED\x1b[0m",
+        );
+        attached.write(&tail);
+        assert_eq!(attached.text().unwrap(), vt.text().unwrap());
+        assert!(attached.text().unwrap().contains("RED"));
+    }
 
     #[test]
     fn resize_accepts_legacy_and_pixel_aware_payloads() {

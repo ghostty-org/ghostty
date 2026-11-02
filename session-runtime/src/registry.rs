@@ -143,6 +143,15 @@ pub struct OpenRequest {
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<LocalLaunchSpec>,
+    #[serde(default)]
+    pub inline_viewer: bool,
+}
+
+#[derive(Default)]
+struct ConnectOptions<'a> {
+    cwd: Option<&'a str>,
+    launch: Option<LocalLaunchSpec>,
+    inline_viewer: bool,
 }
 
 pub struct Registry {
@@ -547,7 +556,7 @@ impl Registry {
         self.list()
     }
     pub fn connect(&mut self, id: &str, resume_generation: Option<&str>) -> io::Result<UnixStream> {
-        self.connect_with(id, resume_generation, None, true, None, None)
+        self.connect_with(id, resume_generation, None, true, ConnectOptions::default())
     }
     pub fn open(&mut self, request: &OpenRequest) -> io::Result<UnixStream> {
         request.policy.validate()?;
@@ -582,8 +591,11 @@ impl Registry {
             None,
             Some(request.policy.clone()),
             request.create,
-            request.cwd.as_deref(),
-            local_launch,
+            ConnectOptions {
+                cwd: request.cwd.as_deref(),
+                launch: local_launch,
+                inline_viewer: request.inline_viewer,
+            },
         )
     }
     fn connect_with(
@@ -592,9 +604,13 @@ impl Registry {
         resume_generation: Option<&str>,
         policy: Option<Policy>,
         create: bool,
-        initial_cwd: Option<&str>,
-        local_launch: Option<LocalLaunchSpec>,
+        options: ConnectOptions<'_>,
     ) -> io::Result<UnixStream> {
+        let ConnectOptions {
+            cwd: initial_cwd,
+            launch: local_launch,
+            inline_viewer,
+        } = options;
         if !valid_id(id) {
             return Err(io::Error::other("invalid session identity"));
         }
@@ -620,7 +636,11 @@ impl Registry {
                 &path,
                 create && local_launch.is_some(),
                 policy,
-                local_launch,
+                ConnectOptions {
+                    cwd: None,
+                    launch: local_launch,
+                    inline_viewer,
+                },
             );
         }
         if self.workers.len() >= MAX_RUNNING {
@@ -695,6 +715,7 @@ impl Registry {
             Record::new(id, policy.unwrap_or_else(|| self.policy.clone()))?
         };
         record.contained = self.containment_root.is_some();
+        record.inline_viewer = inline_viewer;
         record.save(&path)?;
         // This host owns the runtime directory exclusively; stale sockets cannot
         // be a still-running worker. Remove only our validated session paths.
@@ -745,8 +766,9 @@ impl Registry {
         path: &Path,
         create: bool,
         policy: Option<Policy>,
-        launch: Option<LocalLaunchSpec>,
+        options: ConnectOptions<'_>,
     ) -> io::Result<UnixStream> {
+        let launch = options.launch;
         if path.exists() {
             let mut record = Record::load(path)?;
             if record.ended.is_none() {
@@ -818,6 +840,7 @@ impl Registry {
             .mode(0o600)
             .open(self.root.join(format!("{id}.created")))?;
         let mut record = Record::new(id, policy.unwrap_or_else(|| self.policy.clone()))?;
+        record.inline_viewer = options.inline_viewer;
         record.holder_capability = Some(nonce()?);
         record.cwd = launch.cwd.clone();
         record.save(path)?;

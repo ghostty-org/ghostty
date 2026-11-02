@@ -53,7 +53,8 @@ struct SessionRuntimeConnectionTests {
         handoff.configure(&first, pane: surface.id)
         let name = String(repeating: "a", count: 32)
         let request: [String: Any] = ["token": first.environmentVariables["OMG_SSH_HANDOFF_TOKEN"]!,
-            "ssh": "/usr/bin/ssh", "args": ["-N", "host"], "cwd": root.path]
+            "ssh": "/usr/bin/ssh", "args": ["-N", "host"], "cwd": root.path,
+            "viewer": "inline/1", "pid": ProcessInfo.processInfo.processIdentifier]
         try SessionRuntimeBridgeStorage.writePrivateFile(
             at: directory.appendingPathComponent(name + ".json"),
             data: JSONSerialization.data(withJSONObject: request),
@@ -80,7 +81,7 @@ struct SessionRuntimeConnectionTests {
         import json, os, pathlib, time
         directory = pathlib.Path(os.environ['OMG_SSH_HANDOFF_DIRECTORY'])
         name = '1234567890abcdef1234567890abcdef'
-        payload = dict(token=os.environ['OMG_SSH_HANDOFF_TOKEN'], ssh='/usr/bin/ssh', args=['-N', 'host'], cwd=os.getcwd())
+        payload = dict(token=os.environ['OMG_SSH_HANDOFF_TOKEN'], ssh='/usr/bin/ssh', args=['-N', 'host'], cwd=os.getcwd(), viewer='inline/1', pid=os.getpid())
         request = directory / (name + '.json')
         fd = os.open(request, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         os.write(fd, json.dumps(payload).encode())
@@ -239,30 +240,47 @@ struct SessionRuntimeConnectionTests {
     }
 
     @MainActor
-    @Test func sshHandoffOpensSiblingTabAndLeavesLocalSurfaceVisible() throws {
+    @Test func sshHandoffApprovesAnInlineViewerWithoutReplacingThePaneOrOpeningATab() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
         var config = Ghostty.SurfaceConfiguration()
         config.command = "/bin/sleep 60"
         let controller = TerminalController(app, withBaseConfig: config)
         _ = controller.window
+        defer { controller.window?.delegate = nil; controller.window?.close() }
         let local = try #require(controller.surfaceTree.first)
-        let descriptor = SessionRuntimeDescriptor(
-            connection: try GitSSHConnection(destination: "host", localWorkingDirectory: "/tmp"),
-            revision: "unavailable-test-revision",
-            policy: .init()
-        )
-        let remoteController = try SessionRuntimeHandoff().openRemoteTab(descriptor, in: controller)
-        defer {
-            remoteController.window?.delegate = nil
-            remoteController.window?.close()
-            controller.window?.delegate = nil
-            controller.window?.close()
-        }
-        let remote = try #require(remoteController.surfaceTree.first)
+        let before = Set(TerminalController.all.map(ObjectIdentifier.init))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let handoff = SessionRuntimeHandoff(directory: root)
+        var requestConfig = Ghostty.SurfaceConfiguration()
+        handoff.configure(&requestConfig, pane: local.id)
+        let name = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let request: [String: Any] = [
+            "token": try #require(requestConfig.environmentVariables["OMG_SSH_HANDOFF_TOKEN"]),
+            "ssh": "/usr/bin/ssh", "args": ["host"], "cwd": root.path,
+            "viewer": "inline/1", "pid": ProcessInfo.processInfo.processIdentifier,
+            "remote_cwd": "/srv/project"
+        ]
+        try SessionRuntimeBridgeStorage.writePrivateFile(at: root.appendingPathComponent(name + ".json"),
+            data: JSONSerialization.data(withJSONObject: request), permissions: 0o600)
+        #expect(handoff.accept(.init(action: .start, id: "omg-runtime-request-" + name, metadata: "type=app"),
+                               source: local, controller: controller))
+        let approved = try SessionRuntimeBridgeStorage.readPrivateFile(
+            at: root.appendingPathComponent(name + ".accepted"), maximumSize: 65_536)
+        let payload = try #require(JSONSerialization.jsonObject(with: approved) as? [String: Any])
+        let socket = URL(fileURLWithPath: try #require(payload["socket"] as? String))
+        defer { try? FileManager.default.removeItem(at: socket.deletingLastPathComponent()) }
+        #expect(Set(TerminalController.all.map(ObjectIdentifier.init)) == before)
         #expect(controller.surfaceTree.first === local)
-        #expect(remoteController !== controller)
-        #expect(remote.runtimeDescriptor == descriptor)
-        #expect(remoteController.workspaceID == controller.workspaceID)
+        let inline = try #require(local.runtimeInlineSession)
+        #expect(inline.descriptor.connection?.destination == "host")
+        #expect(inline.descriptor.initialWorkingDirectory == "/srv/project")
+        #expect(inline.pane != local.id)
+        #expect(inline.isRunningInThisBoot)
+        let connectionPath = try #require(payload["configuration"] as? String)
+        let connection = try #require(JSONSerialization.jsonObject(with:
+            Data(contentsOf: URL(fileURLWithPath: connectionPath))) as? [String: Any])
+        #expect(connection["tty_authentication"] as? Bool == true)
     }
 
     @MainActor

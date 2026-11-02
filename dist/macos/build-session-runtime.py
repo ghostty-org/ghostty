@@ -49,7 +49,12 @@ def main():
                 if base != 'session-runtime/src':
                     snapshot_digest.update(str(path.relative_to(ROOT)).encode())
                     snapshot_digest.update(contents)
-    for path in [ROOT/'session-runtime/Cargo.lock', ROOT/'session-runtime/build.rs']:
+    for path in [
+        ROOT/'session-runtime/Cargo.toml', ROOT/'session-runtime/Cargo.lock',
+        ROOT/'session-runtime/build.rs', ROOT/'session-runtime/LICENSE.herdr',
+        ROOT/'session-runtime/THIRD-PARTY-NOTICES', Path(__file__).resolve(),
+    ]:
+        digest.update(str(path.relative_to(ROOT)).encode())
         digest.update(path.read_bytes())
     revision = digest.hexdigest()[:20]
     zig = Path(subprocess.check_output(['mise', 'exec', 'zig@0.16.0', '--', 'which', 'zig'], text=True).strip())
@@ -111,6 +116,8 @@ def main():
                     if 'libghostty-vt' in dependency:
                         run(['/usr/bin/install_name_tool', '-change', dependency, '@rpath/' + library.name, str(destination/'omgd')])
                 sign_adhoc([destination/library.name, destination/'omgd'])
+            for notice in ('LICENSE.herdr', 'THIRD-PARTY-NOTICES'):
+                shutil.copy2(ROOT/'session-runtime'/notice, destination/notice)
             files = [{'name': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
                      for p in sorted(destination.iterdir()) if p.name != 'manifest.json' and p.is_file()]
             (destination/'manifest.json').write_text(json.dumps({'revision': revision, 'platform': name, 'files': files}, indent=2)+'\n')
@@ -119,7 +126,7 @@ def main():
         if path.name != 'manifest.json': shutil.copy2(path, output/path.name)
     if args.macos == 'all':
         for path in (output/f'macos-{native}').iterdir():
-            if path.name == 'manifest.json': continue
+            if path.name not in ('omgd',) and path.suffix != '.dylib': continue
             run(['/usr/bin/lipo', '-create', str(output/'macos-aarch64'/path.name),
                  str(output/'macos-x86_64'/path.name), '-output', str(output/path.name)])
             sign_adhoc([output/path.name])

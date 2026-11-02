@@ -34,6 +34,9 @@ struct SSHAgentHookOnboardingBanner: View {
     private var connection: GitSSHConnection? {
         _ = sessionRevision
         let surface = controller.focusedSurface ?? controller.surfaceTree.first
+        // Managed SSH deploys its runtime hooks as part of connection setup.
+        // Further agent choices stay in Settings instead of covering the shell.
+        guard surface?.runtimeInlineSession == nil, surface?.runtimeDescriptor?.isLocal != false else { return nil }
         guard let session = controller.paneSessionContext(for: surface),
               case .sshReady = session.state else { return nil }
         return try? GitSSHConnection(session: session)

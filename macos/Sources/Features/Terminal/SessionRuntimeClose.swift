@@ -102,8 +102,12 @@ final class SessionRuntimeCloseQueue: ObservableObject {
 enum SessionRuntimeClose {
     @MainActor
     static func close(_ node: SplitTree<Ghostty.SurfaceView>.Node) -> Bool {
-        let requests = node.leaves().compactMap { view in
-            view.runtimeDescriptor.map { SessionRuntimeCloseRequest(pane: view.id, descriptor: $0) }
+        let requests = node.leaves().flatMap { view -> [SessionRuntimeCloseRequest] in
+            var result = view.runtimeDescriptor.map { [SessionRuntimeCloseRequest(pane: view.id, descriptor: $0)] } ?? []
+            if let inline = view.runtimeInlineSession {
+                result.append(.init(pane: inline.pane, descriptor: inline.descriptor))
+            }
+            return result
         }
         guard !requests.isEmpty else { return true }
         do {

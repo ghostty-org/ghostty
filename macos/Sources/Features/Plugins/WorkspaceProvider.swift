@@ -370,7 +370,7 @@ struct PaneSessionContext: Equatable, Sendable {
             rememberDisconnectedSSH()
             // OpenSSH reserves 255 for transport/setup errors. A remote shell
             // exiting with another nonzero status is still an intentional exit.
-            offersSSHRecovery = metadata["status"] == "255"
+            offersSSHRecovery = metadata["status"] == "255" && !signal.id.hasPrefix("omg-ssh-inline-")
             if let workingDirectory = metadata["cwd"]?.removingPercentEncoding,
                !workingDirectory.isEmpty {
                 local.workingDirectory = workingDirectory

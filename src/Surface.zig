@@ -1358,16 +1358,12 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
     // Mark our flag that we exited immediately
     self.child_exited = true;
 
-    // Remote exits retain their session view. Local sessions honor the same
-    // exit and wait-after-command policy as a native Exec process.
-    if (self.io.backend == .omg_session and !self.io.backend.omg_session.is_local) {
-        _ = self.rt_app.performAction(.{ .surface = self }, .show_child_exited, info) catch false;
-        return;
-    }
-
     // If our runtime was below some threshold then we assume that this
     // was an abnormal exit and we show an error message.
     if (info.runtime_ms <= self.config.abnormal_command_exit_runtime_ms) runtime: {
+        // Managed hosts report an exact process status, unlike the macOS
+        // login wrapper. A successful short-lived session is a normal exit.
+        if (self.io.backend == .omg_session and info.exit_code == 0) break :runtime;
         // On macOS, our exit code detection doesn't work, possibly
         // because of our `login` wrapper. More investigation required.
         if (comptime !builtin.target.os.tag.isDarwin()) {

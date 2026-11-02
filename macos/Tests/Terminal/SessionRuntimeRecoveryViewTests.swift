@@ -21,7 +21,7 @@ struct SessionRuntimeRecoveryViewTests {
         #expect(view.reconnectButton.isHidden == false)
     }
 
-    @Test func narrowPanesWrapTheExplanationAndKeepTheActionBelowIt() {
+    @Test func narrowPanesKeepTheActionInTheHeaderAndBoundTheExplanation() {
         let view = SessionRuntimeRecoveryView()
         view.update(endpoint: "cloud", state: .attention(attempt: 2, message: String(repeating: "network unavailable ", count: 12)),
                     strings: SettingsStrings(language: .english)) {}
@@ -30,7 +30,11 @@ struct SessionRuntimeRecoveryViewTests {
         #expect(narrowHeight > wideHeight)
         view.frame = NSRect(x: 0, y: 0, width: 240, height: narrowHeight)
         view.layoutSubtreeIfNeeded()
-        #expect(view.detailLabel.frame.maxY < view.reconnectButton.frame.minY)
+        #expect(view.reconnectButton.frame.maxY <= view.detailLabel.frame.minY)
+        #expect(view.titleLabel.frame.maxX < view.reconnectButton.frame.minX)
+        #expect(view.detailLabel.maximumNumberOfLines == 2)
+        #expect(view.detailLabel.toolTip == view.detailLabel.stringValue)
+        #expect(narrowHeight <= 68)
         #expect(view.reconnectButton.frame.maxY < view.bounds.maxY)
         #expect(view.reconnectButton.frame.maxX <= view.bounds.maxX)
     }
@@ -47,6 +51,8 @@ struct SessionRuntimeRecoveryViewTests {
                     strings: english) {}
         #expect(view.titleLabel.stringValue.contains("Reconnecting"))
         #expect(view.detailLabel.stringValue.contains("1s"))
+        #expect(view.detailLabel.isHidden)
+        #expect(view.height(for: 240) == 32)
     }
 
     @Test func exitedSessionShowsExitCodeWithoutOfferingReconnect() {

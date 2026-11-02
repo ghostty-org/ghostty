@@ -404,7 +404,7 @@ enum SessionRuntimeBridgeStorage {
         guard fsync(fd) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
     }
 
-    fileprivate static func ensurePrivateDirectory(_ url: URL) throws {
+    static func ensurePrivateDirectory(_ url: URL) throws {
         let path = url.path
         if mkdir(path, 0o700) != 0 {
             guard errno == EEXIST else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
@@ -642,6 +642,47 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
         )
     }
 
+    func connectionConfiguration(
+        _ descriptor: SessionRuntimeDescriptor,
+        interactive: Bool,
+        ttyAuthentication: Bool = false
+    ) throws -> Data {
+        let artifacts = try artifactDirectory(revision: descriptor.revision)
+        struct Configuration: Encodable {
+            let transport: String
+            let executable: String
+            let arguments: [String]
+            let cwd: String
+            let localShell: String
+            let bundle: String
+            let policy: SessionRuntimePolicy
+            let revision: String
+            let hooks: String?
+            let localStateDirectory: String?
+            let ttyAuthentication: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case transport, executable, arguments, cwd, bundle, policy, revision, hooks
+                case localShell = "local_shell"
+                case localStateDirectory = "local_state_directory"
+                case ttyAuthentication = "tty_authentication"
+            }
+        }
+        let connection = descriptor.connection
+        let localStateDirectory = Self.localStateDirectory(for: descriptor).path
+        let config = Configuration(transport: descriptor.isLocal ? "local" : "ssh",
+            executable: connection?.executablePath ?? "/usr/bin/ssh",
+            arguments: connection?.arguments.map {
+                $0 == "BatchMode=yes" || $0 == "BatchMode=no" ? "BatchMode=\(interactive ? "no" : "yes")" : $0
+            } ?? [],
+            cwd: descriptor.launchWorkingDirectory,
+            localShell: Self.localLoginShell,
+            bundle: artifacts.path, policy: descriptor.policy, revision: descriptor.revision,
+            hooks: connection == nil ? nil : try AgentHookInstaller.remoteInstallerScript(agents: [.codex, .claude, .pi]),
+            localStateDirectory: connection == nil ? localStateDirectory : nil, ttyAuthentication: ttyAuthentication)
+        return try JSONEncoder().encode(config)
+    }
+
     func prepare(
         _ descriptor: SessionRuntimeDescriptor,
         interactive: Bool = true,
@@ -657,37 +698,8 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
         let key = String(descriptor.identity.prefix(16))
         let socket = root.appendingPathComponent(key + ".sock")
         let configURL = root.appendingPathComponent(key + ".json")
-        struct Configuration: Encodable {
-            let transport: String
-            let executable: String
-            let arguments: [String]
-            let cwd: String
-            let localShell: String
-            let bundle: String
-            let policy: SessionRuntimePolicy
-            let revision: String
-            let hooks: String?
-            let localStateDirectory: String?
-
-            enum CodingKeys: String, CodingKey {
-                case transport, executable, arguments, cwd, bundle, policy, revision, hooks
-                case localShell = "local_shell"
-                case localStateDirectory = "local_state_directory"
-            }
-        }
-        let connection = descriptor.connection
-        let localStateDirectory = Self.localStateDirectory(for: descriptor).path
-        let config = Configuration(transport: descriptor.isLocal ? "local" : "ssh",
-            executable: connection?.executablePath ?? "/usr/bin/ssh",
-            arguments: connection?.arguments.map {
-                $0 == "BatchMode=yes" || $0 == "BatchMode=no" ? "BatchMode=\(interactive ? "no" : "yes")" : $0
-            } ?? [],
-            cwd: descriptor.launchWorkingDirectory,
-            localShell: Self.localLoginShell,
-            bundle: artifacts.path, policy: descriptor.policy, revision: descriptor.revision,
-            hooks: connection == nil ? nil : try AgentHookInstaller.remoteInstallerScript(agents: [.codex, .claude, .pi]),
-            localStateDirectory: connection == nil ? localStateDirectory : nil)
-        try JSONEncoder().encode(config).write(to: configURL, options: .atomic)
+        let configData = try connectionConfiguration(descriptor, interactive: interactive)
+        try configData.write(to: configURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
         try? FileManager.default.removeItem(at: socket)
         let process = Process()

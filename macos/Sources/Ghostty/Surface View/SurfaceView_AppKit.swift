@@ -21,6 +21,7 @@ extension Ghostty {
 
         var runtimeDescriptor: SessionRuntimeDescriptor?
         @Published var runtimeConnectionState: SessionRuntimeConnectionState?
+        var runtimeInlineSession: SessionRuntimeInlineSession?
         @Published var runtimeConnectionError: String?
         private(set) var runtimeAttachmentSuspended = false
 
@@ -453,6 +454,11 @@ extension Ghostty {
                 }
             }
             SessionRuntimeHandoff.shared.configure(&surface_cfg, pane: self.id)
+            runtimeInlineSession = SessionRuntimeHandoff.shared.restoredInlineSession(
+                for: runtimeDescriptor, pane: self.id
+            )
+            if let replay = runtimeInlineSession?.replay { pendingSSHLaunchReplay = replay }
+            if runtimeInlineSession?.passwordInput == true { passwordInput = true }
             QuickInputDraftBridge.shared.configure(
                 &surface_cfg,
                 surfaceID: self.id,
@@ -2209,7 +2215,7 @@ extension Ghostty {
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(pwd, forKey: .pwd)
+            try container.encode(runtimeInlineSession?.descriptor.launchWorkingDirectory ?? pwd, forKey: .pwd)
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encodeIfPresent(runtimeDescriptor, forKey: .runtimeDescriptor)
             try container.encode(title, forKey: .title)

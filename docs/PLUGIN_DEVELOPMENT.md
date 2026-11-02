@@ -118,23 +118,46 @@ Local GUI panes receive a private per-pane capability and request directory.
 The existing shell SSH wrapper calls `omg +ssh`, which routes conservative
 interactive shell invocations to the bundled `omgd handoff` helper. A private
 request file carries exact argv/cwd; OSC 3008 only references its random ID.
-The host checks the owning pane capability before replacing that local surface
-with the native remote backend. Output alone is insufficient to authorize it.
-Remote commands, tunnels and unsupported flags retain standard SSH behavior.
-Each local pane overwrites inherited handoff variables, including when its app
-bundle lacks the helper; capabilities from the terminal that launched the app
-must never be reused. An authenticated request receives `.accepted` only after
-native surface construction succeeds, or a private `.failed` response with a
-setup error. The helper reports that failure immediately rather than waiting
-for its unacknowledged-request timeout. Development installers validate bundled
-helpers, dependencies and remote platform manifests before replacing the app.
-The local surface is retained during handoff. A confirmed remote process exit
-returns to that local shell and records a local pane; transport disconnection
-never triggers this transition. Across app restart, the local shell is recreated
-at the descriptor's original local working directory. The remote surface has
-its own terminal scrollback; the retained local history is not prepended to a
-remote snapshot. Handoff replaces the current pane, not its tab/window. Local
-history becomes visible again after a normal remote shell exit.
+The host checks the owning pane capability, then writes a private approved
+connection configuration. It does not replace the Surface or create a tab.
+The helper is a terminal-byte viewer inside the same local PTY: it owns the
+transport relay independently of the GUI, forwards input/size changes, and
+returns the remote exit status to the waiting original local shell. Remote
+commands, tunnels and unsupported flags retain the existing SSH wrapper path.
+Authentication uses the controlling terminal; it does not force an Askpass
+window. The current CLI selects its bundled helper so persistent local shells
+cannot strand new requests on an old cached handoff implementation.
+
+Fresh sessions provide a bounded initial output prefix; the inline viewer can
+continue below the local prompt without clearing local content. Reconnect uses
+the authoritative binary snapshot, generation-fenced writer acquisition and
+terminal-mode restoration. `inline-viewer/1` negotiates an inline writer:
+while attached, the enclosing local VT answers terminal queries using the real
+cursor position, including the local history prefix. When that writer detaches,
+the daemon answers queries itself and filters answered queries out of its output.
+Output sequence numbers count the forwarded stream, including complete control
+sequences; buffered incomplete sequences remain outside that snapshot boundary.
+No local terminal contents are uploaded to seed the remote screen.
+The local parser mirror retains only the active screen and defers metadata
+insertion until an escape-sequence boundary. Reconnect repaint preserves the
+previous viewport in outer scrollback. Transient
+transport failure keeps the original remote PTY and drops disconnected input;
+authentication/setup failure returns an error to the local shell. Remote exit
+restores terminal modes and returns to that shell without a dead-tab screen.
+
+A private owner record links a remote UUID to its local PTY, helper process and
+boot identity. GUI restart restores remote file/split context from that record;
+the library focuses the existing inline pane, or attaches its enclosing local
+PTY if its window was closed. Explicit pane/tab closure journals Close for both
+local and remote sessions. GUI/window detachment keeps the local PTY and its
+inline viewer running; the remote session remains attached to that viewer until
+it exits or detaches. No missing process is silently recreated. Owner records
+from an earlier OS boot are rejected.
+
+An authenticated request receives `.accepted` only after private configuration
+and ownership records have been written, or `.failed` with a setup error. Local
+panes shadow inherited capabilities. Development installers validate helpers,
+dependencies and remote platform manifests before replacing the app.
 
 Native SSH splits create an independent remote session on the same exact SSH
 connection. The current remote pane directory is sent as optional `cwd` in the
@@ -196,9 +219,7 @@ and program OSC color overrides, including resets; it cannot replace the App's
 theme defaults with its own unset defaults. Rendering generations and viewport
 handles are renewed independently of the persistent session identity.
 
-SSH handoff opens a sibling native tab in the same workspace and acknowledges the
-local helper immediately. The original local Surface/shell remains visible and
-interactive; remote exit does not replace it. New local windows/tabs/splits use
+Managed SSH runs inline in the originating local Surface and shell. New local windows/tabs/splits use
 the runtime by default (`sessions.localRuntimeEnabled`); disabling it applies
 only to newly created local terminals. Local sessions share descriptors, relay
 and snapshot protocol while bypassing SSH;
@@ -225,7 +246,9 @@ Workspace presentation preserves its prepared window frame rather than replaying
 the global last-window position. These visibility repairs do not close, replace
 or recreate session runtime processes. Non-native fullscreen restores a captured
 view as first responder only while that view still belongs to the same window;
-a sidebar moved during workspace presentation is no longer a valid responder.
+a sidebar moved during workspace presentation is no longer a valid responder. Runtime progress is a delayed, compact overlay;
+status changes never reserve terminal height or trigger a PTY resize. Fast
+attachment and normal process exit do not display a runtime banner.
 
 Local creation uses Ghostty's resolved argv, environment, cwd, dimensions and
 one-time initial input. The `local-launch/1` capability is required before

@@ -97,7 +97,64 @@ int omg_vt_restore(Vt *vt, const unsigned char *data, size_t len) {
     ghostty_snapshot_decoder_free(decoder);
     if (result || consumed != len) { if (terminal) ghostty_terminal_free(terminal); return result ? result : -1; }
     ghostty_terminal_free(vt->terminal); vt->terminal = terminal;
-    return 0;
+    result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, vt);
+    if (!result) result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, (const void *)reply);
+    return result;
+}
+int omg_vt_continuation(Vt *vt, unsigned char **data, size_t *len) {
+    return ghostty_terminal_continuation_alloc(vt->terminal, NULL, data, len);
+}
+int omg_vt_screen_only(Vt *vt) {
+    size_t zero = 0;
+    int result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &zero);
+    if (!result) result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &zero);
+    return result;
+}
+int omg_vt_dynamic_color(Vt *vt, unsigned int index, unsigned char *rgb) {
+    const GhosttyTerminalData keys[] = {
+        GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+        GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+        GHOSTTY_TERMINAL_DATA_COLOR_CURSOR
+    };
+    if (index >= 3) return -1;
+    GhosttyColorRgb color;
+    int result = ghostty_terminal_get(vt->terminal, keys[index], &color);
+    if (!result) { rgb[0] = color.r; rgb[1] = color.g; rgb[2] = color.b; }
+    return result;
+}
+int omg_vt_paint(Vt *vt, unsigned char **data, size_t *len, bool *alternate) {
+    uint16_t cols = 0, rows = 0;
+    GhosttyTerminalScreen screen;
+    int result = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols);
+    if (!result) result = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
+    if (!result) result = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, &screen);
+    if (result || !cols || !rows) return result ? result : -1;
+    *alternate = screen == GHOSTTY_TERMINAL_SCREEN_ALTERNATE;
+    GhosttySelection selection = {0};
+    selection.size = sizeof(selection);
+    GhosttyPoint start = {.tag = GHOSTTY_POINT_TAG_ACTIVE, .value.coordinate = {.x = 0, .y = 0}};
+    GhosttyPoint end = {.tag = GHOSTTY_POINT_TAG_ACTIVE, .value.coordinate = {.x = cols - 1, .y = rows - 1}};
+    result = ghostty_terminal_grid_ref(vt->terminal, start, &selection.start);
+    if (!result) result = ghostty_terminal_grid_ref(vt->terminal, end, &selection.end);
+    if (result) return result;
+    GhosttyFormatterTerminalOptions opts = {0};
+    opts.size = sizeof(opts);
+    opts.emit = GHOSTTY_FORMATTER_FORMAT_VT;
+    opts.selection = &selection;
+    opts.extra.size = sizeof(opts.extra);
+    // Theme defaults belong to the outer viewer, not the headless runtime.
+    opts.extra.palette = false;
+    opts.extra.modes = opts.extra.scrolling_region = opts.extra.tabstops = true;
+    opts.extra.pwd = opts.extra.keyboard = true;
+    opts.extra.screen.size = sizeof(opts.extra.screen);
+    opts.extra.screen.cursor = opts.extra.screen.style = opts.extra.screen.hyperlink = true;
+    opts.extra.screen.protection = opts.extra.screen.kitty_keyboard = opts.extra.screen.charsets = true;
+    GhosttyFormatter formatter = NULL;
+    result = ghostty_formatter_terminal_new(NULL, &formatter, vt->terminal, opts);
+    if (result) return result;
+    result = ghostty_formatter_format_alloc(formatter, NULL, data, len);
+    ghostty_formatter_free(formatter);
+    return result;
 }
 int omg_vt_text(Vt *vt, unsigned char **data, size_t *len) {
     GhosttyFormatter formatter = NULL;

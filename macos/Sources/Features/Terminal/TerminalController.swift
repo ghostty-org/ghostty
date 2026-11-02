@@ -1316,6 +1316,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     state: surface.runtimeConnectionState
                 )
             }
+            if let inline = surface.runtimeInlineSession, let signal = inline.restorationSignal {
+                paneSessionContexts[surface.id]?.apply(
+                    signal, currentWorkingDirectory: surface.pwd, currentTerminalTitle: surface.title,
+                    sshReplay: inline.replay
+                )
+            }
             // Establish the local epoch before any SSH transition, even if
             // Info has never been opened and no title/PWD event was emitted.
             if let context = paneSessionContexts[surface.id] {
@@ -1354,6 +1360,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 .sink { [weak self, weak surface] signal in
                     guard let self, let surface else { return }
                     if SessionRuntimeHandoff.shared.accept(signal, source: surface, controller: self) { return }
+                    if signal.id == "omg-inline-password" {
+                        if surface.runtimeInlineSession != nil, signal.metadata == "0" || signal.metadata == "1" {
+                            surface.passwordInput = signal.metadata == "1"
+                        }
+                        return
+                    }
+                    if signal.action == .end, surface.runtimeInlineSession?.connectionID == signal.id {
+                        surface.runtimeInlineSession = nil
+                        surface.passwordInput = false
+                    }
                     if signal.id == "omg-runtime-state", let runtime = surface.runtimeDescriptor {
                         guard let state = SessionRuntimeConnectionState.decode(signal.metadata) else { return }
                         surface.runtimeConnectionState = state
@@ -2336,8 +2352,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 } else {
                     return nil
                 }
-                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(config?.workingDirectory)
+                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(
+                    source.runtimeInlineSession?.descriptor.launchWorkingDirectory ?? config?.workingDirectory
+                )
                 var result = config ?? .init()
+                if let inline = source.runtimeInlineSession { result.workingDirectory = inline.descriptor.launchWorkingDirectory }
                 do { try next.configure(&result) } catch { return nil }
                 result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_SOCKET")
                 result.environmentVariables.removeValue(forKey: "OMG_RUNTIME_PANE_ID")
@@ -2408,6 +2427,24 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let effectiveRuntimePolicy = runtimePolicy ?? settings.runtimePolicy
         let effectiveLocalRuntimeEnabled = localRuntimeEnabled ?? settings.localRuntimeEnabled
         if let runtime = source.runtimeDescriptor {
+            if let inline = source.runtimeInlineSession, let connection = inline.descriptor.connection {
+                var next = try runtimeRevision.map {
+                    SessionRuntimeDescriptor(connection: connection, revision: $0, policy: effectiveRuntimePolicy)
+                } ?? SessionRuntimeConnections.descriptor(connection: connection, policy: effectiveRuntimePolicy)
+                var directory = inline.workingDirectory ?? inline.descriptor.initialWorkingDirectory
+                if let context = paneSessionContext(for: source),
+                   case .sshReady(_, let remoteDirectory) = context.state {
+                    directory = remoteDirectory
+                }
+                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(directory)
+                var result = config ?? .init()
+                try next.configure(&result)
+                result.command = nil
+                result.initialInput = nil
+                result.workingDirectory = nil
+                result.waitAfterCommand = false
+                return Self.injectingSessionID(tabSessionID, into: result)
+            }
             if runtime.isLocal, !effectiveLocalRuntimeEnabled {
                 var result = config ?? .init()
                 result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)

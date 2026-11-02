@@ -23,11 +23,15 @@ validates the path and sets it on the new child command without shell evaluation
 or process-wide `chdir`. Existing-session attach ignores this creation hint;
 Agent resume still uses its recorded directory. New splits use current bundled
 artifacts to support this request field; already running panes stay on their
-pinned versions. The native remote terminal's history remains separate from the
-local terminal. Handoff opens a sibling native tab in the same workspace, leaves
-the original local Surface in place and returns its helper to the local prompt.
-The settings connection entry follows the same native tab path when a terminal
-window is available.
+pinned versions. Command-line SSH handoff runs a managed byte-stream viewer inside
+the original local PTY. It keeps the same Surface/tab and local history, waits
+for remote exit, restores terminal modes and returns the exit status to the
+original local shell. TTY authentication does not force a GUI Askpass dialog.
+The settings connection entry can still create a standalone native remote tab.
+Inline owner records restore remote directory/file context and route library
+attach through the existing local PTY; explicit pane Close includes both UUIDs.
+The inline viewer's relay survives GUI detachment. Bundles include the applicable
+Herdr Core Apache-2.0 license and attribution notices.
 
 The relay keeps local pane sockets open across SSH loss, with one retry supervisor
 per exact connection/revision. The existing Surface applies a fresh snapshot on

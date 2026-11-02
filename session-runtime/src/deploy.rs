@@ -34,6 +34,8 @@ pub struct Connection {
     pub local_shell: Option<String>,
     #[serde(default)]
     pub hooks: Option<String>,
+    #[serde(default)]
+    pub tty_authentication: bool,
 }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Manifest {
@@ -71,7 +73,13 @@ fn ssh(config: &Connection, script: &str, interactive: bool) -> io::Result<Comma
         .stderr(Stdio::piped())
         .env(
             "SSH_ASKPASS_REQUIRE",
-            if interactive { "force" } else { "never" },
+            if interactive && config.tty_authentication {
+                "never"
+            } else if interactive {
+                "force"
+            } else {
+                "never"
+            },
         );
     Ok(c)
 }
@@ -495,8 +503,19 @@ mod fast_tests {
             local_state_directory: None,
             local_shell: None,
             hooks: Some("must not execute".into()),
+            tty_authentication: false,
         };
         (root, config)
+    }
+    #[test]
+    fn inline_authentication_keeps_the_controlling_terminal() {
+        let (root, mut config) = fixture("");
+        config.tty_authentication = true;
+        let command = ssh(&config, "true", true).unwrap();
+        assert!(command.get_envs().any(|(key, value)| {
+            key == "SSH_ASKPASS_REQUIRE" && value == Some(std::ffi::OsStr::new("never"))
+        }));
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn warm_restore_preserves_protocol_bytes_without_deployment() {

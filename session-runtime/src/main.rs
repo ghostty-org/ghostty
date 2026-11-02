@@ -17,6 +17,22 @@ fn copy(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
         output.write_all(&buffer[..n])?;
     }
 }
+fn finish_handoff(result: io::Result<i32>) -> ! {
+    match result {
+        Ok(code) => std::process::exit(
+            if code < 0 {
+                128i32.saturating_sub(code)
+            } else {
+                code
+            }
+            .clamp(0, 255),
+        ),
+        Err(error) => {
+            eprintln!("ssh: {error}");
+            std::process::exit(255);
+        }
+    }
+}
 fn bridge(path: &str) -> io::Result<()> {
     use std::os::fd::FromRawFd;
     let socket = UnixStream::connect(path)?;
@@ -361,7 +377,12 @@ fn main() -> io::Result<()> {
                 std::process::exit(64)
             }
         }
-        Some("handoff") if a.len() >= 4 => omg_session_runtime::handoff::request(&a[2], &a[3..]),
+        Some("handoff") if a.len() >= 4 => {
+            finish_handoff(omg_session_runtime::handoff::request(&a[2], &a[3..], None))
+        }
+        Some("handoff-cwd") if a.len() >= 5 => finish_handoff(
+            omg_session_runtime::handoff::request(&a[2], &a[4..], Some(&a[3])),
+        ),
         Some("version") => {
             println!("omg-session-runtime/2 snapshot/1");
             Ok(())

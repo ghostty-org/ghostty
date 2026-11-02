@@ -45,7 +45,11 @@ SSH 子进程使用普通管道与 `ssh -T`，它不持有 Agent PTY。Bridge �
 
 `macos/Sources/Features/Terminal/SSHRecovery.swift` 为普通 system SSH 保留新 PTY/重执行命令的恢复路径；不把这条路径当作 durable session attach。既有普通本地 session 继续 Exec；新本地窗口/tab/split 默认使用 runtime，可用 `sessions.localRuntimeEnabled` 为后续新终端关闭。新本地进程由独立 holder 持有，SSH 由远端 host 的 session thread 持有；两者共享协议和 snapshot backend。Ghostty 通过原有 Exec 准备路径解析本地 argv/env/cwd/shell integration，传递首次尺寸与初始输入，但不额外创建 GUI PTY。launch 仅存内存，首次创建后释放，重连不得重放；SSH 拒绝该本地 payload。
 
-SSH handoff 使用当前窗口/工作区的原生 sibling tab，保留发起连接的本地 Surface 和 shell；helper 得到接受确认后立即返回本地 prompt。连接掉线只更新 pane 状态，relay 保持客户端 socket，自动重新建立传输并 attach 原 UUID。snapshot 恢复和 writer 确认完成前不接受输入；连接 generation 拒绝旧输入、resize、writer 与 snapshot ACK。失败信息走原生状态呈现，不写入终端输出污染保留的画面。用户手动重试只唤醒既有 relay，不替换 Surface 或中断健康 sibling panes。
+SSH handoff 保留当前 Surface、pane UUID 和本地 PTY。经过 pane capability 验证后，GUI 只返回私有连接配置；前台 helper 在原 PTY 内作为远端会话的字节流 viewer，本地 shell 等待它结束。首次输出接在本地历史之后，正常退出恢复终端模式和退出码并返回同一个本地 shell，不新增 tab。helper 自己持有 relay，GUI 退出不切断这条连接。传输失败按既有策略重连同一远端 UUID；明确的认证/配置错误回到本地 prompt。TTY 认证不强制 Askpass 窗口。设置页显式连接仍可建立独立原生远端 tab。
+
+输入、resize、writer 和 snapshot ACK 继续受 generation 限制；断线输入不重放。重连快照恢复终端模式与程序颜色，已由权威 VT 回答的查询不再交给外层终端重复回答。借鉴的 Herdr Core viewer/relay 代码记录在 `session-runtime/THIRD-PARTY-NOTICES`，许可证随 App 打包。
+
+私有 inline owner 记录关联远端 UUID、本地 PTY、helper PID 和 OS boot UUID；恢复 GUI 时恢复远端目录与文件上下文，split 使用远端目录，新 tab 使用原本地目录。会话库优先聚焦 inline pane；窗口已关闭时重新 attach 其本地 PTY，避免争抢远端 writer。显式关闭 pane 同时持久化本地和远端 Close。GUI detach 后，本地 PTY 内的 viewer 仍然运行，远端也仍附着于该 viewer。运行时状态使用延迟显示的紧凑浮层，不再挤压终端或触发 PTY resize；托管 SSH 不在终端内自动弹出 Agent hook 接入面板。
 
 重点审计 surface deinit、关闭 tab、退出 App、进程退出展示和 restorable state。关闭窗口或退出 App 是 Detach；用户显式关闭 tab/pane 则持久化 CloseSession。Window 菜单和设置页均可打开原生 Session Library，按 endpoint 查询、聚焦或 attach 原 UUID，以及确认 End；只读查询不延长脱离视图后的 TTL。元数据记录 host/account 身份、session ID 和 daemon instance epoch。重连找不到 session 时显示明确状态，不自动创建同名进程冒充恢复。
 

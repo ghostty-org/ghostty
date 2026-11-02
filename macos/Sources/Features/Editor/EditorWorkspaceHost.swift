@@ -45,11 +45,12 @@ struct EditorWorkspaceHost<Terminal: View>: View {
     var body: some View {
         NativeEditorContentDeck(items: [
             .init(id: .terminal, content: AnyView(VStack(spacing: 0) {
-                SessionRuntimeRecoveryBanner(controller: controller, surface: surfaceView)
                 if surfaceView.runtimeDescriptor == nil {
                     SSHRecoveryBanner(controller: controller, surface: surfaceView)
                 }
                 terminal
+            }.overlay(alignment: .topTrailing) {
+                SessionRuntimeRecoveryBanner(controller: controller, surface: surfaceView)
             })),
             .init(id: .workspace, content: AnyView(editor
                 .simultaneousGesture(TapGesture().onEnded {

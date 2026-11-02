@@ -124,6 +124,8 @@ pub struct Record {
     /// Authenticates broker adoption of a detached local session holder.
     #[serde(default)]
     pub holder_capability: Option<String>,
+    #[serde(default)]
+    pub inline_viewer: bool,
 }
 impl Record {
     pub fn new(id: &str, policy: Policy) -> io::Result<Self> {
@@ -140,6 +142,7 @@ impl Record {
             policy,
             contained: false,
             holder_capability: None,
+            inline_viewer: false,
         })
     }
     pub fn load(path: &Path) -> io::Result<Self> {

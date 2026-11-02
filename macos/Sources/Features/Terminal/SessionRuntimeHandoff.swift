@@ -24,6 +24,34 @@ final class SessionRuntimeHandoff {
         self.homeDirectory = homeDirectory
     }
 
+    func restoredInlineSession(for local: SessionRuntimeDescriptor?, pane: UUID) -> SessionRuntimeInlineSession? {
+        guard let local, local.isLocal,
+              let bridge = try? SessionRuntimeBridgeStorage.directory(
+                for: local, pane: pane, purpose: "handoff",
+                applicationSupportRoot: applicationSupportRoot, homeDirectory: homeDirectory),
+              let data = try? SessionRuntimeBridgeStorage.readPrivateFile(
+                at: bridge.appendingPathComponent("active.json"), maximumSize: 65_536),
+              let session = try? JSONDecoder().decode(SessionRuntimeInlineSession.self, from: data),
+              session.localPane == pane, session.localDescriptor?.identity == local.identity,
+              session.isRunningInThisBoot else { return nil }
+        return session
+    }
+
+    private func ownerRecordURL(_ remotePane: UUID) -> URL {
+        (applicationSupportRoot ?? OMGApplicationEnvironment.applicationSupportURL())
+            .appendingPathComponent("session-runtime/inline-owners")
+            .appendingPathComponent(remotePane.uuidString.lowercased() + ".json")
+    }
+
+    func inlineOwner(for remotePane: UUID) -> SessionRuntimeInlineSession? {
+        guard let data = try? SessionRuntimeBridgeStorage.readPrivateFile(
+            at: ownerRecordURL(remotePane), maximumSize: 65_536),
+              let owner = try? JSONDecoder().decode(SessionRuntimeInlineSession.self, from: data),
+              owner.pane == remotePane, owner.localPane != nil, owner.localDescriptor?.isLocal == true,
+              owner.isRunningInThisBoot else { return nil }
+        return owner
+    }
+
     func configure(_ config: inout Ghostty.SurfaceConfiguration, pane: UUID) {
         // LaunchServices can inherit the launching terminal's environment.
         // Always shadow its pane capability, even in an app-only build without
@@ -69,27 +97,6 @@ final class SessionRuntimeHandoff {
         } catch { Ghostty.logger.error("Could not prepare native SSH handoff") }
     }
 
-    @discardableResult
-    func openRemoteTab(_ descriptor: SessionRuntimeDescriptor, in controller: TerminalController) throws -> TerminalController {
-        guard let connection = descriptor.connection,
-              controller.ghostty.app != nil,
-              let parent = controller.window else {
-            throw CocoaError(.coderInvalidValue)
-        }
-        var config = Ghostty.SurfaceConfiguration()
-        try descriptor.configure(&config)
-        config.workingDirectory = connection.localWorkingDirectory
-        guard let destination = TerminalController.newTab(
-            controller.ghostty,
-            from: parent,
-            withBaseConfig: config
-        ), destination.surfaceTree.first != nil else {
-            throw NSError(domain: "OMGSessionRuntime", code: 3, userInfo: [NSLocalizedDescriptionKey:
-                "Could not create the native SSH terminal tab."])
-        }
-        return destination
-    }
-
     func accept(_ signal: Ghostty.ContextSignal, source: Ghostty.SurfaceView, controller: TerminalController) -> Bool {
         let prefix = "omg-runtime-request-"
         guard signal.id.hasPrefix(prefix) else { return false }
@@ -116,13 +123,30 @@ final class SessionRuntimeHandoff {
         }
         let file = requestDirectory.appendingPathComponent(name + ".json")
         defer { try? FileManager.default.removeItem(at: file) }
-        struct Request: Decodable { let token: String; let ssh: String; let args: [String]; let cwd: String }
+        struct Request: Decodable {
+            let token: String
+            let ssh: String
+            let args: [String]
+            let cwd: String
+            let pid: Int32?
+            let viewer: String?
+            let remoteWorkingDirectory: String?
+            enum CodingKeys: String, CodingKey {
+                case token, ssh, args, cwd, pid, viewer
+                case remoteWorkingDirectory = "remote_cwd"
+            }
+        }
         var authenticated = false
         do {
             let requestData = try SessionRuntimeBridgeStorage.readPrivateFile(at: file, maximumSize: 65_536)
             let request = try JSONDecoder().decode(Request.self, from: requestData)
             guard request.token == token else { return true }
             authenticated = true
+            guard request.viewer == "inline/1", let helperPID = request.pid, helperPID > 1 else {
+                throw NSError(domain: "OMGSessionRuntime", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "The SSH helper is outdated. Run SSH with the current OMG application."
+                ])
+            }
             guard let parsed = OpenSSHArguments(request.args),
                   let destination = parsed.interactiveDestination,
                   let executable = SSHProcessArguments.executablePath(for: request.ssh, workingDirectory: request.cwd) else {
@@ -130,9 +154,84 @@ final class SessionRuntimeHandoff {
             }
             let connection = try GitSSHConnection(destination: destination, options: parsed.options.flatMap(\.arguments),
                 executablePath: executable, localWorkingDirectory: request.cwd)
-            let descriptor = try SessionRuntimeConnections.descriptor(connection: connection, policy: OhMyGhosttySettings.shared.runtimePolicy)
-            try openRemoteTab(descriptor, in: controller)
-            try Data().write(to: requestDirectory.appendingPathComponent(name + ".accepted"), options: .atomic)
+            var descriptor = try SessionRuntimeConnections.descriptor(connection: connection, policy: OhMyGhosttySettings.shared.runtimePolicy)
+            if let cwd = request.remoteWorkingDirectory {
+                guard let valid = SessionRuntimeDescriptor.validWorkingDirectory(cwd) else {
+                    throw CocoaError(.validationMissingMandatoryProperty)
+                }
+                descriptor.initialWorkingDirectory = valid
+            }
+            let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+                .appendingPathComponent("omg-inline-\(getuid())-\(name)")
+            try SessionRuntimeBridgeStorage.ensurePrivateDirectory(root)
+            let socket = root.appendingPathComponent("relay.sock")
+            let config = root.appendingPathComponent("connection.json")
+            try SessionRuntimeBridgeStorage.writePrivateFile(at: config,
+                data: SessionRuntimeConnections.shared.connectionConfiguration(
+                    descriptor, interactive: true, ttyAuthentication: true), permissions: 0o600)
+            guard let bootID = SessionRuntimeInlineSession.currentBootID else { throw CocoaError(.coderInvalidValue) }
+            let remote = SessionRuntimeInlineSession(
+                descriptor: descriptor, pane: UUID(), connectionID: "omg-ssh-inline-" + name,
+                socket: socket, helperPID: helperPID,
+                bootID: bootID,
+                localPane: source.runtimeDescriptor?.isLocal == true ? source.id : nil,
+                localDescriptor: source.runtimeDescriptor?.isLocal == true ? source.runtimeDescriptor : nil
+            )
+            let active = requestDirectory.appendingPathComponent("active.json")
+            try SessionRuntimeBridgeStorage.writePrivateFile(
+                at: active, data: JSONEncoder().encode(remote), permissions: 0o600)
+            let ownerRecord = remote.localPane.map { _ in ownerRecordURL(remote.pane) }
+            if let ownerRecord {
+                try SessionRuntimeBridgeStorage.ensurePrivateDirectory(ownerRecord.deletingLastPathComponent())
+                try SessionRuntimeBridgeStorage.writePrivateFile(
+                    at: ownerRecord, data: JSONEncoder().encode(remote), permissions: 0o600)
+            }
+            struct Approval: Encodable {
+                let helper: String
+                let configuration: String
+                let socket: String
+                let open: Open
+                let context: Context
+                struct Open: Encodable {
+                    let id: String
+                    let policy: SessionRuntimePolicy
+                    let create: Bool
+                    let cwd: String?
+                    let inlineViewer = true
+                    enum CodingKeys: String, CodingKey {
+                        case id, policy, create, cwd
+                        case inlineViewer = "inline_viewer"
+                    }
+                }
+                struct Context: Encodable {
+                    let connectionID: String
+                    let target: String
+                    let localWorkingDirectory: String
+                    let activeRecord: String
+                    let ownerRecord: String?
+                    enum CodingKeys: String, CodingKey {
+                        case target
+                        case connectionID = "connection_id"
+                        case localWorkingDirectory = "local_cwd"
+                        case activeRecord = "active_record"
+                        case ownerRecord = "owner_record"
+                    }
+                }
+            }
+            let helper = try SessionRuntimeConnections.shared.cachedHelper(for: descriptor)
+            let approval = Approval(helper: helper.path, configuration: config.path, socket: socket.path,
+                open: .init(id: remote.pane.uuidString.lowercased(), policy: descriptor.policy, create: true,
+                            cwd: descriptor.initialWorkingDirectory),
+                context: .init(connectionID: remote.connectionID,
+                               target: connection.destination.split(separator: "@").last.map(String.init) ?? connection.destination,
+                               localWorkingDirectory: request.cwd, activeRecord: active.path,
+                               ownerRecord: ownerRecord?.path))
+            try SessionRuntimeBridgeStorage.writePrivateFile(
+                at: requestDirectory.appendingPathComponent(name + ".accepted"),
+                data: JSONEncoder().encode(approval), permissions: 0o600)
+            source.runtimeInlineSession = remote
+            source.pendingSSHLaunchReplay = remote.replay
+            SessionRuntimeCatalog.shared.remember(descriptor)
         } catch {
             if authenticated {
                 try? Data(error.localizedDescription.utf8).write(

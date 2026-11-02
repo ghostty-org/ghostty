@@ -139,8 +139,9 @@ enum SessionRuntimeLibrary {
     ) -> Bool {
         let candidates = controllersIncludingParked(controllers ?? TerminalController.all)
         guard let owner = candidates.first(where: { controller in
-            controller.surfaceTree.contains(where: { $0.id == paneID })
-        }), let surface = owner.surfaceTree.first(where: { $0.id == paneID }) else {
+            controller.isAvailableForWorkspace &&
+                controller.surfaceTree.contains(where: { $0.id == paneID || $0.runtimeInlineSession?.pane == paneID })
+        }), let surface = owner.surfaceTree.first(where: { $0.id == paneID || $0.runtimeInlineSession?.pane == paneID }) else {
             return false
         }
 
@@ -207,15 +208,19 @@ enum SessionRuntimeLibrary {
             )
         }
         if focusExisting(paneID: paneID, in: controllers) { return nil }
+        let inlineOwner = SessionRuntimeHandoff.shared.inlineOwner(for: paneID)
+        let attachedDescriptor = inlineOwner?.localDescriptor ?? descriptor
+        let attachedPane = inlineOwner?.localPane ?? paneID
 
         guard let delegate = NSApp.delegate as? AppDelegate,
               let nativeApp = delegate.ghostty.app else {
             throw CocoaError(.featureUnsupported)
         }
         var config = Ghostty.SurfaceConfiguration()
-        try descriptor.configureAttachExisting(&config)
-        config.workingDirectory = session.workingDirectory ?? descriptor.launchWorkingDirectory
-        let surface = Ghostty.SurfaceView(nativeApp, baseConfig: config, uuid: paneID)
+        try attachedDescriptor.configureAttachExisting(&config)
+        config.workingDirectory = inlineOwner?.localDescriptor?.launchWorkingDirectory
+            ?? session.workingDirectory ?? descriptor.launchWorkingDirectory
+        let surface = Ghostty.SurfaceView(nativeApp, baseConfig: config, uuid: attachedPane)
         let tree = SplitTree<Ghostty.SurfaceView>(view: surface)
         if let controller = TerminalController.newTab(
             delegate.ghostty,

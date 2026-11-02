@@ -33,23 +33,67 @@ struct SessionRuntimeRecoveryBanner: View {
     @ObservedObject var controller: TerminalController
     @ObservedObject var settings = OhMyGhosttySettings.shared
     @ObservedObject var surface: Ghostty.SurfaceView
+    @StateObject private var presentation = SessionRuntimeRecoveryPresentation()
 
     var body: some View {
-        if surface.surface != nil, let descriptor = surface.runtimeDescriptor,
-           let state = surface.runtimeConnectionState,
-           state != .ready {
-            NativeSessionRuntimeRecoveryBanner(
-                endpoint: descriptor.displayEndpoint,
-                state: state,
-                strings: SettingsStrings(language: settings.language)
-            ) { [weak controller, weak surface] in
-                guard let controller, let surface,
-                      surface.runtimeDescriptor == descriptor,
-                      controller.surfaceTree.contains(where: { $0 === surface }) else { return }
-                controller.retryRuntimeConnection(for: surface)
+        Group {
+            if surface.surface != nil, let descriptor = surface.runtimeDescriptor,
+               let state = presentation.state {
+                NativeSessionRuntimeRecoveryBanner(
+                    endpoint: descriptor.displayEndpoint,
+                    state: state,
+                    strings: SettingsStrings(language: settings.language)
+                ) { [weak controller, weak surface] in
+                    guard let controller, let surface,
+                          surface.runtimeDescriptor == descriptor,
+                          controller.surfaceTree.contains(where: { $0 === surface }) else { return }
+                    controller.retryRuntimeConnection(for: surface)
+                }
+                .frame(maxWidth: 360)
+                .padding(8)
             }
         }
+        .allowsHitTesting(presentation.state != nil)
+        .onAppear { presentation.update(surface.runtimeConnectionState) }
+        .onChange(of: surface.runtimeConnectionState) { presentation.update($0) }
+        .onDisappear { presentation.update(nil) }
     }
+}
+
+@MainActor
+final class SessionRuntimeRecoveryPresentation: ObservableObject {
+    @Published private(set) var state: SessionRuntimeConnectionState?
+    private var latest: SessionRuntimeConnectionState?
+    private var pending: DispatchWorkItem?
+    private let delay: TimeInterval
+
+    init(delay: TimeInterval = 0.4) { self.delay = delay }
+
+    func update(_ next: SessionRuntimeConnectionState?) {
+        latest = next
+        switch next {
+        case nil, .ready, .exited:
+            pending?.cancel()
+            pending = nil
+            state = nil
+        case .connecting, .reconnecting:
+            if state != nil { state = next; return }
+            guard pending == nil else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pending = nil
+                self.state = self.latest
+            }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        case .attention, .failed:
+            pending?.cancel()
+            pending = nil
+            state = next
+        }
+    }
+
+    deinit { pending?.cancel() }
 }
 
 private struct NativeSessionRuntimeRecoveryBanner: NSViewRepresentable {
@@ -79,8 +123,8 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
     let detailLabel = NSTextField(wrappingLabelWithString: "")
     let reconnectButton = NSButton(title: "", target: nil, action: nil)
     private let icon = NSImageView()
-    private let separator = NSBox()
     private var retry: (() -> Void)?
+    private var showsDetail = false
 
     override var isFlipped: Bool { true }
 
@@ -89,12 +133,15 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
         material = .headerView
         blendingMode = .withinWindow
         state = .followsWindowActiveState
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
         setAccessibilityIdentifier("sessionRuntimeRecoveryBanner")
         titleLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         titleLabel.lineBreakMode = .byTruncatingTail
         detailLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         detailLabel.textColor = .secondaryLabelColor
-        detailLabel.maximumNumberOfLines = 0
+        detailLabel.maximumNumberOfLines = 2
         icon.contentTintColor = .secondaryLabelColor
         reconnectButton.bezelStyle = .rounded
         reconnectButton.controlSize = .small
@@ -102,8 +149,7 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
         reconnectButton.action = #selector(performRetry)
         reconnectButton.setAccessibilityIdentifier("sessionRuntimeReconnect")
         // No Return key equivalent: this passive banner must not intercept terminal input.
-        separator.boxType = .separator
-        for child in [icon, titleLabel, detailLabel, reconnectButton, separator] {
+        for child in [icon, titleLabel, detailLabel, reconnectButton] {
             addSubview(child)
         }
     }
@@ -115,6 +161,9 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
         titleLabel.stringValue = strings.runtimeStatusTitle(state) + " · " + endpoint
         titleLabel.toolTip = endpoint
         detailLabel.stringValue = strings.runtimeStatusDetail(state)
+        detailLabel.toolTip = detailLabel.stringValue
+        showsDetail = !state.isInProgress
+        detailLabel.isHidden = !showsDetail
         reconnectButton.title = strings.runtimeRetryNow
         reconnectButton.toolTip = strings.runtimeRetryHelp
         reconnectButton.isHidden = !state.canRetry
@@ -128,8 +177,7 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
     }
 
     func height(for width: CGFloat) -> CGFloat {
-        20 + titleLabel.intrinsicContentSize.height + 6 + detailHeight(for: width) +
-            (reconnectButton.isHidden ? 1 : 6 + reconnectButton.intrinsicContentSize.height + 1)
+        32 + (showsDetail ? 4 + detailHeight(for: width) : 0)
     }
 
     override var intrinsicContentSize: NSSize {
@@ -139,28 +187,29 @@ final class SessionRuntimeRecoveryView: NSVisualEffectView {
     override func layout() {
         super.layout()
         let width = max(0, bounds.width - 46)
-        icon.frame = NSRect(x: 10, y: 10, width: 16, height: 16)
+        icon.frame = NSRect(x: 10, y: 8, width: 16, height: 16)
         let titleHeight = titleLabel.intrinsicContentSize.height
-        titleLabel.frame = NSRect(x: 36, y: 10, width: width, height: titleHeight)
-        let textHeight = detailHeight(for: bounds.width)
-        detailLabel.frame = NSRect(x: 36, y: titleLabel.frame.maxY + 6, width: width, height: textHeight)
         let buttonSize = reconnectButton.intrinsicContentSize
+        let buttonWidth = reconnectButton.isHidden ? 0 : min(width, buttonSize.width)
+        titleLabel.frame = NSRect(x: 36, y: (32 - titleHeight) / 2,
+                                 width: max(0, width - buttonWidth - (buttonWidth > 0 ? 8 : 0)), height: titleHeight)
+        let textHeight = detailHeight(for: bounds.width)
+        detailLabel.frame = NSRect(x: 36, y: 32, width: width, height: textHeight)
         reconnectButton.frame = NSRect(
-            x: 36,
-            y: detailLabel.frame.maxY + 6,
-            width: min(width, buttonSize.width),
+            x: bounds.width - buttonWidth - 10,
+            y: (32 - buttonSize.height) / 2,
+            width: buttonWidth,
             height: buttonSize.height
         )
-        separator.frame = NSRect(x: 0, y: max(0, bounds.height - 1), width: bounds.width, height: 1)
     }
 
     private func detailHeight(for width: CGFloat) -> CGFloat {
         let textWidth = max(1, width - 46)
-        return ceil((detailLabel.stringValue as NSString).boundingRect(
+        return min(32, ceil((detailLabel.stringValue as NSString).boundingRect(
             with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: detailLabel.font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]
-        ).height)
+        ).height))
     }
 
     @objc private func performRetry() {

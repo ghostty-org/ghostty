@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -90,7 +91,7 @@ class RemoteAgentWrappersTests(unittest.TestCase):
                     raise RuntimeError(f"Binary acceptance requires {required}")
             capture = cls.bin / "capture-ssh"
             output = cls.directory / "ssh-argv.json"
-            capture.write_text('#!/usr/bin/python3\nimport os,json,sys\nopen(os.environ["OMG_CAPTURE"], "w").write(json.dumps(sys.argv[1:]))\n')
+            capture.write_text(f'#!{sys.executable}\nimport os,json,sys\nopen(os.environ["OMG_CAPTURE"], "w").write(json.dumps(sys.argv[1:]))\n')
             capture.chmod(0o700)
             subprocess.run([binary, "+ssh", "--terminfo=false", "--forward-env=false", "--cache=false",
                             "--ssh=" + str(capture), "--remote-agent=antigravity", "--", "cloud"],

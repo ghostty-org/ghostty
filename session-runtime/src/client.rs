@@ -268,7 +268,6 @@ fn attention_required(error: &io::Error) -> bool {
         "no matching host key type",
         "no matching key exchange method",
         "too many authentication failures",
-        "invalid format",
         "load key",
         "unsupported ssh host",
         "runtime revision unavailable",
@@ -340,6 +339,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
     let mut strict_open = false;
     let mut durable_close = false;
     let mut local_launch = false;
+    let mut inline_viewer = false;
     let mut list_in_flight = false;
     let mut generation_counter = initial_generation;
     let mut state = State::Connecting;
@@ -429,6 +429,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             strict_open = false;
                             durable_close = false;
                             local_launch = false;
+                            inline_viewer = false;
                             list_in_flight = false;
                             remote.as_mut().unwrap().push(Frame::new(b'P', 0, &[]));
                             last_heartbeat = Instant::now();
@@ -449,6 +450,16 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                         }
                         Err(error) => {
                             let attention = attention_required(&error);
+                            let detail = error.to_string();
+                            let detail = detail
+                                .strip_prefix("SSH runtime setup failed: ")
+                                .or_else(|| detail.strip_prefix("SSH runtime reconnect failed: "))
+                                .unwrap_or(&detail);
+                            let detail: String = detail
+                                .chars()
+                                .take(512)
+                                .map(|c| if c.is_control() { ' ' } else { c })
+                                .collect();
                             state = if attention {
                                 State::Attention
                             } else {
@@ -460,9 +471,7 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                                 state,
                                 attempt,
                                 (!attention).then_some(delay),
-                                attention.then_some(
-                                    "SSH authentication or runtime setup needs attention.",
-                                ),
+                                attention.then_some(detail.as_str()),
                             );
                             if attention {
                                 retry_at = Instant::now() + Duration::from_secs(365 * 24 * 3600);
@@ -618,6 +627,13 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                                             0,
                                             b"runtime does not support persistent local launches; no session was created",
                                         ));
+                                    } else if capabilities_received
+                                        && request.inline_viewer
+                                        && !inline_viewer
+                                    {
+                                        peer.failed = true;
+                                        peer.peer.push(Frame::new(b'E', 0,
+                                            b"runtime does not support inline viewers; no session was created"));
                                     } else if capabilities_received && !strict_open {
                                         peer.failed = true;
                                         peer.peer.push(Frame::new(
@@ -797,18 +813,21 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                             strict_open = has_capability(&frame.data, "strict-open/1");
                             durable_close = has_capability(&frame.data, "durable-close/1");
                             local_launch = has_capability(&frame.data, "local-launch/1");
+                            inline_viewer = has_capability(&frame.data, "inline-viewer/1");
                             if first_capabilities {
                                 for peer in peers
                                     .values_mut()
                                     .filter(|p| !p.control && !p.ended && p.open.is_some())
                                 {
-                                    let requires_local_launch = peer
-                                        .open
+                                    let request = peer.open.as_ref().and_then(|bytes| {
+                                        serde_json::from_slice::<OpenRequest>(bytes).ok()
+                                    });
+                                    let requires_local_launch = request
                                         .as_ref()
-                                        .and_then(|bytes| {
-                                            serde_json::from_slice::<OpenRequest>(bytes).ok()
-                                        })
                                         .is_some_and(|request| request.launch.is_some());
+                                    let requires_inline = request
+                                        .as_ref()
+                                        .is_some_and(|request| request.inline_viewer);
                                     if requires_local_launch && !local_launch {
                                         peer.failed = true;
                                         peer.remote_stream = None;
@@ -817,6 +836,11 @@ pub fn supervise(local: &Path, connector: Connector, interactive_first: bool) ->
                                             0,
                                             b"runtime does not support persistent local launches; no session was created",
                                         ));
+                                    } else if requires_inline && !inline_viewer {
+                                        peer.failed = true;
+                                        peer.remote_stream = None;
+                                        peer.peer.push(Frame::new(b'E', 0,
+                                            b"runtime does not support inline viewers; no session was created"));
                                     } else if !strict_open {
                                         peer.failed = true;
                                         peer.remote_stream = None;
@@ -1143,4 +1167,23 @@ pub fn list_local(socket: &Path) -> io::Result<Vec<SessionSummary>> {
             "session catalogue request timed out",
         )
     }))
+}
+
+#[cfg(test)]
+mod error_classification_tests {
+    use super::attention_required;
+    use std::io;
+
+    #[test]
+    fn malformed_proxy_banner_is_retryable_but_a_broken_private_key_is_not() {
+        assert!(!attention_required(&io::Error::other(
+            "banner exchange: Connection to proxy port 80: invalid format"
+        )));
+        assert!(attention_required(&io::Error::other(
+            "Load key \"/private/key\": invalid format"
+        )));
+        assert!(attention_required(&io::Error::other(
+            "Permission denied (publickey)."
+        )));
+    }
 }

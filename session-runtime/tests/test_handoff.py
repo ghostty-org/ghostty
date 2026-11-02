@@ -11,7 +11,7 @@ import unittest
 
 
 class HandoffTests(unittest.TestCase):
-    def test_accepted_sibling_tab_releases_local_shell_without_waiting_for_remote_exit(self):
+    def test_legacy_gui_acknowledgement_remains_compatible(self):
         binary = Path(__file__).resolve().parents[1] / "target/debug/omgd"
         with tempfile.TemporaryDirectory() as directory:
             master, slave = pty.openpty()
@@ -29,6 +29,7 @@ class HandoffTests(unittest.TestCase):
                 self.assertEqual(len(requests), 1)
                 request = requests[0]
                 request.with_suffix(".accepted").write_bytes(b"")
+                request.with_suffix(".accepted").chmod(0o600)
                 _, stderr = process.communicate(timeout=3)
                 self.assertEqual(process.returncode, 0, stderr)
                 self.assertFalse(request.exists())

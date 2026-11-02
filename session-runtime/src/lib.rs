@@ -27,6 +27,8 @@ pub const EXIT: u8 = b'X';
 pub const CLAIM: u8 = b'W';
 pub mod client;
 pub mod holder;
+pub mod inline;
+pub(crate) mod terminal_output;
 unsafe extern "C" {
     fn omg_vt_new_with_pixels_scrollback(
         cols: u16,
@@ -58,6 +60,15 @@ unsafe extern "C" {
     fn omg_vt_snapshot(vt: *mut c_void, data: *mut *mut u8, len: *mut usize) -> i32;
     fn omg_vt_restore(vt: *mut c_void, data: *const u8, len: usize) -> i32;
     fn omg_vt_text(vt: *mut c_void, data: *mut *mut u8, len: *mut usize) -> i32;
+    fn omg_vt_continuation(vt: *mut c_void, data: *mut *mut u8, len: *mut usize) -> i32;
+    fn omg_vt_screen_only(vt: *mut c_void) -> i32;
+    fn omg_vt_dynamic_color(vt: *mut c_void, index: u32, rgb: *mut u8) -> i32;
+    fn omg_vt_paint(
+        vt: *mut c_void,
+        data: *mut *mut u8,
+        len: *mut usize,
+        alternate: *mut bool,
+    ) -> i32;
     fn omg_vt_buffer_free(data: *mut u8, len: usize);
 }
 pub struct Vt(*mut c_void);

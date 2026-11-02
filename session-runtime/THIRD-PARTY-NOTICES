@@ -1,0 +1,3 @@
+Inline terminal viewer portions are derived from herdrdev/herdr-core,
+commit 5a9de29b2f9b6690388a1c297a7ca8d73df7d3e2, licensed under Apache-2.0.
+See LICENSE.herdr. The sources have been adapted to the OMG runtime protocol.
