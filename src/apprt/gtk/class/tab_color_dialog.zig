@@ -1,6 +1,5 @@
 const std = @import("std");
 const adw = @import("adw");
-const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
@@ -49,23 +48,30 @@ pub const TabColorDialog = extern struct {
         const tab = priv.tab orelse return;
         const current = tab.getTabColor();
 
+        var group: ?*gtk.ToggleButton = null;
         for (std.meta.tags(TabColor)) |color| {
             const tooltip: [*:0]const u8 = switch (color) {
                 .none => i18n._("None"),
                 .blue => i18n._("Blue"),
-                .purple => i18n._("Purple"),
-                .pink => i18n._("Pink"),
-                .red => i18n._("Red"),
-                .orange => i18n._("Orange"),
-                .yellow => i18n._("Yellow"),
-                .green => i18n._("Green"),
                 .teal => i18n._("Teal"),
-                .graphite => i18n._("Graphite"),
+                .green => i18n._("Green"),
+                .yellow => i18n._("Yellow"),
+                .orange => i18n._("Orange"),
+                .red => i18n._("Red"),
+                .pink => i18n._("Pink"),
+                .purple => i18n._("Purple"),
+                .slate => i18n._("Slate"),
             };
 
             const swatch = TabColorSwatch.new(color, color == current);
-            const button = gtk.Button.new();
-            button.setChild(swatch.as(gtk.Widget));
+            const button = gtk.ToggleButton.new();
+            if (group) |g| {
+                button.setGroup(g);
+            } else {
+                group = button;
+            }
+            button.setActive(@intFromBool(color == current));
+            button.as(gtk.Button).setChild(swatch.as(gtk.Widget));
             button.as(gtk.Widget).addCssClass("flat");
             button.as(gtk.Widget).addCssClass("circular");
             button.as(gtk.Widget).setTooltipText(tooltip);
@@ -82,10 +88,10 @@ pub const TabColorDialog = extern struct {
                 .dialog = self,
                 .color = color,
             };
-            _ = gtk.Button.signals.clicked.connect(
+            _ = gtk.ToggleButton.signals.toggled.connect(
                 button,
                 *ColorPick,
-                colorPickClicked,
+                colorPickToggled,
                 ud,
                 .{ .destroyData = colorPickDestroy },
             );
@@ -116,7 +122,8 @@ pub const TabColorDialog = extern struct {
         color: TabColor,
     };
 
-    fn colorPickClicked(_: *gtk.Button, ud: *ColorPick) callconv(.c) void {
+    fn colorPickToggled(button: *gtk.ToggleButton, ud: *ColorPick) callconv(.c) void {
+        if (button.getActive() == 0) return;
         if (ud.dialog.private().tab) |tab| {
             tab.setTabColor(ud.color);
         }
