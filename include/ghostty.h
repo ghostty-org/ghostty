@@ -54,6 +54,22 @@ typedef SSIZE_T ssize_t;
 #endif
 #endif
 
+// Pointers in this header are non-null unless marked otherwise, so importers
+// such as Swift can enforce it. GHOSTTY_NULLABLE marks a pointer that may be
+// null. GHOSTTY_NULL_UNSPECIFIED marks a field of a struct that callers
+// zero-initialize before libghostty fills it in. GHOSTTY_NONNULL is only needed
+// for nested pointers, which the default doesn't cover.
+#if defined(__clang__)
+  #define GHOSTTY_NONNULL _Nonnull
+  #define GHOSTTY_NULLABLE _Nullable
+  #define GHOSTTY_NULL_UNSPECIFIED _Null_unspecified
+  #pragma clang assume_nonnull begin
+#else
+  #define GHOSTTY_NONNULL
+  #define GHOSTTY_NULLABLE
+  #define GHOSTTY_NULL_UNSPECIFIED
+#endif
+
 //-------------------------------------------------------------------
 // Types
 
@@ -89,9 +105,9 @@ typedef struct {
 // The payload for completing a clipboard read request. See
 // ghostty_surface_complete_clipboard_request.
 typedef struct {
-  const ghostty_clipboard_content_s *contents;
+  const ghostty_clipboard_content_s *GHOSTTY_NULLABLE contents;
   size_t contents_len;
-  const char *const *available;
+  const char *const GHOSTTY_NONNULL *GHOSTTY_NULLABLE available;
   size_t available_len;
   bool confirmed;
   bool remember;
@@ -101,11 +117,11 @@ typedef struct {
 // completion contents plus the information shown in the permission
 // prompt. See ghostty_runtime_confirm_read_clipboard_cb.
 typedef struct {
-  const ghostty_clipboard_content_s *contents;
+  const ghostty_clipboard_content_s *GHOSTTY_NULLABLE contents;
   size_t contents_len;
-  const char *const *available;
+  const char *const GHOSTTY_NONNULL *GHOSTTY_NULLABLE available;
   size_t available_len;
-  const char *name;
+  const char *GHOSTTY_NULLABLE name;
   bool can_remember;
 } ghostty_clipboard_confirm_s;
 
@@ -393,7 +409,7 @@ typedef struct {
   ghostty_input_mods_e mods;
   ghostty_input_mods_e consumed_mods;
   uint32_t keycode;
-  const char* text;
+  const char* GHOSTTY_NULLABLE text;
   uint32_t unshifted_codepoint;
   bool composing;
 } ghostty_input_key_s;
@@ -441,7 +457,7 @@ typedef struct {
 } ghostty_diagnostic_s;
 
 typedef struct {
-  const char* ptr;
+  const char* GHOSTTY_NULLABLE ptr;
   uintptr_t len;
   bool sentinel;
 } ghostty_string_s;
@@ -451,7 +467,7 @@ typedef struct {
   double tl_px_y;
   uint32_t offset_start;
   uint32_t offset_len;
-  const char* text;
+  const char* GHOSTTY_NULL_UNSPECIFIED text;
   uintptr_t text_len;
 } ghostty_text_s;
 
@@ -487,11 +503,11 @@ typedef struct {
 } ghostty_env_var_s;
 
 typedef struct {
-  void* nsview;
+  void* GHOSTTY_NULLABLE nsview;
 } ghostty_platform_macos_s;
 
 typedef struct {
-  void* uiview;
+  void* GHOSTTY_NULLABLE uiview;
 } ghostty_platform_ios_s;
 
 typedef union {
@@ -508,14 +524,14 @@ typedef enum {
 typedef struct {
   ghostty_platform_e platform_tag;
   ghostty_platform_u platform;
-  void* userdata;
+  void* GHOSTTY_NULLABLE userdata;
   double scale_factor;
   float font_size;
-  const char* working_directory;
-  const char* command;
-  ghostty_env_var_s* env_vars;
+  const char* GHOSTTY_NULLABLE working_directory;
+  const char* GHOSTTY_NULLABLE command;
+  ghostty_env_var_s* GHOSTTY_NULLABLE env_vars;
   size_t env_var_count;
-  const char* initial_input;
+  const char* GHOSTTY_NULLABLE initial_input;
   bool wait_after_command;
   ghostty_surface_context_e context;
 } ghostty_surface_config_s;
@@ -533,7 +549,7 @@ typedef struct {
 
 // config.Path
 typedef struct {
-  const char* path;
+  const char* GHOSTTY_NULL_UNSPECIFIED path;
   bool optional;
 } ghostty_config_path_s;
 
@@ -546,13 +562,13 @@ typedef struct {
 
 // config.ColorList
 typedef struct {
-  const ghostty_config_color_s* colors;
+  const ghostty_config_color_s* GHOSTTY_NULL_UNSPECIFIED colors;
   size_t len;
 } ghostty_config_color_list_s;
 
 // config.RepeatableCommand
 typedef struct {
-  const ghostty_command_s* commands;
+  const ghostty_command_s* GHOSTTY_NULL_UNSPECIFIED commands;
   size_t len;
 } ghostty_config_command_list_s;
 
@@ -599,7 +615,7 @@ typedef enum {
 } ghostty_target_tag_e;
 
 typedef union {
-  ghostty_surface_t surface;
+  ghostty_surface_t GHOSTTY_NULLABLE surface;
 } ghostty_target_u;
 
 typedef struct {
@@ -1067,38 +1083,38 @@ typedef struct {
   ghostty_action_u action;
 } ghostty_action_s;
 
-typedef void (*ghostty_runtime_wakeup_cb)(void*);
+typedef void (*ghostty_runtime_wakeup_cb)(void* GHOSTTY_NULLABLE);
 typedef ghostty_clipboard_read_result_e (*ghostty_runtime_read_clipboard_cb)(
-    void*,
+    void* GHOSTTY_NULLABLE,
     ghostty_clipboard_e,
     void*,
-    const char* const*,
+    const char* const GHOSTTY_NONNULL* GHOSTTY_NONNULL,
     size_t,
     bool);
 typedef void (*ghostty_runtime_confirm_read_clipboard_cb)(
-    void*,
+    void* GHOSTTY_NULLABLE,
     const ghostty_clipboard_confirm_s*,
     void*,
     ghostty_clipboard_request_e);
-typedef void (*ghostty_runtime_write_clipboard_cb)(void*,
+typedef void (*ghostty_runtime_write_clipboard_cb)(void* GHOSTTY_NULLABLE,
                                                    ghostty_clipboard_e,
                                                    const ghostty_clipboard_content_s*,
                                                    size_t,
                                                    bool);
-typedef void (*ghostty_runtime_close_surface_cb)(void*, bool);
+typedef void (*ghostty_runtime_close_surface_cb)(void* GHOSTTY_NULLABLE, bool);
 typedef bool (*ghostty_runtime_action_cb)(ghostty_app_t,
                                           ghostty_target_s,
                                           ghostty_action_s);
 
 typedef struct {
-  void* userdata;
+  void* GHOSTTY_NULLABLE userdata;
   bool supports_selection_clipboard;
   ghostty_runtime_wakeup_cb wakeup_cb;
   ghostty_runtime_action_cb action_cb;
   ghostty_runtime_read_clipboard_cb read_clipboard_cb;
   ghostty_runtime_confirm_read_clipboard_cb confirm_read_clipboard_cb;
   ghostty_runtime_write_clipboard_cb write_clipboard_cb;
-  ghostty_runtime_close_surface_cb close_surface_cb;
+  ghostty_runtime_close_surface_cb GHOSTTY_NULLABLE close_surface_cb;
 } ghostty_runtime_config_s;
 
 // apprt.ipc.Target.Key
@@ -1108,7 +1124,7 @@ typedef enum {
 } ghostty_ipc_target_tag_e;
 
 typedef union {
-  char *klass;
+  char *GHOSTTY_NULLABLE klass;
 } ghostty_ipc_target_u;
 
 typedef struct {
@@ -1119,7 +1135,7 @@ typedef struct {
 // apprt.ipc.Action.NewWindow
 typedef struct {
   // This should be a null terminated list of strings.
-  const char **arguments;
+  const char *GHOSTTY_NULLABLE *GHOSTTY_NULLABLE arguments;
 } ghostty_ipc_action_new_window_s;
 
 typedef union {
@@ -1136,15 +1152,15 @@ typedef enum {
 //-------------------------------------------------------------------
 // Published API
 
-GHOSTTY_API int ghostty_init(uintptr_t, char**);
+GHOSTTY_API int ghostty_init(uintptr_t, char* GHOSTTY_NULLABLE* GHOSTTY_NONNULL);
 GHOSTTY_API void ghostty_cli_try_action(void);
 GHOSTTY_API ghostty_info_s ghostty_info(void);
 GHOSTTY_API const char* ghostty_translate(const char*);
 GHOSTTY_API void ghostty_string_free(ghostty_string_s);
 
-GHOSTTY_API ghostty_config_t ghostty_config_new();
-GHOSTTY_API void ghostty_config_free(ghostty_config_t);
-GHOSTTY_API ghostty_config_t ghostty_config_clone(ghostty_config_t);
+GHOSTTY_API ghostty_config_t GHOSTTY_NULLABLE ghostty_config_new();
+GHOSTTY_API void ghostty_config_free(ghostty_config_t GHOSTTY_NULLABLE);
+GHOSTTY_API ghostty_config_t GHOSTTY_NULLABLE ghostty_config_clone(ghostty_config_t);
 GHOSTTY_API void ghostty_config_load_cli_args(ghostty_config_t);
 GHOSTTY_API void ghostty_config_load_file(ghostty_config_t, const char*);
 GHOSTTY_API void ghostty_config_load_default_files(ghostty_config_t);
@@ -1159,11 +1175,11 @@ GHOSTTY_API uint32_t ghostty_config_diagnostics_count(ghostty_config_t);
 GHOSTTY_API ghostty_diagnostic_s ghostty_config_get_diagnostic(ghostty_config_t, uint32_t);
 GHOSTTY_API ghostty_string_s ghostty_config_open_path(void);
 
-GHOSTTY_API ghostty_app_t ghostty_app_new(const ghostty_runtime_config_s*,
+GHOSTTY_API ghostty_app_t GHOSTTY_NULLABLE ghostty_app_new(const ghostty_runtime_config_s*,
                                              ghostty_config_t);
 GHOSTTY_API void ghostty_app_free(ghostty_app_t);
 GHOSTTY_API void ghostty_app_tick(ghostty_app_t);
-GHOSTTY_API void* ghostty_app_userdata(ghostty_app_t);
+GHOSTTY_API void* GHOSTTY_NULLABLE ghostty_app_userdata(ghostty_app_t);
 GHOSTTY_API void ghostty_app_set_focus(ghostty_app_t, bool);
 GHOSTTY_API bool ghostty_app_key(ghostty_app_t, ghostty_input_key_s);
 GHOSTTY_API void ghostty_app_keyboard_changed(ghostty_app_t);
@@ -1175,10 +1191,10 @@ GHOSTTY_API void ghostty_app_set_color_scheme(ghostty_app_t, ghostty_color_schem
 
 GHOSTTY_API ghostty_surface_config_s ghostty_surface_config_new();
 
-GHOSTTY_API ghostty_surface_t ghostty_surface_new(ghostty_app_t,
+GHOSTTY_API ghostty_surface_t GHOSTTY_NULLABLE ghostty_surface_new(ghostty_app_t,
                                                      const ghostty_surface_config_s*);
 GHOSTTY_API void ghostty_surface_free(ghostty_surface_t);
-GHOSTTY_API void* ghostty_surface_userdata(ghostty_surface_t);
+GHOSTTY_API void* GHOSTTY_NULLABLE ghostty_surface_userdata(ghostty_surface_t);
 GHOSTTY_API ghostty_app_t ghostty_surface_app(ghostty_surface_t);
 GHOSTTY_API ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t, ghostty_surface_context_e);
 GHOSTTY_API void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
@@ -1200,10 +1216,10 @@ GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_su
 GHOSTTY_API bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
 GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                                    ghostty_input_key_s,
-                                                   ghostty_binding_flags_e*);
+                                                   ghostty_binding_flags_e* GHOSTTY_NULLABLE);
 GHOSTTY_API void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
 GHOSTTY_API void ghostty_surface_paste_text(ghostty_surface_t, const char*, uintptr_t);
-GHOSTTY_API void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
+GHOSTTY_API void ghostty_surface_preedit(ghostty_surface_t, const char* GHOSTTY_NULLABLE, uintptr_t);
 GHOSTTY_API bool ghostty_surface_mouse_captured(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_mouse_button(ghostty_surface_t,
                                                  ghostty_input_mouse_state_e,
@@ -1243,11 +1259,11 @@ GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
 
 #ifdef __APPLE__
 GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
-GHOSTTY_API void* ghostty_surface_quicklook_font(ghostty_surface_t);
+GHOSTTY_API void* GHOSTTY_NULLABLE ghostty_surface_quicklook_font(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_quicklook_word(ghostty_surface_t, ghostty_text_s*);
 #endif
 
-GHOSTTY_API ghostty_inspector_t ghostty_surface_inspector(ghostty_surface_t);
+GHOSTTY_API ghostty_inspector_t GHOSTTY_NULLABLE ghostty_surface_inspector(ghostty_surface_t);
 GHOSTTY_API void ghostty_inspector_free(ghostty_surface_t);
 GHOSTTY_API void ghostty_inspector_set_focus(ghostty_inspector_t, bool);
 GHOSTTY_API void ghostty_inspector_set_content_scale(ghostty_inspector_t, double, double);
@@ -1279,6 +1295,10 @@ GHOSTTY_API void ghostty_set_window_background_blur(ghostty_app_t, void*);
 
 // Benchmark API, if available.
 GHOSTTY_API bool ghostty_benchmark_cli(const char*, const char*);
+
+#if defined(__clang__)
+  #pragma clang assume_nonnull end
+#endif
 
 #ifdef __cplusplus
 }

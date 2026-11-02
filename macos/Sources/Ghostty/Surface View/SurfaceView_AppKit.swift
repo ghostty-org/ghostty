@@ -2229,7 +2229,7 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
             // validateRequestor is called a LOT and we want to prevent unnecessary
             // performance hits because `ghostty_surface_has_selection` isn't free.
             if let sendType, sendableRequiresSelection.contains(sendType) {
-                if surface == nil || !ghostty_surface_has_selection(surface) {
+                guard let surface, ghostty_surface_has_selection(surface) else {
                     return super.validRequestor(forSendType: sendType, returnType: returnType)
                 }
             }
@@ -2257,6 +2257,7 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
     }
 
     func readSelection(from pboard: NSPasteboard) -> Bool {
+        guard let surface = self.surface else { return false }
         guard let str = pboard.getOpinionatedStringContents() else { return false }
 
         let len = str.utf8CString.count
