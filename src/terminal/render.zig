@@ -1527,7 +1527,7 @@ pub const RenderState = struct {
     ///
     /// We use byte offsets because iterating over a `[]@Vector(2, u64)` is
     /// slower for long fills in V8 with SIMD128.
-    inline fn fillStyles(dst: []Style, value: Style) void {
+    fn fillStyles(dst: []Style, value: Style) void {
         const V = @Vector(2, u64);
         comptime assert(@sizeOf(Style) == @sizeOf(V));
 

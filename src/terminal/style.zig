@@ -82,8 +82,16 @@ pub const Style = packed struct(u128) {
         /// Returns the color as a tagged union.
         pub inline fn value(self: Color) Value {
             return switch (self.tag) {
-                .none => .none,
-                .palette => .{ .palette = @truncate(self.data) },
+                .none => none: {
+                    // Unused bits must be zero (see the Style doc comment).
+                    // A violation would make eql/hash disagree with value().
+                    assert(self.data == 0);
+                    break :none .none;
+                },
+                .palette => palette: {
+                    assert(self.data <= std.math.maxInt(u8));
+                    break :palette .{ .palette = @truncate(self.data) };
+                },
                 .rgb => .{ .rgb = @bitCast(self.data) },
             };
         }
@@ -660,7 +668,6 @@ pub const Style = packed struct(u128) {
     comptime {
         assert(@sizeOf(Style) == 16);
         assert(@bitSizeOf(Style) == 128);
-        assert(std.meta.hasUniqueRepresentation(Style));
         // The default style must be all zero bits: `default()` relies on it.
         assert((Style{}).bits() == 0);
     }
@@ -682,6 +689,46 @@ pub const Set = RefCountedSet(
         }
     },
 );
+
+test "Style.Color constructors leave unused bits zero" {
+    const testing = std.testing;
+    try testing.expectEqual(0, @as(u32, @bitCast(Style.Color.none)));
+    try testing.expectEqual(
+        0x0000_2A01,
+        @as(u32, @bitCast(Style.Color.palette(42))),
+    );
+    try testing.expectEqual(
+        0x0302_0102,
+        @as(u32, @bitCast(Style.Color.rgb(.{ .r = 1, .g = 2, .b = 3 }))),
+    );
+}
+
+test "Style.hash distinguishes the same value in different fields" {
+    const testing = std.testing;
+    const styles = [_]Style{
+        .{},
+        .{ .fg_color = .palette(1) },
+        .{ .bg_color = .palette(1) },
+        .{ .underline_color = .palette(1) },
+        .{ .fg_color = .rgb(.{ .r = 1, .g = 2, .b = 3 }) },
+        .{ .underline_color = .rgb(.{ .r = 1, .g = 2, .b = 3 }) },
+        .{ .flags = .{ .bold = true } },
+        .{ .flags = .{ .underline = .single } },
+        .{ .fg_color = .palette(1), .underline_color = .palette(1) },
+        .{ .bg_color = .palette(0), .flags = .{ .bold = true } },
+    };
+
+    for (styles, 0..) |a, i| {
+        // Hashing is a pure function of the value.
+        try testing.expectEqual(a.hash(), a.hash());
+        try testing.expect(a.eql(a));
+
+        for (styles[i + 1 ..]) |b| {
+            try testing.expect(!a.eql(b));
+            try testing.expect(a.hash() != b.hash());
+        }
+    }
+}
 
 test "Style.withAttribute reset_bold clears bold and faint only" {
     const testing = std.testing;
