@@ -20522,7 +20522,7 @@ test "PageList grow keeps capacity through light pages that still use it" {
     const styles = node.capacity().styles;
     for (0..node.page().styles.layout.cap / 2) |i| {
         _ = try node.page().styles.add(node.page().memory, .{
-            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
         });
     }
 
@@ -20535,7 +20535,7 @@ test "PageList grow keeps capacity through light pages that still use it" {
         try testing.expectEqual(styles, node.capacity().styles);
         for (0..12) |i| {
             _ = try node.page().styles.add(node.page().memory, .{
-                .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = 1, .b = 1 } },
+                .bg_color = .rgb(.{ .r = @truncate(i), .g = 1, .b = 1 }),
             });
         }
         while (node.rows() < node.capacity().rows) _ = try s.grow();
