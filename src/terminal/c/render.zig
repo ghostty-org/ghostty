@@ -905,7 +905,7 @@ fn rowCellsGetTypedInner(
                 => {
                     // The default style has no background.
                     if (!cell.hasStyling()) return .invalid_value;
-                    switch (cells.styles[x].bg_color) {
+                    switch (cells.styles[x].bg_color.value()) {
                         .none => return .invalid_value,
                         .palette => |idx| out.* = cells.palette[idx].cval(),
                         .rgb => |rgb| out.* = rgb.cval(),
@@ -915,7 +915,7 @@ fn rowCellsGetTypedInner(
         },
         .fg_color => {
             if (!cell.hasStyling()) return .invalid_value;
-            switch (cells.styles[x].fg_color) {
+            switch (cells.styles[x].fg_color.value()) {
                 .none => return .invalid_value,
                 .palette => |idx| out.* = cells.palette[idx].cval(),
                 .rgb => |rgb| out.* = rgb.cval(),

@@ -2165,13 +2165,16 @@ pub const Capacity = struct {
     /// Computes the number of bytes available for the row headers and
     /// cells in the page: the page size minus the metadata block.
     fn availableBytesForGrid(self: Capacity) usize {
-        comptime {
-            assert(cells_align % Page.MetaLayout.alignment == 0);
-            assert(@sizeOf(Cell) % Page.MetaLayout.alignment == 0);
-        }
+        const total_size = Page.layout(self).total_size;
+        const meta_size = Page.MetaLayout.init(self).total_size;
 
-        const l = Page.layout(self);
-        return l.total_size - Page.MetaLayout.init(self).total_size;
+        // Find the latest aligned offset where the metadata fits.
+        // The grid can use all bytes before this offset.
+        return std.mem.alignBackward(
+            usize,
+            total_size - meta_size,
+            Page.MetaLayout.alignment,
+        );
     }
 };
 
@@ -4593,11 +4596,11 @@ test "Page exactRowCapacity styles max single row" {
     for (cells, 0..) |*cell, i| {
         if (count >= max_count) break;
         const style_id = page.styles.add(page.memory, .{
-            .fg_color = .{ .rgb = .{
+            .fg_color = .rgb(.{
                 .r = @intCast(i & 0xFF),
                 .g = @intCast((i >> 8) & 0xFF),
                 .b = 0,
-            } },
+            }),
         }) catch break;
         cell.style_id = style_id;
         count += 1;

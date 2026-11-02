@@ -436,7 +436,7 @@ pub const IncompletePlacement = struct {
     /// taking the 24 most significant bits of the color, which lets it work
     /// for both palette and rgb-based colors.
     fn colorToId(c: terminal.Style.Color) u24 {
-        return switch (c) {
+        return switch (c.value()) {
             .none => 0,
             .palette => |v| @intCast(v),
             .rgb => |rgb| rgb: {

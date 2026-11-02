@@ -4642,7 +4642,7 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
         try writer.print(";{}", .{attr});
     }
 
-    switch (pen.fg_color) {
+    switch (pen.fg_color.value()) {
         .none => {},
         .palette => |idx| if (idx >= 16)
             try writer.print(";38:5:{}", .{idx})
@@ -4653,7 +4653,7 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
         .rgb => |rgb| try writer.print(";38:2::{[r]}:{[g]}:{[b]}", rgb),
     }
 
-    switch (pen.bg_color) {
+    switch (pen.bg_color.value()) {
         .none => {},
         .palette => |idx| if (idx >= 16)
             try writer.print(";48:5:{}", .{idx})
@@ -15041,7 +15041,7 @@ test "Terminal: restoreCursor uses default style on OutOfSpace" {
         while (n < max_items) : (n += 1) {
             _ = page.styles.add(
                 page.memory,
-                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+                .{ .bg_color = .rgb(@bitCast(@as(u24, @intCast(n)))) },
             ) catch break;
         }
     }

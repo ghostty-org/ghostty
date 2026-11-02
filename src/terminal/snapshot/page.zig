@@ -707,7 +707,7 @@ test "framed PAGE encode and decode a sparse native page" {
         .flags = .{ .italic = true },
     });
     const style_b = try page.styles.add(page.memory, .{
-        .bg_color = .{ .palette = 42 },
+        .bg_color = .palette(42),
     });
     page.styles.release(page.memory, dead_style);
 
@@ -838,7 +838,7 @@ test "framed PAGE encode and decode a sparse native page" {
     const decoded_style_b = style_it.next().?;
     try std.testing.expectEqual(@as(TerminalStyleId, 2), decoded_style_b.id);
     try std.testing.expect((TerminalStyle{
-        .bg_color = .{ .palette = 42 },
+        .bg_color = .palette(42),
     }).eql(decoded_style_b.value_ptr.*));
     try std.testing.expectEqual(null, style_it.next());
     try std.testing.expectEqual(
@@ -1548,7 +1548,7 @@ test "decode normalizes duplicate default and invalid style entries" {
     );
     const released_style_b = try grid_page.styles.add(
         grid_page.memory,
-        .{ .bg_color = .{ .palette = 1 } },
+        .{ .bg_color = .palette(1) },
     );
     const encoded_style_id = try grid_page.styles.add(
         grid_page.memory,
