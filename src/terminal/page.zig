@@ -117,14 +117,19 @@ const StringAlloc = BitmapAllocator(string_chunk);
 const string_count_default = StringAlloc.bitmap_bit_size;
 pub const string_bytes_default = string_count_default * string_chunk;
 
-/// Default number of hyperlinks we support.
-///
-/// The cell multiplier is the number of cells per hyperlink entry that
-/// we support. A hyperlink can be longer than this multiplier; the multiplier
-/// just sets the total capacity to simplify adjustable size metrics.
+/// Default number of unique hyperlinks we support.
 const hyperlink_count_default = 4;
 const hyperlink_bytes_default = hyperlink_count_default * @sizeOf(hyperlink.Set.Item);
-const hyperlink_cell_multiplier = 16;
+
+/// The number of linked cells per unique hyperlink that the default
+/// capacity assumes. The hyperlink map is sized from
+/// `Capacity.hyperlink_cells` on its own, so this only derives the
+/// default below and converts the single hyperlink capacity hint in
+/// snapshots, which predates `hyperlink_cells`, to and from both fields.
+pub const hyperlink_cell_multiplier = 16;
+
+/// Default number of cells with a hyperlink we support.
+const hyperlink_cells_default = hyperlink_count_default * hyperlink_cell_multiplier;
 
 /// The alignment of the start of a page's cell array. Align it to a cache
 /// line so that row cells always start on a cache line. This avoids
@@ -805,42 +810,38 @@ pub const Page = struct {
             }
         }
 
-        // layout() requests `hyperlink_count * hyperlink_cell_multiplier`
-        // usable map entries. The map layout adds load-factor headroom and
-        // rounds the raw slot count to a power of two. We need enough
-        // hyperlink_bytes for that requested entry count to accommodate all
-        // hyperlink cells. This is unit tested.
-        const hyperlink_bytes = hyperlinkBytesForCounts(
-            id_set.count(),
-            hyperlink_cells,
-        );
+        const hyperlink_bytes = hyperlinkBytesForCount(id_set.count());
 
         // All the intCasts below are safe because we should have a
         // capacity strictly less than or equal to this page's capacity.
+        //
+        // The one exception is the linked cell count: the hyperlink map
+        // rounds `hyperlink_cells` up (load factor, then a power of
+        // two), so a page can hold more linked cells than its field
+        // says. This clamps to the field's range; the rounding gives
+        // the resulting map room for the count that was clamped away.
         return .{
             .cols = self.size.cols,
             .rows = @intCast(y_end - y_start),
             .styles = @intCast(styles_cap),
             .grapheme_bytes = @intCast(grapheme_bytes),
             .hyperlink_bytes = @intCast(hyperlink_bytes),
+            .hyperlink_cells = @intCast(@min(
+                hyperlink_cells,
+                std.math.maxInt(size.HyperlinkCountInt),
+            )),
             .string_bytes = @intCast(string_bytes),
         };
     }
 
-    /// Return the smallest `Capacity.hyperlink_bytes` that can store
-    /// `unique` distinct hyperlinks used by `cells` cells in total.
+    /// Return the smallest `Capacity.hyperlink_bytes` whose hyperlink
+    /// set can store `unique` distinct hyperlinks.
     ///
     /// For large counts the result can exceed the range of
     /// `size.HyperlinkCountInt`. Callers must clamp it or check that it
     /// fits before casting it.
-    pub fn hyperlinkBytesForCounts(unique: usize, cells: usize) usize {
-        const set_cap = hyperlink.Set.capacityForCount(unique);
-        const map_min = std.math.divCeil(
-            usize,
-            cells,
-            hyperlink_cell_multiplier,
-        ) catch unreachable;
-        return @max(set_cap, map_min) * @sizeOf(hyperlink.Set.Item);
+    pub fn hyperlinkBytesForCount(unique: usize) usize {
+        return hyperlink.Set.capacityForCount(unique) * @sizeOf(hyperlink.Set.Item);
     }
 
     /// Clone the contents of another page into this page. The capacities
@@ -1788,15 +1789,6 @@ pub const Page = struct {
             used: usize,
             capacity: usize,
         };
-
-        /// Returns whichever hyperlink table is fuller relative to its
-        /// capacity. Both tables are sized from `Capacity.hyperlink_bytes`,
-        /// so this is the one that runs out of room first.
-        pub fn hyperlinks(self: Usage) Amount {
-            const set = self.hyperlink_set;
-            const map = self.hyperlink_map;
-            return if (set.used * map.capacity >= map.used * set.capacity) set else map;
-        }
     };
 
     /// Measures how much of its style, grapheme, string, and hyperlink
@@ -1966,20 +1958,17 @@ pub const Page = struct {
             const string_start = alignForward(usize, grapheme_map_end, StringAlloc.base_align.toByteUnits());
             const string_end = string_start + string_layout.total_size;
 
+            // The set and the map are sized independently: the set
+            // from the number of unique hyperlinks, the map from the
+            // number of cells that have one. The map layout adds its
+            // load-factor headroom and rounds up to a power of two, so
+            // it always holds at least `hyperlink_cells` entries.
             const hyperlink_count = @divFloor(cap.hyperlink_bytes, @sizeOf(hyperlink.Set.Item));
             const hyperlink_set_layout: hyperlink.Set.Layout = .init(@intCast(hyperlink_count));
             const hyperlink_set_start = alignForward(usize, string_end, hyperlink.Set.base_align.toByteUnits());
             const hyperlink_set_end = hyperlink_set_start + hyperlink_set_layout.total_size;
 
-            const hyperlink_map_count: u32 = count: {
-                if (hyperlink_count == 0) break :count 0;
-                const mult = std.math.cast(
-                    u32,
-                    hyperlink_count * hyperlink_cell_multiplier,
-                ) orelse break :count std.math.maxInt(u32);
-                break :count mult;
-            };
-            const hyperlink_map_layout = hyperlink.Map.layout(hyperlink_map_count);
+            const hyperlink_map_layout = hyperlink.Map.layout(cap.hyperlink_cells);
             const hyperlink_map_start = alignForward(usize, hyperlink_set_end, hyperlink.Map.base_align.toByteUnits());
             const hyperlink_map_end = hyperlink_map_start + hyperlink_map_layout.total_size;
 
@@ -2037,11 +2026,17 @@ pub const Capacity = struct {
     /// Number of unique styles that can be used on this page.
     styles: size.StyleCountInt = 16,
 
-    /// Number of bytes to allocate for hyperlink data. Note that the
-    /// amount of data used for hyperlinks in total is more than this because
-    /// hyperlinks use string data as well as a small amount of lookup metadata.
+    /// Number of bytes to allocate for the hyperlink set, which holds
+    /// the unique hyperlinks on the page. Note that the amount of data
+    /// used for hyperlinks in total is more than this because hyperlinks
+    /// use string data as well as a small amount of lookup metadata.
     /// This number is a rough approximation.
     hyperlink_bytes: size.HyperlinkCountInt = hyperlink_bytes_default,
+
+    /// Number of cells with a hyperlink that the hyperlink map can hold.
+    /// This is independent of `hyperlink_bytes`: a page can have a few
+    /// unique hyperlinks on many cells or many hyperlinks on a few.
+    hyperlink_cells: size.HyperlinkCountInt = hyperlink_cells_default,
 
     /// Number of bytes to allocate for grapheme data.
     grapheme_bytes: size.GraphemeBytesInt = grapheme_bytes_default,
@@ -3175,15 +3170,12 @@ test "Page usage" {
     const linked = page.usage();
     try testing.expect(linked.string_bytes.used > 0);
     try testing.expectEqual(1, linked.hyperlink_set.used);
+    try testing.expectEqual(page.hyperlink_set.layout.cap, linked.hyperlink_set.capacity);
     try testing.expectEqual(1, linked.hyperlink_map.used);
+    try testing.expectEqual(page.hyperlinkCapacity(), linked.hyperlink_map.capacity);
 
-    // The set holds far fewer items than the map, so one link on one
-    // cell fills more of the set.
-    try testing.expectEqual(linked.hyperlink_set, linked.hyperlinks());
-
-    // The same link on half the map's capacity fills more of the map
-    // than the one link fills of the set.
-    try testing.expect(linked.hyperlink_set.capacity > 2);
+    // The same link on half the map's capacity fills the map and not
+    // the set: the two tables are measured independently.
     const half_map = page.hyperlinkCapacity() / 2;
     for (1..half_map) |i| {
         const rac = page.getRowAndCell(i % page.size.cols, i / page.size.cols);
@@ -3196,7 +3188,7 @@ test "Page usage" {
     }
     const spread = page.usage();
     try testing.expectEqual(half_map, spread.hyperlink_map.used);
-    try testing.expectEqual(spread.hyperlink_map, spread.hyperlinks());
+    try testing.expectEqual(1, spread.hyperlink_set.used);
 }
 
 test "Page init" {
@@ -4914,15 +4906,14 @@ test "Page exactRowCapacity hyperlink map capacity for many cells" {
         try page.setHyperlink(rac.row, rac.cell, id);
     }
 
-    // exactRowCapacity must account for 50 hyperlink cells, not just 1 unique hyperlink
+    // exactRowCapacity must account for 50 hyperlink cells in the map
+    // and only 1 unique hyperlink in the set.
     const cap = page.exactRowCapacity(0, 1);
-
-    // The hyperlink_bytes must be large enough that layout() computes sufficient
-    // hyperlink_map capacity. With hyperlink_cell_multiplier=16, we need at least
-    // ceil(50/16) = 4 hyperlink entries worth of bytes for the map.
-    const min_for_map = std.math.divCeil(usize, cols, hyperlink_cell_multiplier) catch 0;
-    const min_hyperlink_bytes = min_for_map * @sizeOf(hyperlink.Set.Item);
-    try testing.expect(cap.hyperlink_bytes >= min_hyperlink_bytes);
+    try testing.expectEqual(cols, cap.hyperlink_cells);
+    try testing.expectEqual(
+        hyperlink.Set.capacityForCount(1) * @sizeOf(hyperlink.Set.Item),
+        cap.hyperlink_bytes,
+    );
 
     // Create a new page with exact capacity and clone - must not fail
     var cloned = try Page.init(cap);
@@ -4942,18 +4933,67 @@ test "Page exactRowCapacity hyperlink map capacity for many cells" {
 }
 
 test "Page layout avoids double rounding hyperlink map capacity" {
-    const hyperlink_count = 3;
     const layout = Page.layout(.{
         .cols = 1,
         .rows = 1,
-        .hyperlink_bytes = hyperlink_count * @sizeOf(hyperlink.Set.Item),
+        .hyperlink_cells = 48,
     });
 
-    // Three set entries request 48 usable map entries. Scaling that for the
-    // 80% load factor needs 60 raw slots, which rounds once to 64. Rounding
-    // the request before applying the load factor would allocate 128 slots.
+    // 48 usable map entries scaled for the 80% load factor need 60 raw
+    // slots, which rounds once to 64. Rounding the request before
+    // applying the load factor would allocate 128 slots.
     try std.testing.expectEqual(
         @as(u32, 64),
         layout.hyperlink_map_layout.capacity,
     );
+}
+
+test "Page layout sizes hyperlink map and set independently" {
+    // Many linked cells with few unique links: a large map, a small set.
+    {
+        var page = try Page.init(.{
+            .cols = 10,
+            .rows = 10,
+            .hyperlink_bytes = 2 * @sizeOf(hyperlink.Set.Item),
+            .hyperlink_cells = 4000,
+        });
+        defer page.deinit();
+        try testing.expect(page.hyperlinkCapacity() >= 4000);
+        try testing.expect(page.hyperlink_set.layout.cap <= 2);
+        const layout = Page.layout(page.capacity);
+        try testing.expect(
+            layout.hyperlink_set_layout.total_size <
+                layout.hyperlink_map_layout.total_size,
+        );
+    }
+
+    // Many unique links on few cells: a large set, a small map.
+    {
+        var page = try Page.init(.{
+            .cols = 10,
+            .rows = 10,
+            .hyperlink_bytes = 512 * @sizeOf(hyperlink.Set.Item),
+            .hyperlink_cells = 8,
+        });
+        defer page.deinit();
+        try testing.expect(page.hyperlink_set.layout.cap >= 400);
+        try testing.expect(page.hyperlinkCapacity() >= 8);
+        try testing.expect(page.hyperlinkCapacity() < 64);
+    }
+
+    // The default capacity holds the same map as before the split: 64
+    // entries request 80 raw slots, which round to 128.
+    {
+        const layout = Page.layout(.{ .cols = 1, .rows = 1 });
+        try testing.expectEqual(@as(u32, 128), layout.hyperlink_map_layout.capacity);
+    }
+
+    // A zero map with a non-zero set and the reverse both lay out.
+    {
+        const no_map = Page.layout(.{ .cols = 1, .rows = 1, .hyperlink_cells = 0 });
+        try testing.expectEqual(@as(u32, 0), no_map.hyperlink_map_layout.capacity);
+        try testing.expect(no_map.hyperlink_set_layout.total_size > 0);
+        const no_set = Page.layout(.{ .cols = 1, .rows = 1, .hyperlink_bytes = 0 });
+        try testing.expectEqual(@as(u32, 128), no_set.hyperlink_map_layout.capacity);
+    }
 }
