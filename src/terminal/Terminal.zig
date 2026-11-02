@@ -1766,8 +1766,11 @@ pub fn print(self: *Terminal, c: u21) !void {
         break :charset state.charsets.get(key);
     };
 
-    // Our right margin depends where our cursor is now.
-    const right_limit = if (self.screens.active.cursor.x > self.scrolling_region.right)
+    // Our right margin depends where our cursor is now. A cursor right
+    // of the right margin prints up to the screen edge. Every printWrap
+    // below moves the cursor to the left margin, inside the margins, so
+    // each one resets this to the right margin (as xterm's dotext does).
+    var right_limit: usize = if (self.screens.active.cursor.x > self.scrolling_region.right)
         self.cols
     else
         self.scrolling_region.right + 1;
@@ -1886,6 +1889,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
                         self.writeCell(0, if (row_wrap) .spacer_head else .narrow);
                         try self.printWrap();
+                        right_limit = self.scrolling_region.right + 1;
                         self.writeCell(prev_cp, .wide);
                         if (prev_grapheme.len > 0) {
                             try self.screens.active.setGraphemes(
@@ -2037,6 +2041,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     if (self.screens.active.cursor.pending_wrap) {
         if (self.modes.get(.wraparound)) {
             try self.printWrap();
+            right_limit = self.scrolling_region.right + 1;
         } else {
             // Match xterm's consumption of a pending wrap.
             self.screens.active.cursor.pending_wrap = false;
@@ -2087,6 +2092,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                     self.writeCell(0, .narrow);
                 }
                 try self.printWrap();
+                right_limit = self.scrolling_region.right + 1;
             }
 
             self.printCell(c, .wide, charset);
@@ -8322,6 +8328,111 @@ test "Terminal: print right margin outside wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("123456789X\n  Y", str);
+    }
+}
+
+test "Terminal: print wide after pending wrap from outside right margin" {
+    // A cursor right of the right margin prints up to the screen edge,
+    // but once it wraps to the left margin the right margin applies
+    // again, so a wide char that fills the margin sets a pending wrap.
+    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    t.setCursorPos(1, 4);
+    try t.print(' ');
+    try t.print(' ');
+    try testing.expectEqual(@as(size.CellCountInt, 4), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    try t.print(0x1F1E6);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    // The next char wraps within the margins.
+    try t.print('X');
+    try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("     \n\u{1F1E6}\nX", str);
+    }
+}
+
+test "Terminal: print narrow after pending wrap from outside right margin" {
+    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    t.setCursorPos(1, 5);
+    try t.print('A');
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    try t.print('B');
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+
+    try t.print('C');
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    try t.print('D');
+    try testing.expectEqual(@as(size.CellCountInt, 2), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("    A\nBC\nD", str);
+    }
+}
+
+test "Terminal: print wide wrapping from outside right margin lands on margin" {
+    // No pending wrap: the wide char doesn't fit in the last screen
+    // column, so it wraps itself and fills the two-column margin.
+    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    t.setCursorPos(1, 5);
+    try t.print(0x1F1E6);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
+        try testing.expectEqual(Cell.Wide.spacer_head, list_cell.cell.wide);
+        try testing.expect(list_cell.row.wrap);
+    }
+}
+
+test "Terminal: print grapheme widened at outside right margin wraps onto margin" {
+    // Mode 2027: VS16 widens a narrow emoji in the last screen column,
+    // which must move to the next row and then fill the margin.
+    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.grapheme_cluster, true);
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    t.setCursorPos(1, 5);
+    try t.print(0x261D);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+    try t.print(0xFE0F);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 1), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        try testing.expectEqual(@as(u21, 0x261D), list_cell.cell.content.codepoint.data);
+        try testing.expectEqual(Cell.Wide.wide, list_cell.cell.wide);
     }
 }
 
@@ -15875,7 +15986,7 @@ fn testPrintSliceDifferential(
     var last_n: usize = 0;
 
     for (0..ops) |_| {
-        switch (rand.intRangeAtMost(u8, 0, 20)) {
+        switch (rand.intRangeAtMost(u8, 0, 21)) {
             // Print a run of codepoints (most common op).
             0...9 => {
                 const n = rand.intRangeAtMost(usize, 1, cps_buf.len);
@@ -15942,7 +16053,12 @@ fn testPrintSliceDifferential(
                 t1.modes.set(.enable_left_and_right_margin, true);
                 t2.modes.set(.enable_left_and_right_margin, true);
                 const left = rand.intRangeAtMost(usize, 1, cols / 2);
-                const right = rand.intRangeAtMost(usize, cols / 2, cols);
+                // Sometimes make the margins exactly two columns wide
+                // so a wide char after a wrap fills them.
+                const right = if (rand.boolean())
+                    left + 1
+                else
+                    rand.intRangeAtMost(usize, cols / 2, cols);
                 t1.setLeftAndRightMargin(left, right);
                 t2.setLeftAndRightMargin(left, right);
             },
@@ -15962,6 +16078,23 @@ fn testPrintSliceDifferential(
                 const set = rand.enumValue(charsets.Charset);
                 t1.configureCharset(.G0, set);
                 t2.configureCharset(.G0, set);
+            },
+            21 => {
+                // Place the cursor outside the left/right margins, which
+                // CUP allows with origin mode off. Printing then runs to
+                // the screen edge (or the right margin) and wraps to the
+                // left margin. Columns are 1-based.
+                const left = t1.scrolling_region.left + 1;
+                const right = t1.scrolling_region.right + 1;
+                const row = rand.intRangeAtMost(usize, 1, rows);
+                const col = if (right < cols and (left == 1 or rand.boolean()))
+                    rand.intRangeAtMost(usize, right + 1, cols)
+                else if (left > 1)
+                    rand.intRangeAtMost(usize, 1, left - 1)
+                else
+                    rand.intRangeAtMost(usize, 1, cols);
+                t1.setCursorPos(row, col);
+                t2.setCursorPos(row, col);
             },
             else => unreachable,
         }
