@@ -2965,7 +2965,7 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
             // must grow.
             _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .hyperlink_bytes,
+                .hyperlink_cells,
             );
 
             // Retry

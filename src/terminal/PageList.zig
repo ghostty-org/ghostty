@@ -449,15 +449,18 @@ page_compression: IncrementalCompressionState = .{},
 /// outside of an in-progress reflow.
 recycle_node: ?*List.Node = null,
 
-/// The capacity that the second to last page needed for styles,
-/// graphemes, strings, and hyperlinks, measured by `utilizationCapacity`
-/// when `grow` moved past it. `grow` gives each new page the larger of
-/// this and what the page that just filled needed, so a new page reflects
-/// the last two full pages instead of only the last one. See
-/// `growCapacity` for why.
+/// The capacities that the last `grow_hint_pages` full pages before the
+/// last one needed for styles, graphemes, strings, and hyperlinks,
+/// measured by `utilizationCapacity` when `grow` moved past each of
+/// them. `grow` gives each new page the largest of these and what the
+/// page that just filled needed, so a new page reflects the last few
+/// full pages instead of only the last one. See `growCapacity` for why.
 ///
-/// This is null until the first page fills up, and `reset` clears it.
-grow_hint: ?Capacity = null,
+/// This is a ring: `grow_hint_next` is the slot the next need goes in.
+/// Slots are null until that many pages have filled up, and `reset`
+/// clears them. `growHint` combines them.
+grow_hints: [grow_hint_pages]?GrowHint = @splat(null),
+grow_hint_next: usize = 0,
 
 /// Limits for scrollback.
 limits: Limits,
@@ -1047,8 +1050,9 @@ pub fn reset(self: *PageList) void {
     // Our total rows always goes back to the default
     self.total_rows = self.rows;
 
-    // The pages the hint was measured from are gone.
-    self.grow_hint = null;
+    // The pages the hints were measured from are gone.
+    self.grow_hints = @splat(null);
+    self.grow_hint_next = 0;
 
     // Update all our tracked pins to point to our first page top-left
     // and mark them as garbage, because it got mangled in a way where
@@ -2335,7 +2339,7 @@ const ReflowCursor = struct {
             // If our page can't support an additional cell
             // with a hyperlink then we increase capacity.
             if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
-                try self.increaseCapacity(list, .hyperlink_bytes);
+                try self.increaseCapacity(list, .hyperlink_cells);
             }
 
             // Ensure that the string alloc has sufficient capacity
@@ -4043,7 +4047,7 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
     // Slower path: we have no space, we need to allocate a new page.
 
     // Get the layout first so our failable work is done early.
-    // We'll need this for both paths. `grow_hint` is only updated once
+    // We'll need this for both paths. `grow_hints` is only updated once
     // the new page exists (see `GrowCapacity.need`).
     const grow_cap = self.growCapacity(last);
     const cap = grow_cap.cap;
@@ -4148,7 +4152,7 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         page.size.rows = 1;
         self.pages.insertAfter(last, first);
         self.total_rows += 1;
-        self.grow_hint = grow_cap.need;
+        self.pushGrowHint(grow_cap.need, grow_cap.used);
 
         // Reusing the node gives it a fresh generation. Do not begin a new
         // page_serial_epoch here: generations are not monotonic in list order,
@@ -4179,7 +4183,7 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
     // we don't errdefer this because we've added it to the linked
     // list and its fine to have dangling unused pages.
     self.pages.append(next_node);
-    self.grow_hint = grow_cap.need;
+    self.pushGrowHint(grow_cap.need, grow_cap.used);
     const page = next_node.page();
     page.size.rows = 1;
     page.assertIntegrity();
@@ -4217,10 +4221,19 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
 ///   1. `utilizationCapacity` measures `last`. A dimension that was well
 ///      used keeps its capacity, and one that was mostly empty shrinks
 ///      back toward the standard size. See `DimensionUsage.nextCapacity`.
-///   2. Each dimension is raised to at least what the page before `last`
-///      needed (`grow_hint`). Usage varies from page to page even when
-///      the output is steady, and a single light page should not throw
-///      away capacity that the next heavy page will need again.
+///   2. Each dimension is raised to at least what the `grow_hint_pages`
+///      pages before `last` needed (`grow_hints`), as long as `last`
+///      still used the dimension. Usage varies from page to page even
+///      when the output is steady, and a few light pages should not
+///      throw away capacity that the next heavy page will need again.
+///      Random OSC 8 output, for example, puts between 700 and 10000
+///      linked cells on a page, and with a one-page memory about one
+///      page in nine shrank the hyperlink map after a light page and
+///      grew it again, copying the whole page, on the next heavy one.
+///      Remembering three pages makes that about one page in ninety.
+///      If `last` and the page before it used none of a dimension,
+///      only the page before `last` counts, so output that stops using
+///      a dimension gets standard pages again as quickly as before.
 ///
 /// For example, suppose a program draws a few hundred unique styles on
 /// every screen. The first page grows its style capacity a few times.
@@ -4256,16 +4269,42 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
 ///     limit but was about 17% slower.
 ///
 /// This doesn't change the PageList. `grow` stores the returned `need`
-/// in `grow_hint` once the new page exists.
+/// in `grow_hints` once the new page exists.
 fn growCapacity(self: *const PageList, last: *List.Node) GrowCapacity {
     const need = self.utilizationCapacity(last);
+
+    // A compressed page can't be inspected, so it counts as using
+    // every dimension.
+    const used: GrowHint.Used = if (last.pageIfResident()) |p|
+        .init(p.usage())
+    else
+        .all;
+
     const cap: Capacity = cap: {
         var cap = need;
-        if (self.grow_hint) |hint| {
-            cap.styles = @max(cap.styles, hint.styles);
-            cap.grapheme_bytes = @max(cap.grapheme_bytes, hint.grapheme_bytes);
-            cap.string_bytes = @max(cap.string_bytes, hint.string_bytes);
-            cap.hyperlink_bytes = @max(cap.hyperlink_bytes, hint.hyperlink_bytes);
+        const all = self.growHint() orelse break :cap cap;
+        const newest = self.grow_hints[
+            (self.grow_hint_next + grow_hint_pages - 1) % grow_hint_pages
+        ].?;
+        inline for (.{
+            "styles",
+            "grapheme_bytes",
+            "string_bytes",
+            "hyperlink_bytes",
+            "hyperlink_cells",
+        }) |f| {
+            // A page that uses a dimension at all may just be a light
+            // page of a steady stream, and so may a single page that
+            // uses none of it (random link output has one such page
+            // in ten). Either gets what any remembered page needed.
+            // Two pages in a row that use none of it are more likely
+            // the end of that kind of output, so only the page before
+            // `last` counts, and the next page is standard again.
+            const hint = if (@field(used, f) or @field(newest.used, f))
+                @field(all, f)
+            else
+                @field(newest.need, f);
+            @field(cap, f) = @max(@field(cap, f), hint);
         }
         break :cap cap;
     };
@@ -4287,14 +4326,80 @@ fn growCapacity(self: *const PageList, last: *List.Node) GrowCapacity {
         const rows: u64 = fitted.rows;
         if (rows * heap_size * 10 < @as(u64, cap.rows) * std_size * 9) break :pool;
 
-        return .{ .cap = fitted, .need = need };
+        return .{ .cap = fitted, .need = need, .used = used };
     }
 
     if (heap_size > size.max_page_size) return .{
         .cap = initialCapacity(self.cols),
         .need = need,
+        .used = used,
     };
-    return .{ .cap = cap, .need = need };
+    return .{ .cap = cap, .need = need, .used = used };
+}
+
+/// How many full pages before the last one `growCapacity` remembers.
+/// See `grow_hints`.
+const grow_hint_pages = 3;
+
+/// What one remembered page needed and which dimensions it used.
+const GrowHint = struct {
+    need: Capacity,
+    used: Used,
+
+    /// One flag per `Capacity` dimension that `utilizationCapacity`
+    /// measures: whether a page used any of it.
+    pub const Used = struct {
+        styles: bool,
+        grapheme_bytes: bool,
+        string_bytes: bool,
+        hyperlink_bytes: bool,
+        hyperlink_cells: bool,
+
+        pub const all: Used = .{
+            .styles = true,
+            .grapheme_bytes = true,
+            .string_bytes = true,
+            .hyperlink_bytes = true,
+            .hyperlink_cells = true,
+        };
+
+        pub fn init(usage: Page.Usage) Used {
+            return .{
+                .styles = usage.styles.used > 0,
+                .grapheme_bytes = usage.grapheme_bytes.used > 0,
+                .string_bytes = usage.string_bytes.used > 0,
+                .hyperlink_bytes = usage.hyperlink_set.used > 0,
+                .hyperlink_cells = usage.hyperlink_map.used > 0,
+            };
+        }
+    };
+};
+
+/// Remember what a page that just filled up needed, dropping the
+/// oldest remembered page.
+fn pushGrowHint(self: *PageList, need: Capacity, used: GrowHint.Used) void {
+    self.grow_hints[self.grow_hint_next] = .{ .need = need, .used = used };
+    self.grow_hint_next = (self.grow_hint_next + 1) % grow_hint_pages;
+}
+
+/// The largest capacity, dimension by dimension, that any remembered
+/// page needed, or null if no page has filled up yet.
+fn growHint(self: *const PageList) ?Capacity {
+    var result: ?Capacity = null;
+    for (self.grow_hints) |maybe| {
+        const hint = (maybe orelse continue).need;
+        const acc = &(result orelse {
+            result = hint;
+            continue;
+        });
+        acc.styles = @max(acc.styles, hint.styles);
+        acc.grapheme_bytes = @max(acc.grapheme_bytes, hint.grapheme_bytes);
+        acc.string_bytes = @max(acc.string_bytes, hint.string_bytes);
+        acc.hyperlink_bytes = @max(acc.hyperlink_bytes, hint.hyperlink_bytes);
+        acc.hyperlink_cells = @max(acc.hyperlink_cells, hint.hyperlink_cells);
+        result = acc.*;
+    }
+    return result;
 }
 
 /// The result of `growCapacity`.
@@ -4302,8 +4407,8 @@ const GrowCapacity = struct {
     /// The capacity for the new page.
     cap: Capacity,
 
-    /// The capacity that `last` needed, which becomes the next
-    /// `grow_hint`.
+    /// The capacity that `last` needed, which `grow` remembers in
+    /// `grow_hints`.
     ///
     /// `grow` stores it only after the new page exists. Creating the page
     /// can fail with OutOfMemory, and callers such as the stream handler
@@ -4311,6 +4416,9 @@ const GrowCapacity = struct {
     /// before `last`, or a single light page could drop a carried
     /// capacity.
     need: Capacity,
+
+    /// Which dimensions `last` used at all.
+    used: GrowHint.Used,
 };
 
 /// Return the capacity that a new page should have to hold the same kind
@@ -4373,17 +4481,37 @@ fn utilizationCapacity(self: *const PageList, node: *List.Node) Capacity {
         .max = std.math.maxInt(size.StringBytesInt),
     }));
 
-    // Hyperlinks have two tables sized from the one `hyperlink_bytes`
-    // value. The decision follows the fuller table, but the request must
-    // make room in both.
+    // Hyperlinks have two tables with their own capacity fields: the
+    // set of unique hyperlinks, sized in bytes, and the map from cells
+    // to hyperlinks, sized in cells. Like `Capacity.styles`, the set's
+    // field is not a count, so `hyperlinkBytesForCount` converts the
+    // number of hyperlinks we want into bytes.
+    //
+    // A page that has any links carries a set of at least
+    // `hyperlink_set_carry_min` items. The number of unique links on a
+    // page varies a lot from one page to the next (random OSC 8 output
+    // has 4 to 12 per page) while the standard set holds 4, so without
+    // a floor the set shrinks after a light page and the next heavy
+    // page grows it again by cloning the whole page. The floor costs
+    // about 2 KB on a page that is already carrying link storage.
     cap.hyperlink_bytes = @intCast(DimensionUsage.nextCapacity(.{
         .prev = prev.hyperlink_bytes,
         .standard = cap.hyperlink_bytes,
-        .usage = usage.hyperlinks(),
-        .request = Page.hyperlinkBytesForCounts(
-            headroom(usage.hyperlink_set.used),
-            headroom(usage.hyperlink_map.used),
-        ),
+        .usage = usage.hyperlink_set,
+        .request = if (usage.hyperlink_set.used == 0)
+            0
+        else
+            Page.hyperlinkBytesForCount(@max(
+                headroom(usage.hyperlink_set.used),
+                hyperlink_set_carry_min,
+            )),
+        .max = std.math.maxInt(size.HyperlinkCountInt),
+    }));
+    cap.hyperlink_cells = @intCast(DimensionUsage.nextCapacity(.{
+        .prev = prev.hyperlink_cells,
+        .standard = cap.hyperlink_cells,
+        .usage = usage.hyperlink_map,
+        .request = headroom(usage.hyperlink_map.used),
         .max = std.math.maxInt(size.HyperlinkCountInt),
     }));
 
@@ -4411,6 +4539,10 @@ fn scaleUsage(usage: Page.Usage, from_rows: usize, to_rows: usize) Page.Usage {
     }
     return result;
 }
+
+/// The fewest unique hyperlinks a carried capacity makes room for on a
+/// page that has any. See `utilizationCapacity`.
+const hyperlink_set_carry_min = 32;
 
 /// Return `used` plus 50%. This leaves room for a page that is somewhat
 /// fuller than the last one, and for the rounding that `Page.layout`
@@ -4483,6 +4615,7 @@ pub const IncreaseCapacity = enum {
     styles,
     grapheme_bytes,
     hyperlink_bytes,
+    hyperlink_cells,
     string_bytes,
 
     /// Returns the capacity dimension that must be increased for the
@@ -4503,10 +4636,13 @@ pub const IncreaseCapacity = enum {
             error.StringAllocOutOfMemory,
             => .string_bytes,
 
-            // Increase hyperlink memory
+            // Increase hyperlink set memory
             error.HyperlinkSetOutOfMemory,
-            error.HyperlinkMapOutOfMemory,
             => .hyperlink_bytes,
+
+            // Increase hyperlink map memory
+            error.HyperlinkMapOutOfMemory,
+            => .hyperlink_cells,
 
             // Increase grapheme memory
             error.GraphemeMapOutOfMemory,
@@ -4632,12 +4768,15 @@ pub fn increaseCapacity(
                     // costs one more (non-ladder) growth event.
                     .styles => usage.styles.used,
 
-                    // The set and the map are both sized from this one
-                    // field, so measure what both need.
-                    .hyperlink_bytes => Page.hyperlinkBytesForCounts(
+                    // The set's field is in bytes, so convert the
+                    // number of unique hyperlinks in use.
+                    .hyperlink_bytes => Page.hyperlinkBytesForCount(
                         usage.hyperlink_set.used,
-                        usage.hyperlink_map.used,
                     ),
+
+                    // The map's field is a cell count, the same unit
+                    // as its usage.
+                    .hyperlink_cells => usage.hyperlink_map.used,
                 };
                 if (used == 0 or page.size.rows == 0) break :project;
 
@@ -4656,20 +4795,22 @@ pub fn increaseCapacity(
                 // page with one unique link per row would still have to
                 // grow a second time.
                 //
-                // For hyperlinks on a page of standard height, 32× the
-                // floor exceeds the field's integer range, so in practice
-                // they are bounded by the field alone (at 215 columns, a
-                // page about 1.8× the standard size).
+                // For the hyperlink set on a page of standard height,
+                // 32× the floor exceeds the field's integer range, so in
+                // practice it is bounded by the field alone.
                 const floor: u64 = switch (comptime tag) {
                     .styles,
                     .grapheme_bytes,
                     => @field(std_capacity, field_name),
 
                     // One unique hyperlink on every row.
-                    .hyperlink_bytes => Page.hyperlinkBytesForCounts(
-                        cap.rows,
-                        cap.rows,
-                    ),
+                    .hyperlink_bytes => Page.hyperlinkBytesForCount(cap.rows),
+
+                    // One linked cell on every row, so the bound is 32
+                    // linked cells per row: a link the length of a
+                    // typical URI or path on every row fits in one
+                    // growth, and a page of fully linked rows takes two.
+                    .hyperlink_cells => cap.rows,
 
                     // One URI of up to 64 bytes on every row. Most URIs
                     // are about 40 to 80 bytes.
@@ -5475,12 +5616,31 @@ fn destroyNodeExt(
         .pool => {
             assert(page.memory.len <= std_size);
 
-            // Reset the memory to zero (and decommit it, where
-            // supported) so it can be reused.
             const item: *align(std.heap.page_size_min) [std_size]u8 =
                 @ptrCast(@alignCast(page.memory.ptr));
-            _ = terminal_mem.decommit(.zero, item, page.memory.len);
-            pool.pages.destroy(item);
+
+            // A pooled page gets here only when `grow` could not reuse
+            // its item in place: `increaseCapacity` replaced it, or a
+            // heap page took its place at the byte limit. Keep a few
+            // zeroed items for reuse and give the rest back to the OS.
+            // A decommitted item is still mapped and, on Darwin, stays
+            // resident until the kernel needs the memory, so an
+            // unbounded free list reads as resident memory the size of
+            // every pooled page the list ever held at once.
+            reuse: {
+                // The wasm pool has no way to give an item back.
+                if (comptime !wasm_page_pool) {
+                    if (pool.pages.freeCount() >= page_preheat) {
+                        pool.pages.release(item);
+                        break :reuse;
+                    }
+                }
+
+                // Reset the memory to zero (and decommit it, where
+                // supported) so it can be reused.
+                _ = terminal_mem.decommit(.zero, item, page.memory.len);
+                pool.pages.destroy(item);
+            }
         },
 
         .heap => {
@@ -12781,7 +12941,7 @@ test "PageList increaseCapacity hyperlinks grows once for one link per row" {
                     if (x > 0) page.hyperlink_set.use(page.memory, id);
                     page.setHyperlink(rac.row, rac.cell, id) catch {
                         page.hyperlink_set.release(page.memory, id);
-                        break :dim .hyperlink_bytes;
+                        break :dim .hyperlink_cells;
                     };
                 }
 
@@ -12798,10 +12958,186 @@ test "PageList increaseCapacity hyperlinks grows once for one link per row" {
     const page = s.pages.first.?.page();
     try testing.expectEqual(std_cap.rows, page.size.rows);
     try testing.expectEqual(std_cap.rows, page.hyperlink_set.count());
+    try testing.expectEqual(std_cap.rows * link_cells, page.hyperlinkCount());
     try testing.expectEqual(1, grows.get(.hyperlink_bytes));
+    try testing.expectEqual(1, grows.get(.hyperlink_cells));
     try testing.expectEqual(1, grows.get(.string_bytes));
     try testing.expectEqual(0, grows.get(.styles));
     try testing.expectEqual(0, grows.get(.grapheme_bytes));
+}
+
+test "PageList increaseCapacity hyperlink map grows hyperlink_cells only" {
+    // Filling the hyperlink map with one link grows the map's capacity
+    // and leaves the set's alone, and the other way around.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24, .max_size = null });
+    defer s.deinit();
+
+    const std_cap = initialCapacity(s.cols);
+    try testing.expectEqual(std_cap, s.pages.first.?.capacity());
+
+    // One link on every cell of the page until the map is full.
+    {
+        const page = s.pages.first.?.page();
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = "http://example.com",
+        });
+        var linked: usize = 0;
+        outer: for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = 'A' } },
+                };
+                if (linked > 0) page.hyperlink_set.use(page.memory, id);
+                page.setHyperlink(rac.row, rac.cell, id) catch |err| {
+                    try testing.expectEqual(error.HyperlinkMapOutOfMemory, err);
+                    page.hyperlink_set.release(page.memory, id);
+                    break :outer;
+                };
+                linked += 1;
+            }
+        }
+        try testing.expectEqual(page.hyperlinkCapacity(), linked);
+        try testing.expectEqual(1, page.hyperlink_set.count());
+    }
+
+    const node = try s.increaseCapacity(s.pages.first.?, .hyperlink_cells);
+    const cap = node.capacity();
+    try testing.expect(cap.hyperlink_cells > std_cap.hyperlink_cells);
+    try testing.expectEqual(std_cap.hyperlink_bytes, cap.hyperlink_bytes);
+    try testing.expectEqual(std_cap.string_bytes, cap.string_bytes);
+    try testing.expectEqual(std_cap.styles, cap.styles);
+    try testing.expectEqual(std_cap.grapheme_bytes, cap.grapheme_bytes);
+
+    // The map holds every link and still has room: the projection
+    // sized it for the whole page at the measured density.
+    const page = node.page();
+    try testing.expect(page.hyperlinkCount() < page.hyperlinkCapacity());
+    try testing.expectEqual(1, page.hyperlink_set.count());
+
+    // Growing the set does not touch the map.
+    const node2 = try s.increaseCapacity(node, .hyperlink_bytes);
+    const cap2 = node2.capacity();
+    try testing.expectEqual(cap.hyperlink_cells, cap2.hyperlink_cells);
+    try testing.expect(cap2.hyperlink_bytes > cap.hyperlink_bytes);
+}
+
+test "PageList utilizationCapacity carries a minimum hyperlink set" {
+    // A page with a few links carries a set that holds at least
+    // `hyperlink_set_carry_min` links, so that the next page's link
+    // count can vary without shrinking and regrowing the set. A page
+    // with no links carries the standard set.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24, .max_size = null });
+    defer s.deinit();
+    const node = s.pages.first.?;
+    const std_cap = initialCapacity(s.cols);
+
+    try testing.expectEqual(std_cap.hyperlink_bytes, s.utilizationCapacity(node).hyperlink_bytes);
+
+    for (0..5) |i| {
+        var buf: [64]u8 = undefined;
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
+        while (true) {
+            const page = s.pages.first.?.page();
+            const id = page.insertHyperlink(.{
+                .id = .{ .implicit = @intCast(i) },
+                .uri = uri,
+            }) catch |err| switch (err) {
+                error.SetOutOfMemory => {
+                    _ = try s.increaseCapacity(s.pages.first.?, .hyperlink_bytes);
+                    continue;
+                },
+                else => return err,
+            };
+            const rac = page.getRowAndCell(0, i);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = .{ .data = 'A' } },
+            };
+            try page.setHyperlink(rac.row, rac.cell, id);
+            break;
+        }
+    }
+    const cap = s.utilizationCapacity(s.pages.first.?);
+    try testing.expect(cap.hyperlink_bytes >= Page.hyperlinkBytesForCount(hyperlink_set_carry_min));
+    try testing.expectEqual(std_cap.hyperlink_cells, cap.hyperlink_cells);
+}
+
+test "PageList grow carries one link per row onto pooled pages" {
+    // A stream with a short unique link on every row fills the set with
+    // one link per row and the map with a few cells per row. The next
+    // page carries that capacity, which fits a pool item with most of
+    // its rows, so the pages stay pooled.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 120, .rows = 80, .max_size = null });
+    defer s.deinit();
+
+    const std_cap = initialCapacity(s.cols);
+    const link_cells = 4;
+    var pages: usize = 0;
+    var i: usize = 0;
+    while (pages < 3) : (i += 1) {
+        // Write a unique link into the bottom row of the last page,
+        // growing whatever runs out of room.
+        while (true) {
+            const p = s.pages.last.?.page();
+            const y = p.size.rows - 1;
+            var buf: [64]u8 = undefined;
+            const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
+            const dim: IncreaseCapacity = dim: {
+                const id = p.insertHyperlink(.{
+                    .id = .{ .implicit = @intCast(i) },
+                    .uri = uri,
+                }) catch |err| switch (err) {
+                    error.StringsOutOfMemory => break :dim .string_bytes,
+                    error.SetOutOfMemory => break :dim .hyperlink_bytes,
+                    error.SetNeedsRehash => unreachable,
+                };
+                for (0..link_cells) |x| {
+                    const rac = p.getRowAndCell(x, y);
+                    rac.cell.* = .{
+                        .content_tag = .codepoint,
+                        .content = .{ .codepoint = .{ .data = 'A' } },
+                    };
+                    if (x > 0) p.hyperlink_set.use(p.memory, id);
+                    p.setHyperlink(rac.row, rac.cell, id) catch {
+                        p.hyperlink_set.release(p.memory, id);
+                        break :dim .hyperlink_cells;
+                    };
+                }
+                break;
+            };
+            _ = try s.increaseCapacity(s.pages.last.?, dim);
+        }
+
+        if (try s.grow()) |_| pages += 1;
+    }
+
+    // Every page after the first carried a larger hyperlink capacity
+    // and is still pooled with most of the standard rows. (At 120
+    // columns this is 348 of 397 rows, with about 50 KB of hyperlink
+    // set, map, and string storage.)
+    var it = s.pages.first.?.next;
+    var n: usize = 0;
+    while (it) |node| : (it = node.next) {
+        n += 1;
+        try testing.expectEqual(.pool, node.owned);
+        const cap = node.capacity();
+        try testing.expect(cap.hyperlink_bytes > std_cap.hyperlink_bytes);
+        try testing.expect(cap.hyperlink_cells > std_cap.hyperlink_cells);
+        try testing.expect(@as(usize, cap.rows) * 5 >= @as(usize, std_cap.rows) * 4);
+    }
+    try testing.expectEqual(3, n);
 }
 
 test "PageList increaseCapacity tracked pins" {
@@ -20171,6 +20507,52 @@ test "PageList grow carries used capacity to the next page" {
     try testing.expectEqual(initialCapacity(s.cols), fourth.capacity());
 }
 
+test "PageList grow keeps capacity through light pages that still use it" {
+    // A page that uses a dimension lightly, but does use it, keeps the
+    // capacity that any of the last `grow_hint_pages` pages needed.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    // Grow the style capacity and fill half of it.
+    var node = s.pages.last.?;
+    for (0..2) |_| node = try s.increaseCapacity(node, .styles);
+    const styles = node.capacity().styles;
+    for (0..node.page().styles.layout.cap / 2) |i| {
+        _ = try node.page().styles.add(node.page().memory, .{
+            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+        });
+    }
+
+    // Two pages in a row that each use a handful of styles still carry
+    // the capacity: the styled page is still within the remembered
+    // pages, and a light page is not the end of styled output.
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    for (0..grow_hint_pages - 1) |_| {
+        node = (try s.grow()).?;
+        try testing.expectEqual(styles, node.capacity().styles);
+        for (0..12) |i| {
+            _ = try node.page().styles.add(node.page().memory, .{
+                .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = 1, .b = 1 } },
+            });
+        }
+        while (node.rows() < node.capacity().rows) _ = try s.grow();
+    }
+
+    // A single page with no styles still carries it (its predecessor
+    // used styles), and the page after a second one is standard.
+    node = (try s.grow()).?;
+    try testing.expectEqual(styles, node.capacity().styles);
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    node = (try s.grow()).?;
+    try testing.expectEqual(styles, node.capacity().styles);
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    node = (try s.grow()).?;
+    try testing.expectEqual(initialCapacity(s.cols), node.capacity());
+}
+
 test "PageList grow carry-over respects byte limit" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -20209,9 +20591,10 @@ test "PageList grow carry-over respects byte limit" {
     try testing.expect(s.page_size <= s.limits.max(.bytes));
 
     // The first page was destroyed instead of reused, and three more
-    // were pruned after it, so four pool items went back to the pool.
+    // were pruned after it, so four pool items went back to the pool,
+    // which keeps at most `page_preheat` of them.
     try testing.expectEqual(5, s.totalPages());
-    try testing.expectEqual(free + 4, s.pool.pages.freeCount());
+    try testing.expectEqual(@min(free + 4, page_preheat), s.pool.pages.freeCount());
 }
 
 test "PageList grow trims rows only while 90% of rows per byte remain" {
@@ -20349,10 +20732,10 @@ test "PageList reset clears the grow hint" {
     const node = s.pages.last.?;
     while (node.rows() < node.capacity().rows) _ = try s.grow();
     _ = try s.grow();
-    try testing.expect(s.grow_hint != null);
+    try testing.expect(s.growHint() != null);
 
     s.reset();
-    try testing.expect(s.grow_hint == null);
+    try testing.expect(s.growHint() == null);
 }
 
 test "PageList grow keeps the grow hint when allocation fails" {
@@ -20375,7 +20758,7 @@ test "PageList grow keeps the grow hint when allocation fails" {
     while (a.rows() < a.capacity().rows) _ = try s.grow();
     const b = (try s.grow()).?;
     while (b.rows() < b.capacity().rows) _ = try s.grow();
-    const hint = s.grow_hint.?;
+    const hint = s.growHint().?;
     try testing.expectEqual(styles, hint.styles);
 
     // Fail the next page allocation. Taking every free pool item forces
@@ -20395,7 +20778,7 @@ test "PageList grow keeps the grow hint when allocation fails" {
     s.pool.pages.allocator = page_alloc;
 
     // The hint survived the failure, so the retry still carries it.
-    try testing.expectEqual(hint, s.grow_hint.?);
+    try testing.expectEqual(hint, s.growHint().?);
     const c = (try s.grow()).?;
     try testing.expectEqual(styles, c.capacity().styles);
 }
@@ -20445,7 +20828,7 @@ test "PageList grow trims rows on a narrow terminal" {
 
     var hint = initialCapacity(s.cols);
     hint.styles = 129;
-    s.grow_hint = hint;
+    s.pushGrowHint(hint, .all);
     const next = (try s.grow()).?;
     try testing.expectEqual(.pool, next.owned);
     try testing.expectEqual(hint.fitRows(std_size).?, next.capacity());
@@ -20752,6 +21135,7 @@ test "PageList increaseCapacity from zero-capacity dimensions" {
     try testing.expectEqual(0, node.capacity().grapheme_bytes);
     try testing.expectEqual(0, node.capacity().string_bytes);
     try testing.expectEqual(0, node.capacity().hyperlink_bytes);
+    try testing.expectEqual(0, node.capacity().hyperlink_cells);
 
     // Increasing each dimension from zero must actually grow it.
     // Regression: 0 * 2 == 0 used to "succeed" without growing,
@@ -20764,6 +21148,8 @@ test "PageList increaseCapacity from zero-capacity dimensions" {
     try testing.expect(node.capacity().string_bytes > 0);
     node = try s.increaseCapacity(node, .hyperlink_bytes);
     try testing.expect(node.capacity().hyperlink_bytes > 0);
+    node = try s.increaseCapacity(node, .hyperlink_cells);
+    try testing.expect(node.capacity().hyperlink_cells > 0);
 
     // Increasing a non-zero dimension still doubles.
     const styles = node.capacity().styles;
