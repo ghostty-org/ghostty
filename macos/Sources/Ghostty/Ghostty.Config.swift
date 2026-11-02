@@ -663,6 +663,15 @@ extension Ghostty {
             return v
         }
 
+        var autoSwitchInputSource: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>?
+            let key = "macos-auto-switch-input-source"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard let ptr = v else { return nil }
+            return String(cString: ptr)
+        }
+
         var macosAppleScript: Bool {
             guard let config = self.config else { return true }
             var v = false

@@ -3581,6 +3581,23 @@ keybind: Keybinds = .{},
 /// you may want to disable it.
 @"macos-secure-input-indication": bool = true,
 
+/// Automatically switch to the given keyboard input source when Ghostty
+/// becomes the active application. The previously selected input source
+/// is restored when Ghostty is no longer the active application.
+///
+/// This is useful if you use a non-Latin input method (such as Chinese
+/// Pinyin or Japanese) in other applications but want to type commands
+/// in the terminal with a Latin keyboard layout.
+///
+/// The value is the ID of an enabled input source, such as
+/// `com.apple.keylayout.ABC` or `com.apple.keylayout.US`. To find the ID
+/// of the currently selected keyboard layout, run:
+///
+///     defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID
+///
+/// If this is unset (the default), Ghostty never changes the input source.
+@"macos-auto-switch-input-source": ?[:0]const u8 = null,
+
 /// If true, Ghostty exposes and handles the built-in AppleScript dictionary
 /// on macOS.
 ///

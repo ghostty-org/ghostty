@@ -858,6 +858,9 @@ class AppDelegate: NSObject,
         // AppKit mutex on the appearance.
         DispatchQueue.main.async { self.syncAppearance(config: config) }
 
+        // Sync the input source we switch to while active
+        AutoInputSource.shared.target = config.autoSwitchInputSource
+
         // Decide whether to hide/unhide app from dock and app switcher
         switch config.macosHidden {
         case .never:
