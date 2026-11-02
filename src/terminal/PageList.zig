@@ -4580,8 +4580,10 @@ pub fn increaseCapacity(
             project: {
                 // The dimensions we project must measure their current
                 // usage in the same units as the capacity field.
+                const usage = page.usage();
                 const used: u64 = switch (comptime tag) {
-                    .grapheme_bytes => page.usage().grapheme_bytes.used,
+                    .grapheme_bytes => usage.grapheme_bytes.used,
+                    .string_bytes => usage.string_bytes.used,
 
                     // Living item count. Note the capacity field is a
                     // requested item count that Layout.init rounds in
@@ -4590,9 +4592,14 @@ pub fn increaseCapacity(
                     // approximation in capacity units; the headroom
                     // below absorbs the error and an undershoot only
                     // costs one more (non-ladder) growth event.
-                    .styles => page.usage().styles.used,
+                    .styles => usage.styles.used,
 
-                    else => break :project,
+                    // The set and the map are both sized from this one
+                    // field, so measure what both need.
+                    .hyperlink_bytes => Page.hyperlinkBytesForCounts(
+                        usage.hyperlink_set.used,
+                        usage.hyperlink_map.used,
+                    ),
                 };
                 if (used == 0 or page.size.rows == 0) break :project;
 
@@ -4601,11 +4608,38 @@ pub fn increaseCapacity(
                 const density = used * @as(u64, cap.rows) / page.size.rows;
                 const projected_raw = density + density / 4;
 
-                // Bound the jump to 32× the pre-growth capacity. Arbitrary
-                // choice until we can show otherwise.
+                // Bound the jump to 32× a base capacity, so that a few
+                // dense rows at the top of a page can't project to an
+                // enormous page. The base is the pre-growth capacity or,
+                // if larger, a floor that ordinary content on a full
+                // page can reach. Without the floor, a dimension that
+                // starts small stays bounded too tightly: hyperlinks
+                // start at 4 set items, so 32× that is 128 items, and a
+                // page with one unique link per row would still have to
+                // grow a second time.
+                //
+                // For hyperlinks on a page of standard height, 32× the
+                // floor exceeds the field's integer range, so in practice
+                // they are bounded by the field alone (at 215 columns, a
+                // page about 1.8× the standard size).
+                const floor: u64 = switch (comptime tag) {
+                    .styles,
+                    .grapheme_bytes,
+                    => @field(std_capacity, field_name),
+
+                    // One unique hyperlink on every row.
+                    .hyperlink_bytes => Page.hyperlinkBytesForCounts(
+                        cap.rows,
+                        cap.rows,
+                    ),
+
+                    // One URI of up to 64 bytes on every row. Most URIs
+                    // are about 40 to 80 bytes.
+                    .string_bytes => @as(u64, cap.rows) * 64,
+                };
                 const projected = @min(
                     projected_raw,
-                    @as(u64, old) * 32,
+                    @max(@as(u64, old), floor) * 32,
                     std.math.maxInt(Int),
                 );
                 if (projected <= @field(cap, field_name)) break :project;
@@ -12662,6 +12696,74 @@ test "PageList increaseCapacity to increase string_bytes" {
             }
         }
     }
+}
+
+test "PageList increaseCapacity hyperlinks grows once for one link per row" {
+    // A page that starts receiving a unique hyperlink on every row
+    // projects its hyperlink and string capacity from the rows written
+    // so far, so each grows once and then holds the full page.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 1, .max_size = null });
+    defer s.deinit();
+
+    const std_cap = initialCapacity(s.cols);
+    try testing.expectEqual(std_cap, s.pages.first.?.capacity());
+
+    const link_cells = 8;
+    var grows: std.EnumArray(IncreaseCapacity, usize) = .initFill(0);
+    for (0..std_cap.rows) |y| {
+        if (y > 0) try testing.expect(try s.grow() == null);
+
+        while (true) {
+            const page = s.pages.last.?.page();
+            try testing.expectEqual(y + 1, page.size.rows);
+
+            var buf: [64]u8 = undefined;
+            const uri = try std.mem.print(&buf, "http://example.com/{d}", .{y});
+            const dim: IncreaseCapacity = dim: {
+                const id = page.insertHyperlink(.{
+                    .id = .{ .implicit = @intCast(y) },
+                    .uri = uri,
+                }) catch |err| switch (err) {
+                    error.StringsOutOfMemory => break :dim .string_bytes,
+                    error.SetOutOfMemory => break :dim .hyperlink_bytes,
+                    error.SetNeedsRehash => unreachable,
+                };
+
+                // Every cell of the link holds one reference to it. The
+                // first comes from insertHyperlink.
+                for (0..link_cells) |x| {
+                    const rac = page.getRowAndCell(x, y);
+                    rac.cell.* = .{
+                        .content_tag = .codepoint,
+                        .content = .{ .codepoint = .{ .data = 'A' } },
+                    };
+                    if (x > 0) page.hyperlink_set.use(page.memory, id);
+                    page.setHyperlink(rac.row, rac.cell, id) catch {
+                        page.hyperlink_set.release(page.memory, id);
+                        break :dim .hyperlink_bytes;
+                    };
+                }
+
+                break;
+            };
+
+            grows.getPtr(dim).* += 1;
+            _ = try s.increaseCapacity(s.pages.last.?, dim);
+        }
+    }
+
+    // The page is full, holds every link, and grew each dimension once.
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = s.pages.first.?.page();
+    try testing.expectEqual(std_cap.rows, page.size.rows);
+    try testing.expectEqual(std_cap.rows, page.hyperlink_set.count());
+    try testing.expectEqual(1, grows.get(.hyperlink_bytes));
+    try testing.expectEqual(1, grows.get(.string_bytes));
+    try testing.expectEqual(0, grows.get(.styles));
+    try testing.expectEqual(0, grows.get(.grapheme_bytes));
 }
 
 test "PageList increaseCapacity tracked pins" {
