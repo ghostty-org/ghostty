@@ -13,6 +13,7 @@ const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const terminalpkg = @import("../terminal/main.zig");
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
+const QueueDrain = @import("../datastruct/main.zig").QueueDrain;
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
@@ -25,6 +26,14 @@ const CURSOR_BLINK_INTERVAL = 600;
 /// hardcoded with a capacity. We can make this a comptime parameter in
 /// the future if we want it configurable.
 pub const Mailbox = BlockingQueue(rendererpkg.Message, 64);
+
+/// Throws away messages sent to a renderer thread that has been joined,
+/// so that threads still sending to it don't block on a full mailbox.
+pub const MailboxDrain = QueueDrain(Mailbox, void, discard);
+
+fn discard(_: void, message: rendererpkg.Message) void {
+    message.deinit();
+}
 
 /// Allocator used for some state
 alloc: std.mem.Allocator,
