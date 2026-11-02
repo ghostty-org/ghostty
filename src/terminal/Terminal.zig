@@ -573,8 +573,8 @@ pub fn printRepeat(self: *Terminal, count_req: usize) !void {
     // Print the repeated codepoint in slices so that eligible runs
     // take the batched printSlice fast path. printSlice is semantically
     // identical to calling print per codepoint: ineligible characters
-    // or terminal states (insert mode, grapheme clustering, hyperlinks,
-    // etc.) fall back to the per-codepoint print() path internally.
+    // or terminal states (insert mode, grapheme clustering, etc.)
+    // fall back to the per-codepoint print() path internally.
     //
     // The buffer is filled with a runtime-bounded loop rather than
     // `= @splat(c)`: a comptime-known 4096-element splat gets fully
@@ -623,9 +623,6 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
         const screen: *Screen = self.screens.active;
         if (screen.charset.single_shift != null) break :fast false;
 
-        // Hyperlinks require per-cell map bookkeeping.
-        if (screen.cursor.hyperlink_id != 0) break :fast false;
-
         break :fast true;
     };
     if (!fast) {
@@ -633,6 +630,22 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
         return;
     }
 
+    // Specialized on whether a hyperlink is open so that unlinked text
+    // doesn't pay for the linking. A slice never spans an OSC 8 open or
+    // close, so this holds for the whole slice.
+    if (self.screens.active.cursor.hyperlink_id != 0) {
+        return @call(.never_inline, printSliceBatched, .{ self, true, cps });
+    }
+    return @call(.always_inline, printSliceBatched, .{ self, false, cps });
+}
+
+/// The batched part of printSlice, specialized on whether a hyperlink is
+/// open (see there).
+fn printSliceBatched(
+    self: *Terminal,
+    comptime linked: bool,
+    cps: []const u32,
+) !void {
     const grapheme_cluster = self.modes.get(.grapheme_cluster);
 
     // When grapheme clustering is enabled and a left margin is set,
@@ -651,6 +664,7 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
         // Try the fast-path print first. This will return the number of
         // codepoints it consumed.
         const consumed = try self.printSliceFast(
+            linked,
             cps[i..],
             grapheme_cluster,
             allow_unicode,
@@ -672,6 +686,7 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
                 )) |prev| {
                     i += try @call(.never_inline, printSliceMixed, .{
                         self,
+                        linked,
                         cps[i..],
                         prev,
                         grapheme_cluster,
@@ -701,6 +716,7 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
 /// etc.) is rejected so `print` can handle it with full generality.
 fn printSliceFast(
     self: *Terminal,
+    comptime linked: bool,
     cps: []const u32,
     grapheme_cluster: bool,
     allow_unicode: bool,
@@ -732,6 +748,7 @@ fn printSliceFast(
         if (cp0 < 0x10) return 0;
         return self.printSliceFill(
             .narrow,
+            linked,
             cps,
             grapheme_cluster,
             allow_unicode,
@@ -794,12 +811,14 @@ fn printSliceFast(
     return switch (unicode.table.get(@intCast(cp0)).width) {
         1 => self.printSliceFill(
             .narrow,
+            linked,
             cps,
             grapheme_cluster,
             allow_unicode,
         ),
         2 => self.printSliceFill(
             .wide,
+            linked,
             cps,
             grapheme_cluster,
             allow_unicode,
@@ -930,11 +949,13 @@ const PrintSliceSimpleMask = pagepkg.Mask(Cell, &.{
 }, 4);
 
 /// The row-filling portion of the printSlice fast path, specialized by
-/// width class. The first codepoint must already be validated by the
-/// caller (printSliceFast).
+/// width class and by whether the cells written are linked to the
+/// cursor's hyperlink. The first codepoint must already be validated by
+/// the caller (printSliceFast).
 fn printSliceFill(
     self: *Terminal,
     comptime width: PrintSliceWidth,
+    comptime linked: bool,
     cps: []const u32,
     grapheme_cluster: bool,
     allow_unicode: bool,
@@ -1037,13 +1058,25 @@ fn printSliceFill(
         // its page cannot be compressed while this print path is active.
         const page = cursor.page_pin.node.pageAssumeResident();
         const cells: [*]Cell = @ptrCast(cursor.page_cell);
+
+        // The style and hyperlink IDs are per page, and a wrap can move
+        // the cursor to another page (which re-interns both), so read
+        // them for every row. If re-interning the link failed, the
+        // cursor has no link any more: return, so that the caller
+        // continues unlinked. Without a link to start with, the cursor
+        // can't get one by moving.
         const style_id = cursor.style_id;
+        const link_id = cursor.hyperlink_id;
+        if (comptime linked) {
+            if (link_id == 0) break;
+        } else assert(link_id == 0);
         const template: Cell = .{
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 0 } },
             .style_id = style_id,
             .wide = .narrow,
             .protected = cursor.protected,
+            .hyperlink = linked,
             .semantic_content = cursor.semantic_content,
         };
         const template_bits: u64 = @bitCast(template);
@@ -1057,6 +1090,10 @@ fn printSliceFill(
                 // otherwise fall back to print() for the cleanup.
                 if (!SimpleMask.eqlScalar(cells[0], check_expected)) break;
 
+                // print() links the spacer head too. If the hyperlink
+                // map is full, print() grows the page for it.
+                if (linked and page.hyperlinkCellsFree() == 0) break;
+
                 var spacer = template;
                 if (right_limit == self.cols) {
                     cursor.page_row.wrap = true;
@@ -1065,13 +1102,26 @@ fn printSliceFill(
                 cursor.page_row.markWritten();
                 if (style_id != style.default_id) cursor.page_row.styled = true;
                 cells[0] = spacer;
+                if (linked) {
+                    page.setHyperlinkRun(cursor.page_row, cells[0..1], link_id);
+                }
                 try self.printWrap();
                 continue :outer;
             }
         }
 
         // Number of codepoints and cells we're writing to this row.
-        const count = @min(avail / cells_per_cp, run_len - printed);
+        var count = @min(avail / cells_per_cp, run_len - printed);
+        if (comptime linked) {
+            // Every cell we write gets an entry in the page's hyperlink
+            // map, which has a fixed capacity: write only what fits.
+            // When nothing fits, return and let print() write the next
+            // codepoint, which grows the page for its link
+            // (Screen.cursorSetHyperlink). Growing here would replace
+            // the page under the pointers we hold.
+            count = @min(count, page.hyperlinkCellsFree() / cells_per_cp);
+            if (count == 0) break;
+        }
         assert(count > 0);
         const cell_count = count * cells_per_cp;
 
@@ -1270,8 +1320,15 @@ fn printSliceFill(
 
         if (k > 0) {
             assert(k % cells_per_cp == 0);
+
             cursor.page_row.markWritten();
             if (style_id != style.default_id) cursor.page_row.styled = true;
+
+            // Every cell written has the hyperlink flag from the
+            // template; add their map entries and references.
+            if (comptime linked) {
+                page.setHyperlinkRun(cursor.page_row, cells[0..k], link_id);
+            }
             self.previous_char = @intCast(cps[printed + k / cells_per_cp - 1]);
             printed += k / cells_per_cp;
 
@@ -1315,6 +1372,7 @@ fn printSliceFill(
 /// printSliceFast there.
 fn printSliceMixed(
     self: *Terminal,
+    comptime linked: bool,
     cps: []const u32,
     prev: unicode.Properties,
     grapheme_cluster: bool,
@@ -1354,12 +1412,17 @@ fn printSliceMixed(
         // has special handling so leave it the row.
         if (right_limit - self.scrolling_region.left <= 1) break;
 
-        // The style can't change during a printSlice call, but style
-        // IDs are per page and a wrap can move the cursor onto another
-        // page, which re-interns the style under a new ID. Read it for
-        // every row.
+        // The style and hyperlink IDs are per page, and a wrap can move
+        // the cursor to another page (which re-interns both), so read
+        // them for every row. `simple` is a simple cell in our style
+        // (see PrintSliceSimpleMask): never linked, even when the cells
+        // we write are.
         const style_id = cursor.style_id;
-        const template: Cell = .{
+        const link_id = cursor.hyperlink_id;
+        if (comptime linked) {
+            if (link_id == 0) break;
+        } else assert(link_id == 0);
+        const simple: Cell = .{
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 0 } },
             .style_id = style_id,
@@ -1367,6 +1430,8 @@ fn printSliceMixed(
             .protected = cursor.protected,
             .semantic_content = cursor.semantic_content,
         };
+        var template = simple;
+        template.hyperlink = linked;
         state.template_bits = @bitCast(template);
         state.check_expected = printSliceCheckExpected(style_id);
 
@@ -1379,6 +1444,13 @@ fn printSliceMixed(
         // path is active.
         const page = cursor.page_pin.node.pageAssumeResident();
         const styled = style_id != style.default_id;
+
+        // Every cell we write to this row (at most all of it, including
+        // a spacer head at the edge) gets an entry in the page's
+        // hyperlink map, which has a fixed capacity. If the row might
+        // not fit, return: printSliceFill writes what fits and then
+        // print() grows the page (see printSliceFill).
+        if (linked and page.hyperlinkCellsFree() < state.avail) break;
         var stop = state.fill(grapheme_cluster, styled);
         while (stop == .restyle) {
             // The next codepoint's cells differ from simple cells by
@@ -1396,7 +1468,7 @@ fn printSliceMixed(
 
             // The references moved; make the cells simple cells in our
             // style so that fill() accepts and overwrites them.
-            for (restyled) |*cell| cell.* = template;
+            for (restyled) |*cell| cell.* = simple;
             stop = state.fill(grapheme_cluster, styled);
         }
 
@@ -1412,12 +1484,17 @@ fn printSliceMixed(
         }
         state.n_default = 0;
 
-        // Bookkeeping for the cells we wrote: move the cursor past
-        // them, onto the last cell with a pending wrap if the row is
-        // full, as in print().
+        // Bookkeeping for the cells we wrote: link them, and move the
+        // cursor past them, onto the last cell with a pending wrap if
+        // the row is full, as in print().
         if (state.k > 0) {
             cursor.page_row.markWritten();
             if (style_id != style.default_id) cursor.page_row.styled = true;
+            if (linked) page.setHyperlinkRun(
+                cursor.page_row,
+                state.cells[0..state.k],
+                link_id,
+            );
             self.previous_char = @intCast(cps[state.p - 1]);
             if (state.k == state.avail) {
                 screen.cursorRight(@intCast(state.k - 1));
@@ -1444,6 +1521,11 @@ fn printSliceMixed(
                 cursor.page_row.markWritten();
                 if (style_id != style.default_id) cursor.page_row.styled = true;
                 cursor.page_cell.* = spacer;
+                if (linked) page.setHyperlinkRun(
+                    cursor.page_row,
+                    cursor.page_cell[0..1],
+                    link_id,
+                );
                 try self.printWrap();
             },
 
@@ -15853,7 +15935,7 @@ test "Terminal: printSlice charset batched fill" {
     for ([_]sgr.Attribute{ .unset, .unset, .bold, .bold, .unset }) |attr| {
         t.setCursorPos(1, 1);
         try t.setAttribute(attr);
-        try testing.expectEqual(cps.len, try t.printSliceFast(&cps, true, false));
+        try testing.expectEqual(cps.len, try t.printSliceFast(false, &cps, true, false));
         const str = try t.plainString(alloc);
         defer alloc.free(str);
         try testing.expectEqualStrings("┌───┐\n└───┘", str);
@@ -16073,8 +16155,17 @@ fn testPrintSliceDifferential(
                 t2.setLeftAndRightMargin(0, 0);
             },
             18 => {
-                try t1.screens.active.startHyperlink("http://example.com", null);
-                try t2.screens.active.startHyperlink("http://example.com", null);
+                // A few links, some with explicit IDs, so that slices
+                // overwrite cells linked to the same or another link.
+                const uris = [_][]const u8{
+                    "http://example.com",
+                    "http://example.com/a",
+                    "http://example.org/a/much/longer/path?with=a&query",
+                };
+                const uri = uris[rand.intRangeLessThan(usize, 0, uris.len)];
+                const id: ?[]const u8 = if (rand.boolean()) "x" else null;
+                try t1.screens.active.startHyperlink(uri, id);
+                try t2.screens.active.startHyperlink(uri, id);
             },
             19 => {
                 t1.screens.active.endHyperlink();
@@ -16136,6 +16227,13 @@ fn testPrintSliceDifferential(
             }
         }
 
+        // Hyperlinks (map entries, reference counts, row flags) must
+        // match too, in scrollback as well.
+        testPrintSliceExpectSameLinks(&t1, &t2) catch |err| {
+            std.debug.print("last print cps: {any}\n", .{cps_buf[0..last_n]});
+            return err;
+        };
+
         // Full screen contents must match after every op. On failure,
         // dump diagnostics that make the failure reproducible.
         {
@@ -16161,6 +16259,243 @@ fn testPrintSliceDifferential(
     // Page integrity (styles refcounts, grapheme maps, etc.) must hold.
     try t1.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
     try t2.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+}
+
+/// Require that two terminals that were given the same input, one through
+/// print() and one through printSlice(), hold the same cells and the same
+/// hyperlinks on every row of the screen, scrollback included: per cell
+/// the same link (URI and ID) or none, with the same reference count, the
+/// same row hyperlink flags, and pages that pass the integrity check.
+///
+/// The reference counts are compared exactly because a count that is too
+/// high is not visible until a page is cloned or a link is never freed.
+fn testPrintSliceExpectSameLinks(t1: *Terminal, t2: *Terminal) !void {
+    const pages1 = &t1.screens.active.pages;
+    const pages2 = &t2.screens.active.pages;
+    var y: u32 = 0;
+    while (pages1.pin(.{ .screen = .{ .y = y } })) |p1| : (y += 1) {
+        const p2 = pages2.pin(.{ .screen = .{ .y = y } }).?;
+        const page1 = p1.node.page();
+        const page2 = p2.node.page();
+        try testing.expectEqual(p1.rowAndCell().row.hyperlink, p2.rowAndCell().row.hyperlink);
+        for (p1.cells(.all), p2.cells(.all), 0..) |*c1, *c2, x| {
+            if (@as(u64, @bitCast(c1.*)) != @as(u64, @bitCast(c2.*))) {
+                std.debug.print("cell mismatch at x={} screen y={}: {} vs {}\n", .{ x, y, c1.*, c2.* });
+                return error.TestExpectedEqual;
+            }
+            const id1 = page1.lookupHyperlink(c1);
+            const id2 = page2.lookupHyperlink(c2);
+            try testing.expectEqual(id1 == null, id2 == null);
+            const a = id1 orelse continue;
+            const b = id2.?;
+            const l1 = page1.hyperlink_set.get(page1.memory, a);
+            const l2 = page2.hyperlink_set.get(page2.memory, b);
+            try testing.expectEqualStrings(
+                l1.uri.slice(page1.memory),
+                l2.uri.slice(page2.memory),
+            );
+            try testing.expectEqual(std.meta.activeTag(l1.id), std.meta.activeTag(l2.id));
+            try testing.expectEqual(
+                page1.hyperlink_set.refCount(page1.memory, a),
+                page2.hyperlink_set.refCount(page2.memory, b),
+            );
+        }
+    }
+    try testing.expect(pages2.pin(.{ .screen = .{ .y = y } }) == null);
+
+    // Both page lists have the same pages (same rows) by now.
+    var it1 = pages1.pages.first;
+    var it2 = pages2.pages.first;
+    while (it1) |n1| : ({
+        it1 = n1.next;
+        it2 = it2.?.next;
+    }) {
+        const n2 = it2.?;
+        try n1.page().verifyIntegrity(testing.allocator);
+        try n2.page().verifyIntegrity(testing.allocator);
+        try testing.expectEqual(n1.page().hyperlinkCapacity(), n2.page().hyperlinkCapacity());
+    }
+    try testing.expect(it2 == null);
+}
+
+/// Run `setup` on two fresh terminals, then print `cps` into one with
+/// print() and into the other with one printSlice(), and require the same
+/// cursor, cells and hyperlinks (see testPrintSliceExpectSameLinks).
+fn testPrintSliceLinked(
+    opts: Options,
+    setup: *const fn (*Terminal) anyerror!void,
+    cps: []const u32,
+) !void {
+    const alloc = testing.allocator;
+    var t1 = try init(testing.io, alloc, opts);
+    defer t1.deinit(alloc);
+    var t2 = try init(testing.io, alloc, opts);
+    defer t2.deinit(alloc);
+    try setup(&t1);
+    try setup(&t2);
+
+    for (cps) |cp| try t1.print(@intCast(cp));
+    try t2.printSlice(cps);
+
+    const c1 = t1.screens.active.cursor;
+    const c2 = t2.screens.active.cursor;
+    try testing.expectEqual(c1.x, c2.x);
+    try testing.expectEqual(c1.y, c2.y);
+    try testing.expectEqual(c1.pending_wrap, c2.pending_wrap);
+    try testing.expectEqual(t1.previous_char, t2.previous_char);
+    try testPrintSliceExpectSameLinks(&t1, &t2);
+}
+
+test "Terminal: printSlice with hyperlink takes the fast path" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(alloc);
+    try t.screens.active.startHyperlink("http://example.com", null);
+
+    // The batched fill writes the whole run, rather than print().
+    const cps = [_]u32{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j' };
+    try testing.expectEqual(cps.len, try t.printSliceFast(true, &cps, false, true));
+
+    // One map entry and one reference per cell, plus the cursor's.
+    const page = t.screens.active.cursor.page_pin.node.page();
+    const id = t.screens.active.cursor.hyperlink_id;
+    try testing.expectEqual(@as(usize, 10), page.hyperlinkCount());
+    try testing.expectEqual(11, page.hyperlink_set.refCount(page.memory, id));
+    try page.verifyIntegrity(alloc);
+}
+
+test "Terminal: printSlice with hyperlink matches print" {
+    const Setup = struct {
+        fn link(t: *Terminal) !void {
+            try t.screens.active.startHyperlink("http://example.com", null);
+        }
+        fn styledLink(t: *Terminal) !void {
+            try t.setAttribute(.{ .bold = {} });
+            try t.screens.active.startHyperlink("http://example.com", "id");
+        }
+    };
+    const narrow = [_]u32{ 'h', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', '!', 'a', 'b', 'c' };
+    const wide = [_]u32{ 0x4E00, 0x4E8C, 0x4E09, 0x56DB, 0x6F22, 0x5B57, 0x3042, 0x30A2 };
+    const mixed = [_]u32{ 0x4E00, ' ', 0x4E8C, '1', '2', 0x4E09, ' ', 0x56DB, 'a', 0x6F22, 0x5B57, ' ' };
+    for ([_]*const fn (*Terminal) anyerror!void{ Setup.link, Setup.styledLink }) |setup| {
+        for ([_][]const u32{ &narrow, &wide, &mixed }) |cps| {
+            // 7 columns: wide characters reach the right edge at an odd
+            // column, so the spacer head is linked too.
+            try testPrintSliceLinked(.{ .cols = 7, .rows = 3 }, setup, cps);
+            try testPrintSliceLinked(.{ .cols = 80, .rows = 3 }, setup, cps);
+        }
+    }
+}
+
+test "Terminal: printSlice with hyperlink map full mid-run" {
+    // The run doesn't fit in what's left of the hyperlink map: the fast
+    // path writes what fits, print() grows the page, and the rest is
+    // linked on the grown page with no lost link and no double count.
+    const Setup = struct {
+        var free: usize = 0;
+        fn fill(t: *Terminal) !void {
+            // Fill the map with another link until `free` entries are left.
+            try t.screens.active.startHyperlink("http://example.com/filler", null);
+            while (t.screens.active.cursor.page_pin.node.page().hyperlinkCellsFree() > free) {
+                try t.print('x');
+            }
+            t.setCursorPos(1, 1);
+            try t.screens.active.startHyperlink("http://example.com", null);
+        }
+    };
+    var narrow: [100]u32 = undefined;
+    for (&narrow, 0..) |*cp, i| cp.* = 'a' + @as(u32, @intCast(i % 26));
+    var wide: [50]u32 = undefined;
+    for (&wide, 0..) |*cp, i| cp.* = 0x4E00 + @as(u32, @intCast(i));
+    var mixed: [80]u32 = undefined;
+    for (&mixed, 0..) |*cp, i| cp.* = if (i % 3 == 2) ' ' else 0x4E00 + @as(u32, @intCast(i));
+    for ([_]usize{ 0, 1, 2, 3, 7 }) |free| {
+        Setup.free = free;
+        for ([_][]const u32{ &narrow, &wide, &mixed }) |cps| {
+            try testPrintSliceLinked(.{ .cols = 30, .rows = 10 }, Setup.fill, cps);
+        }
+    }
+}
+
+test "Terminal: printSlice with hyperlink onto a new page mid-slice" {
+    // A slice that scrolls the cursor onto a new page: the new page
+    // re-interns the cursor's hyperlink with a new ID, and the rows after
+    // that must use it. Earlier links on the first page make the old ID
+    // differ from the new one. Linefeeds fill the first page so that the
+    // slice itself can stay short (Debug print() checks the whole page's
+    // integrity per codepoint).
+    const Setup = struct {
+        fn setup(t: *Terminal) !void {
+            for ([_][]const u8{ "http://a", "http://b", "http://c" }) |uri| {
+                try t.screens.active.startHyperlink(uri, null);
+                try t.print('x');
+            }
+            t.setCursorPos(t.rows, 1);
+            while (true) {
+                const page = t.screens.active.cursor.page_pin.node.page();
+                if (page.size.rows == page.capacity.rows) break;
+                try t.linefeed();
+            }
+        }
+    };
+    const cols = 200;
+    var narrow: [cols * 5 + 7]u32 = undefined;
+    for (&narrow, 0..) |*cp, i| cp.* = 'a' + @as(u32, @intCast(i % 26));
+    var mixed: [cols * 4 + 7]u32 = undefined;
+    for (&mixed, 0..) |*cp, i| cp.* = if (i % 3 == 2) ' ' else 0x4E00 + @as(u32, @intCast(i % 512));
+    for ([_]?usize{ 10_000, 10_000_000 }) |max_scrollback| {
+        const opts: Options = .{
+            .cols = cols,
+            .rows = 3,
+            .max_scrollback_bytes = max_scrollback,
+        };
+        for ([_][]const u32{ &narrow, &mixed }) |cps| {
+            try testPrintSliceLinked(opts, Setup.setup, cps);
+
+            // The slice did cross onto another page.
+            const alloc = testing.allocator;
+            var t = try init(testing.io, alloc, opts);
+            defer t.deinit(alloc);
+            try Setup.setup(&t);
+            const node = t.screens.active.cursor.page_pin.node;
+            const serial = node.serial;
+            try t.printSlice(cps);
+            const now = t.screens.active.cursor.page_pin.node;
+            try testing.expect(now != node or now.serial != serial);
+        }
+    }
+}
+
+test "Terminal: printSlice over linked cells matches print" {
+    // Overwriting linked cells with the same link, another link, and no
+    // link (all on the print() fallback for the linked old cells).
+    const Setup = struct {
+        fn printLinked(t: *Terminal) !void {
+            try t.screens.active.startHyperlink("http://example.com", null);
+            for (0..12) |_| try t.print('o');
+            try t.print(0x4E00);
+            t.setCursorPos(1, 3);
+        }
+        fn other(t: *Terminal) !void {
+            try printLinked(t);
+            try t.screens.active.startHyperlink("http://example.org", null);
+        }
+        fn none(t: *Terminal) !void {
+            try printLinked(t);
+            t.screens.active.endHyperlink();
+        }
+    };
+    const narrow = [_]u32{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q' };
+    const mixed = [_]u32{ 'a', 0x4E8C, 'b', 0x4E09, 0x56DB, ' ', 'c', 0x6F22, 'd', 'e', 'f', 'g' };
+    for ([_]*const fn (*Terminal) anyerror!void{
+        Setup.printLinked,
+        Setup.other,
+        Setup.none,
+    }) |setup| {
+        for ([_][]const u32{ &narrow, &mixed }) |cps| {
+            try testPrintSliceLinked(.{ .cols = 15, .rows = 3 }, setup, cps);
+        }
+    }
 }
 
 /// Alphabet of interesting codepoints: ascii, latin-1, combining

@@ -1525,6 +1525,38 @@ pub const Page = struct {
         row.hyperlink = true;
     }
 
+    /// The number of cells that can still get a hyperlink before the
+    /// hyperlink map is full (see `setHyperlinkRun`).
+    pub inline fn hyperlinkCellsFree(self: *const Page) usize {
+        const map = self.hyperlink_map.map(self.memory);
+        return map.maxLoad() - map.count();
+    }
+
+    /// Link a run of freshly written cells in `row` to the hyperlink `id`:
+    /// one map entry per cell and one reference per cell, exactly what
+    /// `setHyperlink` and a `use` per cell would do, in bulk.
+    ///
+    /// The cells must already have their hyperlink flag set and must not
+    /// have had a hyperlink before they were written, so none of them has
+    /// a map entry (no old reference to release). The map must have room
+    /// for every cell (see `hyperlinkCellsFree`); it can't grow here.
+    pub fn setHyperlinkRun(
+        self: *Page,
+        row: *Row,
+        cells: []const Cell,
+        id: hyperlink.Id,
+    ) void {
+        defer self.assertIntegrity();
+        assert(cells.len <= self.hyperlinkCellsFree());
+
+        var map = self.hyperlink_map.map(self.memory);
+        for (cells) |*cell| {
+            map.putAssumeCapacityNoClobber(getOffset(Cell, self.memory, cell), id);
+        }
+        row.hyperlink = true;
+        self.hyperlink_set.useMultiple(self.memory, id, @intCast(cells.len));
+    }
+
     /// Move the hyperlink from one cell to another. This can't fail
     /// because we avoid any allocations since we're just moving data.
     /// Destination must NOT have a hyperlink.
