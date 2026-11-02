@@ -26,37 +26,35 @@ const log = std.log.scoped(.gtk_ghostty_window);
 pub const TabColor = enum {
     none,
     blue,
-    purple,
-    pink,
-    red,
-    orange,
-    yellow,
-    green,
     teal,
-    graphite,
+    green,
+    yellow,
+    orange,
+    red,
+    pink,
+    purple,
+    slate,
 
-    fn rgb(self: TabColor) ?[3]u8 {
+    fn accent(self: TabColor) ?adw.AccentColor {
         return switch (self) {
             .none => null,
-            .blue => .{ 0x3b, 0x8b, 0xff },
-            .purple => .{ 0xbf, 0x5a, 0xf2 },
-            .pink => .{ 0xff, 0x4d, 0x7a },
-            .red => .{ 0xff, 0x5a, 0x52 },
-            .orange => .{ 0xff, 0x9f, 0x0a },
-            .yellow => .{ 0xff, 0xd6, 0x0a },
-            .green => .{ 0x30, 0xd1, 0x58 },
-            .teal => .{ 0x40, 0xe0, 0xd0 },
-            .graphite => .{ 0x98, 0x98, 0x9d },
+            .blue => .blue,
+            .teal => .teal,
+            .green => .green,
+            .yellow => .yellow,
+            .orange => .orange,
+            .red => .red,
+            .pink => .pink,
+            .purple => .purple,
+            .slate => .slate,
         };
     }
 
-    fn rgba(channels: [3]u8) gdk.RGBA {
-        return .{
-            .f_red = @as(f32, @floatFromInt(channels[0])) / 255.0,
-            .f_green = @as(f32, @floatFromInt(channels[1])) / 255.0,
-            .f_blue = @as(f32, @floatFromInt(channels[2])) / 255.0,
-            .f_alpha = 1.0,
-        };
+    fn fillRgba(self: TabColor) ?gdk.RGBA {
+        const accent_color = self.accent() orelse return null;
+        var color: gdk.RGBA = undefined;
+        accent_color.toRgba(&color);
+        return color;
     }
 
     /// Draw the swatch into `snap` as vector paths (circle, or ring+slash for none).
@@ -65,19 +63,18 @@ pub const TabColor = enum {
         const mid = size / 2.0;
         const radius = size * 0.3125;
         const stroke_width = @max(1.0, size * (1.5 / 16.0));
-        var center: graphene.Point = undefined;
-        _ = graphene.Point.init(&center, mid, mid);
+        const center: graphene.Point = .{ .f_x = mid, .f_y = mid };
 
-        if (self.rgb()) |channels| {
+        if (self.fillRgba()) |fill| {
             const builder = gsk.PathBuilder.new();
             builder.addCircle(&center, radius);
             const path = builder.freeToPath();
             defer path.unref();
-            const fill = rgba(channels);
             snap.appendFill(path, .winding, &fill);
         } else {
             // None: outlined circle with a slash so it reads as "no color".
-            const stroke_color = rgba(.{ 0x9a, 0x9a, 0x9e });
+            var stroke_color: gdk.RGBA = undefined;
+            adw.AccentColor.slate.toRgba(&stroke_color);
             const stroke = gsk.Stroke.new(stroke_width);
             defer stroke.free();
 
@@ -97,31 +94,40 @@ pub const TabColor = enum {
         }
 
         if (selected) {
-            const accent = adw.StyleManager.getDefault().getAccentColorRgba();
-            defer accent.free();
+            const accent_rgba = adw.StyleManager.getDefault().getAccentColorRgba();
+            defer accent_rgba.free();
             const ring = gsk.Stroke.new(@max(1.5, size * (2.0 / 16.0)));
             defer ring.free();
             const ring_builder = gsk.PathBuilder.new();
             ring_builder.addCircle(&center, size * 0.45);
             const ring_path = ring_builder.freeToPath();
             defer ring_path.unref();
-            snap.appendStroke(ring_path, ring, accent);
+            snap.appendStroke(ring_path, ring, accent_rgba);
         }
+    }
+
+    const indicator_px = 48;
+
+    fn emptyIndicatorTexture() *gdk.Texture {
+        const transparent: [indicator_px * indicator_px * 4]u8 = @splat(0);
+        const bytes = glib.Bytes.new(&transparent, transparent.len);
+        defer bytes.unref();
+        return gdk.MemoryTexture.new(
+            indicator_px,
+            indicator_px,
+            .r8g8b8a8_premultiplied,
+            bytes,
+            indicator_px * 4,
+        ).as(gdk.Texture);
     }
 
     /// Snapshot vector swatch at 3x (48px) so GTK can scale for HiDPI.
     pub fn createIndicatorIcon(self: TabColor) *gdk.Texture {
-        const size: f32 = 48;
-        const size_i: c_int = 48;
+        const size: f32 = indicator_px;
 
         const snap = gtk.Snapshot.new();
         self.appendSwatch(snap, size, false);
-        const node = snap.freeToNode() orelse {
-            const transparent: [48 * 48 * 4]u8 = @splat(0);
-            const bytes = glib.Bytes.new(&transparent, transparent.len);
-            defer bytes.unref();
-            return gdk.MemoryTexture.new(size_i, size_i, .r8g8b8a8_premultiplied, bytes, 48 * 4).as(gdk.Texture);
-        };
+        const node = snap.freeToNode() orelse return emptyIndicatorTexture();
         defer node.unref();
 
         const cairo_renderer = gsk.CairoRenderer.new();
@@ -133,41 +139,40 @@ pub const TabColor = enum {
                 defer e.free();
                 log.warn("failed to realize swatch renderer: {s}", .{e.f_message orelse "unknown"});
             }
-            const transparent: [48 * 48 * 4]u8 = @splat(0);
-            const bytes = glib.Bytes.new(&transparent, transparent.len);
-            defer bytes.unref();
-            return gdk.MemoryTexture.new(size_i, size_i, .r8g8b8a8_premultiplied, bytes, 48 * 4).as(gdk.Texture);
+            return emptyIndicatorTexture();
         }
         defer renderer.unrealize();
 
-        var viewport: graphene.Rect = undefined;
-        _ = graphene.Rect.init(&viewport, 0, 0, size, size);
+        const viewport: graphene.Rect = .{
+            .f_origin = .{ .f_x = 0, .f_y = 0 },
+            .f_size = .{ .f_width = size, .f_height = size },
+        };
         return renderer.renderTexture(node, &viewport);
     }
 };
 
-test "TabColor.rgb" {
+test "TabColor.accent" {
     const testing = std.testing;
-    try testing.expect(TabColor.none.rgb() == null);
-    try testing.expectEqual([3]u8{ 0x3b, 0x8b, 0xff }, TabColor.blue.rgb().?);
-    try testing.expectEqual([3]u8{ 0xbf, 0x5a, 0xf2 }, TabColor.purple.rgb().?);
-    try testing.expectEqual([3]u8{ 0xff, 0x4d, 0x7a }, TabColor.pink.rgb().?);
-    try testing.expectEqual([3]u8{ 0xff, 0x5a, 0x52 }, TabColor.red.rgb().?);
-    try testing.expectEqual([3]u8{ 0xff, 0x9f, 0x0a }, TabColor.orange.rgb().?);
-    try testing.expectEqual([3]u8{ 0xff, 0xd6, 0x0a }, TabColor.yellow.rgb().?);
-    try testing.expectEqual([3]u8{ 0x30, 0xd1, 0x58 }, TabColor.green.rgb().?);
-    try testing.expectEqual([3]u8{ 0x40, 0xe0, 0xd0 }, TabColor.teal.rgb().?);
-    try testing.expectEqual([3]u8{ 0x98, 0x98, 0x9d }, TabColor.graphite.rgb().?);
+    try testing.expect(TabColor.none.accent() == null);
+    try testing.expectEqual(adw.AccentColor.blue, TabColor.blue.accent().?);
+    try testing.expectEqual(adw.AccentColor.teal, TabColor.teal.accent().?);
+    try testing.expectEqual(adw.AccentColor.green, TabColor.green.accent().?);
+    try testing.expectEqual(adw.AccentColor.yellow, TabColor.yellow.accent().?);
+    try testing.expectEqual(adw.AccentColor.orange, TabColor.orange.accent().?);
+    try testing.expectEqual(adw.AccentColor.red, TabColor.red.accent().?);
+    try testing.expectEqual(adw.AccentColor.pink, TabColor.pink.accent().?);
+    try testing.expectEqual(adw.AccentColor.purple, TabColor.purple.accent().?);
+    try testing.expectEqual(adw.AccentColor.slate, TabColor.slate.accent().?);
 }
 
-test "TabColor tags cover palette" {
+test "TabColor tags cover Adwaita accents" {
     const testing = std.testing;
     const tags = std.meta.tags(TabColor);
     try testing.expectEqual(@as(usize, 10), tags.len);
     for (tags) |color| {
         switch (color) {
-            .none => try testing.expect(color.rgb() == null),
-            else => try testing.expect(color.rgb() != null),
+            .none => try testing.expect(color.accent() == null),
+            else => try testing.expect(color.accent() != null),
         }
     }
 }
