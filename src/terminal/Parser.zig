@@ -5,6 +5,7 @@
 const Parser = @This();
 
 const std = @import("std");
+const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const table = @import("parse_table.zig").table;
 const osc = @import("osc.zig");
@@ -80,7 +81,11 @@ pub const Action = union(enum) {
     pub const CSI = struct {
         intermediates: []u8,
         params: []u16,
-        params_sep: SepList,
+
+        /// The separators, or null if every one is a semicolon, as in
+        /// nearly every sequence.
+        params_sep: ?*const SepList,
+
         final: u8,
 
         /// The list of separators used for CSI params. The value of the
@@ -91,6 +96,21 @@ pub const Action = union(enum) {
 
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
+
+        /// Whether this command defines subparameters, which a colon
+        /// joins to the parameter before them (ECMA-48 5.4.2). Colons
+        /// mean NOTHING to any other command or ruins positional reads.
+        pub fn allowsSubparams(self: CSI) bool {
+            return switch (self.final) {
+                // SGR
+                'm' => true,
+
+                // Kitty multiple cursors
+                'q' => std.mem.eql(u8, self.intermediates, "> "),
+
+                else => false,
+            };
+        }
 
         // Implement formatter for logging
         pub fn format(
@@ -195,32 +215,43 @@ pub const Action = union(enum) {
 /// can be at most 4 bytes.
 pub const MAX_INTERMEDIATE = 4;
 
-/// Maximum number of CSI parameters. This is arbitrary. Practically, the
-/// only CSI command that uses more than 3 parameters is the SGR command
-/// which can be infinitely long. 24 is a reasonable limit based on empirical
-/// data. This used to be 16 but Kakoune has a SGR command that uses 17
-/// parameters.
+/// Maximum number of CSI and DCS parameters. A sequence with more is
+/// dropped entirely.
 ///
-/// We could in the future make this the static limit and then allocate after
-/// but that's a lot more work and practically its so rare to exceed this
-/// number. I implore TUI authors to not use more than this number of CSI
-/// params, but I suspect we'll introduce a slow path with heap allocation
-/// one day.
-pub const MAX_PARAMS = 24;
+/// This is kitty's limit, which matters because the kitty multiple
+/// cursors protocol is the one protocol which adores sending parameters in bulk:
+/// a single painted cell costs three of them (`2:row:column`), so this
+/// takes *up to* a batch of 85 of them, or 51 rectangles of any size. A program
+/// wanting more splits it over several sequences.
+pub const MAX_PARAMS = 256;
 
 /// Current state of the state machine
 state: State,
 
 /// Intermediate tracking.
-intermediates: [MAX_INTERMEDIATE]u8,
 intermediates_idx: u8,
 
-/// Param tracking, building
-params: [MAX_PARAMS]u16,
-params_sep: Action.CSI.SepList,
-params_idx: u8,
+/// The number of parameters collected so far, or `MAX_PARAMS + 1` once
+/// there have been more than fit. The one after them is being
+/// accumulated in `param_acc`. See `pushParam`.
+params_idx: u16,
 param_acc: u16,
-param_acc_idx: u8,
+
+/// Whether `param_acc` has taken a digit, and so names a parameter that
+/// hasn't been stored yet.
+param_acc_set: bool,
+
+/// The separators below this index say what they mean for this
+/// sequence. Zero means no colon has turned up, and so that the
+/// separators have not been touched at all. See `clearSeps`.
+sep_upto: u16,
+
+intermediates: [MAX_INTERMEDIATE]u8,
+
+/// The values.
+params: [MAX_PARAMS]u16,
+
+params_sep: Action.CSI.SepList,
 
 /// Parser for OSC sequences
 osc_parser: osc.Parser,
@@ -229,22 +260,129 @@ pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
         .intermediates_idx = 0,
-        .params_sep = .empty,
         .params_idx = 0,
         .param_acc = 0,
-        .param_acc_idx = 0,
+        .param_acc_set = false,
+        .sep_upto = 0,
         .osc_parser = .init(null),
 
         .intermediates = undefined,
         .params = undefined,
+        .params_sep = undefined,
     };
     if (std.valgrind.runningOnValgrind() > 0) {
         // Initialize our undefined fields so Valgrind can catch it.
         // https://github.com/ziglang/zig/issues/19148
         result.intermediates = undefined;
         result.params = undefined;
+        result.params_sep = undefined;
     }
     return result;
+}
+
+/// The number of separator bits that share one word of `params_sep`.
+const sep_word_bits = @bitSizeOf(Action.CSI.SepList.MaskInt);
+
+/// Make the separators below `upto` mean what they say for this
+/// sequence, so that the ones no colon reached read as semicolons.
+///
+/// The separators are cleared here rather than in `clear`, so that a
+/// sequence with no colon in it, which is nearly all of them, never
+/// messes with em.
+inline fn clearSeps(self: *Parser, upto: usize) void {
+    assert(upto <= MAX_PARAMS);
+    if (self.sep_upto >= upto) return;
+    // `MAX_PARAMS` need not be a whole number of words, and the set is
+    // only that many bits wide, so the last word can stop early
+    const end = @min(
+        std.mem.alignForward(usize, upto, sep_word_bits),
+        MAX_PARAMS,
+    );
+    self.params_sep.setRangeValue(.{ .start = self.sep_upto, .end = end }, false);
+    self.sep_upto = @intCast(end);
+}
+
+/// Mark the separator after parameter `i` a colon. Separators are written
+/// for increasing `i`, (lets `clearSeps` run behind them).
+pub inline fn setColon(self: *Parser, i: usize) void {
+    self.clearSeps(i + 1);
+    self.params_sep.set(i);
+}
+
+/// Store the parameter being accumulated and begin the next one.
+///
+/// This is the only place a parameter is stored. `Stream` mirrors it with
+/// the count and accumulator in locals for its bulk loop.
+inline fn pushParam(self: *Parser, colon: bool) void {
+    if (self.params_idx < MAX_PARAMS) {
+        self.params[self.params_idx] = self.param_acc;
+        if (colon) self.setColon(self.params_idx);
+        self.params_idx += 1;
+    } else {
+        @branchHint(.cold);
+        self.params_idx = MAX_PARAMS + 1;
+    }
+    self.param_acc = 0;
+    self.param_acc_set = false;
+}
+
+/// Collect a parameter byte: a digit, or a separator ending the parameter
+/// before it.
+pub inline fn param(self: *Parser, c: u8) void {
+    switch (c) {
+        '0'...'9' => {
+            self.param_acc *|= 10;
+            self.param_acc +|= c - '0';
+            self.param_acc_set = true;
+        },
+
+        ':', ';' => self.pushParam(c == ':'),
+
+        else => unreachable,
+    }
+}
+
+/// Finish a CSI with the final byte `c`. Returns null if the sequence must
+/// be dropped: it has too many parameters, or colons in a command without
+/// subparameters (see `Action.CSI.allowsSubparams`).
+pub inline fn csiDispatch(self: *Parser, c: u8) ?Action.CSI {
+    var csi: Action.CSI = .{
+        .intermediates = self.intermediates[0..self.intermediates_idx],
+        .params = self.finishParams() orelse return null,
+        .params_sep = null,
+        .final = c,
+    };
+
+    if (self.sep_upto > 0) {
+        @branchHint(.unlikely);
+        if (!csi.allowsSubparams()) {
+            @branchHint(.cold);
+            warnCsiSubparams(csi);
+            return null;
+        }
+        self.clearSeps(self.params_idx);
+        csi.params_sep = &self.params_sep;
+    }
+
+    return csi;
+}
+
+/// The state machine's `csi_dispatch` action. Inlined into `next`, this
+/// slows down every byte the parser handles, CSI or not.
+noinline fn csiDispatchAction(self: *Parser, c: u8) ?Action {
+    return .{ .csi_dispatch = self.csiDispatch(c) orelse return null };
+}
+
+/// Store the parameter being collected, if there is one, and return every
+/// parameter, or null if the sequence had more than `MAX_PARAMS` of them
+/// and so must be dropped.
+inline fn finishParams(self: *Parser) ?[]u16 {
+    if (self.param_acc_set) self.pushParam(false);
+    if (self.params_idx > MAX_PARAMS) {
+        @branchHint(.unlikely);
+        return null;
+    }
+    return self.params[0..self.params_idx];
 }
 
 pub fn deinit(self: *Parser) void {
@@ -295,17 +433,11 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
                 break :osc_string null;
             },
             .dcs_passthrough => dcs_hook: {
-                // Ignore too many parameters
-                if (self.params_idx >= MAX_PARAMS) break :dcs_hook null;
-                // Finalize parameters
-                if (self.param_acc_idx > 0) {
-                    self.params[self.params_idx] = self.param_acc;
-                    self.params_idx += 1;
-                }
+                const params_ = self.finishParams() orelse break :dcs_hook null;
                 break :dcs_hook .{
                     .dcs_hook = .{
                         .intermediates = self.intermediates[0..self.intermediates_idx],
-                        .params = self.params[0..self.params_idx],
+                        .params = params_,
                         .final = c,
                     },
                 };
@@ -337,67 +469,14 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             break :collect null;
         },
         .param => param: {
-            // Semicolon separates parameters. If we encounter a semicolon
-            // we need to store and move on to the next parameter.
-            if (c == ';' or c == ':') {
-                // Ignore too many parameters
-                if (self.params_idx >= MAX_PARAMS) break :param null;
-
-                // Set param final value
-                self.params[self.params_idx] = self.param_acc;
-                if (c == ':') self.params_sep.set(self.params_idx);
-                self.params_idx += 1;
-
-                // Reset current param value to 0
-                self.param_acc = 0;
-                self.param_acc_idx = 0;
-                break :param null;
-            }
-
-            // A numeric value. Add it to our accumulator.
-            self.param_acc *|= 10;
-            self.param_acc +|= c - '0';
-
-            // Increment our accumulator index. If we overflow then
-            // we're out of bounds and we exit immediately.
-            self.param_acc_idx, const overflow = @addWithOverflow(self.param_acc_idx, 1);
-            if (overflow > 0) break :param null;
-
-            // The client is expected to perform no action.
+            self.param(c);
             break :param null;
         },
         .osc_put => osc_put: {
             @call(.always_inline, osc.Parser.next, .{ &self.osc_parser, c });
             break :osc_put null;
         },
-        .csi_dispatch => csi_dispatch: {
-            // Ignore too many parameters
-            if (self.params_idx >= MAX_PARAMS) break :csi_dispatch null;
-
-            // Finalize parameters if we have one
-            if (self.param_acc_idx > 0) {
-                self.params[self.params_idx] = self.param_acc;
-                self.params_idx += 1;
-            }
-
-            const result: Action = .{
-                .csi_dispatch = .{
-                    .intermediates = self.intermediates[0..self.intermediates_idx],
-                    .params = self.params[0..self.params_idx],
-                    .params_sep = self.params_sep,
-                    .final = c,
-                },
-            };
-
-            // We only allow colon or mixed separators for the 'm' command.
-            if (c != 'm' and self.params_sep.count() > 0) {
-                @branchHint(.cold);
-                warnCsiSepMismatch(result.csi_dispatch);
-                break :csi_dispatch null;
-            }
-
-            break :csi_dispatch result;
-        },
+        .csi_dispatch => self.csiDispatchAction(c),
         .esc_dispatch => Action{
             .esc_dispatch = .{
                 .intermediates = self.intermediates[0..self.intermediates_idx],
@@ -410,15 +489,15 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 }
 
 /// Log a warning for a CSI dispatch with colon/mixed separators on a
-/// non-'m' command.
+/// command without subparameters.
 ///
 /// This is noinline on purpose so that this unlikely (cold) behavior
 /// doesn't bloat the hot dispatch path which has been measured to actually
 /// affect both binary size and performance due to icache busts.
-noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
+noinline fn warnCsiSubparams(csi: Action.CSI) void {
     @branchHint(.cold);
     log.warn(
-        "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
+        "CSI colon or mixed separators on a command without subparameters: {f}",
         .{csi},
     );
 }
@@ -426,9 +505,9 @@ noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
 pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .empty;
+    self.sep_upto = 0;
     self.param_acc = 0;
-    self.param_acc_idx = 0;
+    self.param_acc_set = false;
 }
 
 test {
@@ -535,9 +614,9 @@ test "csi: SGR ESC [ 38 : 2 m" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 38), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
-        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expect(!d.params_sep.?.isSet(1));
     }
 }
 
@@ -610,15 +689,15 @@ test "csi: SGR ESC [ 48 : 2 m" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 5);
         try testing.expectEqual(@as(u16, 48), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
-        try testing.expect(d.params_sep.isSet(1));
+        try testing.expect(d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 240), d.params[2]);
-        try testing.expect(d.params_sep.isSet(2));
+        try testing.expect(d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 143), d.params[3]);
-        try testing.expect(d.params_sep.isSet(3));
+        try testing.expect(d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 104), d.params[4]);
-        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expect(!d.params_sep.?.isSet(4));
     }
 }
 
@@ -641,9 +720,9 @@ test "csi: SGR ESC [4:3m colon" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 4), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 3), d.params[1]);
-        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expect(!d.params_sep.?.isSet(1));
     }
 }
 
@@ -668,17 +747,17 @@ test "csi: SGR with many blank and colon" {
         try testing.expect(d.final == 'm');
         try testing.expect(d.params.len == 6);
         try testing.expectEqual(@as(u16, 58), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
-        try testing.expect(d.params_sep.isSet(1));
+        try testing.expect(d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 0), d.params[2]);
-        try testing.expect(d.params_sep.isSet(2));
+        try testing.expect(d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 240), d.params[3]);
-        try testing.expect(d.params_sep.isSet(3));
+        try testing.expect(d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 143), d.params[4]);
-        try testing.expect(d.params_sep.isSet(4));
+        try testing.expect(d.params_sep.?.isSet(4));
         try testing.expectEqual(@as(u16, 104), d.params[5]);
-        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expect(!d.params_sep.?.isSet(5));
     }
 }
 
@@ -704,33 +783,33 @@ test "csi: SGR mixed colon and semicolon with blank" {
         try testing.expect(d.final == 'm');
         try testing.expectEqual(14, d.params.len);
         try testing.expectEqual(@as(u16, 0), d.params[0]);
-        try testing.expect(!d.params_sep.isSet(0));
+        try testing.expect(!d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 4), d.params[1]);
-        try testing.expect(d.params_sep.isSet(1));
+        try testing.expect(d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 3), d.params[2]);
-        try testing.expect(!d.params_sep.isSet(2));
+        try testing.expect(!d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 38), d.params[3]);
-        try testing.expect(!d.params_sep.isSet(3));
+        try testing.expect(!d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 2), d.params[4]);
-        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expect(!d.params_sep.?.isSet(4));
         try testing.expectEqual(@as(u16, 175), d.params[5]);
-        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expect(!d.params_sep.?.isSet(5));
         try testing.expectEqual(@as(u16, 175), d.params[6]);
-        try testing.expect(!d.params_sep.isSet(6));
+        try testing.expect(!d.params_sep.?.isSet(6));
         try testing.expectEqual(@as(u16, 215), d.params[7]);
-        try testing.expect(!d.params_sep.isSet(7));
+        try testing.expect(!d.params_sep.?.isSet(7));
         try testing.expectEqual(@as(u16, 58), d.params[8]);
-        try testing.expect(d.params_sep.isSet(8));
+        try testing.expect(d.params_sep.?.isSet(8));
         try testing.expectEqual(@as(u16, 2), d.params[9]);
-        try testing.expect(d.params_sep.isSet(9));
+        try testing.expect(d.params_sep.?.isSet(9));
         try testing.expectEqual(@as(u16, 0), d.params[10]);
-        try testing.expect(d.params_sep.isSet(10));
+        try testing.expect(d.params_sep.?.isSet(10));
         try testing.expectEqual(@as(u16, 190), d.params[11]);
-        try testing.expect(d.params_sep.isSet(11));
+        try testing.expect(d.params_sep.?.isSet(11));
         try testing.expectEqual(@as(u16, 80), d.params[12]);
-        try testing.expect(d.params_sep.isSet(12));
+        try testing.expect(d.params_sep.?.isSet(12));
         try testing.expectEqual(@as(u16, 70), d.params[13]);
-        try testing.expect(!d.params_sep.isSet(13));
+        try testing.expect(!d.params_sep.?.isSet(13));
     }
 }
 
@@ -756,53 +835,64 @@ test "csi: SGR mixed colon and semicolon setting underline, bg, fg" {
         try testing.expect(d.final == 'm');
         try testing.expectEqual(17, d.params.len);
         try testing.expectEqual(@as(u16, 4), d.params[0]);
-        try testing.expect(d.params_sep.isSet(0));
+        try testing.expect(d.params_sep.?.isSet(0));
         try testing.expectEqual(@as(u16, 3), d.params[1]);
-        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expect(!d.params_sep.?.isSet(1));
         try testing.expectEqual(@as(u16, 38), d.params[2]);
-        try testing.expect(!d.params_sep.isSet(2));
+        try testing.expect(!d.params_sep.?.isSet(2));
         try testing.expectEqual(@as(u16, 2), d.params[3]);
-        try testing.expect(!d.params_sep.isSet(3));
+        try testing.expect(!d.params_sep.?.isSet(3));
         try testing.expectEqual(@as(u16, 51), d.params[4]);
-        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expect(!d.params_sep.?.isSet(4));
         try testing.expectEqual(@as(u16, 51), d.params[5]);
-        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expect(!d.params_sep.?.isSet(5));
         try testing.expectEqual(@as(u16, 51), d.params[6]);
-        try testing.expect(!d.params_sep.isSet(6));
+        try testing.expect(!d.params_sep.?.isSet(6));
         try testing.expectEqual(@as(u16, 48), d.params[7]);
-        try testing.expect(!d.params_sep.isSet(7));
+        try testing.expect(!d.params_sep.?.isSet(7));
         try testing.expectEqual(@as(u16, 2), d.params[8]);
-        try testing.expect(!d.params_sep.isSet(8));
+        try testing.expect(!d.params_sep.?.isSet(8));
         try testing.expectEqual(@as(u16, 170), d.params[9]);
-        try testing.expect(!d.params_sep.isSet(9));
+        try testing.expect(!d.params_sep.?.isSet(9));
         try testing.expectEqual(@as(u16, 170), d.params[10]);
-        try testing.expect(!d.params_sep.isSet(10));
+        try testing.expect(!d.params_sep.?.isSet(10));
         try testing.expectEqual(@as(u16, 170), d.params[11]);
-        try testing.expect(!d.params_sep.isSet(11));
+        try testing.expect(!d.params_sep.?.isSet(11));
         try testing.expectEqual(@as(u16, 58), d.params[12]);
-        try testing.expect(!d.params_sep.isSet(12));
+        try testing.expect(!d.params_sep.?.isSet(12));
         try testing.expectEqual(@as(u16, 2), d.params[13]);
-        try testing.expect(!d.params_sep.isSet(13));
+        try testing.expect(!d.params_sep.?.isSet(13));
         try testing.expectEqual(@as(u16, 255), d.params[14]);
-        try testing.expect(!d.params_sep.isSet(14));
+        try testing.expect(!d.params_sep.?.isSet(14));
         try testing.expectEqual(@as(u16, 97), d.params[15]);
-        try testing.expect(!d.params_sep.isSet(15));
+        try testing.expect(!d.params_sep.?.isSet(15));
         try testing.expectEqual(@as(u16, 136), d.params[16]);
-        try testing.expect(!d.params_sep.isSet(16));
+        try testing.expect(!d.params_sep.?.isSet(16));
     }
 }
 
-test "csi: colon for non-m final" {
-    var p = init();
-    _ = p.next(0x1B);
-    for ("[38:2h") |c| {
-        const a = p.next(c);
-        try testing.expect(a[0] == null);
-        try testing.expect(a[1] == null);
-        try testing.expect(a[2] == null);
+test "csi: colons only for commands with subparameters" {
+    const cases = [_]struct { []const u8, bool }{
+        // SGR
+        .{ "[38:2::1:2:3m", true },
+        // Kitty multiple cursors
+        .{ "[>1;2:3:4 q", true },
+        // Commands that share bytes with those
+        .{ "[38:2h", false },
+        .{ "[1:2H", false },
+        .{ "[2:1 q", false },
+        .{ "[>1:2q", false },
+        .{ "[?1:2 q", false },
+    };
+    for (cases) |case| {
+        const seq, const dispatched = case;
+        var p = init();
+        _ = p.next(0x1B);
+        for (seq[0 .. seq.len - 1]) |c| _ = p.next(c);
+        const a = p.next(seq[seq.len - 1]);
+        try testing.expect(p.state == .ground);
+        try testing.expectEqual(dispatched, a[1] != null);
     }
-
-    try testing.expect(p.state == .ground);
 }
 
 test "csi: request mode decrqm" {
@@ -991,7 +1081,7 @@ test "csi: too many params" {
     var p = init();
     _ = p.next(0x1B);
     _ = p.next('[');
-    for (0..100) |_| {
+    for (0..MAX_PARAMS) |_| {
         _ = p.next('1');
         _ = p.next(';');
     }
@@ -1104,7 +1194,8 @@ test "dcs: params" {
 
 test "dcs: too many params" {
     // Regression test for a crash found by fuzzing (afl). When a DCS
-    // sequence has more than MAX_PARAMS parameters and param_acc_idx > 0,
+    // sequence has more than MAX_PARAMS parameters and a parameter is
+    // still being accumulated,
     // entering dcs_passthrough wrote to params[params_idx] without a
     // bounds check, causing an out-of-bounds access.
     var p = init();
@@ -1116,7 +1207,8 @@ test "dcs: too many params" {
     for (0..MAX_PARAMS) |_| {
         _ = p.next(';');
     }
-    // Feed another digit so param_acc_idx > 0 while params_idx == MAX_PARAMS.
+    // Feed another digit so a parameter is pending while params_idx is
+    // already MAX_PARAMS.
     _ = p.next('7');
 
     // A final byte triggers entry to dcs_passthrough. The DCS should
@@ -1125,4 +1217,48 @@ test "dcs: too many params" {
     try testing.expect(a[0] == null);
     try testing.expect(a[1] == null);
     try testing.expect(a[2] == null);
+}
+
+test "csi: separators past the first bitset word, after a colon sequence" {
+    // Separators are cleared a word at a time, and only the words a
+    // colon reaches. A sequence whose colons are all in the first word
+    // but whose parameters run past it would read the next word as
+    // whatever the sequence before it left there, so run a colon-heavy
+    // sequence first to leave something behind.
+    var p = init();
+
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    _ = p.next('1');
+    for (0..80) |_| {
+        _ = p.next(':');
+        _ = p.next('1');
+    }
+    {
+        const a = p.next('m');
+        const csi = a[1].?.csi_dispatch;
+        const seps = csi.params_sep.?;
+        try testing.expectEqual(@as(usize, 81), csi.params.len);
+        for (0..80) |i| try testing.expect(seps.isSet(i));
+    }
+
+    // Now one colon in the first word, then only semicolons, running
+    // well past 64 parameters.
+    _ = p.next(0x1B);
+    _ = p.next('[');
+    _ = p.next('4');
+    _ = p.next(':');
+    _ = p.next('3');
+    for (0..80) |_| {
+        _ = p.next(';');
+        _ = p.next('1');
+    }
+    {
+        const a = p.next('m');
+        const csi = a[1].?.csi_dispatch;
+        const seps = csi.params_sep.?;
+        try testing.expectEqual(@as(usize, 82), csi.params.len);
+        try testing.expect(seps.isSet(0));
+        for (1..csi.params.len) |i| try testing.expect(!seps.isSet(i));
+    }
 }
