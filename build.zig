@@ -137,9 +137,18 @@ pub fn build(b: *std.Build) !void {
         }
         if (native_freestanding) break :shared null;
 
+        // The MSVC DLL needs extra CRT link inputs on its root module,
+        // which would otherwise leak into the static library (and its
+        // consumers) since they share the same module.
+        const shared_mod = if (config.target.result.os.tag == .windows and
+            config.target.result.abi == .msvc)
+            try buildpkg.GhosttyZig.initUnnamed(b, &config, &deps)
+        else
+            mod;
+
         break :shared try buildpkg.GhosttyLibVt.initShared(
             b,
-            &mod,
+            &shared_mod,
         );
     };
     if (libghostty_vt_shared) |shared| {
