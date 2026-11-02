@@ -465,7 +465,6 @@ pub const Parser = struct {
                 return self.dropLine(line);
             const id = parseDigits(usize, rest[0..space]) orelse return self.dropLine(line);
             const data = rest[space + 1 ..];
-            if (data.len == 0) return self.dropLine(line);
 
             // Important: do not clear buffer here since name points to it
             self.state = .idle;
@@ -1181,6 +1180,127 @@ test "tmux exceeding max_bytes" {
     try testing.expect(try c.put('\n') == null);
 }
 
+test "tmux exit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%exit") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux exit with reason" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    // tmux reasons can contain spaces ("server exited"). The reason is
+    // currently dropped; the notification is still an exit.
+    for ("%exit server exited") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux output rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%output %1111111111111111111111 foo";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux output rejects malformed lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const lines: []const []const u8 = &.{
+        "%output",
+        "%output %42",
+        "%output 42 foo",
+        "%output % foo",
+        "%output %4x2 foo",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(try c.put('\n') == null);
+        try testing.expect(c.state == .idle);
+    }
+}
+
+test "tmux output with empty data" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 ") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("", n.output.data);
+}
+
+test "tmux output with invalid UTF-8" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    // tmux does not escape bytes at or above 0x80, so pane output reaches
+    // us as whatever bytes the application wrote.
+    for ("%output %42 a\xff\xc3b") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("a\xff\xc3b", n.output.data);
+}
+
+test "tmux session-window-changed rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%session-window-changed $1 @1111111111111111111111";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux window-close rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%window-close @1111111111111111111111";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux window-close rejects trailing junk" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%window-close @7 extra") |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
 test "tmux block ends only on the guard line of its begin" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1273,7 +1393,6 @@ test "tmux malformed output lines are dropped" {
         "%output\n",
         "%output %\n",
         "%output %5\n",
-        "%output %5 \n",
         "%output 5 x\n",
         "%output %+5 x\n",
         "%output %1_0 x\n",

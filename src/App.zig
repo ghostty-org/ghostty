@@ -20,7 +20,7 @@ const TmuxSession = @import("TmuxSession.zig");
 
 const log = std.log.scoped(.app);
 
-const SurfaceList = std.ArrayListUnmanaged(*apprt.Surface);
+const SurfaceList = std.ArrayList(*apprt.Surface);
 
 /// General purpose allocator
 alloc: Allocator,

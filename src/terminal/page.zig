@@ -351,6 +351,7 @@ pub const Page = struct {
         InvalidSpacerTailLocation,
         InvalidSpacerHeadLocation,
         UnwrappedSpacerHead,
+        BlankRowHasContent,
     };
 
     /// Temporarily pause integrity checks. This is useful when you are
@@ -433,6 +434,28 @@ pub const Page = struct {
         for (rows, 0..) |*row, y| {
             const graphemes_start = graphemes_seen;
             const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+
+            // A row marked blank must contain only zero cells and must
+            // not use any managed memory. See Row.blank.
+            if (row.blank) {
+                if (row.managedMemory()) {
+                    log.warn(
+                        "page integrity violation y={} blank row has managed memory",
+                        .{y},
+                    );
+                    return IntegrityError.BlankRowHasContent;
+                }
+                for (cells, 0..) |*cell, x| {
+                    if (!cell.isZero()) {
+                        log.warn(
+                            "page integrity violation y={} x={} blank row has content",
+                            .{ y, x },
+                        );
+                        return IntegrityError.BlankRowHasContent;
+                    }
+                }
+            }
+
             for (cells, 0..) |*cell, x| {
                 if (cell.hasGrapheme()) {
                     // If a cell has grapheme data, it must be present in
@@ -787,16 +810,10 @@ pub const Page = struct {
         // rounds the raw slot count to a power of two. We need enough
         // hyperlink_bytes for that requested entry count to accommodate all
         // hyperlink cells. This is unit tested.
-        const hyperlink_cap = cap: {
-            const hyperlink_count = id_set.count();
-            const hyperlink_set_cap = hyperlink.Set.capacityForCount(hyperlink_count);
-            const hyperlink_map_min = std.math.divCeil(
-                usize,
-                hyperlink_cells,
-                hyperlink_cell_multiplier,
-            ) catch 0;
-            break :cap @max(hyperlink_set_cap, hyperlink_map_min);
-        };
+        const hyperlink_bytes = hyperlinkBytesForCounts(
+            id_set.count(),
+            hyperlink_cells,
+        );
 
         // All the intCasts below are safe because we should have a
         // capacity strictly less than or equal to this page's capacity.
@@ -805,9 +822,25 @@ pub const Page = struct {
             .rows = @intCast(y_end - y_start),
             .styles = @intCast(styles_cap),
             .grapheme_bytes = @intCast(grapheme_bytes),
-            .hyperlink_bytes = @intCast(hyperlink_cap * @sizeOf(hyperlink.Set.Item)),
+            .hyperlink_bytes = @intCast(hyperlink_bytes),
             .string_bytes = @intCast(string_bytes),
         };
+    }
+
+    /// Return the smallest `Capacity.hyperlink_bytes` that can store
+    /// `unique` distinct hyperlinks used by `cells` cells in total.
+    ///
+    /// For large counts the result can exceed the range of
+    /// `size.HyperlinkCountInt`. Callers must clamp it or check that it
+    /// fits before casting it.
+    pub fn hyperlinkBytesForCounts(unique: usize, cells: usize) usize {
+        const set_cap = hyperlink.Set.capacityForCount(unique);
+        const map_min = std.math.divCeil(
+            usize,
+            cells,
+            hyperlink_cell_multiplier,
+        ) catch unreachable;
+        return @max(set_cap, map_min) * @sizeOf(hyperlink.Set.Item);
     }
 
     /// Clone the contents of another page into this page. The capacities
@@ -897,6 +930,9 @@ pub const Page = struct {
                 copy.grapheme = dst_row.grapheme;
                 copy.hyperlink = dst_row.hyperlink;
                 copy.styled = dst_row.styled;
+
+                // Empty only if both the copied and kept parts were.
+                copy.blank = dst_row.blank and src_row.blank;
                 copy.dirty |= dst_row.dirty;
             }
 
@@ -1107,6 +1143,9 @@ pub const Page = struct {
         // Clear our destination now matter what
         self.clearCells(dst_row, dst_left, dst_left + len);
 
+        // The source cells may have content.
+        dst_row.blank = false;
+
         // If src has no managed memory, this is very fast.
         if (!src_row.managedMemory()) {
             fastmem.copy(Cell, dst_cells, src_cells);
@@ -1300,7 +1339,10 @@ pub const Page = struct {
     /// metadata such as the wrap state and semantic prompt remain.
     pub inline fn resetRow(self: *Page, row: *Row) void {
         self.clearCells(row, 0, self.size.cols);
-        row.reset();
+
+        // Same as row.reset() but also marks the now zeroed row blank.
+        assert(!row.managedMemory());
+        row.* = .{ .cells = row.cells, .blank = true, .dirty = true };
     }
 
     /// Returns the hyperlink ID for the given cell.
@@ -1719,6 +1761,84 @@ pub const Page = struct {
         return false;
     }
 
+    /// How much managed memory a page is using.
+    pub const Usage = struct {
+        /// Styles in use, out of the number of styles the style set can
+        /// hold. Note that this capacity is not the `Capacity.styles`
+        /// value, which is the size requested for the set's hash table.
+        styles: Amount,
+
+        /// Bytes of grapheme data in use, out of the bytes available.
+        grapheme_bytes: Amount,
+
+        /// Bytes of string data (such as hyperlink URIs) in use, out of
+        /// the bytes available.
+        string_bytes: Amount,
+
+        /// Unique hyperlinks in use, out of the number of hyperlinks the
+        /// hyperlink set can hold.
+        hyperlink_set: Amount,
+
+        /// Cells with a hyperlink, out of the number of cells the
+        /// hyperlink map can hold.
+        hyperlink_map: Amount,
+
+        /// An amount in use and the amount available, in the same unit.
+        pub const Amount = struct {
+            used: usize,
+            capacity: usize,
+        };
+
+        /// Returns whichever hyperlink table is fuller relative to its
+        /// capacity. Both tables are sized from `Capacity.hyperlink_bytes`,
+        /// so this is the one that runs out of room first.
+        pub fn hyperlinks(self: Usage) Amount {
+            const set = self.hyperlink_set;
+            const map = self.hyperlink_map;
+            return if (set.used * map.capacity >= map.used * set.capacity) set else map;
+        }
+    };
+
+    /// Measures how much of its style, grapheme, string, and hyperlink
+    /// storage this page uses. This only reads counters kept by each
+    /// kind of storage and does not scan the page's cells.
+    ///
+    /// This is useful to decide what capacity a page with similar
+    /// contents needs. For example, a page that holds 300 styles in a
+    /// set with room for 1664 could get by with a smaller style set:
+    ///
+    ///     const u = page.usage();
+    ///     if (u.styles.used * 3 < u.styles.capacity) {
+    ///         // Less than a third of the style set is in use.
+    ///     }
+    ///
+    /// To measure exactly what a range of rows needs instead, see
+    /// `exactRowCapacity`.
+    pub fn usage(self: *const Page) Usage {
+        return .{
+            .styles = .{
+                .used = self.styles.count(),
+                .capacity = self.styles.layout.cap,
+            },
+            .grapheme_bytes = .{
+                .used = self.grapheme_alloc.usedBytes(self.memory),
+                .capacity = self.grapheme_alloc.capacityBytes(),
+            },
+            .string_bytes = .{
+                .used = self.string_alloc.usedBytes(self.memory),
+                .capacity = self.string_alloc.capacityBytes(),
+            },
+            .hyperlink_set = .{
+                .used = self.hyperlink_set.count(),
+                .capacity = self.hyperlink_set.layout.cap,
+            },
+            .hyperlink_map = .{
+                .used = self.hyperlinkCount(),
+                .capacity = self.hyperlinkCapacity(),
+            },
+        };
+    }
+
     pub const Layout = struct {
         total_size: usize,
         rows_start: usize,
@@ -1995,39 +2115,51 @@ pub const Capacity = struct {
     pub fn adjust(self: Capacity, req: Adjustment) Allocator.Error!Capacity {
         var adjusted = self;
         if (req.cols) |cols| {
-            const total_size = Page.layout(self).total_size;
-            const available = self.availableBytesForGrid();
-
-            // The size per row is:
-            //   - The row metadata itself
-            //   - The cells per row (n=cols)
-            const bytes_per_row: usize = @sizeOf(Row) + @sizeOf(Cell) * @as(usize, @intCast(cols));
-
-            // A page can't hold more than maxInt(CellCountInt) rows, so cap
-            // the count here. Using fewer rows than would fit is always safe
-            // because it only makes the page smaller.
-            var new_rows: usize = @min(
-                @divFloor(available, bytes_per_row),
-                std.math.maxInt(size.CellCountInt),
-            );
-
-            // The cell array is aligned to a cache line, so the padding
-            // between the row headers and the cells depends on the row
-            // count. Trim rows until the layout fits the original size.
-            // The padding is less than a cache line so this takes a
-            // handful of iterations at most.
             adjusted.cols = cols;
-            while (new_rows > 0) : (new_rows -= 1) {
-                adjusted.rows = @intCast(new_rows);
-                if (Page.layout(adjusted).total_size <= total_size) break;
-            }
-
-            // If our rows go to zero then we can't fit any row metadata
-            // for the desired number of columns.
-            if (new_rows == 0) return error.OutOfMemory;
+            adjusted = adjusted.fitRows(Page.layout(self).total_size) orelse
+                return error.OutOfMemory;
         }
 
         return adjusted;
+    }
+
+    /// Returns a copy of this capacity with as many rows as fit in
+    /// `total_size` bytes, or null if not even one row fits.
+    ///
+    /// All other fields are unchanged. The memory left for rows is
+    /// `total_size` minus what the rest of the page needs (styles,
+    /// graphemes, and so on), so the result can have more or fewer rows
+    /// than this capacity. It never has more than
+    /// `maxInt(size.CellCountInt)` rows.
+    pub fn fitRows(self: Capacity, total_size: usize) ?Capacity {
+        const meta_size = Page.MetaLayout.init(self).total_size;
+        if (meta_size >= total_size) return null;
+
+        // The size per row is:
+        //   - The row metadata itself
+        //   - The cells per row (n=cols)
+        const bytes_per_row: usize = @sizeOf(Row) + @sizeOf(Cell) * @as(usize, self.cols);
+
+        // A page can't hold more than maxInt(CellCountInt) rows, so cap
+        // the count here. Using fewer rows than would fit is always safe
+        // because it only makes the page smaller.
+        var rows: usize = @min(
+            (total_size - meta_size) / bytes_per_row,
+            std.math.maxInt(size.CellCountInt),
+        );
+
+        // The cell array is aligned to a cache line, so the padding
+        // between the row headers and the cells depends on the row
+        // count. Trim rows until the layout fits. The padding is less
+        // than a cache line so this takes a handful of iterations at
+        // most.
+        var fitted = self;
+        while (rows > 0) : (rows -= 1) {
+            fitted.rows = @intCast(rows);
+            if (Page.layout(fitted).total_size <= total_size) return fitted;
+        }
+
+        return null;
     }
 
     /// Computes the number of bytes available for the row headers and
@@ -2109,7 +2241,30 @@ pub const Row = packed struct(u64) {
     /// screen.
     dirty: bool = false,
 
-    _padding: u23 = 0,
+    /// True if every cell in the row is the zero cell (no text, style,
+    /// or background color) and the row has no managed memory.
+    ///
+    /// This may be false for an empty row, but must never be true for
+    /// a row with content. `Page.verifyIntegrity` checks this. It is set
+    /// only by code that zeroes the whole row (`Page.resetRow`, or
+    /// `Screen.clearCells` with a zero blank cell) or by copying a row
+    /// that has it set.
+    ///
+    /// Any code that writes cells must clear it, usually with
+    /// `markWritten`. Otherwise `Screen.clearRows` will skip the row
+    /// and leave the old content on screen.
+    ///
+    /// ```zig
+    /// cells[x] = new_cell;
+    /// row.markWritten(); // dirty = true, blank = false
+    /// ```
+    ///
+    /// `Screen.clearRows` skips rows with this set and does not mark them
+    /// dirty. Their cells don't change, and the metadata it resets (wrap
+    /// and semantic prompt state) doesn't change how the row looks.
+    blank: bool = false,
+
+    _padding: u22 = 0,
 
     /// The semantic prompt state of the row. See `semantic_prompt`.
     pub const SemanticPrompt = enum(u2) {
@@ -2140,6 +2295,18 @@ pub const Row = packed struct(u64) {
         return @bitCast(self);
     }
 
+    /// Mark the row dirty and not blank. Call this after writing cells.
+    ///
+    /// This is equivalent to `dirty = true` and `blank = false`, but does
+    /// a single load and store of the row instead of two. The difference
+    /// is measurable when printing text.
+    pub inline fn markWritten(self: *Row) void {
+        const set: Backing = comptime fieldMask(Row, &.{"dirty"});
+        const clear: Backing = comptime fieldMask(Row, &.{"blank"});
+        const v: Backing = @bitCast(self.*);
+        self.* = @bitCast((v | set) & ~clear);
+    }
+
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
     pub inline fn managedMemory(self: Row) bool {
@@ -2150,6 +2317,10 @@ pub const Row = packed struct(u64) {
     /// Reset all row metadata to the default state, preserving only
     /// the cells offset, and mark the row dirty. This is a single
     /// 8-byte store.
+    ///
+    /// This also clears `blank`, which is always safe. Keeping it would
+    /// need a load of the old header, which is measurable on the scroll
+    /// region path that calls this for every scrolled line.
     ///
     /// This must be applied to any row whose storage is recycled as a
     /// blank row or retired into unused page capacity, in addition to
@@ -2938,6 +3109,94 @@ test "Capacity adjust clamps rows to CellCountInt" {
     const adjusted = try cap.adjust(.{ .cols = 1 });
     try testing.expectEqual(std.math.maxInt(size.CellCountInt), adjusted.rows);
     try testing.expect(Page.layout(adjusted).total_size <= Page.layout(cap).total_size);
+}
+
+test "Capacity fitRows" {
+    const cap = std_capacity;
+    const total_size = Page.layout(cap).total_size;
+
+    // The same size fits at least the same rows, and one row more
+    // would not fit.
+    const same = cap.fitRows(total_size).?;
+    try testing.expect(same.rows >= cap.rows);
+    try testing.expect(Page.layout(same).total_size <= total_size);
+    var more = same;
+    more.rows += 1;
+    try testing.expect(Page.layout(more).total_size > total_size);
+
+    // Half the size fits fewer rows and keeps every other field.
+    const half = cap.fitRows(total_size / 2).?;
+    try testing.expect(half.rows < cap.rows);
+    try testing.expect(Page.layout(half).total_size <= total_size / 2);
+    try testing.expectEqual(cap.cols, half.cols);
+    try testing.expectEqual(cap.styles, half.styles);
+
+    // No room for even one row.
+    try testing.expectEqual(null, cap.fitRows(0));
+    try testing.expectEqual(null, cap.fitRows(Page.MetaLayout.init(cap).total_size));
+}
+
+test "Page usage" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // An empty page uses nothing, out of everything it has room for.
+    const empty = page.usage();
+    try testing.expectEqual(0, empty.styles.used);
+    try testing.expectEqual(page.styles.layout.cap, empty.styles.capacity);
+    try testing.expectEqual(0, empty.grapheme_bytes.used);
+    try testing.expectEqual(page.grapheme_alloc.capacityBytes(), empty.grapheme_bytes.capacity);
+    try testing.expectEqual(0, empty.string_bytes.used);
+    try testing.expectEqual(0, empty.hyperlink_set.used);
+    try testing.expectEqual(0, empty.hyperlink_map.used);
+
+    // One style.
+    _ = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    try testing.expectEqual(1, page.usage().styles.used);
+
+    // One hyperlink on one cell. The link's URI is string data.
+    const id = try page.insertHyperlink(.{
+        .id = .{ .implicit = 0 },
+        .uri = "https://example.com",
+    });
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 'X' } },
+        };
+        page.hyperlink_set.use(page.memory, id);
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    const linked = page.usage();
+    try testing.expect(linked.string_bytes.used > 0);
+    try testing.expectEqual(1, linked.hyperlink_set.used);
+    try testing.expectEqual(1, linked.hyperlink_map.used);
+
+    // The set holds far fewer items than the map, so one link on one
+    // cell fills more of the set.
+    try testing.expectEqual(linked.hyperlink_set, linked.hyperlinks());
+
+    // The same link on half the map's capacity fills more of the map
+    // than the one link fills of the set.
+    try testing.expect(linked.hyperlink_set.capacity > 2);
+    const half_map = page.hyperlinkCapacity() / 2;
+    for (1..half_map) |i| {
+        const rac = page.getRowAndCell(i % page.size.cols, i / page.size.cols);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 'X' } },
+        };
+        page.hyperlink_set.use(page.memory, id);
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    const spread = page.usage();
+    try testing.expectEqual(half_map, spread.hyperlink_map.used);
+    try testing.expectEqual(spread.hyperlink_map, spread.hyperlinks());
 }
 
 test "Page init" {
@@ -4061,6 +4320,116 @@ test "Page verifyIntegrity zero cols" {
         Page.IntegrityError.ZeroColCount,
         page.verifyIntegrity(testing.allocator),
     );
+}
+
+test "Page verifyIntegrity blank row with content" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // An empty row may be marked blank.
+    page.getRow(0).blank = true;
+    try page.verifyIntegrity(testing.allocator);
+
+    // A row with content may not.
+    const rac = page.getRowAndCell(3, 0);
+    rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    try testing.expectError(
+        Page.IntegrityError.BlankRowHasContent,
+        page.verifyIntegrity(testing.allocator),
+    );
+}
+
+test "Page resetRow marks the row blank" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(3, 0);
+    rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    rac.row.wrap = true;
+
+    page.resetRow(rac.row);
+    try testing.expect(rac.row.blank);
+    try testing.expect(rac.row.dirty);
+    try testing.expect(!rac.row.wrap);
+
+    // Row.reset is a single store and clears the flag, which is safe.
+    rac.row.reset();
+    try testing.expect(!rac.row.blank);
+}
+
+test "Page moveCells clears blank on the destination row" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const src = page.getRowAndCell(0, 0);
+    src.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    const dst = page.getRow(1);
+    dst.blank = true;
+
+    page.moveCells(src.row, 0, dst, 2, 3);
+    try testing.expect(!dst.blank);
+    try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page cloneRowFrom partial keeps blank only if both parts are blank" {
+    var src = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer src.deinit();
+    var dst = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer dst.deinit();
+
+    // Both blank: the result is blank.
+    src.getRow(0).blank = true;
+    dst.getRow(0).blank = true;
+    try dst.clonePartialRowFrom(&src, dst.getRow(0), src.getRow(0), 2, 8);
+    try testing.expect(dst.getRow(0).blank);
+
+    // The copied part has content: the result is not blank.
+    const rac = src.getRowAndCell(4, 1);
+    rac.cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = .{ .data = 'A' } },
+    };
+    dst.getRow(1).blank = true;
+    try dst.clonePartialRowFrom(&src, dst.getRow(1), src.getRow(1), 2, 8);
+    try testing.expect(!dst.getRow(1).blank);
+
+    // The kept part may have content: the result is not blank.
+    src.getRow(2).blank = true;
+    try dst.clonePartialRowFrom(&src, dst.getRow(2), src.getRow(2), 2, 8);
+    try testing.expect(!dst.getRow(2).blank);
 }
 
 test "Page exactRowCapacity empty rows" {

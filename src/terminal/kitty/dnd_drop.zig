@@ -337,7 +337,7 @@ pub const State = struct {
         /// Only needed by embedders that must register types with the
         /// OS ahead of a drag; kitty frees it after doing so, we keep
         /// it so the `registration` event can be acted on from here.
-        registered_mimes: std.ArrayListUnmanaged(u8) = .empty,
+        registered_mimes: std.ArrayList(u8) = .empty,
 
         /// True while the pointer of a native drag is over the terminal.
         hovered: bool = false,
@@ -355,7 +355,7 @@ pub const State = struct {
         /// The client's accepted MIME list: space-separated while
         /// accumulating, converted to NUL-separated (with a trailing
         /// NUL) once complete, matching kitty's in-place conversion.
-        accepted_mimes: std.ArrayListUnmanaged(u8) = .empty,
+        accepted_mimes: std.ArrayList(u8) = .empty,
 
         /// The MIME types of the current native drag, in the order
         /// that data request indices refer to.

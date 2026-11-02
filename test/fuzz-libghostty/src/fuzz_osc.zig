@@ -41,5 +41,38 @@ pub export fn zig_fuzz_test(
         else => null,
     };
 
-    _ = p.end(terminator);
+    // If the parser successfully produced an OSC command, exercise any lazy
+    // or post-processing code paths.
+    //
+    // Most commands are parsed eagerly, but hierarchical context (OSC 3008) parses
+    // metadata fields on-demand via `readOption()`.
+    // Actively querying every possible field ensures the fuzzer
+    // covers option extraction, numeric/enum parsing, and escape sequence
+    // de-escaping (\x3b, \x5c) across both iterator and allocation paths.
+    //
+    if (p.end(terminator)) |cmd| {
+        switch (cmd.*) {
+            .hierarchical_context => |ctx| {
+                const HC = osc.hierarchical_context;
+
+                inline for (std.enums.values(HC.Field)) |field| {
+                    if (ctx.readOption(field)) |val| {
+                        switch (@TypeOf(val)) {
+                            HC.UnescapedString => {
+                                var it = val.iterator();
+                                while (it.next()) |c| {
+                                    std.mem.doNotOptimizeAway(c);
+                                }
+                                _ = val.toAllocated(alloc) catch {};
+                            },
+                            else => {
+                                std.mem.doNotOptimizeAway(val);
+                            },
+                        }
+                    }
+                }
+            },
+            else => {},
+        }
+    }
 }

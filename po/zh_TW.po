@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-27 21:37+0100\n"
+"POT-Creation-Date: 2026-10-28 20:24+0200\n"
 "PO-Revision-Date: 2026-08-14 10:59+0800\n"
 "Last-Translator: Alang Hsu <alang.hsu@gmail.com>\n"
 "Language-Team: Chinese (traditional)\n"
@@ -337,6 +337,14 @@ msgstr "此視窗中的所有終端機工作階段都將被終止。"
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
 msgstr "此窗格中目前執行的處理程序將被終止。"
+
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"

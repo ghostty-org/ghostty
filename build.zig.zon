@@ -33,8 +33,8 @@
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://deps.files.ghostty.org/z2d-40af3e84a4e15a9f31d126b3f281f23ce6a3dae5.tar.gz",
-            .hash = "z2d-0.13.0-j5P_HgsRFABzZDH54gI35P0OSrg7HFyJwS2bXX5uBdU4",
+            .url = "https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
+            .hash = "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_",
             .lazy = true,
         },
         .zig_objc = .{
@@ -128,8 +128,8 @@
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .android_ndk = .{ .path = "./pkg/android-ndk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20261019-151001-86a776d.tgz",
-            .hash = "N-V-__8AAJ3vBQAq1fLMh5J8uWLkeDLS6WAdR2x5KcrmEyz6",
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz",
+            .hash = "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3",
             .lazy = true,
         },
     },

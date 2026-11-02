@@ -3242,6 +3242,153 @@ test "window_add queues list_windows when queue empty" {
     });
 }
 
+test "session_window_changed emits active_window for this session" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = .{ .data = "" } } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, v.session_id);
+                }
+            }).check,
+        },
+        // Matching session: this is the only notification that moves
+        // the active window, including an external select-window.
+        .{
+            .input = .{ .tmux = .{ .session_window_changed = .{
+                .session_id = 1,
+                .window_id = 9,
+            } } },
+            .contains_tags = &.{.active_window},
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, actions.len);
+                    switch (actions[0]) {
+                        .active_window => |id| try testing.expectEqual(9, id),
+                        else => return error.TestUnexpectedResult,
+                    }
+                }
+            }).check,
+        },
+        // Broadcasts for other sessions must be ignored.
+        .{
+            .input = .{ .tmux = .{ .session_window_changed = .{
+                .session_id = 2,
+                .window_id = 4,
+            } } },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                }
+            }).check,
+        },
+        // Active pane within a window is not a window change.
+        .{
+            .input = .{ .tmux = .{ .window_pane_changed = .{
+                .window_id = 9,
+                .pane_id = 1,
+            } } },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "window_close queues list_windows" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = .{ .data = "" } } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    // tmux_version is in flight and list_windows is queued.
+                    try testing.expectEqual(2, v.command_queue.len());
+                }
+            }).check,
+        },
+        // Queue is not empty, so list-windows is queued but not sent yet,
+        // and not a second time: one is already waiting.
+        .{
+            .input = .{ .tmux = .{ .window_close = .{ .id = 3 } } },
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    for (actions) |action| {
+                        try testing.expect(action != .command);
+                    }
+                    try testing.expectEqual(2, v.command_queue.len());
+                    var list_windows: usize = 0;
+                    var it = v.command_queue.iterator(.forward);
+                    while (it.next()) |cmd| {
+                        if (cmd.* == .list_windows) list_windows += 1;
+                    }
+                    try testing.expectEqual(1, list_windows);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "list-windows parse failure frees earlier windows" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = .{ .data = "" } } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = .{ .data = "3.5a" } } },
+            .contains_command = "list-windows",
+        },
+        // First line is a real window. The second is not, so parsing
+        // stops after the first layout arena has been allocated. The
+        // reply is dropped as a whole, without leaking that arena.
+        .{
+            .input = .{ .tmux = .{ .block_end = .{
+                .data = "$0\t@0\t0\t1\t0\t%0\t83\t44\tb7dd,83x44,0,0,0\tb7dd,83x44,0,0,0\tA\tshell\nnot a window",
+            } } },
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expect(!testHasAction(actions, .exit));
+                    try testing.expect(!testHasAction(actions, .windows));
+                    try testing.expectEqual(0, v.windows.items.len);
+                }
+            }).check,
+        },
+    });
+}
+
 test "window_add queues list_windows when queue not empty" {
     var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();

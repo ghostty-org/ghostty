@@ -7,6 +7,7 @@ const cli = @import("../cli.zig");
 /// predictably named files under `cli/`.
 pub const Action = enum {
     ascii,
+    erase,
     kitty,
     osc,
     styled,
@@ -23,6 +24,7 @@ pub const Action = enum {
     pub fn Struct(comptime action: Action) type {
         return switch (action) {
             .ascii => @import("cli/Ascii.zig"),
+            .erase => @import("cli/Erase.zig"),
             .kitty => @import("cli/Kitty.zig"),
             .osc => @import("cli/Osc.zig"),
             .styled => @import("cli/Styled.zig"),

@@ -56,7 +56,7 @@ in
       );
     };
 
-    deps = callPackage ../build.zig.zon.nix {name = "ghostty-cache-${finalAttrs.version}";};
+    deps = callPackage ../build.zig.zon.nix {};
 
     nativeBuildInputs =
       [
@@ -126,9 +126,9 @@ in
       ln -sf "$vim" "$out/share/vim/vimfiles"
       echo "$vim" >> "$out/nix-support/propagated-user-env-packages"
 
-      echo "gst_all_1.gstreamer" >> "$out/nix-support/propagated-user-env-packages"
-      echo "gst_all_1.gst-plugins-base" >> "$out/nix-support/propagated-user-env-packages"
-      echo "gst_all_1.gst-plugins-good" >> "$out/nix-support/propagated-user-env-packages"
+      echo "${pkgs.gst_all_1.gstreamer}" >> "$out/nix-support/propagated-user-env-packages"
+      echo "${pkgs.gst_all_1.gst-plugins-base}" >> "$out/nix-support/propagated-user-env-packages"
+      echo "${pkgs.gst_all_1.gst-plugins-good}" >> "$out/nix-support/propagated-user-env-packages"
     '';
 
     # The systemd, D-Bus and desktop files launch Ghostty by the path given

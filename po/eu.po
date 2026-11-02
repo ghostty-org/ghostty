@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-27 21:37+0100\n"
+"POT-Creation-Date: 2026-10-28 20:24+0200\n"
 "PO-Revision-Date: 2026-08-31 15:18+0200\n"
 "Last-Translator: Mikel Larreategi <mlarreategi@codesyntax.com>\n"
 "Language-Team: Language eu\n"
@@ -344,6 +344,14 @@ msgstr "Leiho honetako terminal saio guztiak itxi egingo dira."
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
 msgstr "Zatikatze honetan martxan dagoen prozesua itxi egingo da."
+
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr ""
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr ""
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"

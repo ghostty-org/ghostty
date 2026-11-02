@@ -14,7 +14,7 @@ const max_pw_len = clipboard_command.max_pw_len;
 /// however they want, e.g. Kitty does it per window and the spec
 /// doesn't demand anything.
 pub const Grants = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    entries: std.ArrayList(Entry) = .empty,
 
     const max_entries = 32;
 

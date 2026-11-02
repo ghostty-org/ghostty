@@ -1652,7 +1652,7 @@ pub const RenderState = struct {
         if (any_dirty and self.dirty == .false) self.dirty = .partial;
     }
 
-    pub const StringMap = std.ArrayListUnmanaged(point.Coordinate);
+    pub const StringMap = std.ArrayList(point.Coordinate);
 
     /// Convert the current render state contents to a UTF-8 encoded
     /// string written to the given writer. This will unwrap all the wrapped
@@ -3061,6 +3061,9 @@ fn testCompareStates(
     // mark). This staleness predates the chunked update
     // implementation; it is present in the row-iterator implementation
     // as well.
+    //
+    // `blank` is left out on purpose. Every change to it comes with a
+    // dirty mark, so checking it here catches a writer that forgets one.
     const StaleOkMask = page.Mask(page.Row, &.{
         "wrap",
         "wrap_continuation",

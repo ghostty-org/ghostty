@@ -125,7 +125,7 @@ pub const Action = union(Key) {
     clipboard_contents: ClipboardContents,
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
-    set_attribute: sgr.Attribute,
+    set_attributes: SetAttributes,
     kitty_color_report: kitty.color.OSC,
     color_operation: ColorOperation,
     semantic_prompt: SemanticPrompt,
@@ -138,6 +138,10 @@ pub const Action = union(Key) {
     xt_checksum_extension: XtChecksumExtension,
     program_status: ProgramStatus,
     soft_reset,
+    back_index,
+    forward_index,
+    insert_columns: usize,
+    delete_columns: usize,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -233,7 +237,7 @@ pub const Action = union(Key) {
             "clipboard_contents",
             "mouse_shape",
             "configure_charset",
-            "set_attribute",
+            "set_attributes",
             "kitty_color_report",
             "color_operation",
             "semantic_prompt",
@@ -246,6 +250,10 @@ pub const Action = union(Key) {
             "xt_checksum_extension",
             "program_status",
             "soft_reset",
+            "back_index",
+            "forward_index",
+            "insert_columns",
+            "delete_columns",
         },
     );
 
@@ -294,6 +302,42 @@ pub const Action = union(Key) {
 
         pub fn cval(self: PrintSlice) PrintSlice.C {
             return .{ .cps = self.cps.ptr, .len = self.cps.len };
+        }
+    };
+
+    /// All the attributes of one SGR sequence (`CSI ... m`), as its raw
+    /// parameters. A handler iterates them with `parser`. Sending the
+    /// whole sequence at once lets a handler apply every attribute
+    /// before doing per-sequence work, such as interning the resulting
+    /// style, instead of repeating that work per attribute.
+    ///
+    /// The slice is only valid for the duration of the handler call.
+    pub const SetAttributes = struct {
+        params: []const u16,
+        params_sep: Parser.Action.CSI.SepList,
+
+        /// A parser over the attributes of this sequence.
+        pub fn parser(self: SetAttributes) sgr.Parser {
+            return .{
+                .params = self.params,
+                .params_sep = self.params_sep,
+            };
+        }
+
+        pub const C = extern struct {
+            params: [*]const u16,
+            len: usize,
+            /// Bit `i` is set when a colon follows `params[i]`, as in
+            /// `ghostty_sgr_parser_set_params` separators.
+            params_sep: u32,
+        };
+
+        pub fn cval(self: SetAttributes) SetAttributes.C {
+            return .{
+                .params = self.params.ptr,
+                .len = self.params.len,
+                .params_sep = self.params_sep.mask,
+            };
         }
     };
 
@@ -2214,14 +2258,11 @@ pub fn Stream(comptime H: type) type {
                             // This is the most common case.
                             @branchHint(.likely);
                             // log.info("parse SGR params={any}", .{input.params});
-                            var p: sgr.Parser = .{
+                            const attrs: streampkg.Action.SetAttributes = .{
                                 .params = input.params,
                                 .params_sep = input.params_sep,
                             };
-                            while (p.next()) |attr| {
-                                // log.info("SGR attribute: {}", .{attr});
-                                self.handler.vt(.set_attribute, attr);
-                            }
+                            self.handler.vt(.set_attributes, attrs);
                         },
 
                         1 => switch (input.intermediates[0]) {
@@ -2795,13 +2836,36 @@ pub fn Stream(comptime H: type) type {
                     ),
                 },
 
-                // DECSASD - Select Active Status Display
                 '}' => decsasd: {
-                    // Verify we're getting a DECSASD command
-                    if (input.intermediates.len != 1 or input.intermediates[0] != '$') {
+                    if (input.intermediates.len != 1) {
                         log.warn("unimplemented CSI callback: {f}", .{input});
                         break :decsasd;
                     }
+
+                    switch (input.intermediates[0]) {
+                        // DECSASD - Select Active Status Display
+                        '$' => {},
+
+                        // DECIC - Insert Column
+                        '\'' => {
+                            self.handler.vt(.insert_columns, switch (input.params.len) {
+                                0 => 1,
+                                1 => @max(1, input.params[0]),
+                                else => {
+                                    @branchHint(.unlikely);
+                                    log.warn("invalid DECIC command: {f}", .{input});
+                                    break :decsasd;
+                                },
+                            });
+                            break :decsasd;
+                        },
+
+                        else => {
+                            log.warn("unimplemented CSI callback: {f}", .{input});
+                            break :decsasd;
+                        },
+                    }
+
                     if (input.params.len != 1) {
                         log.warn("unimplemented CSI callback: {f}", .{input});
                         break :decsasd;
@@ -2817,6 +2881,25 @@ pub fn Stream(comptime H: type) type {
                     };
 
                     self.handler.vt(.active_status_display, display);
+                },
+
+                // DECDC - Delete Column
+                '~' => switch (input.intermediates.len) {
+                    1 => switch (input.intermediates[0]) {
+                        '\'' => self.handler.vt(.delete_columns, switch (input.params.len) {
+                            0 => 1,
+                            1 => @max(1, input.params[0]),
+                            else => {
+                                @branchHint(.unlikely);
+                                log.warn("invalid DECDC command: {f}", .{input});
+                                return;
+                            },
+                        }),
+
+                        else => log.warn("unimplemented CSI action: {f}", .{input}),
+                    },
+
+                    else => log.warn("unimplemented CSI action: {f}", .{input}),
                 },
 
                 else => log.warn("unimplemented CSI action: {f}", .{input}),
@@ -3088,6 +3171,26 @@ pub fn Stream(comptime H: type) type {
                         .{action},
                         action.final,
                     );
+                },
+
+                // DECBI - Back Index
+                '6' => switch (action.intermediates.len) {
+                    0 => self.handler.vt(.back_index, {}),
+                    else => {
+                        @branchHint(.unlikely);
+                        log.warn("invalid back index command: {f}", .{action});
+                        return;
+                    },
+                },
+
+                // DECFI - Forward Index
+                '9' => switch (action.intermediates.len) {
+                    0 => self.handler.vt(.forward_index, {}),
+                    else => {
+                        @branchHint(.unlikely);
+                        log.warn("invalid forward index command: {f}", .{action});
+                        return;
+                    },
                 },
 
                 // IND - Index
@@ -4525,7 +4628,7 @@ test "stream: osc 52 large payload in chunks" {
 
     const H = struct {
         const Self = @This();
-        data: std.ArrayListUnmanaged(u8) = .empty,
+        data: std.ArrayList(u8) = .empty,
         kind: u8 = 0,
         terminator: ?osc.Terminator = null,
         count: usize = 0,
@@ -4555,7 +4658,7 @@ test "stream: osc 52 large payload in chunks" {
     // sequence so the bulk path sees every kind of boundary.
     const prefix = "\x1b]52;c;";
     const payload_len = 150_000;
-    var input: std.ArrayListUnmanaged(u8) = .empty;
+    var input: std.ArrayList(u8) = .empty;
     defer input.deinit(alloc);
     try input.appendSlice(alloc, prefix);
     for (0..payload_len) |i| try input.append(
@@ -4594,7 +4697,7 @@ test "stream: osc bulk path matches per-byte path" {
     const H = struct {
         const Self = @This();
         alloc: Allocator,
-        journal: std.ArrayListUnmanaged(u8) = .empty,
+        journal: std.ArrayList(u8) = .empty,
 
         fn record(self: *Self, comptime fmt: []const u8, args: anytype) void {
             const s = self.alloc.print(
@@ -4754,6 +4857,68 @@ test "stream: insert characters explicit zero clamps to 1" {
     var s: Stream(H) = .init(.{ .handler = .{} });
     for ("\x1B[0@") |c| s.next(c);
     try testing.expectEqual(@as(usize, 1), s.handler.value.?);
+}
+
+test "stream: DECIC and DECDC" {
+    const H = struct {
+        const Self = @This();
+        insert: ?usize = null,
+        delete: ?usize = null,
+
+        pub fn vt(
+            self: *Self,
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            switch (action) {
+                .insert_columns => self.insert = value,
+                .delete_columns => self.delete = value,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{ .handler = .{} });
+    for ("\x1B['}") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 1), s.handler.insert.?);
+    for ("\x1B[3'}") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 3), s.handler.insert.?);
+    for ("\x1B[0'~") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 1), s.handler.delete.?);
+    for ("\x1B[5'~") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 5), s.handler.delete.?);
+
+    // Without the intermediate these are other sequences.
+    s.handler = .{};
+    for ("\x1B[3}\x1B[3~") |c| s.next(c);
+    try testing.expect(s.handler.insert == null);
+    try testing.expect(s.handler.delete == null);
+}
+
+test "stream: DECBI and DECFI" {
+    const H = struct {
+        const Self = @This();
+        back: usize = 0,
+        forward: usize = 0,
+
+        pub fn vt(
+            self: *Self,
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            _ = value;
+            switch (action) {
+                .back_index => self.back += 1,
+                .forward_index => self.forward += 1,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{ .handler = .{} });
+    for ("\x1B6\x1B9\x1B9") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 1), s.handler.back);
+    try testing.expectEqual(@as(usize, 2), s.handler.forward);
 }
 
 test "stream: SCOSC" {
@@ -5201,8 +5366,8 @@ test "stream CSI ? W reset tab stops" {
 
 test "stream: SGR with 17+ parameters for underline color" {
     const H = struct {
-        attrs: ?sgr.Attribute = null,
-        called: bool = false,
+        attrs: usize = 0,
+        last: ?sgr.Attribute = null,
 
         pub fn vt(
             self: *@This(),
@@ -5210,9 +5375,12 @@ test "stream: SGR with 17+ parameters for underline color" {
             value: anytype,
         ) void {
             switch (action) {
-                .set_attribute => {
-                    self.attrs = value;
-                    self.called = true;
+                .set_attributes => {
+                    var p = value.parser();
+                    while (p.next()) |attr| {
+                        self.attrs += 1;
+                        self.last = attr;
+                    }
                 },
                 else => {},
             }
@@ -5224,7 +5392,8 @@ test "stream: SGR with 17+ parameters for underline color" {
     // Kakoune-style SGR with underline color as 17th parameter
     // This tests the fix where param 17 was being dropped
     s.nextSlice("\x1b[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136;0m");
-    try testing.expect(s.handler.called);
+    try testing.expectEqual(5, s.handler.attrs);
+    try testing.expectEqual(sgr.Attribute.unset, s.handler.last.?);
 }
 
 test "stream: tab clear with no param clears the current stop" {
