@@ -1522,30 +1522,22 @@ pub const RenderState = struct {
     /// Fill a slice of styles with one value.
     ///
     /// This is equivalent to `@memset(dst, value)` but manually vectorized:
-    /// `@memset` with a struct value lowers to a per-element field copy
-    /// that reloads the source at every iteration because LLVM cannot
-    /// prove the destination doesn't alias it. And, Zig 0.16 disables
-    /// auto-vectorization due to an LLVM bug.
+    /// `@memset` with a packed u128 lowers to two 64-bit stores per cell on
+    /// x86-64, and is slower in V8 without SIMD128 with Zig 0.16.
     ///
-    /// This complexity is justified by accounting for ~10% of the endUpdate
-    /// times under heavily styled cases.
-    fn fillStyles(dst: []Style, value: Style) void {
-        // Each element is written as two overlapping 16-byte vector
-        // stores held in registers, which requires 16 <= size <= 32.
-        const elem_size = @sizeOf(Style);
-        comptime assert(elem_size >= 16 and elem_size <= 32);
+    /// We use byte offsets because iterating over a `[]@Vector(2, u64)` is
+    /// slower for long fills in V8 with SIMD128.
+    inline fn fillStyles(dst: []Style, value: Style) void {
+        const V = @Vector(2, u64);
+        comptime assert(@sizeOf(Style) == @sizeOf(V));
 
-        const V = @Vector(16, u8);
-        const src: *align(@alignOf(Style)) const [elem_size]u8 = @ptrCast(&value);
-        const lo = @as(*align(4) const V, @ptrCast(src[0..16])).*;
-        const hi = @as(*align(1) const V, @ptrCast(src[elem_size - 16 ..][0..16])).*;
+        const v: V = @bitCast(value);
 
         const dst_bytes = std.mem.sliceAsBytes(dst);
         var off: usize = 0;
         for (0..dst.len) |_| {
-            @as(*align(1) V, @ptrCast(dst_bytes[off..][0..16])).* = lo;
-            @as(*align(1) V, @ptrCast(dst_bytes[off + elem_size - 16 ..][0..16])).* = hi;
-            off += elem_size;
+            @as(*align(1) V, @ptrCast(dst_bytes[off..][0..@sizeOf(V)])).* = v;
+            off += @sizeOf(V);
         }
     }
 
