@@ -1910,6 +1910,11 @@ pub fn clearRows(
 /// It also updates `Row.blank`. A full-row clear with a zero blank cell
 /// sets it, a colored blank cell clears it, and a partial clear with a
 /// zero blank cell leaves it unchanged.
+///
+/// Clearing any part of a row marked blank with a zero blank cell does
+/// nothing, since the cells are already zero and there is no managed
+/// memory to release. Full-screen programs often erase lines (EL, ECH)
+/// that are already empty when they redraw.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1917,6 +1922,7 @@ pub fn clearCells(
     cells: []Cell,
 ) void {
     if (cells.len == 0) return;
+    if (row.blank and self.blankCell().isZero()) return;
 
     // This whole operation does unsafe things, so we just want to assert
     // the end state.

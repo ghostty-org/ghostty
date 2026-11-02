@@ -3231,10 +3231,11 @@ fn trimTrailingBlankRows(
     const bl_pin = self.getBottomRight(.screen).?;
     var it = bl_pin.rowIterator(.left_up, null);
     while (it.next()) |row_pin| {
-        const cells = row_pin.cells(.all);
-
-        // If the row has any text then we're done.
-        if (pagepkg.Cell.hasTextAny(cells)) return trimmed;
+        // If the row has any text then we're done. A row marked blank
+        // has no text, so we don't need to read its cells.
+        const rac = row_pin.rowAndCell();
+        if (!rac.row.blank and
+            pagepkg.Cell.hasTextAny(row_pin.cells(.all))) return trimmed;
 
         // If our tracked pins are in this row then we cannot trim it
         // because it implies some sort of importance. If we trimmed this
@@ -3595,9 +3596,16 @@ pub fn scrollClear(self: *PageList) Allocator.Error!void {
             for (0..page.rows()) |i| {
                 const rev_i = page.rows() - i - 1;
                 const row = rows[rev_i];
-                const cells = row.cells.ptr(current_page.memory)[0..self.cols];
-                for (cells) |cell| {
-                    if (!cell.isEmpty()) break :non_empty self.rows - n;
+
+                // A row marked blank holds only zero cells, which are
+                // empty, so we don't need to read them. Shells that
+                // clear this way (`CSI 22 J`, or `CSI 2 J` at a prompt)
+                // usually have mostly blank rows below the content.
+                if (!row.blank) {
+                    const cells = row.cells.ptr(current_page.memory)[0..self.cols];
+                    if (!pagepkg.Cell.isEmptyAll(cells)) {
+                        break :non_empty self.rows - n;
+                    }
                 }
 
                 n += 1;
@@ -16096,6 +16104,38 @@ test "PageList resize (no reflow) less rows cursor in scrollback" {
             .y = 5,
         } }, pt);
     }
+}
+
+test "PageList scrollClear skips blank rows and stops at a spacer" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 6, .max_size = 0 });
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = s.pages.first.?.page();
+    for (0..s.rows) |y| page.getRow(y).blank = false;
+
+    // From the top: text, a wide spacer head with no text, a styled
+    // cell with no text, a zero row without the blank bit (the bit is
+    // only a hint), and two rows marked blank.
+    page.getRowAndCell(0, 0).cell.* = .init('A');
+    page.getRowAndCell(s.cols - 1, 1).cell.wide = .spacer_head;
+    page.getRow(1).wrap = true;
+    page.getRowAndCell(3, 2).cell.style_id = try page.styles.add(
+        page.memory,
+        .{ .flags = .{ .bold = true } },
+    );
+    page.getRow(2).styled = true;
+    page.getRow(4).blank = true;
+    page.getRow(5).blank = true;
+    try page.verifyIntegrity(alloc);
+
+    // Every row below the spacer is empty, so the text and the spacer
+    // row scroll into history.
+    const before = s.totalRows();
+    try s.scrollClear();
+    try testing.expectEqual(@as(usize, 2), s.totalRows() - before);
 }
 
 test "PageList resize (no reflow) less rows trims blank lines" {
