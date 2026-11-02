@@ -347,7 +347,7 @@ pub const CommandPalette = extern struct {
         if (cmd.isJump()) {
             const surface = cmd.getJumpSurface() orelse return;
             defer surface.unref();
-            surface.present();
+            surface.present(0);
             return;
         }
 
