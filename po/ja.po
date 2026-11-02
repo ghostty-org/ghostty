@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-11-01 10:35-0500\n"
 "PO-Revision-Date: 2026-10-07 10:07+0900\n"
 "Last-Translator: ekusiadadus <ekusiadadus@gmail.com>\n"
 "Language-Team: Japanese\n"
@@ -130,7 +130,7 @@ msgid "New Tab"
 msgstr "新しいタブ"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:613
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "タブを閉じる"
 
@@ -148,7 +148,7 @@ msgid "New Window"
 msgstr "新しいウィンドウ"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:630
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "ウィンドウを閉じる"
 
@@ -203,7 +203,7 @@ msgstr "端末インスペクター"
 msgid "About Ghostty"
 msgstr "Ghostty について"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "終了"
 
@@ -231,7 +231,7 @@ msgstr "このプロンプトを再び表示するには設定を再読み込み
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "キャンセル"
 
@@ -263,27 +263,27 @@ msgstr "空白にした場合、デフォルトのタイトルを使用します
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "キーバインドがシステムによって解除されました。"
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "キーバインドがシステムによって拒否されました。"
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "グローバルキーバインドが利用できません"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "ターミナルのI/Oイベントをエクスポート"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "エクスポート"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "設定ファイルの編集中"
 
@@ -1008,132 +1008,164 @@ msgstr "設定ファイルの再読み込み"
 msgid "Reload the config file."
 msgstr "設定ファイルを再読み込みします。"
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Configured Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use the application appearance from the configuration."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "ターミナルを閉じる"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "現在のターミナルを閉じます。"
 
-#: src/input/command.zig:614
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "現在のタブを閉じます。"
 
-#: src/input/command.zig:618
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "他のタブを閉じる"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "現在のタブを除き、このウィンドウ内のすべてのタブを閉じます。"
 
-#: src/input/command.zig:623
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "右側のタブを閉じる"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "現在のタブより右側にあるすべてのタブを閉じます。"
 
-#: src/input/command.zig:631
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "現在のウィンドウを閉じます。"
 
-#: src/input/command.zig:636
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "すべてのウィンドウを閉じる"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "すべてのウィンドウを閉じます。"
 
-#: src/input/command.zig:642
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "最大化を切り替え"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "現在のウィンドウの最大化状態を切り替えます。"
 
-#: src/input/command.zig:648
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "全画面表示を切り替え"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "現在のウィンドウの全画面表示を切り替えます。"
 
-#: src/input/command.zig:654
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "ウィンドウ装飾の表示を切り替え"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "ウィンドウ装飾の表示と非表示を切り替えます。"
 
-#: src/input/command.zig:660
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "最前面表示を切り替え"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "現在のウィンドウを常に最前面に表示するかどうかを切り替えます。"
 
-#: src/input/command.zig:666
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "セキュア入力を切り替え"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "セキュア入力モードの有効と無効を切り替えます。"
 
-#: src/input/command.zig:672
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "マウスイベントの送信を切り替え"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "ターミナルで実行中のアプリケーションにマウスイベントを送信するかどうかを切り"
 "替えます。"
 
-#: src/input/command.zig:678
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "背景の不透明度を切り替え"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr "透過設定で起動したウィンドウの背景の不透明度を切り替えます。"
 
-#: src/input/command.zig:684
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "更新を確認"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "アプリケーションの更新を確認します。"
 
-#: src/input/command.zig:690
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "元に戻す"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "直前の操作を元に戻します。"
 
-#: src/input/command.zig:696
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "やり直す"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "直前に取り消した操作をやり直します。"
 
-#: src/input/command.zig:703
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "アプリケーションを終了します。"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "ターミナルに Ghostty（👻）を入力します。"
