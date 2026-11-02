@@ -29,6 +29,10 @@ class QuickTerminalScreenStateCache {
             object: nil)
     }
 
+    func clearAll() {
+        stateByDisplay = [:]
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
