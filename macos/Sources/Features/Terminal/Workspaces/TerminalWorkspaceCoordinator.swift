@@ -708,7 +708,7 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func finishRestoring() {
-        guard restoring else { return }
+        guard restoring, !isTerminating else { return }
         restoring = false
         let allGroups = groups(state: store.snapshot, hosts: Set((store.snapshot.windows ?? [:]).keys))
         let transaction = TerminalWorkspacePresentationTransaction(allGroups.flatMap(\.members))
@@ -716,7 +716,11 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         for group in allGroups where !group.visible {
             for member in group.members {
                 member.workspacePresentationIsParked = true
-                member.window?.orderOut(nil)
+                // The adapter already parked these windows. Ordering out a
+                // retained tab removes it from the just-restored native group.
+                if !usesRetainedNativeTabs(in: member.windowSessionID) {
+                    member.window?.orderOut(nil)
+                }
             }
         }
         transaction.publish { native.publish(allGroups) }
@@ -726,8 +730,19 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     }
 
     func ensureVisibleWorkspace() {
-        guard !quitting, !applying, !liveControllers.contains(where: { $0.window?.isVisible == true }),
-              let target = orderedControllers(state: store.snapshot).first else { return }
+        guard !restoring, !quitting, !isTerminating, !applying,
+              native.transitioningWindows.isEmpty else { return }
+        let state = store.snapshot
+        let ordered = orderedControllers(state: state)
+        let current = ordered.filter { !state.isParked($0.tabSessionID) }
+        guard !current.contains(where: {
+            guard let window = $0.window, window.isVisible, !window.isMiniaturized else { return false }
+            return (window.tabGroup?.selectedWindow ?? window) === window
+        }) else { return }
+        let selected = current.first {
+            state.windows?[$0.windowSessionID]?.groups[$0.workspaceID]?.selected == $0.tabSessionID
+        }
+        guard let target = selected ?? current.first ?? ordered.first else { return }
         _ = perform(hosts: [target.windowSessionID], focus: target) { state in
             state.select(target.workspaceID, in: target.windowSessionID)
             return true

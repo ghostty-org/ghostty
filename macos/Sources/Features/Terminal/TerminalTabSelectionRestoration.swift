@@ -118,7 +118,7 @@ final class TerminalTabSelectionRestoration {
     func finishLaunching() {
         launchFinished = true
         beginSelectionRestore()
-        if pending == nil { TerminalWorkspaceCoordinator.shared.finishRestoring() }
+        if pending == nil { finishRestoring() }
     }
 
     private func beginSelectionRestore() {

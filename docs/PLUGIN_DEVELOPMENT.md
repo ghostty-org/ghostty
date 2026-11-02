@@ -190,6 +190,12 @@ The host must advertise `strict-open/1` before streams open; an older runtime
 without that guarantee receives a compatibility error while its processes remain
 untouched. Snapshot-format compatibility alone does not authorize implicit resume.
 
+Snapshot replacement preserves the viewer's configured default background,
+foreground, cursor and palette. The headless runtime supplies terminal contents
+and program OSC color overrides, including resets; it cannot replace the App's
+theme defaults with its own unset defaults. Rendering generations and viewport
+handles are renewed independently of the persistent session identity.
+
 SSH handoff opens a sibling native tab in the same workspace and acknowledges the
 local helper immediately. The original local Surface/shell remains visible and
 interactive; remote exit does not replace it. New local windows/tabs/splits use
@@ -210,6 +216,16 @@ pauses/resumes that connection without ending the process. Reusing the Surface
 for Undo resumes the same UUID through the snapshot/writer barrier; workspace
 parking and ordinary tab selection do not suspend it. This avoids an invisible,
 retained view occupying the writer or preventing detached-session expiry.
+
+Workspace restoration owns native tab membership and presentation. Finishing a
+restore must not order parked members out of a retained native group. Activating
+or reopening an App with hidden terminal windows presents the catalog's current
+workspace and selected tab, after restoration and native transitions complete.
+Workspace presentation preserves its prepared window frame rather than replaying
+the global last-window position. These visibility repairs do not close, replace
+or recreate session runtime processes. Non-native fullscreen restores a captured
+view as first responder only while that view still belongs to the same window;
+a sidebar moved during workspace presentation is no longer a valid responder.
 
 Local creation uses Ghostty's resolved argv, environment, cwd, dimensions and
 one-time initial input. The `local-launch/1` capability is required before

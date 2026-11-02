@@ -21,6 +21,7 @@ struct TerminalWorkspaceManagementDesktopTests {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+        try signalDesktopReady()
         for _ in 0..<100 {
             if NSApp.isActive && window.isKeyWindow { break }
             try await Task.sleep(for: .milliseconds(50))
@@ -41,7 +42,14 @@ struct TerminalWorkspaceManagementDesktopTests {
         try #require(source.workspacePopover.isShown)
         let content = try #require(source.workspacePopover.contentView)
         try await Task.sleep(for: .milliseconds(100))
-        try click(content, at: NSPoint(x: content.bounds.width - 35, y: 21))
+        func controls(_ view: NSView) -> [NSView] {
+            [view] + view.subviews.flatMap(controls)
+        }
+        func clickControl(_ identifier: String) throws {
+            let control = try #require(controls(content).first { $0.accessibilityIdentifier() == identifier })
+            try click(control, at: NSPoint(x: control.bounds.midX, y: control.bounds.midY))
+        }
+        try clickControl("workspace.create")
         try await Task.sleep(for: .milliseconds(100))
         func fields(_ view: NSView) -> [NSTextField] {
             (view as? NSTextField).map { [$0] } ?? view.subviews.flatMap(fields)
@@ -52,7 +60,7 @@ struct TerminalWorkspaceManagementDesktopTests {
         editor.selectAll(nil)
         editor.insertText("Fullscreen created via popover", replacementRange: editor.selectedRange())
         try await Task.sleep(for: .milliseconds(100))
-        try click(content, at: NSPoint(x: content.bounds.width - 55, y: content.bounds.height - 28))
+        try clickControl("workspace.save")
         try await Task.sleep(for: .milliseconds(500))
         let created = try #require(store.workspaces.first { $0.name == "Fullscreen created via popover" })
         let target = try #require(coordinator.controllers(in: created.id).first,
@@ -108,6 +116,7 @@ struct TerminalWorkspaceManagementDesktopTests {
         let window = try #require(source.window)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        try signalDesktopReady()
         for _ in 0..<100 {
             if NSApp.isActive && window.isKeyWindow { break }
             try await Task.sleep(for: .milliseconds(50))
@@ -138,7 +147,13 @@ struct TerminalWorkspaceManagementDesktopTests {
         #expect(restoredStore.snapshot.windows?[source.windowSessionID]?.currentWorkspace == other)
         #expect(target.window?.isKeyWindow == true)
         #expect(target.fullscreenStyle?.isFullscreen == true)
-        #expect(source.window?.isVisible == false)
+        #expect(source.workspacePresentationIsParked)
+        #expect(source.window?.isKeyWindow == false)
+        if mode == .native {
+            #expect(source.window?.tabGroup?.selectedWindow !== source.window)
+        } else {
+            #expect(source.window?.isVisible == false)
+        }
         #expect(target.window?.tabGroup?.selectedWindow === target.window || mode != .native)
         #expect(target.tabLayoutState.sidebarHost.liveView?.window === target.window)
         for index in 0..<8 {
@@ -251,6 +266,7 @@ struct TerminalWorkspaceManagementDesktopTests {
         NSApp.activate(ignoringOtherApps: true)
         selectedA.window?.makeKeyAndOrderFront(nil)
         selectedA.window?.orderFrontRegardless()
+        try signalDesktopReady()
         let foregroundReady = await poll(.milliseconds(50)) { NSApp.isActive && selectedA.window?.isKeyWindow == true }
         try #require(foregroundReady, "Requires an unlocked foreground desktop and the selected A tab as key window")
 
@@ -327,11 +343,14 @@ struct TerminalWorkspaceManagementDesktopTests {
         // event logging intentionally never touches NSWindow.tabGroup.
         let returnedAWindow = try #require(returnedA.window)
         let returnedAGroup = try #require(returnedAWindow.tabGroup)
+        let retainedWindows = aWindows + [targetB.window, targetC.window].compactMap { $0 }
+        #expect(coordinator.usesRetainedNativeTabs(in: returnedA.windowSessionID))
         #expect(Set(returnedAGroup.windows.map { ObjectIdentifier($0) }) ==
-                Set(aWindows.map { ObjectIdentifier($0) }))
+                Set(retainedWindows.map { ObjectIdentifier($0) }))
         #expect(returnedAGroup.selectedWindow === returnedAWindow && returnedAWindow.isVisible)
-        #expect(!returnedAGroup.windows.contains(where: { $0 === targetB.window || $0 === targetC.window }))
-        #expect(targetB.window?.isVisible == false && targetC.window?.isVisible == false)
+        #expect(targetB.workspacePresentationIsParked && targetC.workspacePresentationIsParked)
+        #expect(targetB.window?.isKeyWindow == false && targetC.window?.isKeyWindow == false)
+        #expect(returnedA.tabLayoutState.sidebarHost.liveView?.window === returnedAWindow)
         for controller in controllers {
             let id = controller.tabSessionID
             #expect(controller.window?.contentView === contents[id])
@@ -383,6 +402,7 @@ struct TerminalWorkspaceManagementDesktopTests {
         let window = try #require(target.window)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        try signalDesktopReady()
         for _ in 0..<100 {
             if NSApp.isActive && window.isKeyWindow { break }
             try await Task.sleep(for: .milliseconds(50))
@@ -405,6 +425,12 @@ struct TerminalWorkspaceManagementDesktopTests {
         #expect(restoredStore.snapshot.validationErrors.isEmpty)
         window.toggleFullScreen(nil)
         try await Task.sleep(for: .seconds(2))
+    }
+
+    private func signalDesktopReady() throws {
+        try String(ProcessInfo.processInfo.processIdentifier).write(
+            toFile: "/tmp/omg-workspace-desktop-ready.pid", atomically: true, encoding: .utf8
+        )
     }
 
     private func click(_ view: NSView, at point: NSPoint) throws {

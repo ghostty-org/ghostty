@@ -8,6 +8,7 @@ const renderer = @import("../../renderer.zig");
 const apprt = @import("../../apprt.zig");
 const ProcessInfo = @import("../../pty.zig").ProcessInfo;
 const LocalLaunch = @import("LocalLaunch.zig");
+const SnapshotPresentation = @import("SnapshotPresentation.zig");
 const connect_wait_budget_us: u64 = 60_000_000;
 const c = @cImport({
     @cInclude("sys/socket.h");
@@ -1133,7 +1134,7 @@ fn restore(self: *Self, io: *HostIO, bytes: []const u8) !void {
     handler.dcs = .{};
     if (comptime @TypeOf(handler).tmux_enabled) handler.tmux_viewer = null;
     handler.termio_messaged = false;
-    @import("SnapshotPresentation.zig").prepare(&io.terminal, &decoded.terminal.?);
+    SnapshotPresentation.prepare(&io.terminal, &decoded.terminal.?);
     io.terminal_stream.deinit();
     io.terminal.deinit(self.alloc);
     io.terminal = decoded.toOwned();
@@ -1146,4 +1147,8 @@ fn restore(self: *Self, io: *HostIO, bytes: []const u8) !void {
         .bytes => |continuation| io.terminal_stream.nextSlice(continuation),
     }
     try io.renderer_wakeup.notify();
+}
+
+test {
+    _ = SnapshotPresentation;
 }

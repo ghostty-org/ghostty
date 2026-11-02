@@ -254,9 +254,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isFullscreen, self.transitionGeneration == generation else { return }
             self.window.setFrame(self.fullscreenFrame(screen), display: true)
-            if let firstResponder {
-                self.window.makeFirstResponder(firstResponder)
-            }
+            self.restoreFirstResponder(firstResponder)
 
             NotificationCenter.default.post(name: .fullscreenDidEnter, object: self)
             self.delegate?.fullscreenDidChange()
@@ -325,9 +323,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             }
         }
 
-        if let firstResponder {
-            window.makeFirstResponder(firstResponder)
-        }
+        restoreFirstResponder(firstResponder)
 
         // Unset our saved state, we're restored!
         self.savedState = nil
@@ -338,6 +334,13 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Notify the delegate
         NotificationCenter.default.post(name: .fullscreenDidExit, object: self)
         self.delegate?.fullscreenDidChange()
+    }
+
+    private func restoreFirstResponder(_ responder: NSResponder?) {
+        guard let responder else { return }
+        // Workspace presentation can move the sidebar while window styles change.
+        if let view = responder as? NSView, view.window !== window { return }
+        window.makeFirstResponder(responder)
     }
 
     private func fullscreenFrame(_ screen: NSScreen) -> NSRect {

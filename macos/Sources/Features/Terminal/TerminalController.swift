@@ -4780,6 +4780,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     override func showWindow(_ sender: Any?) {
         guard let terminalWindow = window as? TerminalWindow else { return }
 
+        // Workspace switching/restoration has already prepared this frame.
+        // Replaying the global last-window position can visibly resize the
+        // incoming tab and discard the restored window's own geometry.
+        if TerminalWorkspacePresentation.isChanging {
+            super.showWindow(sender)
+            syncAppearance()
+            return
+        }
+
         // Fullscreen tabs already inherit their group's frame. Restoring or
         // centering one can move the native fullscreen stack during selection.
         if let group = terminalWindow.tabGroup, group.windows.count > 1,

@@ -482,6 +482,7 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
+        let wasActiveBefore = applicationHasBecomeActive
 
         // First launch stuff
         if !applicationHasBecomeActive {
@@ -491,12 +492,16 @@ class AppDelegate: NSObject,
             // is possible to have other windows in a few scenarios:
             //   - if we're opening a URL since `application(_:openFile:)` is called before this.
             //   - if we're restoring from persisted state
-            if TerminalController.all.isEmpty && !TerminalWorkspaceSessionStore.shared.ownsRestoration &&
+            if !TerminalController.all.contains(where: \.isAvailableForWorkspace) &&
+                !TerminalWorkspaceSessionStore.shared.ownsRestoration &&
                 (derivedConfig.initialWindow || OhMyGhosttySettings.shared.startupMode == .newTerminal) {
                 undoManager.disableUndoRegistration()
                 _ = TerminalController.newWindow(ghostty)
                 undoManager.enableUndoRegistration()
             }
+        }
+        if wasActiveBefore || TerminalWorkspaceSessionStore.shared.ownsRestoration {
+            TerminalWorkspaceCoordinator.shared.ensureVisibleWorkspace()
         }
     }
 
@@ -589,11 +594,12 @@ class AppDelegate: NSObject,
         // of focusing one of them.
         guard !flag else { return true }
 
-        // If we have any windows in our terminal manager we don't do anything.
-        // This is possible with flag set to false if there a race where the
-        // window is still initializing and is not visible but the user clicked
-        // the dock icon.
-        guard TerminalController.all.isEmpty else { return true }
+        // A restored controller can exist without an ordered window. Reopen
+        // the committed workspace instead of treating existence as visibility.
+        if TerminalController.all.contains(where: \.isAvailableForWorkspace) {
+            TerminalWorkspaceCoordinator.shared.ensureVisibleWorkspace()
+            return false
+        }
 
         // If the application isn't active yet then we don't want to process
         // this because we're not ready. This happens sometimes in Xcode runs
