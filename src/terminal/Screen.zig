@@ -4038,7 +4038,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
             continue;
         }
 
-        const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
+        const width: usize = unicode.width_table.get(c);
         if (width == 0) {
             const cell = cell: {
                 var cell = self.cursorCellLeft(1);

@@ -3,6 +3,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const uucode = @import("uucode");
 const lut = @import("lut.zig");
+const width_lut = @import("width_lut.zig");
 const Properties = @import("props.zig").Properties;
 
 pub fn get(cp: u21) Properties {
@@ -48,6 +49,19 @@ pub fn main(init: std.process.Init) !void {
     var buf: [4096]u8 = undefined;
     var stdout = std.Io.File.stdout().writer(init.io, &buf);
     try t.writeZig(&stdout.interface);
+
+    // The print path's width table (width_table.zig), in the same file.
+    const width_gen: width_lut.Generator(struct {
+        pub fn get(ctx: @This(), cp: u21) !u2 {
+            _ = ctx;
+            return if (cp <= 0xFF) 1 else props.get(cp).width;
+        }
+    }) = .{};
+    const w = try width_gen.generate(alloc);
+    defer alloc.free(w.index);
+    defer alloc.free(w.leaf);
+    try w.writeZig(&stdout.interface);
+
     // Use flush instead of end because stdout is a pipe when captured by
     // the build system, and pipes cannot be truncated (Windows returns
     // INVALID_PARAMETER, Linux returns EINVAL).

@@ -2,6 +2,7 @@ pub const lut = @import("lut.zig");
 
 const grapheme = @import("grapheme.zig");
 pub const table = @import("props_table.zig").table;
+pub const width_table = @import("width_table.zig");
 pub const Properties = @import("props.zig").Properties;
 pub const GraphemeWidthEffect = grapheme.GraphemeWidthEffect;
 pub const GraphemeWidth = grapheme.GraphemeWidth;
@@ -60,4 +61,5 @@ test "codepointWidth" {
 
 test {
     @import("std").testing.refAllDecls(@This());
+    _ = @import("width_lut.zig");
 }

@@ -14,6 +14,7 @@ const options = @import("options.zig");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const simd = @import("../simd/main.zig");
 const table = @import("../unicode/main.zig").table;
+const width_table = @import("../unicode/main.zig").width_table;
 const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
@@ -49,6 +50,9 @@ pub const Mode = enum {
 
     /// Test our lookup table implementation.
     table,
+
+    /// Test the print path's width-only table (unicode/width_table.zig).
+    @"width-table",
 };
 
 /// Create a new terminal stream handler for the given arguments.
@@ -72,6 +76,7 @@ pub fn benchmark(self: *CodepointWidth) Benchmark {
             .noop => stepNoop,
             .wcwidth => stepWcwidth,
             .table => stepTable,
+            .@"width-table" => stepWidthTable,
             .simd => stepSimd,
         },
         .setupFn = setup,
@@ -164,6 +169,34 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
                     1
                 else
                     table.get(@intCast(cp)).width);
+            }
+        }
+    }
+}
+
+fn stepWidthTable(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *CodepointWidth = @ptrCast(@alignCast(ptr));
+
+    const f = self.data_f orelse return;
+    var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+    var f_reader = f.reader(global.io(), &read_buf);
+    var r = &f_reader.interface;
+
+    var d: UTF8Decoder = .{};
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+    while (true) {
+        const n = r.readSliceShort(&buf) catch {
+            log.warn("error reading data file err={?}", .{f_reader.err});
+            return error.BenchmarkFailed;
+        };
+        if (n == 0) break; // EOF reached
+
+        for (buf[0..n]) |c| {
+            const cp_, const consumed = d.next(c);
+            assert(consumed);
+            if (cp_) |cp| {
+                // The lookup terminal.zig uses.
+                std.mem.doNotOptimizeAway(width_table.get(@intCast(cp)));
             }
         }
     }
