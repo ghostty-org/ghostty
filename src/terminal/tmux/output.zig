@@ -62,13 +62,7 @@ pub fn format(
 ) std.Io.Writer.Error!void {
     for (vars, 0..) |variable, i| {
         if (i != 0) try writer.writeByte(delimiter);
-        if (variable == .affinities) {
-            // Keep this field non-empty when the option is unset. The parser
-            // strips the A sentinel below.
-            try writer.writeAll("A#{@affinities}");
-        } else {
-            try writer.print("#{{{t}}}", .{variable});
-        }
+        try writer.print("#{{{t}}}", .{variable});
     }
 }
 
@@ -96,7 +90,7 @@ pub fn FormatStruct(comptime vars: []const Variable) type {
 /// control mode for terminal emulators.
 pub const Variable = enum {
     /// iTerm2-compatible native window grouping stored in a session option.
-    affinities,
+    @"@affinities",
     /// 1 if pane is in alternate screen.
     alternate_on,
     /// Saved cursor X in alternate screen.
@@ -211,10 +205,7 @@ pub const Variable = enum {
                 return error.FormatError,
             .window_width => try std.fmt.parseInt(usize, value, 10),
             .window_height => try std.fmt.parseInt(usize, value, 10),
-            .affinities => if (value.len > 0 and value[0] == 'A')
-                value[1..]
-            else
-                return error.FormatError,
+            .@"@affinities",
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
@@ -255,7 +246,7 @@ pub const Variable = enum {
             .window_width,
             .window_height,
             => usize,
-            .affinities,
+            .@"@affinities",
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
@@ -469,11 +460,9 @@ test "parse cursor_colour" {
     try testing.expectEqualStrings("", try Variable.parse(.cursor_colour, ""));
 }
 
-test "parse affinities strips sentinel" {
-    try testing.expectEqualStrings(
-        "0,1|2,3",
-        try Variable.parse(.affinities, "A0,1|2,3"),
-    );
+test "parse affinities" {
+    try testing.expectEqualStrings("0,1|2,3", try Variable.parse(.@"@affinities", "0,1|2,3"));
+    try testing.expectEqualStrings("", try Variable.parse(.@"@affinities", ""));
 }
 
 test "parse cursor_shape" {
@@ -573,7 +562,7 @@ test "format single variable" {
 }
 
 test "format affinities option" {
-    try testFormat(&.{.affinities}, ' ', "A#{@affinities}");
+    try testFormat(&.{.@"@affinities"}, ' ', "#{@affinities}");
 }
 
 test "format multiple variables" {
