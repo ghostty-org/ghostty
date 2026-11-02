@@ -172,7 +172,7 @@ pub const ViewportSearch = struct {
         /// The node addresses and generations that make up the viewport. We
         /// can't safely dereference cached node pointers because the nodes may
         /// be invalid, so equality only compares these captured values.
-        entries: std.ArrayListUnmanaged(Entry) = .empty,
+        entries: std.ArrayList(Entry) = .empty,
 
         const Entry = struct {
             node: *PageList.List.Node,

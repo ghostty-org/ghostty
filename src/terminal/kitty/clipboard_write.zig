@@ -39,9 +39,9 @@ pub const WriteState = struct {
     id: []const u8,
     pw: []const u8,
     name: []const u8,
-    spool: std.ArrayListUnmanaged(u8) = .empty,
-    entries: std.ArrayListUnmanaged(Entry) = .empty,
-    aliases: std.ArrayListUnmanaged(Alias) = .empty,
+    spool: std.ArrayList(u8) = .empty,
+    entries: std.ArrayList(Entry) = .empty,
+    aliases: std.ArrayList(Alias) = .empty,
 
     /// Maximum total decoded bytes this transaction will accumulate.
     /// Captured at init so a change to the configured limit doesn't
@@ -282,7 +282,7 @@ pub const WriteState = struct {
         // chained aliases work like kitty's dict iteration. An alias
         // whose target has no mapping is dropped; an alias colliding
         // with an existing name overwrites it.
-        var contents: std.ArrayListUnmanaged(Content) = .empty;
+        var contents: std.ArrayList(Content) = .empty;
         defer contents.deinit(alloc);
         try contents.ensureTotalCapacity(
             alloc,
