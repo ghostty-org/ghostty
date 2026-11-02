@@ -94,7 +94,7 @@ Final validation:
   assertion; it was updated to require the compact header, bounded explanation
   and non-overlapping controls. The recovery/presentation recheck passed all
   eight tests. The batch failure and corrected recheck are recorded separately.
-- 45 Rust tests passed; the Python runtime run passed 23 tests and skipped two
+- 46 Rust tests passed; the Python runtime run passed 24 tests and skipped two
   environment-gated SSH/Linux containment cases. SSH-filtered Zig tests passed
   112 tests and session-filtered tests passed 106 (these filter totals overlap).
 - Strict SwiftLint, Clippy, formatting, docs, test-selector and settings/plist
@@ -105,3 +105,10 @@ Final validation:
 - The last desktop prerequisite check reported a locked desktop, so further
   interactive desktop checks are not counted as passed. The real-host and
   final-query-visual boundaries above remain explicit.
+
+The first installed-build compatibility check found that serialization added
+`inline_viewer: false` to ordinary Open requests. Older pinned daemons reject
+unknown fields. The flag is now omitted unless enabled; a strict legacy-schema
+unit test and a current-relay/previous-packaged-host integration test both pass.
+All 14 recorded live local processes and their records remained alive throughout
+this repair; no session was recreated to work around the protocol rejection.

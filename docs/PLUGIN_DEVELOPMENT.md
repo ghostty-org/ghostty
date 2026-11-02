@@ -138,6 +138,8 @@ the daemon answers queries itself and filters answered queries out of its output
 Output sequence numbers count the forwarded stream, including complete control
 sequences; buffered incomplete sequences remain outside that snapshot boundary.
 No local terminal contents are uploaded to seed the remote screen.
+The inline Open field is omitted for ordinary native viewers, preserving the
+strict request schema accepted by older pinned daemons.
 The local parser mirror retains only the active screen and defers metadata
 insertion until an escape-sequence boundary. Reconnect repaint preserves the
 previous viewport in outer scrollback. Transient

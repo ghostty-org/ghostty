@@ -143,8 +143,12 @@ pub struct OpenRequest {
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<LocalLaunchSpec>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub inline_viewer: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Default)]
@@ -922,6 +926,34 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ordinary_open_does_not_send_new_fields_to_a_pinned_legacy_host() {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyOpen {
+            id: String,
+            policy: Policy,
+            create: bool,
+            cwd: Option<String>,
+            launch: Option<LocalLaunchSpec>,
+        }
+        let request: OpenRequest = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000001",
+            "policy": {}, "create": false
+        }))
+        .unwrap();
+        let encoded = serde_json::to_vec(&request).unwrap();
+        let old: LegacyOpen = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(old.id, request.id);
+        assert!(!old.create && old.cwd.is_none() && old.launch.is_none());
+        assert_eq!(
+            old.policy.detached_ttl_seconds,
+            request.policy.detached_ttl_seconds
+        );
+        let mut inline = request;
+        inline.inline_viewer = true;
+        assert_eq!(serde_json::to_value(inline).unwrap()["inline_viewer"], true);
+    }
 
     fn launch(argv: Vec<String>, env: BTreeMap<String, String>) -> LocalLaunchSpec {
         LocalLaunchSpec {
