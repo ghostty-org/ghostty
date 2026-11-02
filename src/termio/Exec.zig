@@ -198,6 +198,15 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     const exec = &td.backend.exec;
 
     if (exec.exited) self.subprocess.externalExit();
+
+    // The read thread may be blocked sending into our mailbox. Our event
+    // loop has stopped, so we no longer drain it and nothing else will.
+    // Throw messages away until the read thread is joined; they would
+    // never have been processed anyway. Start before stopping the
+    // subprocess so the read thread keeps reading the pty and a child
+    // that writes while handling SIGHUP can still exit.
+    var drain = td.mailbox.drain();
+    drain.start(global.io());
     self.subprocess.stop();
 
     // Quit our read thread after exiting the subprocess so that
@@ -227,6 +236,7 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     }
 
     exec.read_thread.join();
+    drain.finish();
 }
 
 pub fn focusGained(
