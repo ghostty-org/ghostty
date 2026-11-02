@@ -127,6 +127,54 @@ pub const Style = packed struct(u128) {
         return self.bits() == other.bits();
     }
 
+    /// Returns this style with an SGR attribute applied.
+    pub fn withAttribute(self: Style, attr: sgr.Attribute) Style {
+        var s = self;
+        switch (attr) {
+            // Unknown attributes are ignored. They are common enough in real
+            // output (a bare `38`, font selection `10`) that logging each one
+            // costs more than the sequence itself.
+            .unknown => {},
+            .unset => s = .{},
+
+            .bold => s.flags.bold = true,
+            .faint => s.flags.faint = true,
+            .reset_bold => {
+                // Bold and faint share the same SGR code for reset.
+                s.flags.bold = false;
+                s.flags.faint = false;
+            },
+            .italic => s.flags.italic = true,
+            .reset_italic => s.flags.italic = false,
+            .underline => |v| s.flags.underline = v,
+            .overline => s.flags.overline = true,
+            .reset_overline => s.flags.overline = false,
+            .blink => s.flags.blink = true,
+            .reset_blink => s.flags.blink = false,
+            .inverse => s.flags.inverse = true,
+            .reset_inverse => s.flags.inverse = false,
+            .invisible => s.flags.invisible = true,
+            .reset_invisible => s.flags.invisible = false,
+            .strikethrough => s.flags.strikethrough = true,
+            .reset_strikethrough => s.flags.strikethrough = false,
+
+            .direct_color_fg => |rgb| s.fg_color = .rgb(rgb),
+            .@"8_fg", .@"8_bright_fg" => |n| s.fg_color = .palette(@backingInt(n)),
+            .@"256_fg" => |idx| s.fg_color = .palette(idx),
+            .reset_fg => s.fg_color = .none,
+
+            .direct_color_bg => |rgb| s.bg_color = .rgb(rgb),
+            .@"8_bg", .@"8_bright_bg" => |n| s.bg_color = .palette(@backingInt(n)),
+            .@"256_bg" => |idx| s.bg_color = .palette(idx),
+            .reset_bg => s.bg_color = .none,
+
+            .underline_color => |rgb| s.underline_color = .rgb(rgb),
+            .@"256_underline_color" => |idx| s.underline_color = .palette(idx),
+            .reset_underline_color => s.underline_color = .none,
+        }
+        return s;
+    }
+
     /// Returns the bg color for a cell with this style given the cell
     /// that has this style and the palette to use.
     ///
@@ -634,6 +682,13 @@ pub const Set = RefCountedSet(
         }
     },
 );
+
+test "Style.withAttribute reset_bold clears bold and faint only" {
+    const testing = std.testing;
+    const s: Style = .{ .flags = .{ .bold = true, .faint = true, .italic = true } };
+    const expected: Style = .{ .flags = .{ .italic = true } };
+    try testing.expectEqual(expected.bits(), s.withAttribute(.reset_bold).bits());
+}
 
 test "Style VT formatting empty" {
     const testing = std.testing;
