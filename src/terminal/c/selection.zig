@@ -6,6 +6,7 @@ const formatterpkg = @import("../formatter.zig");
 const grid_ref = @import("grid_ref.zig");
 const point = @import("../point.zig");
 const selection_codepoints = @import("../selection_codepoints.zig");
+const Screen = @import("../Screen.zig");
 const Selection = @import("../Selection.zig");
 const Result = @import("result.zig").Result;
 const terminal_c = @import("terminal.zig");
@@ -26,6 +27,14 @@ pub const CSelection = extern struct {
     pub fn toZig(self: CSelection) ?Selection {
         const start_pin = self.start.toPin() orelse return null;
         const end_pin = self.end.toPin() orelse return null;
+        return Selection.init(start_pin, end_pin, self.rectangle);
+    }
+
+    /// Like toZig, but null unless both refs are cells of pages in screen
+    /// (see CGridRef.toPinIn).
+    pub fn toZigIn(self: CSelection, screen: *const Screen) ?Selection {
+        const start_pin = self.start.toPinIn(&screen.pages) orelse return null;
+        const end_pin = self.end.toPinIn(&screen.pages) orelse return null;
         return Selection.init(start_pin, end_pin, self.rectangle);
     }
 
@@ -101,7 +110,7 @@ pub fn word(
     ) catch return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = opts.ref.toPin() orelse return .invalid_value;
+    const pin = opts.ref.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectWord(
         pin,
         boundary_codepoints orelse &selection_codepoints.default_word_boundaries,
@@ -126,8 +135,8 @@ pub fn word_between(
     ) catch return .invalid_value;
 
     const screen = t.screens.active;
-    const start = opts.start.toPin() orelse return .invalid_value;
-    const end = opts.end.toPin() orelse return .invalid_value;
+    const start = opts.start.toPinIn(&screen.pages) orelse return .invalid_value;
+    const end = opts.end.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectWordBetween(
         start,
         end,
@@ -153,7 +162,7 @@ pub fn line(
     ) catch return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = opts.ref.toPin() orelse return .invalid_value;
+    const pin = opts.ref.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectLine(.{
         .pin = pin,
         .whitespace = whitespace orelse &selection_codepoints.default_line_whitespace,
@@ -182,7 +191,7 @@ pub fn output(
     const out = out_selection orelse return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = ref.toPin() orelse return .invalid_value;
+    const pin = ref.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectOutput(pin) orelse return .no_value);
     return .success;
 }
@@ -270,7 +279,7 @@ fn selectionFormatter(
         return error.InvalidValue;
 
     const sel = if (opts.selection) |sel|
-        sel.toZig() orelse return error.InvalidValue
+        sel.toZigIn(t.screens.active) orelse return error.InvalidValue
     else
         t.screens.active.selection orelse return error.NoValue;
 
@@ -329,7 +338,7 @@ pub fn adjust(
 
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel_ptr = selection orelse return .invalid_value;
-    var sel = sel_ptr.toZig() orelse return .invalid_value;
+    var sel = sel_ptr.toZigIn(t.screens.active) orelse return .invalid_value;
     sel.adjust(t.screens.active, adjustment);
     sel_ptr.* = .fromZig(sel);
     return .success;
@@ -341,7 +350,7 @@ pub fn order(
     out_order: ?*Selection.Order,
 ) callconv(lib.calling_conv) Result {
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
-    const sel = (selection orelse return .invalid_value).toZig() orelse
+    const sel = (selection orelse return .invalid_value).toZigIn(t.screens.active) orelse
         return .invalid_value;
     const out = out_order orelse return .invalid_value;
 
@@ -363,7 +372,7 @@ pub fn ordered(
     }
 
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
-    const sel = (selection orelse return .invalid_value).toZig() orelse
+    const sel = (selection orelse return .invalid_value).toZigIn(t.screens.active) orelse
         return .invalid_value;
     const out = out_selection orelse return .invalid_value;
 
@@ -378,7 +387,7 @@ pub fn contains(
     out_contains: ?*bool,
 ) callconv(lib.calling_conv) Result {
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
-    const sel = (selection orelse return .invalid_value).toZig() orelse
+    const sel = (selection orelse return .invalid_value).toZigIn(t.screens.active) orelse
         return .invalid_value;
     const out = out_contains orelse return .invalid_value;
 
@@ -575,4 +584,110 @@ test "selection_format_alloc returns no_value without active selection" {
     ));
     try testing.expect(out_ptr == null);
     try testing.expectEqual(@as(usize, 0), out_len);
+}
+
+test "selection calls invalid_value for refs in another screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello World", 11);
+
+    // Refs into the primary screen, then a program switches to the
+    // alternate one.
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &end_ref));
+    const sel: CSelection = .{ .start = start_ref, .end = end_ref };
+
+    const enter = "\x1b[?1049h";
+    terminal_c.vt_write(t, enter, enter.len);
+
+    var out: CSelection = undefined;
+    const word_opts: SelectWordOptions = .{ .ref = start_ref };
+    try testing.expectEqual(Result.invalid_value, word(t, &word_opts, &out));
+    const word_between_opts: SelectWordBetweenOptions = .{ .start = start_ref, .end = end_ref };
+    try testing.expectEqual(Result.invalid_value, word_between(t, &word_between_opts, &out));
+    const line_opts: SelectLineOptions = .{ .ref = start_ref };
+    try testing.expectEqual(Result.invalid_value, line(t, &line_opts, &out));
+    try testing.expectEqual(Result.invalid_value, output(t, start_ref, &out));
+
+    var adjusted = sel;
+    try testing.expectEqual(Result.invalid_value, adjust(t, &adjusted, .right));
+    var out_order: Order = undefined;
+    try testing.expectEqual(Result.invalid_value, order(t, &sel, &out_order));
+    try testing.expectEqual(Result.invalid_value, ordered(t, &sel, .forward, &out));
+    var out_contains: bool = undefined;
+    try testing.expectEqual(Result.invalid_value, contains(t, &sel, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_contains));
+
+    var written: usize = 123;
+    var buf: [32]u8 = undefined;
+    const opts: FormatOptions = .{ .emit = .plain, .unwrap = true, .trim = true, .selection = &sel };
+    try testing.expectEqual(Result.invalid_value, format_buf(t, opts, &buf, buf.len, &written));
+    try testing.expectEqual(Result.invalid_value, format_buf(t, opts, null, 0, &written));
+    var out_ptr: ?[*]u8 = null;
+    var out_len: usize = 0;
+    try testing.expectEqual(Result.invalid_value, format_alloc(
+        t,
+        &lib.alloc.test_allocator,
+        opts,
+        &out_ptr,
+        &out_len,
+    ));
+
+    // The terminal does not take a selection in another screen.
+    try testing.expectEqual(Result.invalid_value, terminal_c.set(t, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(Result.no_value, terminal_c.get(t, .selection, @ptrCast(&out)));
+
+    // Back on the primary screen the same refs are valid again.
+    const leave = "\x1b[?1049l";
+    terminal_c.vt_write(t, leave, leave.len);
+    try testing.expectEqual(Result.success, word(t, &word_opts, &out));
+    try testing.expectEqual(Result.success, word_between(t, &word_between_opts, &out));
+    try testing.expectEqual(Result.success, order(t, &sel, &out_order));
+    try testing.expectEqual(Result.success, format_buf(t, opts, &buf, buf.len, &written));
+    try testing.expectEqualStrings("Hello", buf[0..written]);
+    try testing.expectEqual(Result.success, terminal_c.set(t, .selection, @ptrCast(&sel)));
+}
+
+test "selection calls invalid_value for a ref outside its page" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello", 5);
+
+    var ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &ref));
+    ref.x = 200;
+
+    var out: CSelection = undefined;
+    const word_opts: SelectWordOptions = .{ .ref = ref };
+    try testing.expectEqual(Result.invalid_value, word(t, &word_opts, &out));
+    try testing.expectEqual(Result.invalid_value, output(t, ref, &out));
+    const sel: CSelection = .{ .start = ref, .end = ref };
+    try testing.expectEqual(Result.invalid_value, terminal_c.set(t, .selection, @ptrCast(&sel)));
 }

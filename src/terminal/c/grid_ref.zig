@@ -38,6 +38,18 @@ pub const CGridRef = extern struct {
             .y = self.y,
         };
     }
+
+    /// Like toPin, but null unless the ref is a cell of a page in pages.
+    /// A ref is a pin into one screen's page list, and the calls that take
+    /// one with a terminal resolve it against a given screen (usually the
+    /// active one); a ref from another screen, which a screen switch
+    /// between taking the ref and the call makes easy to pass, would panic
+    /// or read the wrong screen there. A stale ref into a page that still
+    /// exists is not detected.
+    pub fn toPinIn(self: CGridRef, pages: *const PageList) ?PageList.Pin {
+        const p = self.toPin() orelse return null;
+        return if (pages.containsPin(p)) p else null;
+    }
 };
 
 pub fn grid_ref_cell(
