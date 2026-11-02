@@ -141,8 +141,8 @@ extension Ghostty.OSSurfaceView {
             pasteboard: NSPasteboard? = nil
         ) {
             self.pasteboard = pasteboard ?? .find
-            if let needle = startSearch.needle, !needle.isEmpty {
-                setNeedle(needle)
+            if !startSearch.needle.isEmpty {
+                setNeedle(startSearch.needle)
                 writePasteboardNeedle()
             } else {
                 readPasteboardNeedle()
