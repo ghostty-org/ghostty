@@ -21,6 +21,20 @@
 //! With `--erase-rate` below 1, some iterations are a plain line of text
 //! instead, so you can control how often the screen is cleared.
 //!
+//! With `--line-clears=<n>`, each redraw iteration also erases `n` lines
+//! at random rows right after clearing the screen and before printing,
+//! the way full-screen programs repaint line by line. Half of them erase
+//! the whole line from its first column and half erase from a random
+//! column to the end of the line:
+//!
+//! ```
+//! ESC [ 2 J                       clear the screen
+//! ESC [ <row> ; 1 H ESC [ 2 K     erase a whole line
+//! ESC [ <row> ; <col> H ESC [ K   erase to the end of a line
+//! ...                             n line erases in all
+//! ESC [ H <text>                  then the redraw as above
+//! ```
+//!
 //! The stream never ends on its own. Pipe it through `head -c` to get a
 //! fixed size, and use `--seed` so the same file can be made again.
 //!
@@ -37,6 +51,9 @@
 //!
 //!   # Move the screen into scrollback before each clear (CSI 22 J)
 //!   ghostty-gen +erase --seed=1 --scroll-clear | head -c 8388608 > erase.vt
+//!
+//!   # Erase 40 lines on each redraw of a 120x80 terminal
+//!   ghostty-gen +erase --seed=1 --line-clears=40 --rows=80 --cols=120 | head -c 8388608 > erase.vt
 const Erase = @This();
 
 const std = @import("std");
@@ -66,6 +83,13 @@ pub const Options = struct {
     /// screen contents into scrollback before clearing, so the stream
     /// also exercises scrollback growth.
     @"scroll-clear": bool = false,
+
+    /// The number of lines each redraw iteration erases right after
+    /// clearing the screen, at random rows. Half use `CSI 2 K` from the
+    /// first column and half use `CSI K` from a random column. Since the
+    /// screen was just cleared, these erase lines that are already
+    /// empty. The default of 0 erases no extra lines.
+    @"line-clears": usize = 0,
 
     /// The range for random cursor positions. Rows are picked from 1 to
     /// `rows` and columns from 1 to `cols`. Set these to the terminal
@@ -138,9 +162,19 @@ fn writeIteration(
     const col = rand.intRangeAtMostBiased(u16, 1, self.opts.cols);
 
     try writer.writeAll(if (self.opts.@"scroll-clear")
-        "\x1b[22J\x1b[H"
+        "\x1b[22J"
     else
-        "\x1b[2J\x1b[H");
+        "\x1b[2J");
+    for (0..self.opts.@"line-clears") |i| {
+        const clear_row = rand.intRangeAtMostBiased(u16, 1, self.opts.rows);
+        if (i % 2 == 0) {
+            try writer.print("\x1b[{d};1H\x1b[2K", .{clear_row});
+        } else {
+            const clear_col = rand.intRangeAtMostBiased(u16, 1, self.opts.cols);
+            try writer.print("\x1b[{d};{d}H\x1b[K", .{ clear_row, clear_col });
+        }
+    }
+    try writer.writeAll("\x1b[H");
     _ = try text.write(writer);
     try writer.print("\x1b[{d};{d}H", .{ row, col });
     _ = try text.write(writer);
@@ -171,6 +205,10 @@ test Erase {
     const erases = std.mem.count(u8, output, "\x1b[2J");
     const lines = std.mem.count(u8, output, "\r\n");
     try testing.expect(erases > 1);
+
+    // Without line clears each clear is directly followed by the cursor
+    // home, so inputs made before that option existed come out the same.
+    try testing.expectEqual(erases, std.mem.count(u8, output, "\x1b[2J\x1b[H"));
     try testing.expect(erases == lines or erases == lines + 1);
     try testing.expect(std.mem.indexOf(u8, output, "\x1b[22J") == null);
 }
@@ -200,6 +238,47 @@ test "Erase scroll clear and erase rate" {
     try testing.expect(erases > 0);
     try testing.expect(erases < lines);
     try testing.expect(std.mem.indexOf(u8, output, "\x1b[2J") == null);
+}
+
+test "Erase line clears" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const impl: *Erase = try .create(alloc, .{
+        .seed = 1,
+        .@"line-clears" = 4,
+        .rows = 80,
+        .cols = 120,
+    });
+    defer impl.destroy(alloc);
+
+    var prng = std.Random.DefaultPrng.init(1);
+    const rand = prng.random();
+
+    var buf: [16384]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try impl.run(&writer, rand);
+    const output = writer.buffered();
+
+    // Each complete redraw has the clear, then 4 line erases split
+    // evenly between CSI 2 K and CSI K, then the usual redraw, which
+    // has one more CSI 2 K of its own.
+    var it = std.mem.splitSequence(u8, output, "\x1b[2J");
+    try testing.expectEqual(@as(usize, 0), it.first().len);
+    var iterations: usize = 0;
+    while (it.next()) |iter| {
+        // The last iteration may be cut off by the end of the buffer.
+        if (it.peek() == null) break;
+        iterations += 1;
+
+        const home = std.mem.indexOf(u8, iter, "\x1b[H").?;
+        const clears = iter[0..home];
+        try testing.expectEqual(@as(usize, 2), std.mem.count(u8, clears, "\x1b[2K"));
+        try testing.expectEqual(@as(usize, 2), std.mem.count(u8, clears, "H\x1b[K"));
+        try testing.expectEqual(@as(usize, 4), std.mem.count(u8, clears, "H"));
+        try testing.expectEqual(@as(usize, 1), std.mem.count(u8, iter[home..], "\x1b[2K"));
+    }
+    try testing.expect(iterations > 1);
 }
 
 test "Erase invalid options" {

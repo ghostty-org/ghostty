@@ -2292,6 +2292,9 @@ pub const Row = packed struct(u64) {
     /// `Screen.clearRows` skips rows with this set and does not mark them
     /// dirty. Their cells don't change, and the metadata it resets (wrap
     /// and semantic prompt state) doesn't change how the row looks.
+    /// `Screen.clearCells` (and so EL and ECH) also leaves their cells
+    /// alone, and the emptiness scans in `PageList.scrollClear` and
+    /// `PageList.trimTrailingBlankRows` don't read them.
     blank: bool = false,
 
     _padding: u22 = 0,
@@ -2605,13 +2608,73 @@ pub const Cell = packed struct(u64) {
         return self.content_tag == .codepoint_grapheme;
     }
 
+    /// The bit of `content_tag` that is set for the two background color
+    /// tags and clear for the two codepoint tags.
+    const bg_tag_bit: Backing = bg: {
+        assert(@backingInt(ContentTag.codepoint) & 2 == 0);
+        assert(@backingInt(ContentTag.codepoint_grapheme) & 2 == 0);
+        assert(@backingInt(ContentTag.bg_color_palette) & 2 != 0);
+        assert(@backingInt(ContentTag.bg_color_rgb) & 2 != 0);
+        break :bg @as(Backing, 2) << @bitOffsetOf(Cell, "content_tag");
+    };
+
+    /// The codepoint bits of `content`. For the background color tags
+    /// these bits hold color data instead.
+    const codepoint_bits: Backing = fieldMask(Cell, &.{"content.codepoint.data"});
+
+    /// A cell is not empty (see `isEmpty`) exactly when one of these
+    /// bits is set: a background color tag, a codepoint, or any wide
+    /// state other than narrow.
+    const non_empty_bits: Backing = bg_tag_bit | codepoint_bits |
+        fieldMask(Cell, &.{"wide"});
+
+    /// Cells checked at once by the group loops below.
+    const any_group_len = 8;
+    const AnyGroup = @Vector(any_group_len, Backing);
+
     /// Returns true if the set of cells has text in it.
-    pub inline fn hasTextAny(cells: []const Cell) bool {
-        for (cells) |cell| {
+    ///
+    /// This is the same as calling `hasText` on each cell, but checks
+    /// a group of cells at a time. The OR of a group's raw bits answers
+    /// most groups without looking at single cells: with no codepoint
+    /// bits set, no cell has text; with codepoint bits set and no
+    /// background color tag in the group, some codepoint cell has a
+    /// non-zero codepoint, which is text. Only a group mixing background
+    /// color cells with codepoint bits is checked cell by cell.
+    pub fn hasTextAny(cells: []const Cell) bool {
+        var i: usize = 0;
+        while (i + any_group_len <= cells.len) : (i += any_group_len) {
+            const group: AnyGroup = @bitCast(cells[i..][0..any_group_len].*);
+            const bits = @reduce(.Or, group);
+            if (bits & codepoint_bits == 0) continue;
+            if (bits & bg_tag_bit == 0) return true;
+            for (cells[i..][0..any_group_len]) |cell| {
+                if (cell.hasText()) return true;
+            }
+        }
+
+        for (cells[i..]) |cell| {
             if (cell.hasText()) return true;
         }
 
         return false;
+    }
+
+    /// Returns true if every cell in the set is empty (see `isEmpty`).
+    ///
+    /// This is the same as calling `isEmpty` on each cell, but is exact
+    /// on the OR of the cells' raw bits (see `non_empty_bits`), so it
+    /// needs no per-cell branch and checks a group of cells at a time.
+    pub fn isEmptyAll(cells: []const Cell) bool {
+        var i: usize = 0;
+        while (i + any_group_len <= cells.len) : (i += any_group_len) {
+            const group: AnyGroup = @bitCast(cells[i..][0..any_group_len].*);
+            if (@reduce(.Or, group) & non_empty_bits != 0) return false;
+        }
+
+        var bits: Backing = 0;
+        for (cells[i..]) |cell| bits |= @as(Backing, @bitCast(cell));
+        return bits & non_empty_bits == 0;
     }
 };
 
@@ -3021,6 +3084,46 @@ test "Cell is zero by default" {
     // The zero value should be output type for semantic content.
     // This is very important for our assumptions elsewhere.
     try std.testing.expectEqual(Cell.SemanticContent.output, cell.semantic_content);
+}
+
+test "Cell hasTextAny and isEmptyAll match the per-cell checks" {
+    // Each case the bulk checks must tell apart. Every pair is tried at
+    // every two positions of every row length up to past two groups, so
+    // pairs share a group, sit in different groups, or sit in the tail.
+    const cases = [_]Cell{
+        .{},
+        .{ .style_id = 7 }, // styled but empty
+        .init('A'),
+        .{ .content_tag = .codepoint, .content = .{ .codepoint = .{ .data = 'A' } }, .wide = .wide },
+        .{ .content_tag = .codepoint_grapheme, .content = .{ .codepoint = .{ .data = 'e' } } },
+        .{ .content_tag = .codepoint_grapheme }, // grapheme tag, no codepoint
+        .{ .wide = .spacer_tail }, // not empty, no text
+        .{ .wide = .spacer_head }, // not empty, no text
+        .{ .content_tag = .bg_color_palette }, // color bits all zero
+        .{ .content_tag = .bg_color_rgb, .content = .{ .color_rgb = .{ .r = 0xff, .g = 0xff, .b = 0xff } } },
+        .{ .protected = true, .hyperlink = true }, // flags only
+    };
+
+    try testing.expect(!Cell.hasTextAny(&.{}));
+    try testing.expect(Cell.isEmptyAll(&.{}));
+
+    var row: [19]Cell = undefined;
+    for (1..row.len + 1) |len| {
+        for (0..len) |i| for (0..len) |j| for (cases) |a| for (cases) |b| {
+            @memset(row[0..len], .{});
+            row[i] = a;
+            row[j] = b;
+
+            var text = false;
+            var empty = true;
+            for (row[0..len]) |cell| {
+                text = text or cell.hasText();
+                empty = empty and cell.isEmpty();
+            }
+            try testing.expectEqual(text, Cell.hasTextAny(row[0..len]));
+            try testing.expectEqual(empty, Cell.isEmptyAll(row[0..len]));
+        };
+    }
 }
 
 test "Page capacity adjust cols down" {

@@ -17043,6 +17043,78 @@ test "Terminal: blank bit moves with rows" {
     try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
 }
 
+test "Terminal: eraseLine on a blank row keeps it blank" {
+    const alloc = testing.allocator;
+
+    // Every mode finds nothing to clear on a blank row, but still does
+    // the bookkeeping it does on any row: the row is marked dirty, the
+    // pending wrap is reset, and right and complete reset soft-wrap.
+    // verifyIntegrity checks that a blank row's cells are all zero.
+    const Case = struct { csi.EraseLine, bool };
+    const cases = [_]Case{
+        .{ .right, true },
+        .{ .left, false },
+        .{ .complete, true },
+    };
+
+    for (cases) |case| {
+        const mode, const resets_wrap = case;
+
+        var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
+        defer t.deinit(alloc);
+
+        t.eraseDisplay(.complete, false);
+        testActiveRow(&t, 1).wrap = true;
+        t.setCursorPos(2, 3);
+        t.screens.active.cursor.pending_wrap = true;
+        t.clearDirty();
+
+        t.eraseLine(mode, false);
+        try testing.expect(testActiveRow(&t, 1).blank);
+        try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+        try testing.expect(!t.screens.active.cursor.pending_wrap);
+        try testing.expectEqual(!resets_wrap, testActiveRow(&t, 1).wrap);
+        try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+        try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+        try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+    }
+}
+
+test "Terminal: eraseChars on a blank row keeps it blank" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.eraseDisplay(.complete, false);
+    testActiveRow(&t, 1).wrap = true;
+    t.setCursorPos(2, 2);
+    t.clearDirty();
+
+    t.eraseChars(2);
+    try testing.expect(testActiveRow(&t, 1).blank);
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(!testActiveRow(&t, 1).wrap);
+    try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+}
+
+test "Terminal: protected erases on a blank row keep it blank" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
+    defer t.deinit(alloc);
+
+    // After ISO protection has been used, every erase respects it.
+    t.eraseDisplay(.complete, false);
+    t.setProtectedMode(.iso);
+    t.setProtectedMode(.off);
+    t.setCursorPos(2, 3);
+
+    t.eraseLine(.complete, false);
+    t.eraseLine(.right, true);
+    t.eraseChars(3);
+    try testing.expect(testActiveRow(&t, 1).blank);
+    try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+}
+
 test "Terminal: eraseDisplay simple erase below" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
