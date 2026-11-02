@@ -1788,7 +1788,8 @@ class: ?[:0]const u8 = null,
 ///    behaves as if the keybind was not set. This has no effect with `global:`
 ///    or `all:`-prefixed keybinds. For key sequences, this will reset the
 ///    sequence if the action is not performable (acting identically to not
-///    having a keybind set at all).
+///    having a keybind set at all). To run a different action instead,
+///    see "Fallback Actions" below.
 ///
 ///    Performable keybinds will not appear as menu shortcuts in the
 ///    application menu. This is because the menu shortcuts force the
@@ -1885,6 +1886,29 @@ class: ?[:0]const u8 = null,
 ///
 /// Chained keybinds are available since Ghostty 1.3.0.
 ///
+/// ## Fallback Actions
+///
+/// A `performable:` keybind can have a fallback action by using the `else`
+/// keyword. The fallback action runs when the keybind's action can't be
+/// performed. For example:
+///
+/// ```ini
+/// keybind = performable:super+l=resize_split:right,10
+/// keybind = else=esc:l
+/// ```
+///
+/// With splits, `super+l` resizes the split. Without splits, it sends
+/// `esc` + `l`, as `alt+l` would by default. The fallback is handled just
+/// as if it were the bound action, including the flags of the original
+/// keybind. If the fallback action can't be performed either, Ghostty
+/// behaves as if the keybind was not set.
+///
+/// `else` applies to the most recently defined keybind, which must be
+/// `performable:`. A keybind can have only one `else`, and `else` can't be
+/// combined with `chain`. Like `chain`, `else` cannot have prefixes.
+///
+/// Fallback actions are available since Ghostty 1.5.0.
+///
 /// ## Key Tables
 ///
 /// You may also create a named set of keybindings known as a "key table."
@@ -1932,7 +1956,8 @@ class: ?[:0]const u8 = null,
 ///     the most recently defined binding in the table. e.g. if you set
 ///     `table/ctrl+a=new_window` you can chain by using `chain=text:hello`.
 ///     Important: chain itself doesn't get prefixed with the table name,
-///     since it applies to the most recent binding in any table.
+///     since it applies to the most recent binding in any table. The same
+///     is true of `else`.
 ///
 ///   * Prefixes like `global:` work within tables:
 ///     `foo/global:ctrl+a=new_window`.
@@ -7505,9 +7530,11 @@ pub const Keybinds = struct {
                 return;
             }
 
-            // Chains are only allowed at the root level. Their target is
-            // tracked globally by parse order in `self.chain_target`.
-            if (std.mem.startsWith(u8, binding, "chain=")) {
+            // Chains and else are only allowed at the root level. Their
+            // target is tracked globally by parse order in `self.chain_target`.
+            if (std.mem.startsWith(u8, binding, "chain=") or
+                std.mem.startsWith(u8, binding, "else="))
+            {
                 return error.InvalidFormat;
             }
 
@@ -7517,7 +7544,9 @@ pub const Keybinds = struct {
             return;
         }
 
-        if (std.mem.startsWith(u8, value, "chain=")) {
+        if (std.mem.startsWith(u8, value, "chain=") or
+            std.mem.startsWith(u8, value, "else="))
+        {
             switch (self.chain_target) {
                 .root => try self.set.parseAndPut(alloc, value),
                 .table => |table_name| {
@@ -8030,6 +8059,40 @@ pub const Keybinds = struct {
         try testing.expectEqual(@as(usize, 2), foo_entry.leaf_chained.actions.items.len);
         try testing.expect(foo_entry.leaf_chained.actions.items[0] == .text);
         try testing.expect(foo_entry.leaf_chained.actions.items[1] == .deactivate_key_table);
+    }
+
+    test "parseCLI table else syntax is invalid" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "foo/performable:a=copy_to_clipboard");
+        try testing.expectError(
+            error.InvalidFormat,
+            keybinds.parseCLI(alloc, "foo/else=text:hello"),
+        );
+    }
+
+    test "parseCLI else applies to most recent table binding" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "foo/performable:a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "else=text:hello");
+
+        const foo_entry = keybinds.tables.get("foo").?.get(.{
+            .key = .{ .unicode = 'a' },
+        }).?.value_ptr.*;
+        try testing.expect(foo_entry == .leaf);
+        try testing.expect(foo_entry.leaf.action == .copy_to_clipboard);
+        try testing.expectEqualStrings("hello", foo_entry.leaf.else_action.?.text);
     }
 
     test "clone with tables" {
