@@ -1549,10 +1549,7 @@ pub const RenderState = struct {
         }
     }
 
-    /// Returns true if the two style run lists denormalize to
-    /// identical per-cell style data. This is a semantic comparison
-    /// (styles are compared field-wise, never by bytes, since padding
-    /// is undefined).
+    /// Returns true if both lists have the same run boundaries and styles.
     fn runsEql(a: []const StyleRun, b: []const StyleRun) bool {
         if (a.len != b.len) return false;
         for (a, b) |ar, br| {
@@ -2889,14 +2886,14 @@ const RowBuilder = struct {
                 // with a background color pending is one run).
                 .bg_color_rgb, .bg_color_palette => {
                     const style_val: Style = switch (page_cell.content_tag) {
-                        .bg_color_rgb => .{ .bg_color = .{ .rgb = .{
+                        .bg_color_rgb => .{ .bg_color = .rgb(.{
                             .r = page_cell.content.color_rgb.r,
                             .g = page_cell.content.color_rgb.g,
                             .b = page_cell.content.color_rgb.b,
-                        } } },
-                        .bg_color_palette => .{ .bg_color = .{
-                            .palette = page_cell.content.color_palette.data,
-                        } },
+                        }) },
+                        .bg_color_palette => .{
+                            .bg_color = .palette(page_cell.content.color_palette.data),
+                        },
                         else => unreachable,
                     };
 
@@ -3437,7 +3434,7 @@ test "bg color cells" {
             cell.raw.content_tag,
         );
         try testing.expectEqual(
-            Style.Color{ .palette = 1 },
+            Style.Color.palette(1),
             cell.style.bg_color,
         );
     }

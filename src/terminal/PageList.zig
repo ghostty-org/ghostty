@@ -17754,11 +17754,11 @@ test "PageList resize reflow exceeds style memory forcing capacity increase" {
             const id = page.styles.add(
                 page.memory,
                 .{
-                    .bg_color = .{ .rgb = .{
+                    .bg_color = .rgb(.{
                         .r = @truncate(x),
                         .g = @truncate(x >> 8),
                         .b = @truncate(x >> 16),
-                    } },
+                    }),
                 },
             ) catch break;
 
@@ -17781,11 +17781,11 @@ test "PageList resize reflow exceeds style memory forcing capacity increase" {
             const id = page.styles.add(
                 page.memory,
                 .{
-                    .fg_color = .{ .rgb = .{
+                    .fg_color = .rgb(.{
                         .r = @truncate(x),
                         .g = @truncate(x >> 8),
                         .b = @truncate(x >> 16),
-                    } },
+                    }),
                 },
             ) catch break;
 
@@ -20146,11 +20146,11 @@ test "PageList grow carries used capacity to the next page" {
     const page = node.page();
     for (0..page.styles.layout.cap / 2) |i| {
         _ = try page.styles.add(page.memory, .{
-            .bg_color = .{ .rgb = .{
+            .bg_color = .rgb(.{
                 .r = @truncate(i),
                 .g = @truncate(i >> 8),
                 .b = 0,
-            } },
+            }),
         });
     }
 
@@ -20192,11 +20192,11 @@ test "PageList grow carry-over respects byte limit" {
     const page = node.page();
     for (0..page.styles.layout.cap / 2) |i| {
         _ = try page.styles.add(page.memory, .{
-            .bg_color = .{ .rgb = .{
+            .bg_color = .rgb(.{
                 .r = @truncate(i),
                 .g = @truncate(i >> 8),
                 .b = 0,
-            } },
+            }),
         });
     }
     try testing.expect(s.page_size > s.limits.max(.bytes));
@@ -20253,7 +20253,7 @@ test "PageList grow trims rows only while 90% of rows per byte remain" {
         const page = node.page();
         for (0..page.styles.layout.cap / 2) |i| {
             _ = try page.styles.add(page.memory, .{
-                .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+                .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
             });
         }
         while (node.rows() < node.capacity().rows) _ = try s.grow();
@@ -20308,7 +20308,7 @@ test "PageList grow reuses a pruned page for a larger layout" {
     try testing.expectEqual(styles, node.capacity().styles);
     for (0..node.page().styles.layout.cap / 2) |i| {
         _ = try node.page().styles.add(node.page().memory, .{
-            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
         });
     }
 
@@ -20332,7 +20332,7 @@ test "PageList grow reuses a pruned page for a larger layout" {
     }
     for (1..page.styles.layout.cap) |i| {
         _ = try page.styles.add(page.memory, .{
-            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
         });
     }
     try testing.expectEqual(page.styles.layout.cap - 1, page.styles.count());
@@ -20369,7 +20369,7 @@ test "PageList grow keeps the grow hint when allocation fails" {
     const styles = a.capacity().styles;
     for (0..a.page().styles.layout.cap / 2) |i| {
         _ = try a.page().styles.add(a.page().memory, .{
-            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
         });
     }
     while (a.rows() < a.capacity().rows) _ = try s.grow();
@@ -20417,7 +20417,7 @@ test "PageList grow returns to the byte limit after a styled burst" {
     for (0..5) |_| node = try s.increaseCapacity(node, .styles);
     for (0..node.page().styles.layout.cap / 2) |i| {
         _ = try node.page().styles.add(node.page().memory, .{
-            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
         });
     }
     for (0..10) |_| {
@@ -21663,7 +21663,7 @@ test "PageList grow measures trimmed pages per row" {
         const styles = page.styles.layout.cap * 4 / 10 * rows / standard.rows;
         for (0..styles) |i| {
             _ = try page.styles.add(page.memory, .{
-                .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+                .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
             });
         }
         const strings = page.string_alloc.capacityBytes() * 4 / 10 * rows / standard.rows;
@@ -21728,7 +21728,7 @@ test "PageList grow shrinks a mostly unused capacity to its headroom" {
     const page = node.page();
     for (0..page.styles.layout.cap / 4) |i| {
         _ = try page.styles.add(page.memory, .{
-            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            .bg_color = .rgb(.{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 }),
         });
     }
     const strings = page.string_alloc.capacityBytes() * 3 / 10;

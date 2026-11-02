@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const fastprint = @import("../fastprint.zig");
 const color = @import("color.zig");
@@ -18,7 +17,10 @@ pub const Id = size.StyleCountInt;
 pub const default_id: Id = 0;
 
 /// The style attributes for a cell.
-pub const Style = struct {
+///
+/// Unused bits must be zero so equal styles have identical bits. This lets
+/// us compare and hash styles directly, with all zero bits for the default.
+pub const Style = packed struct(u128) {
     /// Various colors, all self-explanatory.
     fg_color: Color = .none,
     bg_color: Color = .none,
@@ -27,6 +29,9 @@ pub const Style = struct {
     /// On/off attributes that don't require much bit width so we use
     /// a packed struct to make this take up significantly less space.
     flags: Flags = .{},
+
+    /// Explicit zero padding to fill the 128 bits.
+    _padding: u16 = 0,
 
     const Flags = packed struct(u16) {
         bold: bool = false,
@@ -44,23 +49,42 @@ pub const Style = struct {
     /// The color for an SGR attribute. A color can come from multiple
     /// sources so we use this to track the source plus color value so that
     /// we can properly react to things like palette changes.
-    pub const Color = union(Tag) {
-        none: void,
-        palette: u8,
-        rgb: color.RGB,
+    ///
+    /// Use `.none`, `.palette(idx)`, or `.rgb(rgb)` to keep unused bits zero.
+    /// Use `value()` to switch on the color as a tagged union.
+    pub const Color = packed struct(u32) {
+        tag: Tag,
+        data: u24,
 
-        const Tag = enum(u8) {
+        pub const Tag = enum(u8) {
             none,
             palette,
             rgb,
         };
 
-        /// True if the color is equal to another color.
-        pub fn eql(self: Color, other: Color) bool {
-            return @as(Tag, self) == @as(Tag, other) and switch (self) {
-                .none => true,
-                .palette => self.palette == other.palette,
-                .rgb => self.rgb == other.rgb,
+        /// A tagged-union view of a color, for switching on.
+        pub const Value = union(Tag) {
+            none: void,
+            palette: u8,
+            rgb: color.RGB,
+        };
+
+        pub const none: Color = .{ .tag = .none, .data = 0 };
+
+        pub inline fn palette(idx: u8) Color {
+            return .{ .tag = .palette, .data = idx };
+        }
+
+        pub inline fn rgb(v: color.RGB) Color {
+            return .{ .tag = .rgb, .data = @bitCast(v) };
+        }
+
+        /// Returns the color as a tagged union.
+        pub inline fn value(self: Color) Value {
+            return switch (self.tag) {
+                .none => .none,
+                .palette => .{ .palette = @truncate(self.data) },
+                .rgb => .{ .rgb = @bitCast(self.data) },
             };
         }
 
@@ -74,49 +98,33 @@ pub const Style = struct {
         ) !void {
             _ = fmt;
             _ = options;
-            switch (self) {
+            switch (self.value()) {
                 .none => {
                     _ = try writer.write("Color.none");
                 },
                 .palette => |p| {
                     _ = try writer.print("Color.palette{{ {} }}", .{p});
                 },
-                .rgb => |rgb| {
-                    _ = try writer.print("Color.rgb{{ {}, {}, {} }}", .{ rgb.r, rgb.g, rgb.b });
+                .rgb => |rgb_value| {
+                    _ = try writer.print("Color.rgb{{ {}, {}, {} }}", .{ rgb_value.r, rgb_value.g, rgb_value.b });
                 },
             }
         }
     };
 
+    /// The style as a single integer.
+    pub inline fn bits(self: Style) u128 {
+        return @bitCast(self);
+    }
+
     /// True if the style is the default style.
     pub inline fn default(self: Style) bool {
-        // On wasm, eql converts both sides to packed form; the default
-        // side is comptime-known, so bake it and convert only self.
-        // This is called on every SGR change so it's worth it.
-        if (comptime builtin.target.cpu.arch.isWasm()) {
-            const d: u128 = comptime @bitCast(PackedStyle.fromStyle(.{}));
-            return @as(u128, @bitCast(PackedStyle.fromStyle(self))) == d;
-        }
-
-        return self.eql(.{});
+        return self.bits() == 0;
     }
 
     /// True if the style is equal to another style.
-    pub fn eql(self: Style, other: Style) bool {
-        // On wasm, comparing packed forms wins (~13% on SGR-heavy streams).
-        // On native, the branchy early-exit field compare below measures
-        // ~5% faster (unequal styles usually differ in the first
-        // field or two), so each target keeps its own strategy.
-        if (comptime builtin.target.cpu.arch.isWasm()) {
-            const a: u128 = @bitCast(PackedStyle.fromStyle(self));
-            const b: u128 = @bitCast(PackedStyle.fromStyle(other));
-            return a == b;
-        }
-
-        return self.flags == other.flags and
-            self.fg_color.eql(other.fg_color) and
-            self.bg_color.eql(other.bg_color) and
-            self.underline_color.eql(other.underline_color);
+    pub inline fn eql(self: Style, other: Style) bool {
+        return self.bits() == other.bits();
     }
 
     /// Returns the bg color for a cell with this style given the cell
@@ -137,7 +145,7 @@ pub const Style = struct {
                 break :rgb .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
             },
 
-            else => switch (self.bg_color) {
+            else => switch (self.bg_color.value()) {
                 .none => null,
                 .palette => |idx| palette[idx],
                 .rgb => |rgb| rgb,
@@ -176,7 +184,7 @@ pub const Style = struct {
         // we don't want to duplicate the conditional multiple times since
         // certain colors require more checks (e.g. `bold_is_bright`).
 
-        return switch (self.fg_color) {
+        return switch (self.fg_color.value()) {
             .none => default: {
                 if (self.flags.bold) {
                     if (opts.bold) |bold| switch (bold) {
@@ -219,7 +227,7 @@ pub const Style = struct {
         self: Style,
         palette: *const color.Palette,
     ) ?color.RGB {
-        return switch (self.underline_color) {
+        return switch (self.underline_color.value()) {
             .none => null,
             .palette => |idx| palette[idx],
             .rgb => |rgb| rgb,
@@ -228,7 +236,7 @@ pub const Style = struct {
 
     /// Returns a bg-color only cell from this style, if it exists.
     pub fn bgCell(self: Style) ?page.Cell {
-        return switch (self.bg_color) {
+        return switch (self.bg_color.value()) {
             .none => null,
             .palette => |idx| .{
                 .content_tag = .bg_color_palette,
@@ -440,7 +448,7 @@ pub const Style = struct {
             prefix: u8,
             value: Color,
         ) usize {
-            switch (value) {
+            switch (value.value()) {
                 .none => return 0,
 
                 .palette => |idx| {
@@ -548,7 +556,7 @@ pub const Style = struct {
             // string machinery.
             var buf: [32]u8 = undefined;
             var len: usize = 0;
-            switch (c) {
+            switch (c.value()) {
                 .none => return,
 
                 // `{property}: rgb({r}, {g}, {b});`
@@ -591,90 +599,22 @@ pub const Style = struct {
         }
     };
 
-    /// `PackedStyle` represents the same data as `Style` but without padding,
-    /// which is necessary for hashing via re-interpretation of the underlying
-    /// bytes.
-    ///
-    /// `Style` is still preferred for everything else as it has type-safety
-    /// when using the `Color` tagged union.
-    ///
-    /// Empirical testing shows that storing all of the tags first and then the
-    /// data provides a better layout for serializing into and is faster on
-    /// benchmarks.
-    const PackedStyle = packed struct(u128) {
-        tags: packed struct {
-            fg: Color.Tag,
-            bg: Color.Tag,
-            underline: Color.Tag,
-        },
-        data: packed struct {
-            fg: Data,
-            bg: Data,
-            underline: Data,
-        },
-        flags: Flags,
-        _padding: u16 = 0,
-
-        /// After https://github.com/ziglang/zig/issues/19754 is implemented,
-        /// it will be an compiler-error to have packed union fields of
-        /// differing size.
-        ///
-        /// For now we just need to be careful not to accidentally introduce
-        /// padding.
-        const Data = packed union {
-            none: u24,
-            palette: packed struct(u24) {
-                idx: u8,
-                _padding: u16 = 0,
-            },
-            rgb: color.RGB,
-
-            fn fromColor(c: Color) Data {
-                return switch (c) {
-                    inline else => |v, t| @unionInit(
-                        Data,
-                        @tagName(t),
-                        switch (t) {
-                            .none => 0,
-                            .palette => .{ .idx = v },
-                            .rgb => v,
-                        },
-                    ),
-                };
-            }
-        };
-
-        inline fn fromStyle(style: Style) PackedStyle {
-            return .{
-                .tags = .{
-                    .fg = @as(Color.Tag, style.fg_color),
-                    .bg = @as(Color.Tag, style.bg_color),
-                    .underline = @as(Color.Tag, style.underline_color),
-                },
-                .data = .{
-                    .fg = .fromColor(style.fg_color),
-                    .bg = .fromColor(style.bg_color),
-                    .underline = .fromColor(style.underline_color),
-                },
-                .flags = style.flags,
-            };
-        }
-    };
-
     pub fn hash(self: *const Style) u64 {
-        // We pack the style in to 128 bits, fold it to 64 bits,
-        // then use std.hash.int to make it sufficiently uniform.
-        const packed_style: PackedStyle = .fromStyle(self.*);
-        const wide: [2]u64 = @bitCast(packed_style);
-        return @call(.always_inline, std.hash.int, .{wide[0] ^ wide[1]});
+        // Multiply the upper half (underline color and flags) by an odd
+        // constant to spread its bits before combining it with the lower
+        // half (foreground and background colors). This makes the hash
+        // sensitive to which half a value comes from.
+        const fibonacci_multiplier = 0x9e3779b97f4a7c15; // 2^64 / golden ratio
+        const wide: [2]u64 = @bitCast(self.*);
+        return @call(.always_inline, std.hash.int, .{wide[0] ^ (wide[1] *% fibonacci_multiplier)});
     }
 
     comptime {
-        assert(@sizeOf(PackedStyle) == 16);
-        assert(std.meta.hasUniqueRepresentation(PackedStyle));
-        for (@typeInfo(PackedStyle.Data).@"union".field_types) |field_type| {
-            assert(@bitSizeOf(field_type) == @bitSizeOf(PackedStyle.Data));
-        }
+        assert(@sizeOf(Style) == 16);
+        assert(@bitSizeOf(Style) == 128);
+        assert(std.meta.hasUniqueRepresentation(Style));
+        // The default style must be all zero bits: `default()` relies on it.
+        assert((Style{}).bits() == 0);
     }
 };
 
@@ -855,7 +795,7 @@ test "Style VT formatting fg palette" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .fg_color = .{ .palette = 42 } };
+    var style: Style = .{ .fg_color = .palette(42) };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings("\x1b[0m\x1b[38;5;42m", builder.writer.buffered());
 }
@@ -866,7 +806,7 @@ test "Style VT formatting fg rgb" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .fg_color = .{ .rgb = .{ .r = 255, .g = 128, .b = 64 } } };
+    var style: Style = .{ .fg_color = .rgb(.{ .r = 255, .g = 128, .b = 64 }) };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings("\x1b[0m\x1b[38;2;255;128;64m", builder.writer.buffered());
 }
@@ -877,7 +817,7 @@ test "Style VT formatting bg palette" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .bg_color = .{ .palette = 7 } };
+    var style: Style = .{ .bg_color = .palette(7) };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings("\x1b[0m\x1b[48;5;7m", builder.writer.buffered());
 }
@@ -888,7 +828,7 @@ test "Style VT formatting bg rgb" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .bg_color = .{ .rgb = .{ .r = 32, .g = 64, .b = 96 } } };
+    var style: Style = .{ .bg_color = .rgb(.{ .r = 32, .g = 64, .b = 96 }) };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings("\x1b[0m\x1b[48;2;32;64;96m", builder.writer.buffered());
 }
@@ -899,7 +839,7 @@ test "Style VT formatting underline_color palette" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .underline_color = .{ .palette = 15 } };
+    var style: Style = .{ .underline_color = .palette(15) };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings("\x1b[0m\x1b[58;5;15m", builder.writer.buffered());
 }
@@ -910,7 +850,7 @@ test "Style VT formatting underline_color rgb" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .underline_color = .{ .rgb = .{ .r = 200, .g = 100, .b = 50 } } };
+    var style: Style = .{ .underline_color = .rgb(.{ .r = 200, .g = 100, .b = 50 }) };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings("\x1b[0m\x1b[58;2;200;100;50m", builder.writer.buffered());
 }
@@ -957,9 +897,9 @@ test "Style VT formatting combined colors and flags" {
     defer builder.deinit();
 
     var style: Style = .{
-        .fg_color = .{ .rgb = .{ .r = 255, .g = 0, .b = 0 } },
-        .bg_color = .{ .palette = 8 },
-        .underline_color = .{ .rgb = .{ .r = 0, .g = 255, .b = 0 } },
+        .fg_color = .rgb(.{ .r = 255, .g = 0, .b = 0 }),
+        .bg_color = .palette(8),
+        .underline_color = .rgb(.{ .r = 0, .g = 255, .b = 0 }),
         .flags = .{ .bold = true, .italic = true, .underline = .double },
     };
     try builder.writer.print("{f}", .{style.formatterVt()});
@@ -976,9 +916,9 @@ test "Style VT formatting all colors rgb" {
     defer builder.deinit();
 
     var style: Style = .{
-        .fg_color = .{ .rgb = .{ .r = 10, .g = 20, .b = 30 } },
-        .bg_color = .{ .rgb = .{ .r = 40, .g = 50, .b = 60 } },
-        .underline_color = .{ .rgb = .{ .r = 70, .g = 80, .b = 90 } },
+        .fg_color = .rgb(.{ .r = 10, .g = 20, .b = 30 }),
+        .bg_color = .rgb(.{ .r = 40, .g = 50, .b = 60 }),
+        .underline_color = .rgb(.{ .r = 70, .g = 80, .b = 90 }),
     };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings(
@@ -994,9 +934,9 @@ test "Style VT formatting all colors palette" {
     defer builder.deinit();
 
     var style: Style = .{
-        .fg_color = .{ .palette = 1 },
-        .bg_color = .{ .palette = 2 },
-        .underline_color = .{ .palette = 3 },
+        .fg_color = .palette(1),
+        .bg_color = .palette(2),
+        .underline_color = .palette(3),
     };
     try builder.writer.print("{f}", .{style.formatterVt()});
     try testing.expectEqualStrings(
@@ -1011,7 +951,7 @@ test "Style VT formatting palette with palette set emits rgb" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .fg_color = .{ .palette = 1 } };
+    var style: Style = .{ .fg_color = .palette(1) };
     var formatter = style.formatterVt();
     formatter.palette = &color.default;
     try builder.writer.print("{f}", .{formatter});
@@ -1025,9 +965,9 @@ test "Style VT formatting all palette colors with palette set" {
     defer builder.deinit();
 
     var style: Style = .{
-        .fg_color = .{ .palette = 1 },
-        .bg_color = .{ .palette = 2 },
-        .underline_color = .{ .palette = 3 },
+        .fg_color = .palette(1),
+        .bg_color = .palette(2),
+        .underline_color = .palette(3),
     };
     var formatter = style.formatterVt();
     formatter.palette = &color.default;
@@ -1145,7 +1085,7 @@ test "Style HTML formatting fg color rgb" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .fg_color = .{ .rgb = .{ .r = 255, .g = 128, .b = 64 } } };
+    var style: Style = .{ .fg_color = .rgb(.{ .r = 255, .g = 128, .b = 64 }) };
     try builder.writer.print("{f}", .{style.formatterHtml()});
     try testing.expectEqualStrings("color: rgb(255, 128, 64);", builder.writer.buffered());
 }
@@ -1156,7 +1096,7 @@ test "Style HTML formatting bg color palette" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .bg_color = .{ .palette = 7 } };
+    var style: Style = .{ .bg_color = .palette(7) };
     try builder.writer.print("{f}", .{style.formatterHtml()});
     try testing.expectEqualStrings("background-color: var(--vt-palette-7);", builder.writer.buffered());
 }
@@ -1168,8 +1108,8 @@ test "Style HTML formatting combined colors and flags" {
     defer builder.deinit();
 
     var style: Style = .{
-        .fg_color = .{ .rgb = .{ .r = 255, .g = 0, .b = 0 } },
-        .bg_color = .{ .rgb = .{ .r = 0, .g = 0, .b = 255 } },
+        .fg_color = .rgb(.{ .r = 255, .g = 0, .b = 0 }),
+        .bg_color = .rgb(.{ .r = 0, .g = 0, .b = 255 }),
         .flags = .{ .bold = true, .italic = true },
     };
     try builder.writer.print("{f}", .{style.formatterHtml()});
@@ -1212,7 +1152,7 @@ test "Style HTML formatting palette with palette set emits rgb" {
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var style: Style = .{ .bg_color = .{ .palette = 7 } };
+    var style: Style = .{ .bg_color = .palette(7) };
     var formatter = style.formatterHtml();
     formatter.palette = &color.default;
     try builder.writer.print("{f}", .{formatter});
@@ -1226,9 +1166,9 @@ test "Style HTML formatting all palette colors with palette set" {
     defer builder.deinit();
 
     var style: Style = .{
-        .fg_color = .{ .palette = 1 },
-        .bg_color = .{ .palette = 2 },
-        .underline_color = .{ .palette = 3 },
+        .fg_color = .palette(1),
+        .bg_color = .palette(2),
+        .underline_color = .palette(3),
     };
     var formatter = style.formatterHtml();
     formatter.palette = &color.default;

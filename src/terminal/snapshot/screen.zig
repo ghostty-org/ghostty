@@ -1193,12 +1193,12 @@ fn testHeader() Header {
         },
         .cursor_pen = .{
             .fg_color = .none,
-            .bg_color = .{ .palette = 0x7f },
-            .underline_color = .{ .rgb = .{
+            .bg_color = .palette(0x7f),
+            .underline_color = .rgb(.{
                 .r = 0x12,
                 .g = 0x34,
                 .b = 0x56,
-            } },
+            }),
             .flags = .{
                 .bold = true,
                 .italic = true,

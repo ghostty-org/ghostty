@@ -2209,19 +2209,15 @@ pub const PageFormatter = struct {
                 ).*,
 
             .bg_color_palette => .{
-                .bg_color = .{
-                    .palette = cell.content.color_palette.data,
-                },
+                .bg_color = .palette(cell.content.color_palette.data),
             },
 
             .bg_color_rgb => .{
-                .bg_color = .{
-                    .rgb = .{
-                        .r = cell.content.color_rgb.r,
-                        .g = cell.content.color_rgb.g,
-                        .b = cell.content.color_rgb.b,
-                    },
-                },
+                .bg_color = .rgb(.{
+                    .r = cell.content.color_rgb.r,
+                    .g = cell.content.color_rgb.g,
+                    .b = cell.content.color_rgb.b,
+                }),
             },
         };
     }
