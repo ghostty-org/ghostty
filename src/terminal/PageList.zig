@@ -4043,15 +4043,17 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
     // Slower path: we have no space, we need to allocate a new page.
 
     // Get the layout first so our failable work is done early.
-    // We'll need this for both paths.
-    const cap = self.growCapacity(last);
+    // We'll need this for both paths. `grow_hint` is only updated once
+    // the new page exists (see `GrowCapacity.need`).
+    const grow_cap = self.growCapacity(last);
+    const cap = grow_cap.cap;
     const layout = Page.layout(cap);
     const pooled = layout.total_size <= std_size;
     const new_size = if (pooled) PagePool.item_size else layout.total_size;
 
     // If allocation would exceed our max size, we prune the first page.
-    // We don't need to reallocate because we can simply reuse that first
-    // page.
+    // When the first page and the new page both come from the pool, we
+    // reuse the first page's pool item instead of allocating a new one.
     //
     // We only take this path if we have more than one page since pruning
     // reuses the popped page. It is possible to have a single page and
@@ -4123,17 +4125,30 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
             },
         }
 
-        // Reset our memory
-        const buf = first.restore(.discard).memory;
-        @memset(buf, 0);
-        assert(buf.len <= std_size);
+        // Reset our memory. The new layout may be larger than the old
+        // one, so we lay it out over the whole pool item, as createPage
+        // does when it recycles a page. Only the old layout's bytes can
+        // be dirty, since every path that gives up a pool item zeroes
+        // the bytes it used.
+        const old_memory = first.restore(.discard).memory;
+        assert(old_memory.len <= std_size);
+        assert(layout.total_size <= std_size);
+        const item: *align(std.heap.page_size_min) [std_size]u8 =
+            @ptrCast(@alignCast(old_memory.ptr));
+        @memset(old_memory, 0);
+        if (comptime build_options.slow_runtime_safety) {
+            // Check that the rest of the item is zero. verifyIntegrity
+            // can't catch stale bytes because they look like page data.
+            assert(std.mem.allEqual(u8, item[old_memory.len..], 0));
+        }
 
         // Initialize our new page and reinsert it as the last
-        first.data = .{ .resident = .initBuf(.init(buf), layout) };
+        first.data = .{ .resident = .initBuf(.init(item), layout) };
         const page = first.page();
         page.size.rows = 1;
         self.pages.insertAfter(last, first);
         self.total_rows += 1;
+        self.grow_hint = grow_cap.need;
 
         // Reusing the node gives it a fresh generation. Do not begin a new
         // page_serial_epoch here: generations are not monotonic in list order,
@@ -4142,10 +4157,16 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         first.serial = self.page_serial;
         self.page_serial += 1;
 
-        // In this case we do NOT need to update page_size because
-        // we're reusing an existing page so nothing has changed.
+        // We don't update page_size. A pool-owned page always counts as
+        // one pool item, whatever its layout.
 
         page.assertIntegrity();
+
+        // An earlier grow may have left us over the byte limit, because
+        // pruning would have cut into the active area (see the trimming
+        // costs in growCapacity). Reuse swaps one pool item for another,
+        // so it can't fix that on its own. Enforce the limit here.
+        self.limits.enforce(self, .bytes);
 
         // Byte-limit recycling may leave history above the independent line
         // limit, so enforce it after the recycled page becomes the new tail.
@@ -4158,11 +4179,9 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
     // we don't errdefer this because we've added it to the linked
     // list and its fine to have dangling unused pages.
     self.pages.append(next_node);
+    self.grow_hint = grow_cap.need;
     const page = next_node.page();
     page.size.rows = 1;
-
-    // We should never be more than our max size here because we've
-    // verified the case above.
     page.assertIntegrity();
 
     // Record the increased row count
@@ -4222,7 +4241,23 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
 /// Otherwise the page is allocated on the heap at its full size, just
 /// like a page that `increaseCapacity` grew. If even that would exceed
 /// the maximum page size, this returns the standard capacity.
-fn growCapacity(self: *PageList, last: *List.Node) Capacity {
+///
+/// Trimming rows has two costs:
+///
+///   - A trimmed page can have as few as about 68% of the standard rows,
+///     so it holds less scrollback per pool item. Heap pages keep all
+///     their rows, but each is its own allocation that `grow` can't
+///     reuse in place. On styled output that meant hundreds of times
+///     more allocations for about the same scrollback per byte.
+///   - A tall terminal may need more trimmed pages to hold its active
+///     area than the minimum byte limit allows (see `Limits.minMaxSize`).
+///     The page list then stays one pool item over the limit until new
+///     pages are standard again. Using heap pages there instead kept the
+///     limit but was about 17% slower.
+///
+/// This doesn't change the PageList. `grow` stores the returned `need`
+/// in `grow_hint` once the new page exists.
+fn growCapacity(self: *const PageList, last: *List.Node) GrowCapacity {
     const need = self.utilizationCapacity(last);
     const cap: Capacity = cap: {
         var cap = need;
@@ -4234,7 +4269,6 @@ fn growCapacity(self: *PageList, last: *List.Node) Capacity {
         }
         break :cap cap;
     };
-    self.grow_hint = need;
 
     // Prefer a pooled page. Pool items are all the same size, so the
     // prune path in `grow` can reuse them in place instead of freeing
@@ -4247,15 +4281,37 @@ fn growCapacity(self: *PageList, last: *List.Node) Capacity {
         const fitted = cap.fitRows(std_size) orelse break :pool;
 
         // Check rows / std_size >= 0.9 * cap.rows / heap_size without
-        // dividing.
-        const rows: usize = fitted.rows;
-        if (rows * heap_size * 10 < @as(usize, cap.rows) * std_size * 9) break :pool;
-        return fitted;
+        // dividing. This uses 64-bit math because on 32-bit targets
+        // (wasm32) the right side overflows for terminals narrower than
+        // about 37 columns.
+        const rows: u64 = fitted.rows;
+        if (rows * heap_size * 10 < @as(u64, cap.rows) * std_size * 9) break :pool;
+
+        return .{ .cap = fitted, .need = need };
     }
 
-    if (heap_size > size.max_page_size) return initialCapacity(self.cols);
-    return cap;
+    if (heap_size > size.max_page_size) return .{
+        .cap = initialCapacity(self.cols),
+        .need = need,
+    };
+    return .{ .cap = cap, .need = need };
 }
+
+/// The result of `growCapacity`.
+const GrowCapacity = struct {
+    /// The capacity for the new page.
+    cap: Capacity,
+
+    /// The capacity that `last` needed, which becomes the next
+    /// `grow_hint`.
+    ///
+    /// `grow` stores it only after the new page exists. Creating the page
+    /// can fail with OutOfMemory, and callers such as the stream handler
+    /// then retry `grow`. The retry must still see the hint from the page
+    /// before `last`, or a single light page could drop a carried
+    /// capacity.
+    need: Capacity,
+};
 
 /// Return the capacity that a new page should have to hold the same kind
 /// of content as `node`.
@@ -20007,9 +20063,252 @@ test "PageList grow carry-over respects byte limit" {
 
     // The next page is larger than the pooled page it replaces. Growing
     // must prune enough history to get back under the limit.
+    const free = s.pool.pages.freeCount();
     const next = (try s.grow()).?;
     try testing.expectEqual(.heap, next.owned);
     try testing.expect(s.page_size <= s.limits.max(.bytes));
+
+    // The first page was destroyed instead of reused, and three more
+    // were pruned after it, so four pool items went back to the pool.
+    try testing.expectEqual(5, s.totalPages());
+    try testing.expectEqual(free + 4, s.pool.pages.freeCount());
+}
+
+test "PageList grow trims rows only while 90% of rows per byte remain" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // At 80 columns, doubling the style capacity a few times makes a
+    // page that doesn't fit a pool item. At first a pooled page with
+    // fewer rows keeps enough rows per byte; with more styles it doesn't,
+    // so the page goes on the heap with all its rows. Layouts round up to
+    // the OS page size, so the doubling where this flips depends on the
+    // target. Check each doubling count that doesn't fit until the first
+    // heap page, and require both outcomes.
+    var saw_pool = false;
+    var saw_heap = false;
+    for (1..10) |doublings| {
+        var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+        defer s.deinit();
+
+        var node = s.pages.last.?;
+        for (0..doublings) |_| node = try s.increaseCapacity(node, .styles);
+
+        // `cap` is the carried capacity with all the standard rows.
+        var cap = initialCapacity(s.cols);
+        cap.styles = node.capacity().styles;
+        const heap_size = Page.layout(cap).total_size;
+        if (heap_size <= std_size) continue;
+        if (heap_size > size.max_page_size) break;
+
+        // Compare rows per byte of the trimmed pool page with the heap
+        // page that keeps all its rows.
+        const fitted = cap.fitRows(std_size);
+        const pool = if (fitted) |f|
+            @as(f64, @floatFromInt(f.rows)) / @as(f64, @floatFromInt(std_size)) >=
+                0.9 * @as(f64, @floatFromInt(cap.rows)) / @as(f64, @floatFromInt(heap_size))
+        else
+            false;
+
+        const page = node.page();
+        for (0..page.styles.layout.cap / 2) |i| {
+            _ = try page.styles.add(page.memory, .{
+                .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            });
+        }
+        while (node.rows() < node.capacity().rows) _ = try s.grow();
+        const next = (try s.grow()).?;
+
+        try testing.expectEqual(cap.styles, next.capacity().styles);
+        if (pool) {
+            saw_pool = true;
+            try testing.expectEqual(.pool, next.owned);
+            try testing.expectEqual(fitted.?.rows, next.capacity().rows);
+            try testing.expect(next.capacity().rows < cap.rows);
+        } else {
+            saw_heap = true;
+            try testing.expectEqual(.heap, next.owned);
+            try testing.expectEqual(cap.rows, next.capacity().rows);
+            break;
+        }
+    }
+    try testing.expect(saw_pool);
+    try testing.expect(saw_heap);
+}
+
+test "PageList grow reuses a pruned page for a larger layout" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // This needs a width where a standard page leaves room in its pool
+    // item for a larger layout. Wide rows can leave a gap of more than
+    // an OS page: about 2088 columns with 16 KiB pages. With the 64 KiB
+    // pages of wasm no width works.
+    const styles = 4 * std_capacity.styles;
+    const cols: size.CellCountInt = for (256..std.math.maxInt(size.CellCountInt)) |c| {
+        const std_cap = initialCapacity(@intCast(c));
+        var cap = std_cap;
+        cap.styles = styles;
+        const old_size = Page.layout(std_cap).total_size;
+        const new_size = Page.layout(cap).total_size;
+        if (std_cap.rows > 4 and old_size < new_size and new_size <= std_size) {
+            break @intCast(c);
+        }
+    } else return error.SkipZigTest;
+
+    var s = try init(alloc, .{ .cols = cols, .rows = 4, .max_size = 4 * std_size });
+    defer s.deinit();
+
+    // Fill the byte limit with standard pages, then give the last page
+    // a larger style capacity for the next page to carry.
+    while (s.totalPages() < 4) _ = try s.grow();
+    var node = s.pages.last.?;
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    for (0..2) |_| node = try s.increaseCapacity(node, .styles);
+    try testing.expectEqual(styles, node.capacity().styles);
+    for (0..node.page().styles.layout.cap / 2) |i| {
+        _ = try node.page().styles.add(node.page().memory, .{
+            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+        });
+    }
+
+    // The pruned first page is reused with a layout larger than before.
+    const first = s.pages.first.?;
+    const old_len = first.page().memory.len;
+    const next = (try s.grow()).?;
+    try testing.expectEqual(first, next);
+    try testing.expectEqual(.pool, next.owned);
+    try testing.expectEqual(styles, next.capacity().styles);
+    try testing.expect(next.page().memory.len > old_len);
+
+    // Every row and every style of the new layout is usable.
+    while (next.rows() < next.capacity().rows) _ = try s.grow();
+    const page = next.page();
+    for (0..page.size.rows) |y| {
+        page.getRowAndCell(page.size.cols - 1, y).cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = 'A' } },
+        };
+    }
+    for (1..page.styles.layout.cap) |i| {
+        _ = try page.styles.add(page.memory, .{
+            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+        });
+    }
+    try testing.expectEqual(page.styles.layout.cap - 1, page.styles.count());
+    try page.verifyIntegrity(alloc);
+}
+
+test "PageList reset clears the grow hint" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    const node = s.pages.last.?;
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    _ = try s.grow();
+    try testing.expect(s.grow_hint != null);
+
+    s.reset();
+    try testing.expect(s.grow_hint == null);
+}
+
+test "PageList grow keeps the grow hint when allocation fails" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+
+    // Page A uses many styles. Page B carries A's capacity but uses none,
+    // so the page after B keeps that capacity only through the hint.
+    var a = s.pages.last.?;
+    for (0..2) |_| a = try s.increaseCapacity(a, .styles);
+    const styles = a.capacity().styles;
+    for (0..a.page().styles.layout.cap / 2) |i| {
+        _ = try a.page().styles.add(a.page().memory, .{
+            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+        });
+    }
+    while (a.rows() < a.capacity().rows) _ = try s.grow();
+    const b = (try s.grow()).?;
+    while (b.rows() < b.capacity().rows) _ = try s.grow();
+    const hint = s.grow_hint.?;
+    try testing.expectEqual(styles, hint.styles);
+
+    // Fail the next page allocation. Taking every free pool item forces
+    // the pool to allocate.
+    var held: std.ArrayList(PagePool.ItemPtr) = .empty;
+    defer {
+        for (held.items) |item| s.pool.pages.destroy(item);
+        held.deinit(alloc);
+    }
+    while (s.pool.pages.freeCount() > 0) {
+        try held.append(alloc, try s.pool.pages.create());
+    }
+    const page_alloc = s.pool.pages.allocator;
+    var failing: std.testing.FailingAllocator = .init(page_alloc, .{ .fail_index = 0 });
+    s.pool.pages.allocator = failing.allocator();
+    try testing.expectError(error.OutOfMemory, s.grow());
+    s.pool.pages.allocator = page_alloc;
+
+    // The hint survived the failure, so the retry still carries it.
+    try testing.expectEqual(hint, s.grow_hint.?);
+    const c = (try s.grow()).?;
+    try testing.expectEqual(styles, c.capacity().styles);
+}
+
+test "PageList grow returns to the byte limit after a styled burst" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // At 215 by 215 the minimum byte limit is two pool items. Pages with
+    // trimmed rows hold less of the active area, so during a burst of
+    // styled output the page list needs a third. Once new pages are
+    // standard again it must get back under the limit.
+    var s = try init(alloc, .{ .cols = 215, .rows = 215, .max_size = 0 });
+    defer s.deinit();
+    try testing.expectEqual(2 * std_size, s.limits.max(.bytes));
+
+    // 4096 styles carry into the next two pages, which are trimmed.
+    var node = s.pages.last.?;
+    for (0..5) |_| node = try s.increaseCapacity(node, .styles);
+    for (0..node.page().styles.layout.cap / 2) |i| {
+        _ = try node.page().styles.add(node.page().memory, .{
+            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+        });
+    }
+    for (0..10) |_| {
+        const last = s.pages.last.?;
+        while (last.rows() < last.capacity().rows) _ = try s.grow();
+        _ = try s.grow();
+    }
+
+    try testing.expectEqual(initialCapacity(s.cols), s.pages.last.?.capacity());
+    try testing.expect(s.page_size <= s.limits.max(.bytes));
+}
+
+test "PageList grow trims rows on a narrow terminal" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Narrow terminals have many rows per page. On 32-bit targets that
+    // used to overflow the rows per byte check, so this test only catches
+    // a regression when run on wasm32.
+    var s = try init(alloc, .{ .cols = 20, .rows = 24 });
+    defer s.deinit();
+
+    const node = s.pages.last.?;
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+
+    var hint = initialCapacity(s.cols);
+    hint.styles = 129;
+    s.grow_hint = hint;
+    const next = (try s.grow()).?;
+    try testing.expectEqual(.pool, next.owned);
+    try testing.expectEqual(hint.fitRows(std_size).?, next.capacity());
 }
 
 test "PageList resize (no reflow) more cols remaps pins in backfill path" {
