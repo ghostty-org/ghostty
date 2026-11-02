@@ -349,11 +349,11 @@ msgstr "この分割ウィンドウで現在実行中のプロセスが終了し
 
 #: src/apprt/gtk/class/command_palette.zig:693
 msgid "Untitled"
-msgstr ""
+msgstr "無題"
 
 #: src/apprt/gtk/class/command_palette.zig:697
 msgid "Focus"
-msgstr ""
+msgstr "フォーカス"
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
