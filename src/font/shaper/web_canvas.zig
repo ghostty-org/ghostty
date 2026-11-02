@@ -128,8 +128,8 @@ pub const Shaper = struct {
                 defer cp1 = cp2;
 
                 break :blk unicode.graphemeBreak(
-                    cp1,
-                    cp2,
+                    unicode.table.get(cp1).grapheme_break,
+                    unicode.table.get(cp2).grapheme_break,
                     &break_state,
                 );
             };
