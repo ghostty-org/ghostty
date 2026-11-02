@@ -26,6 +26,13 @@ pub const Options = struct {
 
     /// Probability that an emitted sequence is malformed UTF-8.
     @"invalid-rate": f64 = 0.0,
+
+    /// Relative weight, alongside the length weights, for choosing a
+    /// wide (width 2) codepoint from U+4E00 to U+9FFF.
+    @"weight-wide": f64 = 0.0,
+
+    /// Probability that a space follows each emitted sequence.
+    @"space-rate": f64 = 0.0,
 };
 
 opts: Options,
@@ -38,8 +45,12 @@ pub fn create(
     if (opts.@"invalid-rate" < 0 or opts.@"invalid-rate" > 1) {
         return error.InvalidValue;
     }
+    if (opts.@"space-rate" < 0 or opts.@"space-rate" > 1) {
+        return error.InvalidValue;
+    }
 
     const weights = [_]f64{
+        opts.@"weight-wide",
         opts.@"weight-one",
         opts.@"weight-two",
         opts.@"weight-three",
@@ -74,6 +85,8 @@ pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
         .rand = gen_rand,
         .ascii_printable_only = self.opts.@"ascii-printable-only",
         .invalid_rate = self.opts.@"invalid-rate",
+        .p_wide = self.opts.@"weight-wide",
+        .space_rate = self.opts.@"space-rate",
     };
     gen.p_length.set(.one, self.opts.@"weight-one");
     gen.p_length.set(.two, self.opts.@"weight-two");
@@ -107,4 +120,30 @@ test Utf8 {
     var writer: std.Io.Writer = .fixed(&buf);
     try impl.run(&writer, rand);
     try testing.expectEqual(@as(usize, 1024), writer.buffered().len);
+}
+
+test "Utf8 wide only" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // All length weights zero is valid when wide codepoints are weighted.
+    const impl: *Utf8 = try .create(alloc, .{
+        .seed = 1,
+        .@"weight-one" = 0,
+        .@"weight-two" = 0,
+        .@"weight-three" = 0,
+        .@"weight-four" = 0,
+        .@"weight-wide" = 1,
+        .@"space-rate" = 0.3,
+    });
+    defer impl.destroy(alloc);
+
+    var prng = std.Random.DefaultPrng.init(1);
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try impl.run(&writer, prng.random());
+    try testing.expectEqual(@as(usize, 1024), writer.buffered().len);
+    try testing.expectError(error.InvalidValue, Utf8.create(alloc, .{
+        .@"space-rate" = 2,
+    }));
 }

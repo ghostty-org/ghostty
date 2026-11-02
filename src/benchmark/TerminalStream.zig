@@ -37,6 +37,12 @@ pub const Options = struct {
     @"terminal-rows": u16 = 80,
     @"terminal-cols": u16 = 120,
 
+    /// How the terminal computes the width of multi-codepoint graphemes.
+    /// `unicode` enables mode 2027 (grapheme clustering) as the default
+    /// mode, matching the app's `grapheme-width-method = unicode` default.
+    /// `legacy` leaves it off, which is the library default.
+    @"grapheme-width": GraphemeWidth = .legacy,
+
     /// Enable opt-in continuation tracking on the stream.
     @"continuation-enabled": bool = false,
 
@@ -58,6 +64,8 @@ pub const Options = struct {
     data: ?[]const u8 = null,
 };
 
+pub const GraphemeWidth = enum { legacy, unicode };
+
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
     alloc: Allocator,
@@ -71,6 +79,11 @@ pub fn create(
         .terminal = try .init(global.io(), alloc, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
+            // A default mode so that the fullReset in setup keeps it,
+            // like the app's Termio does.
+            .default_modes = .{
+                .grapheme_cluster = opts.@"grapheme-width" == .unicode,
+            },
         }),
         .stream = undefined,
     };
@@ -195,4 +208,13 @@ test TerminalStream {
 
     const tracked_bench = tracked.benchmark();
     _ = try tracked_bench.run(.once);
+
+    const unicode: *TerminalStream = try .create(alloc, .{
+        .@"grapheme-width" = .unicode,
+    });
+    defer unicode.destroy(alloc);
+
+    const unicode_bench = unicode.benchmark();
+    _ = try unicode_bench.run(.once);
+    try testing.expect(unicode.terminal.modes.get(.grapheme_cluster));
 }
