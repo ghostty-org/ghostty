@@ -1108,34 +1108,6 @@ const Subprocess = struct {
         self.process = null;
     }
 
-    /// Send SIGHUP to the subprocess without waiting for it to exit. This is
-    /// safe to call multiple times and does nothing if the process has already
-    /// stopped.
-    pub fn hangup(self: *Subprocess) void {
-        switch (self.process orelse return) {
-            .fork_exec => |*cmd| {
-                if (cmd.pid) |pid| switch (builtin.os.tag) {
-                    .windows => {
-                        if (windows.exp.kernel32.TerminateProcess(pid, 0) == windows.FALSE) {
-                            log.err(
-                                "error terminating command: {}",
-                                .{windows.GetLastError()},
-                            );
-                        }
-                    },
-
-                    else => hangupPid(pid) catch |err|
-                        log.err("error sending SIGHUP to command: {}", .{err}),
-                };
-            },
-
-            .flatpak => |*cmd| if (comptime build_config.flatpak) {
-                killCommandFlatpak(cmd) catch |err|
-                    log.err("error sending SIGHUP to command: {}", .{err});
-            },
-        }
-    }
-
     /// Stop the subprocess. This is safe to call anytime. This will wait
     /// for the subprocess to register that it has been signalled, but not
     /// for it to terminate, so it will not block.
@@ -1202,30 +1174,6 @@ const Subprocess = struct {
         }
     }
 
-    fn hangupPid(pid: c.pid_t) !void {
-        const pgid = getpgid(pid) orelse return;
-        try hangupProcessGroup(pgid);
-    }
-
-    fn hangupProcessGroup(pgid: c.pid_t) !void {
-        switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
-            .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
-            else => |err| {
-                // killpg returns EPERM on Darwin even when delivery succeeds
-                // (see https://openradar.appspot.com/radar?id=4970011239673856).
-                if ((comptime builtin.target.os.tag.isDarwin()) and
-                    err == .PERM)
-                {
-                    log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
-                    return;
-                }
-
-                log.warn("error killing process group pgid={} err={}", .{ pgid, err });
-                return error.KillFailed;
-            },
-        }
-    }
-
     fn killPid(pid: c.pid_t) !void {
         const pgid = getpgid(pid) orelse return;
 
@@ -1237,7 +1185,20 @@ const Subprocess = struct {
         // descendents are well and truly dead. We will not rest
         // until the entire family tree is obliterated.
         while (true) {
-            try hangupProcessGroup(pgid);
+            switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
+                .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
+                else => |err| killpg: {
+                    if ((comptime builtin.target.os.tag.isDarwin()) and
+                        err == .PERM)
+                    {
+                        log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
+                        break :killpg;
+                    }
+
+                    log.warn("error killing process group pgid={} err={}", .{ pgid, err });
+                    return error.KillFailed;
+                },
+            }
 
             // See Command.zig wait for why we specify WNOHANG.
             // The gist is that it lets us detect when children

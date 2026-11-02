@@ -1747,13 +1747,6 @@ pub const CAPI = struct {
         core_app.destroy();
     }
 
-    /// Send SIGHUP to every surface's child process before application
-    /// termination. This returns immediately without waiting for the
-    /// processes to exit.
-    export fn ghostty_app_quit(v: *App) void {
-        v.core_app.quit();
-    }
-
     /// Update the focused state of the app.
     export fn ghostty_app_set_focus(
         app: *App,

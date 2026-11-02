@@ -133,15 +133,6 @@ pub fn init(
     };
 }
 
-/// Send SIGHUP to every surface's child process before the application
-/// terminates. This gives shells a chance to perform their normal hangup
-/// handling (such as writing history) before application teardown closes
-/// their PTYs. Signal delivery does not require the application to remain
-/// alive, so this does not wait for the processes to exit.
-pub fn quit(self: *App) void {
-    for (self.surfaces.items) |surface| surface.core().hangupProcess();
-}
-
 pub fn deinit(self: *App) void {
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
