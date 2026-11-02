@@ -109,10 +109,8 @@ private struct AdaptiveLayoutTile: View {
             Rectangle()
                 .fill(Color(nsColor: .windowBackgroundColor))
                 .overlay(
-                    Text(surfaceView.title.isEmpty ? "Terminal" : surfaceView.title)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .padding(.horizontal, 6))
+                    AdaptiveLayoutTileLabel(surfaceView: surfaceView)
+                        .padding(.horizontal, 8))
         } else {
             GeometryReader { geometry in
                 // Real resize, not a scale or a crop — the surface renders
@@ -139,20 +137,48 @@ private struct AdaptiveLayoutTile: View {
                         // `.pill` already shows the title as its only
                         // content, so a second label would be redundant.
                         if tier == .scaled {
-                            Text(surfaceView.title.isEmpty ? "Terminal" : surfaceView.title)
-                                .font(.caption2)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: max(0, geometry.size.width - 24), alignment: .leading)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
+                            AdaptiveLayoutTileLabel(surfaceView: surfaceView)
+                                .frame(maxWidth: max(0, geometry.size.width - 28), alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
                                 .background(
-                                    Color(nsColor: .windowBackgroundColor).opacity(0.75),
-                                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                    Color(nsColor: .windowBackgroundColor),
+                                    in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                                 .padding(6)
                         }
                     }
             }
+        }
+    }
+}
+
+/// Title label for unfocused tiles (`.scaled` header and `.pill` content):
+/// a small colored dot identifying the tab, followed by its title.
+private struct AdaptiveLayoutTileLabel: View {
+    let surfaceView: Ghostty.SurfaceView
+
+    /// Distinct, theme-adaptive system colors for the dots.
+    private static let palette: [Color] = [
+        .red, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple, .pink,
+    ]
+
+    /// Derived from the surface's UUID bytes (not `hashValue`, which is
+    /// seeded per process) so a tab keeps the same color as focus moves
+    /// around and the layout re-renders.
+    static func color(for id: UUID) -> Color {
+        let sum = withUnsafeBytes(of: id.uuid) { $0.reduce(0) { $0 &+ Int($1) } }
+        return palette[sum % palette.count]
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Self.color(for: surfaceView.id))
+                .frame(width: 8, height: 8)
+            Text(surfaceView.title.isEmpty ? "Terminal" : surfaceView.title)
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 }
