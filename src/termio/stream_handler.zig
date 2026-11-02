@@ -1553,13 +1553,13 @@ pub const StreamHandler = struct {
         }
 
         var host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
-        const host = std.Io.net.HostName.fromUri(uri, &host_buffer) catch |err| switch (err) {
+        const host = osc7Host(uri, &host_buffer) catch |err| switch (err) {
             error.UriMissingHost => {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
                 return;
             },
-            error.NameTooLong, error.InvalidHostName => {
-                log.warn("OSC 7 uri contains an invalid hostname: {}", .{err});
+            error.NameTooLong => {
+                log.warn("failed to get full hostname for OSC 7 validation: {}", .{err});
                 return;
             },
         };
@@ -1567,7 +1567,7 @@ pub const StreamHandler = struct {
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = internal_os.hostname.isLocal(host.bytes) catch |err| switch (err) {
+        const host_valid = internal_os.hostname.isLocal(host) catch |err| switch (err) {
             error.PermissionDenied,
             error.Unexpected,
             => {
@@ -1576,7 +1576,7 @@ pub const StreamHandler = struct {
             },
         };
         if (!host_valid) {
-            log.warn("OSC 7 host ({s}) must be local", .{host.bytes});
+            log.warn("OSC 7 host ({s}) must be local", .{host});
             return;
         }
 
@@ -1946,6 +1946,62 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
 };
+
+/// Returns the raw (percent-decoded) host of an OSC 7 URI.
+///
+/// This deliberately does not check that the host is a valid RFC 1123
+/// hostname. The host only has to match the local hostname (see
+/// `internal_os.hostname.isLocal`), and local hostnames are often not
+/// valid RFC 1123 hostnames: macOS allows names like "Foo's MacBook Pro",
+/// some systems use underscores, and some report a MAC address.
+fn osc7Host(
+    uri: std.Uri,
+    buffer: *[std.Io.net.HostName.max_len]u8,
+) error{ UriMissingHost, NameTooLong }![]const u8 {
+    const component = uri.host orelse return error.UriMissingHost;
+    return component.toRaw(buffer) catch |err| switch (err) {
+        error.NoSpaceLeft => error.NameTooLong,
+    };
+}
+
+test "osc7Host accepts hostnames that are not RFC 1123" {
+    const testing = std.testing;
+
+    const Case = struct {
+        url: []const u8,
+        host: []const u8,
+        mac_address: bool = false,
+    };
+    const cases = [_]Case{
+        .{ .url = "kitty-shell-cwd://Foo MacBook Pro/tmp", .host = "Foo MacBook Pro" },
+        .{ .url = "file://Foo's MacBook Pro/tmp", .host = "Foo's MacBook Pro" },
+        .{ .url = "file://my_host/tmp", .host = "my_host" },
+        .{ .url = "file://h%C3%B6st/tmp", .host = "höst" },
+        .{ .url = "file://example.com/tmp", .host = "example.com" },
+        .{
+            .url = "file://12:34:56:78:90:aa/tmp",
+            .host = "12:34:56:78:90:aa",
+            .mac_address = true,
+        },
+    };
+
+    for (cases) |case| {
+        const uri = try internal_os.uri.parse(case.url, .{
+            .mac_address = case.mac_address,
+            .raw_path = std.mem.startsWith(u8, case.url, "kitty-shell-cwd://"),
+        });
+        var buf: [std.Io.net.HostName.max_len]u8 = undefined;
+        try testing.expectEqualStrings(case.host, try osc7Host(uri, &buf));
+    }
+}
+
+test "osc7Host requires a host" {
+    const testing = std.testing;
+
+    const uri = try internal_os.uri.parse("file:///tmp", .{});
+    var buf: [std.Io.net.HostName.max_len]u8 = undefined;
+    try testing.expectError(error.UriMissingHost, osc7Host(uri, &buf));
+}
 
 test "kitty clipboard read: targets-only never consumes a one-time grant" {
     const testing = std.testing;
