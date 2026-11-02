@@ -4322,13 +4322,28 @@ const GrowCapacity = struct {
 /// which decides whether the new page keeps the capacity of `node` or
 /// shrinks.
 ///
+/// Usage is compared per row. `growCapacity` can give a page fewer rows
+/// than the standard so that it fits in a pool item, and the same output
+/// on fewer rows fills less of the page's storage. Each amount is scaled
+/// to the standard row count first (see `scaleUsage`), since that is the
+/// row count the new page gets.
+///
+/// For example, if the standard is 600 rows, a page trimmed to 450 rows
+/// that uses 30% of its string storage counts as using 40%. That is over
+/// a third, so the new page keeps the storage. Without scaling it would
+/// shrink, and the next full page of the same output would run out of
+/// room and have to grow by copying itself.
+///
 /// A compressed page can't be inspected without restoring it, so it is
 /// treated as needing only the standard capacity.
 fn utilizationCapacity(self: *const PageList, node: *List.Node) Capacity {
     var cap = initialCapacity(self.cols);
     const page = node.pageIfResident() orelse return cap;
     const prev = page.capacity;
-    const usage = page.usage();
+
+    // Scale by the rows in use, since that is what the usage describes.
+    // `grow` only measures full pages, where this equals `prev.rows`.
+    const usage = scaleUsage(page.usage(), page.size.rows, cap.rows);
 
     // `Capacity.styles` is not a style count. It is the size requested
     // for the style set's hash table, so `capacityForCount` converts the
@@ -4375,6 +4390,28 @@ fn utilizationCapacity(self: *const PageList, node: *List.Node) Capacity {
     return cap;
 }
 
+/// Return `usage`, measured on a page with `from_rows` rows, as it would
+/// be on a page with `to_rows` rows holding the same content per row.
+/// Only the amounts used change. For example, 300 of 1000 styles in use
+/// on 450 rows becomes 400 of 1000 on 600 rows:
+///
+///     const scaled = scaleUsage(page.usage(), 450, 600);
+///
+/// Each amount is capped at its capacity so it stays in the range that
+/// `Page.usage` returns. The cap never changes what
+/// `DimensionUsage.nextCapacity` decides, because any amount over a third
+/// of the capacity keeps it.
+fn scaleUsage(usage: Page.Usage, from_rows: usize, to_rows: usize) Page.Usage {
+    if (from_rows == 0) return usage;
+    var result = usage;
+    inline for (@typeInfo(Page.Usage).@"struct".field_names) |name| {
+        const amount = &@field(result, name);
+        const scaled = @as(u64, amount.used) * to_rows / from_rows;
+        amount.used = @intCast(@min(scaled, amount.capacity));
+    }
+    return result;
+}
+
 /// Return `used` plus 50%. This leaves room for a page that is somewhat
 /// fuller than the last one, and for the rounding that `Page.layout`
 /// applies to each dimension (hash tables round up to a power of two,
@@ -4396,7 +4433,8 @@ const DimensionUsage = struct {
 
     /// How much of this dimension's storage the previous page's contents
     /// use, out of how much it had after `Page.layout` rounded it. This
-    /// can be in a different unit than `prev`.
+    /// can be in a different unit than `prev`. The amount used is scaled
+    /// to the standard row count (see `utilizationCapacity`).
     usage: Page.Usage.Amount,
 
     /// The `Capacity` field value that holds `headroom(usage.used)`.
@@ -21571,4 +21609,142 @@ test "PageList memory pool fast path does not allocate" {
     }
     try testing.expectEqual(extra.len, counting.allocations);
     try testing.expectEqual(0, counting.deallocations);
+}
+
+test "PageList scaleUsage" {
+    const testing = std.testing;
+
+    const usage: Page.Usage = .{
+        .styles = .{ .used = 300, .capacity = 1000 },
+        .grapheme_bytes = .{ .used = 0, .capacity = 4096 },
+        .string_bytes = .{ .used = 3000, .capacity = 8192 },
+        .hyperlink_set = .{ .used = 50, .capacity = 100 },
+        .hyperlink_map = .{ .used = 90, .capacity = 100 },
+    };
+
+    // 450 rows scaled to 600: every amount used grows by a third, and
+    // the hyperlink map is capped at its capacity.
+    const up = scaleUsage(usage, 450, 600);
+    try testing.expectEqual(400, up.styles.used);
+    try testing.expectEqual(0, up.grapheme_bytes.used);
+    try testing.expectEqual(4000, up.string_bytes.used);
+    try testing.expectEqual(66, up.hyperlink_set.used);
+    try testing.expectEqual(100, up.hyperlink_map.used);
+    try testing.expectEqual(1000, up.styles.capacity);
+
+    // Scaling to fewer rows shrinks the amounts. A page with no rows
+    // has nothing to scale.
+    try testing.expectEqual(150, scaleUsage(usage, 1200, 600).styles.used);
+    try testing.expectEqual(usage, scaleUsage(usage, 0, 600));
+}
+
+test "PageList grow measures trimmed pages per row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+    const standard = initialCapacity(s.cols);
+
+    // A heap page with the standard row count and large string and style
+    // storage, 40% of each in use. Its capacity is too large for a pool
+    // item, so the next page is a pooled page with fewer rows.
+    var node = s.pages.last.?;
+    for (0..5) |_| node = try s.increaseCapacity(node, .string_bytes);
+    for (0..3) |_| node = try s.increaseCapacity(node, .styles);
+    const big = node.capacity();
+    try testing.expectEqual(standard.rows, big.rows);
+
+    // Fill each page with the same content per row: 40% of the storage
+    // for a page with the standard row count.
+    for (0..3) |_| {
+        const page = node.page();
+        const rows = page.capacity.rows;
+        const styles = page.styles.layout.cap * 4 / 10 * rows / standard.rows;
+        for (0..styles) |i| {
+            _ = try page.styles.add(page.memory, .{
+                .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+            });
+        }
+        const strings = page.string_alloc.capacityBytes() * 4 / 10 * rows / standard.rows;
+        _ = try page.string_alloc.alloc(u8, page.memory, strings);
+        while (node.rows() < rows) _ = try s.grow();
+
+        // Without scaling, the trimmed pages look under a third used, and
+        // after two of them the next page would shrink both capacities.
+        node = (try s.grow()).?;
+        try testing.expectEqual(big.string_bytes, node.capacity().string_bytes);
+        try testing.expectEqual(big.styles, node.capacity().styles);
+        try testing.expect(node.capacity().rows < standard.rows);
+    }
+}
+
+test "PageList grow requests trimmed page usage per row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+    const standard = initialCapacity(s.cols);
+
+    // A full page using half of its large string storage passes that
+    // capacity on, and the next page only fits a pool item with fewer rows.
+    var node = s.pages.last.?;
+    for (0..5) |_| node = try s.increaseCapacity(node, .string_bytes);
+    _ = try node.page().string_alloc.alloc(u8, node.page().memory, 32 * 1024);
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    node = (try s.grow()).?;
+    const rows = node.capacity().rows;
+    try testing.expect(rows < standard.rows);
+
+    // Use a tenth of its string storage, which shrinks it. The next page
+    // has the standard row count, so it asks for room for this content
+    // scaled to that many rows.
+    const page = node.page();
+    const tenth = page.string_alloc.capacityBytes() / 10;
+    _ = try page.string_alloc.alloc(u8, page.memory, tenth);
+    while (node.rows() < rows) _ = try s.grow();
+
+    const used = page.usage().string_bytes.used;
+    const need = s.utilizationCapacity(node);
+    try testing.expectEqual(headroom(used * standard.rows / rows), need.string_bytes);
+}
+
+test "PageList grow shrinks a mostly unused capacity to its headroom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 80, .rows = 24 });
+    defer s.deinit();
+    const standard = initialCapacity(s.cols);
+
+    // A page with 16 times the standard style and string storage, using
+    // a quarter of its styles and 30% of its strings. Both are under a
+    // third, so the next page shrinks each to `headroom` of what is in
+    // use: smaller than before, but larger than the standard.
+    var node = s.pages.last.?;
+    for (0..4) |_| node = try s.increaseCapacity(node, .styles);
+    for (0..4) |_| node = try s.increaseCapacity(node, .string_bytes);
+    const page = node.page();
+    for (0..page.styles.layout.cap / 4) |i| {
+        _ = try page.styles.add(page.memory, .{
+            .bg_color = .{ .rgb = .{ .r = @truncate(i), .g = @truncate(i >> 8), .b = 0 } },
+        });
+    }
+    const strings = page.string_alloc.capacityBytes() * 3 / 10;
+    _ = try page.string_alloc.alloc(u8, page.memory, strings);
+    while (node.rows() < node.capacity().rows) _ = try s.grow();
+    const usage = page.usage();
+
+    const next = (try s.grow()).?.capacity();
+    const StyleSet = @TypeOf(page.styles);
+    try testing.expectEqual(
+        StyleSet.capacityForCount(headroom(usage.styles.used)),
+        next.styles,
+    );
+    try testing.expectEqual(headroom(usage.string_bytes.used), next.string_bytes);
+    try testing.expect(next.styles > standard.styles and
+        next.styles < 16 * standard.styles);
+    try testing.expect(next.string_bytes > standard.string_bytes and
+        next.string_bytes < 16 * standard.string_bytes);
 }
