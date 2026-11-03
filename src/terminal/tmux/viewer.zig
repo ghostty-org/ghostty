@@ -214,7 +214,7 @@ pub const Viewer = struct {
     /// A single action pre-allocated that we use for single-action
     /// returns (common). This ensures that we can never get allocation
     /// errors on single-action returns, especially those such as `.exit`.
-    action_single: [1]Action,
+    action_single: [2]Action,
 
     /// Numbers the end markers of user commands. See `Command.User`.
     user_command_id: u32 = 0,
@@ -226,6 +226,10 @@ pub const Viewer = struct {
         /// Tmux has closed the control mode connection, we should end
         /// our viewer session in some way.
         exit,
+
+        /// Text to show on the control plate, such as why the viewer gave
+        /// up. It comes before the `exit` it explains.
+        message: []const u8,
 
         /// Send a command to tmux, e.g. `list-windows`. The caller
         /// should not worry about parsing this or reading what command
@@ -749,7 +753,11 @@ pub const Viewer = struct {
                     &actions,
                     block,
                     tag == .block_err,
-                ) catch {
+                ) catch |err| {
+                    if (err == error.TmuxNotUtf8) {
+                        log.warn("tmux is not in UTF-8 mode, becoming defunct", .{});
+                        return self.defunctWithMessage(not_utf8_message);
+                    }
                     log.warn("failed to process command output, becoming defunct", .{});
                     return self.defunct();
                 };
@@ -1344,10 +1352,23 @@ pub const Viewer = struct {
         return true;
     }
 
+    /// Shown when tmux isn't in UTF-8 mode; see `receivedTmuxVersion`.
+    const not_utf8_message = "\r\ntmux isn't in UTF-8 mode, so Ghostty can't read its replies. " ++
+        "Attach with `tmux -u -CC`, or with a UTF-8 locale.\r\n";
+
     fn receivedTmuxVersion(
         self: *Viewer,
         content: []const u8,
     ) !void {
+        // The version is asked for with a tab after it. A tmux that isn't
+        // in UTF-8 mode replaces control characters in format output with
+        // `_`, and every reply we parse separates its fields with tabs, so
+        // nothing else would work either. The version itself never ends
+        // in `_`.
+        if (std.mem.endsWith(u8, std.mem.trimEnd(u8, content, "\r\n"), "_")) {
+            return error.TmuxNotUtf8;
+        }
+
         const line = std.mem.trim(u8, content, " \t\r\n");
         if (line.len == 0) return;
 
@@ -2083,12 +2104,19 @@ pub const Viewer = struct {
     fn singleAction(self: *Viewer, action: Action) []const Action {
         // Make our single action slice.
         self.action_single[0] = action;
-        return &self.action_single;
+        return self.action_single[0..1];
     }
 
     fn defunct(self: *Viewer) []const Action {
         self.state = .defunct;
         return self.singleAction(.exit);
+    }
+
+    /// Like `defunct`, but tells the user why first.
+    fn defunctWithMessage(self: *Viewer, message: []const u8) []const Action {
+        self.state = .defunct;
+        self.action_single = .{ .{ .message = message }, .exit };
+        return &self.action_single;
     }
 };
 
@@ -2261,7 +2289,9 @@ const Command = union(enum) {
             )),
 
             .tmux_version => try writer.writeAll(std.fmt.comptimePrint(
-                "display-message -p '{s}'\n",
+                // The tab tells whether tmux is in UTF-8 mode; see
+                // receivedTmuxVersion.
+                "display-message -p '{s}\t'\n",
                 .{comptime Format.tmux_version.comptimeFormat()},
             )),
 
@@ -3354,6 +3384,65 @@ test "window_close queues list_windows" {
     });
 }
 
+test "tmux that isn't in UTF-8 mode is reported and left" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = .{ .data = "" } } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+        },
+        // tmux replaced the tab after the version with `_`.
+        .{
+            .input = .{ .tmux = .{ .block_end = .{ .data = "3.5a_" } } },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(2, actions.len);
+                    try testing.expect(actions[0] == .message);
+                    try testing.expect(std.mem.indexOf(u8, actions[0].message, "tmux -u -CC") != null);
+                    try testing.expect(actions[1] == .exit);
+                }
+            }).check,
+        },
+    });
+}
+
+test "tmux version reply with the tab is used" {
+    var viewer = try Viewer.init(testing.io, testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = .{ .data = "" } } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+            // The version is asked for with a tab after it.
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.indexOf(u8, command, "#{version}\t'") != null);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = .{ .data = "3.5a\t" } } },
+            .contains_command = "list-windows",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqualStrings("3.5a", v.tmux_version);
+                }
+            }).check,
+        },
+    });
+}
+
 test "list-windows parse failure frees earlier windows" {
     var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
@@ -3838,6 +3927,7 @@ fn testRawStartupScreen(comptime alternate_on: bool) !void {
                     .active_pane,
                     .window_renamed,
                     .pane_restore,
+                    .message,
                     => {},
                     .exit => {
                         return error.UnexpectedViewerExit;
