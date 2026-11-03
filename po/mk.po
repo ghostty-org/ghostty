@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-11-02 23:08+0000\n"
+"POT-Creation-Date: 2026-11-03 23:03+0000\n"
 "PO-Revision-Date: 2026-08-30 12:23+0200\n"
 "Last-Translator: Andrej Daskalov <andrej.daskalov@gmail.com>\n"
 "Language-Team: Macedonian\n"
@@ -207,7 +207,7 @@ msgid "Quit"
 msgstr "Излез"
 
 #: src/apprt/gtk/ui/1.4/window.blp:346
-msgid "Tab Color…"
+msgid "Change Tab Color…"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11

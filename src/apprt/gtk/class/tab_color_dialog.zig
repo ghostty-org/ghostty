@@ -63,7 +63,7 @@ pub const TabColorDialog = extern struct {
                 .slate => i18n._("Slate"),
             };
 
-            const swatch = TabColorSwatch.new(color, color == current);
+            const swatch = TabColorSwatch.new(color);
             const button = gtk.ToggleButton.new();
             if (group) |g| {
                 button.setGroup(g);
@@ -88,10 +88,10 @@ pub const TabColorDialog = extern struct {
                 .dialog = self,
                 .color = color,
             };
-            _ = gtk.ToggleButton.signals.toggled.connect(
-                button,
+            _ = gtk.Button.signals.clicked.connect(
+                button.as(gtk.Button),
                 *ColorPick,
-                colorPickToggled,
+                colorPickClicked,
                 ud,
                 .{ .destroyData = colorPickDestroy },
             );
@@ -122,8 +122,7 @@ pub const TabColorDialog = extern struct {
         color: TabColor,
     };
 
-    fn colorPickToggled(button: *gtk.ToggleButton, ud: *ColorPick) callconv(.c) void {
-        if (button.getActive() == 0) return;
+    fn colorPickClicked(_: *gtk.Button, ud: *ColorPick) callconv(.c) void {
         if (ud.dialog.private().tab) |tab| {
             tab.setTabColor(ud.color);
         }

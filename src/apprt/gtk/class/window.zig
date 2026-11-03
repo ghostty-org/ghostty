@@ -2120,7 +2120,6 @@ pub const Window = extern struct {
     /// Adwaita menus omit GMenu icons; use a dialog of swatch buttons instead.
     fn promptTabColor(_: *Self, tab: *Tab) void {
         const dialog = TabColorDialog.new(tab);
-        defer dialog.unref();
         dialog.present(tab.as(gtk.Widget));
     }
 
