@@ -1893,9 +1893,17 @@ test "SCREEN encodes the minimal complete-page active suffix" {
     // Mark each native page so the encoded sequence proves both omission and
     // oldest-to-newest ordering. The mixed page's marker is in its incidental
     // history prefix and must survive because complete pages are encoded.
-    historical.page().getRowAndCell(0, 0).cell.* = .init('A');
-    mixed.page().getRowAndCell(0, 0).cell.* = .init('B');
-    newest.page().getRowAndCell(0, 0).cell.* = .init('C');
+    // Rows that scrolling created are marked blank, so writing a cell
+    // directly must clear that like the terminal's own writers do.
+    inline for (.{
+        .{ historical, 'A' },
+        .{ mixed, 'B' },
+        .{ newest, 'C' },
+    }) |marker| {
+        const rac = marker[0].page().getRowAndCell(0, 0);
+        rac.cell.* = .init(marker[1]);
+        rac.row.blank = false;
+    }
 
     var destination: std.Io.Writer.Allocating = .init(
         std.testing.allocator,
