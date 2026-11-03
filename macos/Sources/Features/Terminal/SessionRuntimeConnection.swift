@@ -773,8 +773,30 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
 
     func shutdown() {
         SessionRuntimeCloseQueue.shared.stop()
-        for relay in relays.values where relay.process.isRunning { relay.process.terminate() }
+        // A relay leads its own process group; its SSH tunnel child shares it.
+        // Signalling only the relay leaves that ssh in the app coalition, so
+        // LaunchServices reports the quit app as running in the background.
+        for relay in relays.values where relay.process.isRunning {
+            let pid = relay.process.processIdentifier
+            if getpgid(pid) == pid { kill(-pid, SIGTERM) } else { relay.process.terminate() }
+        }
         relays.removeAll()
+        Self.terminateDirectSSHChildren()
+    }
+
+    /// Inspector/Agent-history probes run ssh directly from the GUI. They are
+    /// transient and must not outlive the app. Detached session hosts are
+    /// launchd children, not ours, and are unaffected.
+    static func terminateDirectSSHChildren(parent: pid_t = getpid()) {
+        var children = [pid_t](repeating: 0, count: 256)
+        let bytes = proc_listchildpids(parent, &children, Int32(children.count * MemoryLayout<pid_t>.size))
+        guard bytes > 0 else { return }
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        for pid in children where pid > 0 {
+            guard proc_pidpath(pid, &path, UInt32(path.count)) > 0,
+                  String(cString: path) == "/usr/bin/ssh" else { continue }
+            if getpgid(pid) == pid { kill(-pid, SIGTERM) } else { kill(pid, SIGTERM) }
+        }
     }
 
     private static var localLoginShell: String {

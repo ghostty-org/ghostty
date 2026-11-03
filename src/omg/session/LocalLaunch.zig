@@ -23,17 +23,34 @@ pub fn effectiveScrollbackLimits(configured_bytes: ?usize, configured_lines: ?us
 }
 
 /// A daemon must inherit the caller's directory, not the broker's startup cwd.
-pub fn workingDirectory(alloc: std.mem.Allocator, io: std.Io, proposed: ?[]const u8) ![:0]u8 {
+/// Candidates are tried in order (configured/inherited pane directory, the
+/// open request's directory, HOME). The GUI's own cwd is only a last resort:
+/// a desktop launch starts at `/`, which must not leak into new shells.
+pub fn workingDirectory(alloc: std.mem.Allocator, io: std.Io, candidates: []const ?[]const u8) ![:0]u8 {
     const inherited = try std.process.currentPathAlloc(io, alloc);
     errdefer alloc.free(inherited);
-    const value = proposed orelse return inherited;
-    const candidate = try std.fs.path.resolve(alloc, &.{ inherited, value });
-    defer alloc.free(candidate);
-    var directory = std.Io.Dir.cwd().openDir(io, candidate, .{}) catch return inherited;
-    directory.close(io);
-    const result = try alloc.dupeZ(u8, candidate);
-    alloc.free(inherited);
-    return result;
+    for (candidates) |proposed| {
+        const value = proposed orelse continue;
+        if (value.len == 0) continue;
+        const candidate = try std.fs.path.resolve(alloc, &.{ inherited, value });
+        defer alloc.free(candidate);
+        var directory = std.Io.Dir.cwd().openDir(io, candidate, .{}) catch continue;
+        directory.close(io);
+        const result = try alloc.dupeZ(u8, candidate);
+        alloc.free(inherited);
+        return result;
+    }
+    return inherited;
+}
+
+/// The directory Swift chose for this pane (source pane, launch directory or
+/// home). Caller owns the result.
+pub fn requestedWorkingDirectory(alloc: std.mem.Allocator, request: ?[]const u8) ?[]u8 {
+    const bytes = request orelse return null;
+    const parsed = std.json.parseFromSlice(OpenRequest, alloc, bytes, .{ .ignore_unknown_fields = true }) catch return null;
+    defer parsed.deinit();
+    const cwd = parsed.value.cwd orelse return null;
+    return alloc.dupe(u8, cwd) catch null;
 }
 
 const OpenRequest = struct {
@@ -217,12 +234,23 @@ test "local session cwd fallback matches the launching process" {
     const alloc = std.testing.allocator;
     const inherited = try std.process.currentPathAlloc(std.testing.io, alloc);
     defer alloc.free(inherited);
-    const fallback = try workingDirectory(alloc, std.testing.io, "/nonexistent/omg-local-session-fixture");
+    const fallback = try workingDirectory(alloc, std.testing.io, &.{"/nonexistent/omg-local-session-fixture"});
     defer alloc.free(fallback);
     try std.testing.expectEqualStrings(inherited, fallback);
-    const relative = try workingDirectory(alloc, std.testing.io, ".");
+    const relative = try workingDirectory(alloc, std.testing.io, &.{"."});
     defer alloc.free(relative);
     try std.testing.expectEqualStrings(inherited, relative);
+}
+
+test "local session cwd prefers later valid candidates over the process cwd" {
+    const alloc = std.testing.allocator;
+    const chosen = try workingDirectory(alloc, std.testing.io, &.{ null, "file:/host.local", "/nonexistent/omg-x", "/tmp" });
+    defer alloc.free(chosen);
+    try std.testing.expectEqualStrings("/tmp", chosen);
+    const requested = requestedWorkingDirectory(alloc, "{\"id\":\"a\",\"policy\":{},\"create\":true,\"cwd\":\"/tmp\"}").?;
+    defer alloc.free(requested);
+    try std.testing.expectEqualStrings("/tmp", requested);
+    try std.testing.expect(requestedWorkingDirectory(alloc, "{\"id\":\"a\",\"policy\":{},\"create\":true}") == null);
 }
 
 test "runtime scrollback preserves stricter Ghostty limits and clamps wider ones" {

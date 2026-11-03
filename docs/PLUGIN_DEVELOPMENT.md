@@ -49,6 +49,15 @@ exits; the relay then removes the job. The host is therefore outside the app
 coalition, so Cmd-Q fully quits the app instead of leaving it "running in the
 background", and reopening reattaches to the same host. If the GUI launchd
 domain is unavailable, the relay falls back to direct `setsid` startup.
+On quit the app signals each relay's whole process group, so a relay's SSH
+tunnel child cannot outlive it, and terminates `ssh` probes it started
+directly. Detached hosts are launchd children and are unaffected.
+
+A restored runtime snapshot carries the runtime VT's raw OSC 7 payload
+(`file://host/path`). The GUI decodes it to an absolute path, or clears it,
+before new tabs and splits inherit it. A local pane's launch directory falls
+back from the inherited directory to the open request's directory and then
+`HOME`; the GUI process cwd (`/` for desktop launches) is only a last resort.
 
 On supported Linux hosts, systemd supervises the single host service with
 `Delegate=yes` and `KillMode=control-group`. Each Session owns a child cgroup,

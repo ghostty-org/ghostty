@@ -688,7 +688,13 @@ pub fn init(
                 var prepared = try termio.Exec.init(alloc, exec_config);
                 env_owned = false;
                 defer prepared.deinit();
-                const cwd = try launch.workingDirectory(alloc, global.io(), prepared.subprocess.cwd);
+                const requested_cwd = launch.requestedWorkingDirectory(alloc, request);
+                defer if (requested_cwd) |value| alloc.free(value);
+                const cwd = try launch.workingDirectory(alloc, global.io(), &.{
+                    prepared.subprocess.cwd,
+                    requested_cwd,
+                    prepared.subprocess.env.?.get("HOME"),
+                });
                 defer alloc.free(cwd);
                 try prepared.subprocess.env.?.put("PWD", cwd);
                 const encoded = try launch.prepare(

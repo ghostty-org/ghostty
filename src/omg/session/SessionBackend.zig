@@ -8,6 +8,7 @@ const renderer = @import("../../renderer.zig");
 const apprt = @import("../../apprt.zig");
 const ProcessInfo = @import("../../pty.zig").ProcessInfo;
 const LocalLaunch = @import("LocalLaunch.zig");
+const internal_os = @import("../../os/main.zig");
 const SnapshotPresentation = @import("SnapshotPresentation.zig");
 const connect_wait_budget_us: u64 = 60_000_000;
 const c = @cImport({
@@ -1138,6 +1139,7 @@ fn restore(self: *Self, io: *HostIO, bytes: []const u8) !void {
     io.terminal_stream.deinit();
     io.terminal.deinit(self.alloc);
     io.terminal = decoded.toOwned();
+    normalizeRestoredPwd(self.alloc, &io.terminal);
     io.renderer_state.terminal_generation +%= 1;
     io.renderer_state.scroll = .{};
     io.renderer_state.visual_offset_y.store(0, .monotonic);
@@ -1147,6 +1149,43 @@ fn restore(self: *Self, io: *HostIO, bytes: []const u8) !void {
         .bytes => |continuation| io.terminal_stream.nextSlice(continuation),
     }
     try io.renderer_wakeup.notify();
+}
+
+/// The runtime's VT stores OSC 7 payloads raw (`file://host/path`), while the
+/// GUI terminal stores decoded paths. A restored raw URL would otherwise be
+/// inherited by new tabs/splits as a bogus directory and block the runtime's
+/// sampled cwd from seeding it. Keep only an absolute decoded path.
+fn normalizeRestoredPwd(alloc: std.mem.Allocator, term: *terminal.Terminal) void {
+    const raw = term.getPwd() orelse return;
+    if (raw.len > 0 and raw[0] == '/') return;
+    var arena: std.heap.ArenaAllocator = .init(alloc);
+    defer arena.deinit();
+    const path: []const u8 = path: {
+        const uri = internal_os.uri.parse(raw, .{
+            .mac_address = comptime @import("builtin").os.tag != .macos,
+            .raw_path = std.mem.startsWith(u8, raw, "kitty-shell-cwd://"),
+        }) catch break :path "";
+        if (!std.mem.eql(u8, uri.scheme, "file") and !std.mem.eql(u8, uri.scheme, "kitty-shell-cwd")) break :path "";
+        const decoded = uri.path.toRawMaybeAlloc(arena.allocator()) catch break :path "";
+        if (decoded.len == 0 or decoded[0] != '/') break :path "";
+        break :path arena.allocator().dupe(u8, decoded) catch "";
+    };
+    term.setPwd(path) catch term.setPwd("") catch {};
+}
+
+test "restored OSC 7 pwd becomes a decoded path" {
+    const alloc = std.testing.allocator;
+    var t = try terminal.Terminal.init(std.testing.io, alloc, .{ .cols = 5, .rows = 1 });
+    defer t.deinit(alloc);
+    try t.setPwd("file://host.local/Users/me/my%20code");
+    normalizeRestoredPwd(alloc, &t);
+    try std.testing.expectEqualStrings("/Users/me/my code", t.getPwd().?);
+    try t.setPwd("/already/path");
+    normalizeRestoredPwd(alloc, &t);
+    try std.testing.expectEqualStrings("/already/path", t.getPwd().?);
+    try t.setPwd("file://host.local");
+    normalizeRestoredPwd(alloc, &t);
+    try std.testing.expect(t.getPwd() == null);
 }
 
 test {
