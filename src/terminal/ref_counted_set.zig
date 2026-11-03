@@ -98,6 +98,11 @@ pub fn RefCountedSet(
             pub const Metadata = struct {
                 /// The bucket in the hash table where this item
                 /// is referenced.
+                ///
+                /// Items that are not in the table keep the default,
+                /// but that is not a reliable sentinel: when the table
+                /// has `maxInt(Id) + 1` buckets it is also the last
+                /// bucket. See `deleteItem`.
                 bucket: Id = std.math.maxInt(Id),
 
                 /// The length of the probe sequence between this
@@ -591,9 +596,17 @@ pub fn RefCountedSet(
 
             const item = items[id];
 
-            if (item.meta.bucket > self.layout.table_cap) return;
-
-            assert(table[item.meta.bucket] == id);
+            // Do nothing if the item already left the table, for example
+            // because `insert` reaped it. Its bucket is then the default,
+            // but with `table_cap = maxInt(Id) + 1` the default is also a
+            // real bucket, so check that the table points back at us. An
+            // ID is in the table at most once, and only at its bucket.
+            if (item.meta.bucket >= self.layout.table_cap or
+                table[item.meta.bucket] != id)
+            {
+                assert(item.meta.bucket == std.math.maxInt(Id));
+                return;
+            }
 
             if (comptime @hasDecl(Context, "deleted")) {
                 // Inform the context struct that we're
@@ -1070,4 +1083,109 @@ test "add does not hide live items behind a reaped dead item" {
     try testing.expectEqual(c, try set.add(buf, 24));
     try testing.expectEqual(@as(u16, 2), set.refCount(buf, c));
     try testing.expectEqual(@as(usize, 3), set.count());
+}
+
+test "deleting a reaped item when the default bucket is a real bucket" {
+    // A u8 ID with 256 buckets has the same shape as the page style set
+    // at its maximum capacity: `maxInt(Id)`, the default bucket of an
+    // item that is out of the table, is also the last bucket.
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u8,
+        u16,
+        struct {
+            // Identity hash, so each value's home bucket is its value
+            // modulo the table size.
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return value;
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(255);
+    try testing.expectEqual(@as(usize, 256), layout.table_cap);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+
+    // A live item in the last bucket.
+    const last = try set.add(buf, 255);
+    const a = try set.add(buf, 10);
+    const b = try set.add(buf, 20);
+    set.release(buf, a);
+    set.release(buf, b);
+
+    // Reuse a's ID for a value whose home is b's bucket. `insert` reaps
+    // b on the way but keeps a's ID, so b is out of the table.
+    try testing.expectEqual(@as(?u8, null), try set.addWithId(buf, 20 + 256, a));
+
+    // b is the last ID, so this add trims it, which must not touch the
+    // last bucket.
+    const c = try set.add(buf, 30);
+    try testing.expectEqual(b, c);
+    try testing.expectEqual(last, set.lookup(buf, 255).?);
+    try testing.expectEqual(a, set.lookup(buf, 20 + 256).?);
+    try testing.expectEqual(c, set.lookup(buf, 30).?);
+    try testing.expectEqual(@as(usize, 3), set.count());
+}
+
+test "add reclaims a reaped item when the default bucket is a real bucket" {
+    // See the test above. This reaches the reaped item through
+    // `reclaimDeadId` instead of the trim.
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u8,
+        u16,
+        struct {
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return value;
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(255);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+
+    // Hand out every ID. ID n gets value n + 48, so they fill buckets
+    // 49 through 255 in order and the last ID is in the last bucket.
+    const n = layout.cap - 1;
+    for (1..n + 1) |id| {
+        try testing.expectEqual(@as(u8, @intCast(id)), try set.add(buf, @intCast(id + 48)));
+    }
+
+    // Release IDs 1 through 22, enough to allow reuse.
+    for (1..23) |id| set.release(buf, @intCast(id));
+
+    // Reclaims ID 1. Its home is ID 2's bucket, so `insert` reaps ID 2
+    // on the way and leaves it out of the table.
+    try testing.expectEqual(@as(u8, 1), try set.add(buf, 50 + 256));
+
+    // Reclaims ID 2, which must not touch the last bucket.
+    try testing.expectEqual(@as(u8, 2), try set.add(buf, 5));
+    try testing.expectEqual(@as(u8, @intCast(n)), set.lookup(buf, @intCast(n + 48)).?);
+    try testing.expectEqual(@as(u8, 1), set.lookup(buf, 50 + 256).?);
+    try testing.expectEqual(@as(u8, 2), set.lookup(buf, 5).?);
+    try testing.expectEqual(n - 20, set.count());
 }
