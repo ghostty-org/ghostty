@@ -195,6 +195,13 @@ pub const StreamHandler = struct {
         };
     }
 
+    /// The stream's hook for runs it knows are printable ASCII.
+    pub fn vtPrintAscii(self: *StreamHandler, bytes: []const u8) void {
+        self.terminal.printSliceAscii(bytes) catch |err| {
+            log.warn("error handling VT action action=print_slice err={}", .{err});
+        };
+    }
+
     inline fn vtFallible(
         self: *StreamHandler,
         comptime action: Stream.Action.Tag,

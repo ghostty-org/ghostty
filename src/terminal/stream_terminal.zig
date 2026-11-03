@@ -617,6 +617,14 @@ pub const Handler = struct {
         };
     }
 
+    /// The stream's hook for runs it knows are printable ASCII.
+    pub fn vtPrintAscii(self: *Handler, bytes: []const u8) void {
+        self.terminal.printSliceAscii(bytes) catch |err| {
+            self.semantic_failure = true;
+            log.warn("error handling VT action action=print_slice err={}", .{err});
+        };
+    }
+
     fn unknownSequence(self: *Handler, value: UnknownSequence) void {
         const func = self.unknown_sequence orelse return;
         func(self, value);
