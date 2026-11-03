@@ -475,6 +475,7 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
         let allowsInteractiveFirstAttempt: Bool
     }
     private var relays: [String: Relay] = [:]
+    private var installationTasks: [String: Task<Void, Error>] = [:]
 
     static var resources: URL {
         Bundle.main.resourceURL!.appendingPathComponent("session-runtime", isDirectory: true)
@@ -682,6 +683,8 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
             }
         }
         let connection = descriptor.connection
+        let registered = connection.flatMap { SSHHostRegistry.shared.host(SSHHostRegistry.shared.targetID(for: $0)) }
+        let installsHooks = registered?.autoInstallHooks ?? true
         let localStateDirectory = Self.localStateDirectory(for: descriptor).path
         let config = Configuration(transport: descriptor.isLocal ? "local" : "ssh",
             executable: connection?.executablePath ?? "/usr/bin/ssh",
@@ -691,9 +694,21 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
             cwd: descriptor.launchWorkingDirectory,
             localShell: Self.localLoginShell,
             bundle: artifacts.path, policy: descriptor.policy, revision: descriptor.revision,
-            hooks: connection == nil ? nil : try AgentHookInstaller.remoteInstallerScript(agents: [.codex, .claude, .pi]),
+            hooks: connection == nil || !installsHooks ? nil : try AgentHookInstaller.remoteInstallerScript(agents: [.codex, .claude, .pi]),
             localStateDirectory: connection == nil ? localStateDirectory : nil, ttyAuthentication: ttyAuthentication)
         return try JSONEncoder().encode(config)
+    }
+
+    func writeConnectionConfiguration(_ descriptor: SessionRuntimeDescriptor, to url: URL,
+                                      interactive: Bool, ttyAuthentication: Bool = false) throws {
+        try SessionRuntimeBridgeStorage.writePrivateFile(at: url,
+            data: connectionConfiguration(descriptor, interactive: interactive, ttyAuthentication: ttyAuthentication), permissions: 0o600)
+        let host = descriptor.connection.flatMap { SSHHostRegistry.shared.host(SSHHostRegistry.shared.targetID(for: $0)) }
+        // Old inline viewers validate the connection JSON with deny_unknown_fields.
+        // Keep local deployment preferences in a sibling file read by the new relay.
+        let options = ["auto_install": host?.autoInstallRuntime ?? true]
+        try SessionRuntimeBridgeStorage.writePrivateFile(at: url.appendingPathExtension("setup.json"),
+            data: JSONEncoder().encode(options), permissions: 0o600)
     }
 
     func prepare(
@@ -711,9 +726,7 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
         let key = String(descriptor.identity.prefix(16))
         let socket = root.appendingPathComponent(key + ".sock")
         let configURL = root.appendingPathComponent(key + ".json")
-        let configData = try connectionConfiguration(descriptor, interactive: interactive)
-        try configData.write(to: configURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
+        try writeConnectionConfiguration(descriptor, to: configURL, interactive: interactive)
         try? FileManager.default.removeItem(at: socket)
         let process = Process()
         // Use the current transport optimizations for compatible cached runtimes;
@@ -785,6 +798,8 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
     }
 
     func shutdown() {
+        installationTasks.values.forEach { $0.cancel() }
+        installationTasks.removeAll()
         SessionRuntimeCloseQueue.shared.stop()
         // A relay leads its own process group; its SSH tunnel child shares it.
         // Signalling only the relay leaves that ssh in the app coalition, so
@@ -831,6 +846,43 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
     func open(connection: GitSSHConnection, policy: SessionRuntimePolicy) throws {
         let descriptor = try Self.descriptor(connection: connection, policy: policy)
         try open(descriptor)
+    }
+
+    func installRuntime(connection: GitSSHConnection, policy: SessionRuntimePolicy) async throws {
+        let descriptor = try Self.descriptor(connection: connection, policy: policy)
+        if let existing = installationTasks[descriptor.identity] { return try await existing.value }
+        let operation = Task { @MainActor in
+            try await self.performRuntimeInstallation(descriptor)
+        }
+        installationTasks[descriptor.identity] = operation
+        defer { installationTasks[descriptor.identity] = nil }
+        try await operation.value
+    }
+
+    func cancelRuntimeInstallation(connection: GitSSHConnection) {
+        guard let descriptor = try? Self.descriptor(connection: connection, policy: .init()) else { return }
+        installationTasks[descriptor.identity]?.cancel()
+    }
+
+    private func performRuntimeInstallation(_ descriptor: SessionRuntimeDescriptor) async throws {
+        guard let connection = descriptor.connection else { throw CocoaError(.validationMissingMandatoryProperty) }
+        try Task.checkCancellation()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("omg-runtime-setup-" + UUID().uuidString)
+        try SessionRuntimeBridgeStorage.ensurePrivateDirectory(root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = root.appendingPathComponent("connection.json")
+        try writeConnectionConfiguration(descriptor, to: configuration, interactive: true)
+        var environment = ProcessInfo.processInfo.environment
+        environment["SSH_ASKPASS"] = Self.resources.appendingPathComponent("askpass").path
+        environment["SSH_ASKPASS_REQUIRE"] = "force"
+        environment["DISPLAY"] = environment["DISPLAY"] ?? "omg:0"
+        let result = try await GitProcessRunner().run(
+            executablePath: Self.resources.appendingPathComponent("omgd").path,
+            arguments: ["install-runtime", configuration.path], workingDirectory: connection.localWorkingDirectory,
+            environment: environment, maxOutputBytes: 65_536, timeout: 180)
+        guard result.isSuccess else {
+            throw GitExecutionError.processFailed(exitCode: result.exitCode, stderr: result.stderrString)
+        }
     }
 
     func openLocal(workingDirectory: String, policy: SessionRuntimePolicy) throws {

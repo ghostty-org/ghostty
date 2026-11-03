@@ -166,9 +166,8 @@ final class SessionRuntimeHandoff {
             try SessionRuntimeBridgeStorage.ensurePrivateDirectory(root)
             let socket = root.appendingPathComponent("relay.sock")
             let config = root.appendingPathComponent("connection.json")
-            try SessionRuntimeBridgeStorage.writePrivateFile(at: config,
-                data: SessionRuntimeConnections.shared.connectionConfiguration(
-                    descriptor, interactive: true, ttyAuthentication: true), permissions: 0o600)
+            try SessionRuntimeConnections.shared.writeConnectionConfiguration(
+                descriptor, to: config, interactive: true, ttyAuthentication: true)
             guard let bootID = SessionRuntimeInlineSession.currentBootID else { throw CocoaError(.coderInvalidValue) }
             let remote = SessionRuntimeInlineSession(
                 descriptor: descriptor, pane: UUID(), connectionID: "omg-ssh-inline-" + name,

@@ -78,9 +78,8 @@ struct SettingsControlsTests {
         #expect(value == "first")
     }
 
-    @Test func agentIsOnlyInIntegrationsAndHasConsistentName() {
-        #expect(!OhMyGhosttySettingsTab.primary.contains(.agents))
-        #expect(OhMyGhosttySettingsTab.integrations.first == .agents)
+    @Test func agentIsAStandalonePageAndHasConsistentName() {
+        #expect(OhMyGhosttySettingsTab.navigationOrder.filter { $0 == .agents }.count == 1)
         for language in [OhMyGhosttyLanguage.english, .simplifiedChinese] {
             let strings = SettingsStrings(language: language)
             #expect(strings.tabTitle(.agents) == "Agent")

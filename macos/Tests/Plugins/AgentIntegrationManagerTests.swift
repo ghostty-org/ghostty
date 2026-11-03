@@ -5,6 +5,41 @@ import Testing
 
 @MainActor
 struct AgentIntegrationManagerTests {
+    actor RemoteAutomaticSetupFixture {
+        var installs = 0
+        var discoveries = 0
+        func run(_ script: String) -> Data {
+            if script.contains("COMMANDS =") {
+                discoveries += 1
+                return Data(#"{"pi":{"path":"/bin/pi","version":"1.0.0"}}"#.utf8)
+            }
+            if script.contains("ACTION = \"install\"") { installs += 1 }
+            return Data((installs == 0 ? #"{"pi":"missing"}"# : #"{"pi":"current"}"#).utf8)
+        }
+    }
+
+    @Test func hostSetupPreferenceGatesAutomaticHooksButAllowsExplicitInstallation() async throws {
+        let suite = "HostHookPolicy." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let registry = SSHHostRegistry(defaults: defaults, live: { [] })
+        let target = registry.addConfigured(try GitSSHConnection(destination: "setup-policy-fixture"))
+        let fixture = RemoteAutomaticSetupFixture()
+        let manager = AgentIntegrationManager(defaults: defaults, connectionTargets: { [target] }, registry: registry,
+            scriptRunner: { script, _, _ in await fixture.run(script) })
+        manager.setPolicy(.init(checkAutomatically: true, updateHooksAutomatically: true), for: target)
+        await manager.refresh(target: target, automatic: true)
+        #expect(await fixture.installs == 0)
+        #expect(await fixture.discoveries == 0)
+        registry.configure(target, hooks: true)
+        await manager.refresh(target: target, automatic: true)
+        #expect(await fixture.installs == 1)
+        #expect(await fixture.discoveries == 1)
+        registry.configure(target, hooks: false)
+        await manager.update(.pi, target: target)
+        #expect(await fixture.installs == 2)
+    }
+
     actor SetupFixture {
         let home: URL
         var installs = 0

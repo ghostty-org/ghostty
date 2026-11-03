@@ -20,6 +20,8 @@ pub enum TransportKind {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Connection {
+    #[serde(default = "default_auto_install")]
+    pub auto_install: bool,
     #[serde(default)]
     pub transport: TransportKind,
     pub executable: String,
@@ -36,6 +38,9 @@ pub struct Connection {
     pub hooks: Option<String>,
     #[serde(default)]
     pub tty_authentication: bool,
+}
+fn default_auto_install() -> bool {
+    true
 }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Manifest {
@@ -206,6 +211,12 @@ fn execute(mut command: Command, mut input: impl Read + Send + 'static) -> io::R
 /// Probe has no writes. Hosts without a conventional shell/tar/sha256 tool fail
 /// explicitly; there is never a fallback pretending to be a durable session.
 pub fn prepare(config: &Connection, interactive: bool) -> io::Result<(String, String)> {
+    if !config.auto_install {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Automatic runtime installation is disabled for this host",
+        ));
+    }
     config.policy.validate()?;
     let probe=run(config,"printf '\\nOMG_RUNTIME_PROBE\\n'; uname -s; uname -m; printf '%s\\n' \"$HOME\"; command -v tar >/dev/null",None,interactive)?;
     let text = String::from_utf8(probe).map_err(io::Error::other)?;
@@ -478,7 +489,25 @@ pub fn load(path: &Path) -> io::Result<Connection> {
     if data.len() > 2 * 1024 * 1024 {
         return Err(io::Error::other("connection config too large"));
     }
-    Ok(serde_json::from_slice(&data)?)
+    let mut config: Connection = serde_json::from_slice(&data)?;
+    let mut setup = path.as_os_str().to_os_string();
+    setup.push(".setup.json");
+    match fs::read(PathBuf::from(setup)) {
+        Ok(data) => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Setup {
+                auto_install: bool,
+            }
+            if data.len() > 512 {
+                return Err(io::Error::other("runtime setup preferences too large"));
+            }
+            config.auto_install = serde_json::from_slice::<Setup>(&data)?.auto_install;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    Ok(config)
 }
 
 #[cfg(test)]
@@ -493,6 +522,7 @@ mod fast_tests {
         fs::write(&exe, format!("#!/bin/sh\nprintf '{reply}'\n")).unwrap();
         fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
         let config = Connection {
+            auto_install: true,
             transport: TransportKind::Ssh,
             executable: exe.to_str().unwrap().into(),
             arguments: vec!["host".into()],
@@ -506,6 +536,53 @@ mod fast_tests {
             tty_authentication: false,
         };
         (root, config)
+    }
+    #[test]
+    fn disabled_automatic_install_does_not_probe_or_deploy() {
+        let (root, mut config) = fixture("unexpected");
+        config.auto_install = false;
+        config.executable = "/does/not/exist".into();
+        assert_eq!(
+            prepare(&config, false).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn local_setup_preferences_preserve_legacy_connection_json() {
+        let (root, config) = fixture("");
+        let path = root.join("connection.json");
+        let mut value = serde_json::to_value(&config).unwrap();
+        value.as_object_mut().unwrap().remove("auto_install");
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load(&path).unwrap().auto_install);
+        fs::write(
+            root.join("connection.json.setup.json"),
+            br#"{"auto_install":false}"#,
+        )
+        .unwrap();
+        assert!(!load(&path).unwrap().auto_install);
+        let validated: Connection = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(validated.auto_install);
+        fs::write(root.join("connection.json.setup.json"), b"invalid").unwrap();
+        assert!(load(&path).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn disabled_install_still_allows_existing_runtime_connections() {
+        let (root, mut config) = fixture("Rpayload");
+        config.auto_install = false;
+        let mut child = fast_connect(&config, false).unwrap();
+        let mut bytes = String::new();
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, "payload");
+        child.wait().unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn inline_authentication_keeps_the_controlling_terminal() {

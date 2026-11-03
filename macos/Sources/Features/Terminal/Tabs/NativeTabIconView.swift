@@ -114,12 +114,17 @@ final class NativeTabIconView: NSView {
 
     override func layout() {
         super.layout()
+        let edge = min(TabIconMetrics.composition, min(bounds.width, bounds.height))
+        let composition = CGRect(x: bounds.midX - edge / 2, y: bounds.midY - edge / 2, width: edge, height: edge)
         for (index, mark) in marks.enumerated() {
             let slot = slots[index]
-            let area = CGRect(x: slot.minX * bounds.width, y: slot.minY * bounds.height,
-                              width: slot.width * bounds.width, height: slot.height * bounds.height)
-            let size = slots.count > 1 ? max(0, min(13, min(area.width, area.height) - 1))
-                : TabIconMetrics.singleLogo(OhMyGhosttySettings.shared.tabIconSize)
+            let area = CGRect(x: composition.minX + slot.minX * edge, y: composition.minY + slot.minY * edge,
+                              width: slot.width * edge, height: slot.height * edge)
+            let preferred = TabIconMetrics.singleLogo(OhMyGhosttySettings.shared.tabIconSize)
+            let symbol: Bool
+            if case .systemSymbol = lastIcon { symbol = true } else { symbol = false }
+            let size = slots.count > 1 ? TabIconMetrics.pane
+                : min(edge, symbol ? preferred + 3 : preferred)
             mark.frame = CGRect(x: area.midX - size / 2, y: area.midY - size / 2, width: size, height: size)
         }
     }

@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct SettingsOrganizationTests {
     @Test func everyDescriptorHasOneSearchDestinationAndNavigationRemainsReachable() {
-        let navigation = OhMyGhosttySettingsTab.primary + OhMyGhosttySettingsTab.integrations + [.advanced]
+        let navigation = OhMyGhosttySettingsTab.navigationOrder
         #expect(Set(navigation) == Set(OhMyGhosttySettingsTab.allCases))
         #expect(navigation.count == Set(navigation).count)
         for language in [OhMyGhosttyLanguage.english, .simplifiedChinese] {

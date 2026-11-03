@@ -1,7 +1,8 @@
 # Test the automatic deployment path
 
-Use an isolated development build, not release OMG. Open Settings → Shell & Sessions → Session Runtime.
-Enter an SSH alias or `user@host` and Connect. The app deploys matching bundled
+Use an isolated development build, not release OMG. Open Settings → Remote Hosts → Add.
+Enter an SSH alias or `user@host`, add it, then Connect from its detail page.
+With automatic omgd installation enabled, the app deploys matching bundled
 runtime artifacts; no local checkout, test-vps-jump script or remote compiler is
 required on this path. SSH config carries ports/jump hosts/keys. Password and host
 key prompts use SSH askpass. Unsupported platforms or setup errors are visible.
@@ -12,8 +13,9 @@ only while detached. Completion cleanup is an opt-in Beta feature, off by defaul
 period and validated Agent hooks/conversation stores. It is independent of the TTL:
 completion can retire a session early, while an unfinished session still expires
 at the maximum detached lifetime. Grace begins when both detach and completion
-have occurred; new work or reattach cancels that completion cleanup. Connections install the current
-OMG Codex/Claude/Pi hooks when remote Python 3 is available. No Python means terminal
+have occurred; new work or reattach cancels that completion cleanup. When automatic
+Agent Hooks installation is enabled, setup installs current OMG Codex/Claude/Pi hooks
+when remote Python 3 is available. No Python means terminal
 persistence still works, but completion cleanup/recovery cannot be assumed.
 
 Checks:

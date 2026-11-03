@@ -43,10 +43,10 @@ struct SplitTabPresentationTests {
             #expect(TabIconMetrics.footprint <= density.rowHeight)
         }
         for preferred in [CGFloat(12), 16, 20] {
-            #expect(TabIconMetrics.singleLogo(preferred) >= TabIconMetrics.composition)
+            #expect(TabIconMetrics.singleLogo(preferred) < TabIconMetrics.composition)
             #expect(TabIconMetrics.singleLogo(preferred) < TabIconMetrics.footprint)
         }
-        #expect(TabIconMetrics.singleLogo(16) == 24)
+        #expect(TabIconMetrics.singleLogo(16) == 18)
     }
 
     @Test func previewDividersRespectNestedRatiosAndBounds() {

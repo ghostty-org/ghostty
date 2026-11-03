@@ -8,7 +8,7 @@ enum TabIconMetrics {
     static let composition: CGFloat = 22
     static let pane: CGFloat = composition / 2
     static func singleLogo(_ preferred: CGFloat) -> CGFloat {
-        min(footprint - 2, max(composition, preferred * 1.5))
+        min(20, max(17, preferred + 2))
     }
 }
 

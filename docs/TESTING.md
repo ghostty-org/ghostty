@@ -27,7 +27,9 @@ release does not automatically require every unrelated feature suite.
    (background tabs close without promoting fullscreen successors),
    and the borderless focus/membership methods
    `TerminalWorkspaceManagementTests.nativeTabObservationSurvivesRepeatedBorderlessStyleChanges`
-   and `TerminalWorkspaceManagementTests.nonNativeFullscreenSupportsWorkspaceCreationAndReturn`.
+   and `TerminalWorkspaceManagementTests.nonNativeFullscreenSupportsWorkspaceCreationAndReturn`,
+   plus `NativeSettingsTests.foregroundSettingsNavigationReceivesNativeMouseClicks`
+   (native settings navigation in light/dark foreground windows).
    Real CoreDrag, menu focus routing, native window appearance, and screenshots
    need an unlocked desktop and foreground test application. Lockscreen,
    background, and unattended runs cannot establish that behavior. Other methods

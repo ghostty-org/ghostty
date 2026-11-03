@@ -421,11 +421,14 @@ final class AgentIntegrationManager: ObservableObject {
         }
         publish(snapshot, target: target)
         if hooksOnly { return }
-        if automatic && !self.policy(for: target).updatesCLIs { return }
+        let discoverForRemoteSetup = target != Self.localID && registry.host(target)?.autoInstallHooks == true
+            && self.policy(for: target).updateHooksAutomatically
+        if automatic && !self.policy(for: target).updatesCLIs && !discoverForRemoteSetup { return }
         // CLI discovery/network failures must not prevent Hook maintenance.
         snapshot.cliError = nil
         do {
-            snapshot.cli = try await readCLI(target: target, checkLatest: checkLatest)
+            snapshot.cli = try await readCLI(target: target,
+                checkLatest: checkLatest && (!automatic || self.policy(for: target).updatesCLIs))
             if automatic, await adoptDiscoveredAgents(target: target, snapshot: &snapshot) {
                 snapshot.hooks = try await readHooks(target: target)
             }
@@ -459,11 +462,13 @@ final class AgentIntegrationManager: ObservableObject {
         target: String,
         snapshot: inout AgentIntegrationSnapshot
     ) async -> Bool {
-        guard policy(for: target).updateHooksAutomatically else { return false }
+        guard policy(for: target).updateHooksAutomatically,
+              target == Self.localID || registry.host(target)?.autoInstallHooks != false else { return false }
         var changed = false
         for agent in SupportedAgent.allCases where snapshot.hooks[agent] == .updateAvailable {
             guard !Task.isCancelled, allowsAutomaticWork(target),
-                  policy(for: target).checkAutomatically else { break }
+                  policy(for: target).checkAutomatically, policy(for: target).updateHooksAutomatically,
+                  target == Self.localID || registry.host(target)?.autoInstallHooks != false else { break }
             operations[target] = .init(kind: .hooks, agent: agent)
             do {
                 try await changeHook(agent, target: target, remove: false)
@@ -490,7 +495,8 @@ final class AgentIntegrationManager: ObservableObject {
         target: String,
         snapshot: inout AgentIntegrationSnapshot
     ) async -> Bool {
-        guard policy(for: target).updateHooksAutomatically else { return false }
+        guard policy(for: target).updateHooksAutomatically,
+              target == Self.localID || registry.host(target)?.autoInstallHooks != false else { return false }
         var changed = false
         let local = target == Self.localID
         let installer = AgentHookInstaller(homeURL: homeURL)
@@ -501,7 +507,8 @@ final class AgentIntegrationManager: ObservableObject {
             // A detector the user removed stays removed until they re-enable it.
             guard !(local && installer.isDetectorRemovedByUser(agent)) else { continue }
             guard !Task.isCancelled, allowsAutomaticWork(target),
-                  policy(for: target).checkAutomatically else { break }
+                  policy(for: target).checkAutomatically, policy(for: target).updateHooksAutomatically,
+                  target == Self.localID || registry.host(target)?.autoInstallHooks != false else { break }
             operations[target] = .init(kind: .hooks, agent: agent)
             do {
                 try await changeHook(agent, target: target, remove: false)

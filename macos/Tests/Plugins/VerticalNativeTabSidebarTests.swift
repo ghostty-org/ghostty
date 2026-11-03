@@ -9,7 +9,7 @@ struct VerticalNativeTabSidebarTests {
     @Test func singleAndSplitIconsFillTheSameNativeFootprint() throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
-        let preview = NSView(frame: .init(x: 0, y: 0, width: 348, height: 76))
+        let preview = NSView(frame: .init(x: 0, y: 0, width: 348, height: 150))
         preview.wantsLayer = true
         preview.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         let window = NSWindow(contentRect: preview.bounds, styleMask: .borderless, backing: .buffered, defer: false)
@@ -20,6 +20,15 @@ struct VerticalNativeTabSidebarTests {
         preview.addSubview(cloud)
         cloud.configure(controller: nil, icon: .systemSymbol("cloud"), selected: false, activity: nil)
         cloud.layoutSubtreeIfNeeded()
+        for (index, agent) in [SupportedAgent.pi, .codex, .claude].enumerated() {
+            let icon = NativeTabIconView(frame: .init(x: 20 + CGFloat(index) * 64, y: 100, width: 26, height: 26))
+            preview.addSubview(icon)
+            icon.configure(controller: nil, icon: .asset(agent.glyphAssetName), selected: false, activity: nil)
+            icon.layoutSubtreeIfNeeded()
+            let mark = try #require(icon.subviews.compactMap { $0 as? NSImageView }.first)
+            #expect(mark.image != nil)
+            #expect(mark.frame.width == TabIconMetrics.singleLogo(OhMyGhosttySettings.shared.tabIconSize))
+        }
         for count in 1...4 {
             let controller = try fixture.tab()
             var config = Ghostty.SurfaceConfiguration()
@@ -37,7 +46,12 @@ struct VerticalNativeTabSidebarTests {
             let marks = icon.subviews.compactMap { $0 as? NSImageView }
             #expect(marks.count == count)
             #expect(marks.allSatisfy { icon.bounds.contains($0.frame) })
-            if count == 1 { #expect((marks.first?.frame.width ?? 0) >= TabIconMetrics.composition) }
+            if count == 1 {
+                #expect((marks.first?.frame.width ?? 0) <= TabIconMetrics.composition)
+                #expect((marks.first?.frame.width ?? 0) >= TabIconMetrics.singleLogo(OhMyGhosttySettings.shared.tabIconSize))
+            }
+            let compositionBounds = CGRect(x: 2, y: 2, width: 22, height: 22)
+            #expect(marks.allSatisfy { compositionBounds.contains($0.frame) })
         }
         let bitmap = try #require(preview.bitmapImageRepForCachingDisplay(in: preview.bounds))
         preview.cacheDisplay(in: preview.bounds, to: bitmap)

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 VISUAL_DESKTOP_TEST = "GhosttyTests/VerticalTabsIntegrationTests/appKitTabGroupDrivesVerticalTabsWithoutRecreatingSurfaces()"
 LINK_HOVER_DESKTOP_TEST = "GhosttyTests/TerminalLinkHoverTests/commandHoverRemainsStable()"
 QUICK_INPUT_DESKTOP_TEST = "GhosttyTests/QuickInputFooterMouseTests"
+SETTINGS_DESKTOP_TEST = "GhosttyTests/NativeSettingsTests/foregroundSettingsNavigationReceivesNativeMouseClicks()"
 WORKSPACE_POPOVER_DESKTOP_TEST = (
     "GhosttyTests/TerminalWorkspacePopoverSwitchTests/"
     "nativeFullscreenMouseSelectionClosesAndSwitchesWithoutAnotherKey()"
@@ -37,6 +38,7 @@ DESKTOP_TESTS = {
     "GhosttyTests/VerticalTabFullscreenTests",
     "GhosttyTests/VerticalNativeTabOutlineDesktopTests",
     "GhosttyTests/TerminalWorkspaceManagementDesktopTests",
+    SETTINGS_DESKTOP_TEST,
     QUICK_INPUT_DESKTOP_TEST,
     VISUAL_DESKTOP_TEST,
     LINK_HOVER_DESKTOP_TEST,
@@ -104,7 +106,7 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("GhosttyTests/VerticalNativeTabSidebarTests", result["only_testing"])
         self.assertIn("GhosttyTests/VerticalTabsIntegrationTests", result["only_testing"])
         self.assertNotIn("GhosttyTests/VerticalTabMouseTests", result["only_testing"])
-        self.assertEqual(set(result["deferred_desktop"]), DESKTOP_TESTS - {QUICK_INPUT_DESKTOP_TEST})
+        self.assertEqual(set(result["deferred_desktop"]), DESKTOP_TESTS - {QUICK_INPUT_DESKTOP_TEST, SETTINGS_DESKTOP_TEST})
         self.assertIn("GhosttyTests/VerticalTabsIntegrationTests", result["only_testing"])
         self.assertIn(VISUAL_DESKTOP_TEST, result["skip_testing"])
 

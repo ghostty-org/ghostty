@@ -389,12 +389,12 @@ Contributor checklist:
 
 ## Git AI commit messages and settings navigation
 
-Settings uses task-oriented navigation: **General**, **Shell & Sessions**,
-**Input & Controls**, **Editor**, **Views & Tabs**, **Appearance**, **Shortcuts**,
-and **Advanced**. The expandable **Integrations** group keeps independent
-**Agent**, **Git**, **SSH**, and **Plugins** destinations. Existing
+Settings uses flat task-oriented navigation: **General**, **Appearance**,
+**Views & Tabs**, **Shell & Sessions**, **Input & Controls**, **Editor**,
+**Shortcuts**, **Agent**, **Git**, **Remote Hosts**, **Plugins**, and **Advanced**.
+There is no expandable Integrations group. Existing
 navigation identifiers remain valid. Git auto-fetch and AI commit-message
-configuration live under Git; registered hosts live under SSH; Agent hooks, history,
+configuration live under Git; registered hosts live under Remote Hosts; Agent hooks, history,
 automatic Quick Input behavior and notifications live under Agent (formerly Agent Integration).
 Quick Input/history controls live under Input & Controls, with their shortcut under
 Shortcuts; startup recovery is under Shell & Sessions. Existing JSON keys are unchanged.
@@ -548,6 +548,29 @@ Ghostty config (e.g. Atom One Dark), so they render the theme color rather than 
 default aqua. That color is derived from the config background, never from
 `TerminalWindow.backgroundColor`, which on translucent windows is a nearly invisible
 white blur backing (using it made settings/dialogs transparent and theme-less).
+
+Settings is owned directly by `NativeSettingsController`, with a flat native
+source list, search, AppKit forms and explicit host/Agent detail routes. It does
+not host an application-owned SwiftUI settings tree. Common controls remain on
+primary pages; retention, maintenance schedules and advanced options use secondary
+pages. Existing native shortcut recorders and the Git model route table retain
+their editing, reset and ordering behavior. Model publications refresh controls
+or the Agent table without replacing the whole page during edits. Page-owned
+subscriptions end with the page; asynchronous installation results do not navigate
+away from the user's current route.
+
+**Remote Hosts** displays only registered records. SSH-config candidates appear
+in **Add a host**, and explicit registration is local/offline. Host details expose
+connection actions, Agent configuration, and independent automatic `omgd`/Hook
+installation switches. Newly registered hosts default to runtime installation on
+and Hook installation off; absent preferences on old records preserve legacy
+behavior. Refreshing inventory preserves the display name and these choices.
+Removing a registration cancels its explicit installation job and preserves
+running sessions. The runtime setup preference travels in a private adjacent
+`.setup.json` file; connection JSON remains readable by cached strict-schema
+inline viewers. Disabled deployment allows an already-running matching daemon,
+but rejects missing-runtime installation. Explicit installation is bounded,
+app-owned, canceled on shutdown, and never replaces pinned session identities.
 
 Terminal chrome (tab sidebar, Inspector, QuickInput) matches the Zig surface
 bit-for-bit: opaque windows paint the P3-quantized theme background; translucent
@@ -908,18 +931,19 @@ request sequence; failures return a typed `PluginProtocolFailure`.
 
 ### Built-in agent hook bridge (Internal)
 
-Settings → Plugins → SSH manually registers a concrete Host from OpenSSH config
-or an existing OMG connection, or opts into registration after successful connections.
+Settings → Remote Hosts → Add registers a concrete host from OpenSSH config
+or a typed address, or opts into registration after successful connections.
 The chooser enumerates user/system config and Include files, deduplicates aliases,
 and uses local `ssh -G` output to display `alias · user@hostname[:port]`. Wildcard
 rules participate in OpenSSH resolution but are not invented as concrete targets.
-Listing configuration does not log into any host; only explicit Register connects.
+Listing configuration and explicitly adding a host do not log into it.
+Connect and Agent Check are separate user actions.
 Automatic registration still requires an existing ready OMG connection. It captures the original executable,
 destination, options (including user, port and ProxyJump) and local launch directory.
 `SSHHostRegistry` persists registered connections and Agent inventory in the app's
 UserDefaults domain under `OMG.SSH.Registry.v1`; identity is derived from the full
 connection, not just the display alias. Different launch parameters remain isolated.
-Matching live connections are preferred in the chooser. Plain `ssh host` registrations
+Only registered connections appear in the main list. Plain `ssh host` registrations
 (from config or a live pane) recognize the same account after a reconnect from another
 local directory. Destination, workspace alias and executable must still match and both
 option lists must be empty. Explicit options (especially relative `-F`/`-i` paths),
@@ -927,14 +951,15 @@ user/port/jump changes retain exact identities. Only the selected matching recor
 marked connected; duplicate cached records cannot each schedule maintenance.
 No remote helper, cron job, or service is deployed.
 
-Registration collects installed CLI versions and Hook state, without npm registry
-queries or install commands. Registered hosts refresh their inventory on reconnect;
+Inventory refresh collects installed CLI versions and Hook state, without npm
+registry queries or install commands. Registered hosts refresh their inventory on reconnect;
 failed refreshes preserve the previous snapshot and its timestamp. Cancelling
 registration or disconnecting before its result returns cannot publish a late
 record. Unregister removes the local record/cache and suppresses automatic
 re-registration until explicitly registered again; it does not remove remote Hooks.
 
-Settings → Plugins → Agent Integration selects **This Mac** or a registered host.
+Settings → Agent configures **This Mac**; Remote Hosts → host → Agent configures
+the selected registered host.
 Each Agent separates OMG status-extension actions from CLI version/update controls.
 Installed extensions always expose a reinstall action, even when CLI updates require
 an external installer. Extension changes show an Agent restart / Pi `/reload` notice.
@@ -972,9 +997,11 @@ automatic-check preference, optional automatic Hook updates, and one unified CLI
 auto-update switch for all supported, detected CLIs on that account. Existing legacy
 per-Agent update choices remain limited to their original scope until the user explicitly
 switches to the unified policy; migration never broadens permission. Local checks
-default to daily; SSH background checks and all
-automatic installation default off. Enabling a target does not install missing
-Hooks or Agent executables. Policy and check timestamps are stored in the app's
+default to daily; SSH background checks and automatic Hook/CLI installation
+default off. A host's explicit automatic Hook setup opt-in permits discovery
+and installation of missing supported Hooks, independently of CLI updates.
+Otherwise enabling checks alone does not install missing Hooks or Agent executables.
+Policy and check timestamps are stored in the app's
 UserDefaults domain under `OMG.AgentIntegration.Policies.v1`, separating Dev and
 release. Errors stay attached to their target; the last successful Hook check is
 displayed separately from a CLI discovery failure. Failed attempts retry at the
@@ -984,7 +1011,10 @@ addition to the interval; it is off for existing policies unless explicitly enab
 **Schedule** shows trigger settings and check/maintenance timestamps; the summary
 shows the next due check or a disconnected pause. A minute timer evaluates deadlines.
 Updates never delay quitting, kill an Agent session or install a remote updater daemon.
-Hook maintenance only updates existing integrations, never reinstalls a disabled one.
+Ordinary Hook maintenance only updates existing integrations. Remote automatic
+setup additionally discovers missing Hooks only when the host has opted in;
+the preference is rechecked before each automatic write. Explicit manual
+installation remains available with automatic setup disabled.
 
 SSH automatic work additionally requires a matching **ready SSH pane in OMG**.
 The scheduler reads `TerminalController.paneSessionContexts`, observes connection
@@ -1659,7 +1689,7 @@ prefix. Available jump buttons appear on hover/selection. The retained Agent
 history table/model code is dormant in Info until message identities can be
 bound to verified terminal anchors; no text search or ordinal marker matching
 is exposed as a jump. A submission/status hook's cursor is not a verified render position.
-Settings > General > Sessions has three startup modes: `newTerminal` starts a
+Settings > Shell & Sessions has three startup modes: `newTerminal` starts a
 fresh local Shell without restoring windows/tabs; `restoreTabs` restores the
 window/tab/split tree and safe local cwd (including windows originally
 running custom commands, which reopen as fresh local Shells) but intentionally

@@ -3,9 +3,12 @@
 The GUI uses a per-pane local/SSH host descriptor. Local windows have no remote routing.
 There is no fixed host, global experimental socket override or legacy VPS launcher.
 
-Open **OMG Dev → Settings → Shell & Sessions → Session Runtime**, select the
-retention policy, enter an SSH alias or user@host and connect, or open the Session
-Library to reattach a background session. **Window -> Browse Sessions** opens
+Open **Settings → Remote Hosts → Add** to register an SSH alias or user@host.
+Open a registered host to connect, configure its Agents, or choose automatic
+installation of `omgd` and Agent Hooks independently. SSH config aliases appear
+only in the Add sheet. **Settings → Shell & Sessions** contains local/SSH quit
+policies, the Session Library and secondary retention options.
+The Session Library reattaches background sessions. **Window -> Browse Sessions** opens
 the same native library without going through settings. New local windows, tabs and splits use
 the runtime by default; `sessions.localRuntimeEnabled` opts new local terminals
 back into ordinary Ghostty PTYs. Deployment uses versioned artifacts bundled with the signed
@@ -49,6 +52,25 @@ confirming End in the Session Library, durably ends the affected session.
 `restoreSessions` reconnects saved runtime UUIDs; `restoreTabs` opens fresh local
 processes in the saved layout, and `newTerminal` skips the old layout entirely.
 Inventory lookup is read-only and does not reset detached-session expiry.
+
+## Host setup preferences
+
+Newly registered hosts enable runtime installation and leave automatic Hook
+installation off. Existing registrations without either preference preserve
+their previous behavior. Disabling runtime installation still permits a warm
+connection to an existing matching daemon; a missing runtime produces an
+actionable error without probing or deploying artifacts.
+
+`install-runtime CONNECTION_JSON` explicitly installs the bundled runtime for
+an SSH host, even when automatic installation is disabled. Deployment remains
+versioned and preserves sessions on pinned older daemons. The GUI tracks and
+cancels these bounded installation jobs on shutdown or host removal.
+
+The GUI writes the private `CONNECTION_JSON.setup.json` sidecar with
+`{"auto_install": false}` (or `true`). The main connection JSON retains its old
+schema because cached inline viewers reject unknown fields. A missing sidecar
+uses legacy behavior; a malformed sidecar fails closed. This is a local
+deployment preference, not a daemon wire-protocol change.
 
 ## Tests
 

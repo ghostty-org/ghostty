@@ -181,7 +181,9 @@ struct TerminalWorkspaceRefactorTests {
         let surfaces = [first, second, secondTab, fallback].flatMap { Array($0.surfaceTree) }
         try #require(fallback.window?.isVisible == true)
         first.window?.makeKeyAndOrderFront(nil)
-        try #require(fixture.coordinator.deleteWorkspace(work))
+        // Delete from the host that switched away, independent of AppKit's
+        // process-wide key window after earlier UI suites.
+        try #require(fixture.coordinator.deleteWorkspace(work, from: fallback))
         #expect(first.window?.isVisible == true)
         #expect(fallback.window?.isVisible == true)
         #expect(!fallback.workspacePresentationIsParked)

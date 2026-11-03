@@ -147,6 +147,12 @@ fn relay_connector(
             match omg_session_runtime::deploy::fast_connect(&attempt, interactive) {
                 Ok(child) => tunnel_child(child),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    if !attempt.auto_install {
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "Runtime is not installed. Enable automatic omgd installation in Remote Hosts.",
+                        ));
+                    }
                     let (binary, state) =
                         omg_session_runtime::deploy::prepare(&attempt, interactive)?;
                     tunnel(omg_session_runtime::deploy::command(
@@ -354,6 +360,14 @@ fn main() -> io::Result<()> {
         }
         Some("session-holder") if a.len() == 2 => omg_session_runtime::holder::run_from_stdin(),
         Some("bridge") if a.len() == 3 => bridge(&a[2]),
+        Some("install-runtime") if a.len() == 3 => {
+            let mut config = omg_session_runtime::deploy::load(Path::new(&a[2]))?;
+            if config.transport != omg_session_runtime::deploy::TransportKind::Ssh {
+                return Err(io::Error::other("installation requires an SSH host"));
+            }
+            config.auto_install = true;
+            omg_session_runtime::deploy::prepare(&config, true).map(|_| ())
+        }
         Some("connect") if a.len() == 4 => {
             let config = omg_session_runtime::deploy::load(Path::new(&a[3]))?;
             let interactive_first = config.transport
@@ -420,7 +434,7 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         _ => {
-            eprintln!("usage: omgd host DIRECTORY -- SHELL... | host-local DIRECTORY -- SHELL... | session-holder | serve SOCKET -- COMMAND... | bridge SOCKET | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive] | close-local SOCKET UUID | list-local SOCKET");
+            eprintln!("usage: omgd host DIRECTORY -- SHELL... | host-local DIRECTORY -- SHELL... | session-holder | serve SOCKET -- COMMAND... | bridge SOCKET | install-runtime CONNECTION_JSON | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive] | close-local SOCKET UUID | list-local SOCKET");
             std::process::exit(2)
         }
     }

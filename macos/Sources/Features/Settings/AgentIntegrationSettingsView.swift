@@ -262,6 +262,7 @@ struct AgentIntegrationSettingsView: View {
             value.updateHooksAutomatically = $0
             if $0 { value.checkAutomatically = true }
             manager.setPolicy(value, for: target)
+            if !local { registry.configure(target, hooks: $0) }
         })
     }
 

@@ -10,6 +10,10 @@ struct GitCommitAIRoutesTable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        Self.makeNativeView(coordinator: context.coordinator)
+    }
+
+    static func makeNativeView(coordinator: Coordinator) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -30,10 +34,10 @@ struct GitCommitAIRoutesTable: NSViewRepresentable {
         let column = NSTableColumn(identifier: .init("route"))
         column.resizingMask = .autoresizingMask
         table.addTableColumn(column)
-        table.dataSource = context.coordinator
-        table.delegate = context.coordinator
+        table.dataSource = coordinator
+        table.delegate = coordinator
         scrollView.documentView = table
-        context.coordinator.tableView = table
+        coordinator.tableView = table
         return scrollView
     }
 

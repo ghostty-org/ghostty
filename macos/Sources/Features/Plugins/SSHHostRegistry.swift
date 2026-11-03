@@ -5,12 +5,14 @@ import Foundation
 
 struct RegisteredSSHHost: Codable, Identifiable, Sendable {
     let id: String
-    let name: String
+    var name: String
     let connection: GitSSHConnection
     var snapshot: AgentIntegrationSnapshot
     var capturedAt: Date
     var endpoint: String?
     var fromConfiguration: Bool?
+    var autoInstallRuntime: Bool?
+    var autoInstallHooks: Bool?
 
     static func id(for connection: GitSSHConnection) -> String {
         "ssh-host:" + SHA256.hash(data: Data(connection.identity.utf8)).prefix(16)
@@ -112,7 +114,8 @@ final class SSHHostRegistry: ObservableObject {
         if live().contains(connection) { connections[id] = connection }
         if host(id) == nil {
             hosts.append(.init(id: id, name: connection.destination, connection: connection,
-                               snapshot: .init(), capturedAt: .distantPast))
+                               snapshot: .init(), capturedAt: .distantPast,
+                               autoInstallRuntime: true, autoInstallHooks: false))
             hosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             save()
         }
@@ -120,6 +123,30 @@ final class SSHHostRegistry: ObservableObject {
     }
 
     func host(_ id: String) -> RegisteredSSHHost? { hosts.first { $0.id == id } }
+    func reportError(_ message: String?, target: String) {
+        guard host(target) != nil else { return }
+        errors[target] = message
+    }
+    func configure(_ id: String, name: String? = nil, runtime: Bool? = nil, hooks: Bool? = nil) {
+        guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            hosts[index].name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(128))
+        }
+        if let runtime { hosts[index].autoInstallRuntime = runtime }
+        if let hooks { hosts[index].autoInstallHooks = hooks }
+        save()
+    }
+
+    @discardableResult
+    func addConfigured(_ connection: GitSSHConnection, endpoint: String? = nil, fromConfiguration: Bool = false) -> String {
+        let id = prepareSetup(connection)
+        if let index = hosts.firstIndex(where: { $0.id == id }) {
+            hosts[index].endpoint = endpoint ?? hosts[index].endpoint
+            hosts[index].fromConfiguration = (hosts[index].fromConfiguration ?? false) || fromConfiguration
+            save()
+        }
+        return id
+    }
     func isCollecting(_ id: String) -> Bool { pending.contains(id) || tasks[id] != nil }
 
     func isConnected(_ id: String) -> Bool {
@@ -161,9 +188,11 @@ final class SSHHostRegistry: ObservableObject {
             if let endpoint { resolvedEndpoint = endpoint } else { resolvedEndpoint = try? await SSHConfigurationCatalog.resolve(connection) }
             try Task.checkCancellation()
             guard !excluded.contains(id), !automatic || isConnected(id) else { return }
-            let record = RegisteredSSHHost(id: id, name: name, connection: host(id)?.connection ?? connection,
+            let record = RegisteredSSHHost(id: id, name: host(id)?.name ?? name, connection: host(id)?.connection ?? connection,
                                            snapshot: snapshot, capturedAt: Date(), endpoint: resolvedEndpoint,
-                                           fromConfiguration: host(id)?.fromConfiguration ?? fromConfiguration)
+                                           fromConfiguration: host(id)?.fromConfiguration ?? fromConfiguration,
+                                           autoInstallRuntime: host(id) == nil ? true : host(id)?.autoInstallRuntime,
+                                           autoInstallHooks: host(id) == nil ? false : host(id)?.autoInstallHooks)
             hosts.removeAll { $0.id == id }
             hosts.append(record)
             hosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
