@@ -20,7 +20,6 @@ pub const TabColorSwatch = extern struct {
 
     const Private = struct {
         color: TabColor = .none,
-        selected: bool = false,
         pub var offset: c_int = 0;
     };
 
@@ -30,11 +29,9 @@ pub const TabColorSwatch = extern struct {
         self.as(gtk.Widget).setOverflow(.visible);
     }
 
-    pub fn new(color: TabColor, selected: bool) *Self {
+    pub fn new(color: TabColor) *Self {
         const self = gobject.ext.newInstance(Self, .{});
-        const priv = self.private();
-        priv.color = color;
-        priv.selected = selected;
+        self.private().color = color;
         return self;
     }
 
@@ -59,8 +56,7 @@ pub const TabColorSwatch = extern struct {
         const height = widget.getHeight();
         if (width <= 0 or height <= 0) return;
         const size: f32 = @floatFromInt(@min(width, height));
-        const priv = self.private();
-        priv.color.appendSwatch(snap, size, priv.selected);
+        self.private().color.appendSwatch(snap, size);
     }
 
     const C = Common(Self, Private);

@@ -58,8 +58,7 @@ pub const TabColor = enum {
     }
 
     /// Draw the swatch into `snap` as vector paths (circle, or ring+slash for none).
-    /// When `selected`, draw an outer ring using the user accent color.
-    pub fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32, selected: bool) void {
+    pub fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32) void {
         const mid = size / 2.0;
         const radius = size * 0.3125;
         const stroke_width = @max(1.0, size * (1.5 / 16.0));
@@ -92,18 +91,6 @@ pub const TabColor = enum {
             defer slash.unref();
             snap.appendStroke(slash, stroke, &stroke_color);
         }
-
-        if (selected) {
-            const accent_rgba = adw.StyleManager.getDefault().getAccentColorRgba();
-            defer accent_rgba.free();
-            const ring = gsk.Stroke.new(@max(1.5, size * (2.0 / 16.0)));
-            defer ring.free();
-            const ring_builder = gsk.PathBuilder.new();
-            ring_builder.addCircle(&center, size * 0.45);
-            const ring_path = ring_builder.freeToPath();
-            defer ring_path.unref();
-            snap.appendStroke(ring_path, ring, accent_rgba);
-        }
     }
 
     const indicator_px = 48;
@@ -126,7 +113,7 @@ pub const TabColor = enum {
         const size: f32 = indicator_px;
 
         const snap = gtk.Snapshot.new();
-        self.appendSwatch(snap, size, false);
+        self.appendSwatch(snap, size);
         const node = snap.freeToNode() orelse return emptyIndicatorTexture();
         defer node.unref();
 
