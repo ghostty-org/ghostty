@@ -101,6 +101,24 @@ Linux root 账号使用 systemd 系统级临时服务；普通账号仅在用户
 
 远端启动和周期维护把没有 actor 的运行中记录改为 Lost；本地先验证独立 holder，仅在没有可验证 holder 时标记 Lost。失效 socket 按所属 UUID 清理，不按历史 PID 发信号；adoption 探针不 attach，也不刷新 TTL。待关闭请求保存在 App Support 的 session-runtime/pending-closes.json，App 启动及运行中重试；设置页显示未确认数量。空 relay 在 30 秒无客户端后退出，host 仍按存活 actor 和既有空闲策略管理。旧版本 daemon 保持原版本；本地 broker/holder 从 descriptor 固定版本的缓存 helper 启动，不跨版本收编；不支持新关闭能力的旧版本仍有待确认限制。高权限进程主动迁移 cgroup、通过外部服务创建任务不在自动回收保证内。
 
+## 退出策略
+
+`sessions.keepLocalOnQuit` 与 `sessions.keepSSHOnQuit` 分别控制退出后是否保留
+本应用打开的本地、SSH runtime 会话，默认均为开启，沿用既有行为。普通 PTY
+无法脱离应用继续运行。关闭任一开关后，仅在用户确认退出后，按当前窗格和
+checkpoint 中的 UUID 持久化关闭请求；包括停放工作区，不对共享 host 做整体终止。
+远端不可达或旧 host 无法确认的请求保留到后续连接重试。单独关闭窗格/窗口的语义不变。
+
+关闭先处理 SSH，再处理承载它的本地 shell；可复用 inline viewer 已认证的
+socket，避免密码认证会话在退出时再次要求密码。每类清理最多等待两秒，
+每次最多并发 16 个控制 helper，随后停止临时 helper 并执行既有 relay 清理。
+未确认的请求仍然持久化。取消退出不会发送这些新请求。
+
+对退出时已结束的 runtime，最终 checkpoint 使用新窗格 UUID 和一次性的
+`runtimeCreateOnRestore` 标记，使下次“恢复会话”创建新 shell，避免附加已永久关闭
+的 UUID。本地载体结束但 SSH 保留时，保存原远端 UUID，下一次直接附加原远端会话。
+窗口、标签和分屏布局保留；“只恢复标签页”仍使用原来的新 shell 规则。
+
 ## 实施顺序与验收
 
 1. 原生 vertical slice：一个 session，通过 Unix socket 驱动现有 Ghostty surface；detach 后持续读取，attach 恢复完整状态；验证查询归属和 parser continuation。通过后冻结 VT 方案。

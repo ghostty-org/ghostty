@@ -167,15 +167,19 @@ enum SessionRuntimeRestorationPolicy {
 struct SessionRuntimeCloseCopy: Equatable {
     let hasPersistentRuntime: Bool
     let hasOrdinaryProcess: Bool
+    private var quitPolicy: SessionRuntimeQuitPolicy?
+    private var quitSessions: [SessionRuntimeQuitSession]?
 
     init(hasPersistentRuntime: Bool, hasOrdinaryProcess: Bool) {
         self.hasPersistentRuntime = hasPersistentRuntime
         self.hasOrdinaryProcess = hasOrdinaryProcess
     }
 
-    init(surfaces: [Ghostty.SurfaceView]) {
+    init(surfaces: [Ghostty.SurfaceView], quitPolicy: SessionRuntimeQuitPolicy? = nil) {
         hasPersistentRuntime = surfaces.contains { $0.runtimeDescriptor != nil }
         hasOrdinaryProcess = surfaces.contains { $0.runtimeDescriptor == nil }
+        self.quitPolicy = quitPolicy
+        quitSessions = quitPolicy.map { _ in surfaces.map(SessionRuntimeQuitSession.init) }
     }
 
     func windowMessage(allWindows: Bool, strings: SettingsStrings) -> String {
@@ -213,6 +217,9 @@ struct SessionRuntimeCloseCopy: Equatable {
     }
 
     func quitMessage(multipleWindows: Bool, strings: SettingsStrings) -> String {
+        if let quitPolicy, let quitSessions {
+            return quitPolicy.message(sessions: quitSessions, ordinary: hasOrdinaryProcess, strings: strings)
+        }
         switch (hasPersistentRuntime, hasOrdinaryProcess) {
         case (true, true):
             return strings.t(
@@ -243,6 +250,12 @@ struct SessionRuntimeCloseCopy: Equatable {
     }
 
     func quitButtonTitle(multipleWindows: Bool, strings: SettingsStrings) -> String {
+        if let quitPolicy, let quitSessions {
+            let continuing = quitSessions.contains {
+                $0.descriptor.map(quitPolicy.keeps) == true || $0.inline != nil && quitPolicy.keepSSH
+            }
+            return continuing ? strings.t("Quit", "退出") : strings.t("Terminate Sessions", "结束会话")
+        }
         if hasPersistentRuntime {
             return strings.t("Quit", "退出")
         }

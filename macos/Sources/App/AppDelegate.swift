@@ -510,6 +510,11 @@ class AppDelegate: NSObject,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let reply = applicationTerminationDecision(sender)
+        return MainActor.assumeIsolated { SessionRuntimeQuit.shared.terminationReply(reply) }
+    }
+
+    private func applicationTerminationDecision(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard MainActor.assumeIsolated({ EditorWorkspaceStore.shared.prepareToTerminate() }) else {
             return .terminateCancel
         }
@@ -1538,7 +1543,8 @@ extension AppDelegate {
 
         if controllersNeedConfirmation.count == 1 {
             let controller = controllersNeedConfirmation[0]
-            let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(controller.surfaceTree))
+            let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(controller.surfaceTree),
+                quitPolicy: OhMyGhosttySettings.shared.runtimeQuitPolicy)
             let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
             Task {
                 let response = await controller.confirmCloseAsync(
@@ -1548,7 +1554,7 @@ extension AppDelegate {
                 )
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {
-                    await NSApp.reply(toApplicationShouldTerminate: true)
+                    await SessionRuntimeQuit.shared.replyToAcceptedQuit()
                 } else {
                     await TerminalTabSelectionRestoration.shared.cancelQuit()
                     await TerminalWorkspaceSessionStore.shared.cancelQuit()
@@ -1559,7 +1565,8 @@ extension AppDelegate {
             return .terminateLater
         } else {
             let closeCopy = SessionRuntimeCloseCopy(
-                surfaces: controllersNeedConfirmation.flatMap { Array($0.surfaceTree) }
+                surfaces: controllersNeedConfirmation.flatMap { Array($0.surfaceTree) },
+                quitPolicy: OhMyGhosttySettings.shared.runtimeQuitPolicy
             )
             let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
             let alert = NSAlert()
@@ -1589,7 +1596,8 @@ extension AppDelegate {
     private func reviewWindows(_ controllers: [BaseTerminalController]) {
         Task {
             for controller in controllers {
-                let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(controller.surfaceTree))
+                let closeCopy = SessionRuntimeCloseCopy(surfaces: Array(controller.surfaceTree),
+                quitPolicy: OhMyGhosttySettings.shared.runtimeQuitPolicy)
                 let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
                 let response = await controller.confirmCloseAsync(
                     messageText: "Quit OMG?",
@@ -1609,7 +1617,7 @@ extension AppDelegate {
                     return
                 }
             }
-            await NSApp.reply(toApplicationShouldTerminate: true)
+            await SessionRuntimeQuit.shared.replyToAcceptedQuit()
         }
     }
 }

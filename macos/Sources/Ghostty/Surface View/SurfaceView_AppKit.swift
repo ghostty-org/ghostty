@@ -2069,6 +2069,7 @@ extension Ghostty {
             case agentResumeDescriptor
             case sshResumeDescriptor
             case runtimeDescriptor
+            case runtimeCreateOnRestore
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -2098,11 +2099,19 @@ extension Ghostty {
             config.environmentVariables["OH_MY_GHOSTTY_CHANNEL"] =
                 OMGApplicationEnvironment.channel()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
-            if let runtime = try container.decodeIfPresent(SessionRuntimeDescriptor.self, forKey: .runtimeDescriptor) {
+            let createRuntime = try container.decodeIfPresent(Bool.self, forKey: .runtimeCreateOnRestore) == true
+            if let runtime = try container.decodeIfPresent(SessionRuntimeDescriptor.self, forKey: .runtimeDescriptor),
+               !(createRuntime && runtime.isLocal && !OhMyGhosttySettings.shared.localRuntimeEnabled) {
                 if SessionRuntimeRestorationPolicy.attachesSavedRuntime(for: startupMode) {
-                    try runtime.configureAttachExisting(&config)
+                    if createRuntime {
+                        try runtime.configure(&config)
+                    } else {
+                        try runtime.configureAttachExisting(&config)
+                    }
                     // Runtime attach owns the process; don't replay shell/Agent launch commands.
-                    config.workingDirectory = nil
+                    config.workingDirectory = createRuntime && runtime.isLocal
+                        ? runtime.initialWorkingDirectory ?? config.workingDirectory ?? runtime.localWorkingDirectory
+                        : nil
                     self.init(app, baseConfig: config, uuid: uuid)
                 } else {
                     config.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)

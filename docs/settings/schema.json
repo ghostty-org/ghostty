@@ -273,7 +273,7 @@
     "general.quitWithoutConfirmation": {
       "category": "general",
       "default": false,
-      "description": "Quit immediately without confirming running terminal processes. OMG Dev defaults to true.",
+      "description": "Skip quit confirmation while respecting local and SSH session retention settings. OMG Dev defaults to true.",
       "type": "boolean",
       "x-debug-default": true
     },
@@ -376,6 +376,18 @@
       "category": "general",
       "default": true,
       "description": "Keep newly created local terminals in the session runtime, with at most 4 MiB logical terminal history and any lower Ghostty limits. Disable for larger ordinary PTY history. Existing terminals are unchanged.",
+      "type": "boolean"
+    },
+    "sessions.keepLocalOnQuit": {
+      "category": "general",
+      "default": true,
+      "description": "Keep local runtime sessions opened in this app running after quitting OMG.",
+      "type": "boolean"
+    },
+    "sessions.keepSSHOnQuit": {
+      "category": "general",
+      "default": true,
+      "description": "Keep managed SSH sessions opened in this app running after quitting OMG.",
       "type": "boolean"
     },
     "sessions.runtimeDetachedHours": {

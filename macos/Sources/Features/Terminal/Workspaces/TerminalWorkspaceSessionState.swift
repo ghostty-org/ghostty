@@ -12,9 +12,11 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
         var agentResumeDescriptor: AgentResumeDescriptor?
         var sshResumeDescriptor: SSHResumeDescriptor?
         var runtimeDescriptor: SessionRuntimeDescriptor?
+        var runtimeCreateOnRestore: Bool?
 
         enum CodingKeys: String, CodingKey {
             case pwd, uuid, title, isUserSetTitle, agentResumeDescriptor, sshResumeDescriptor, runtimeDescriptor
+            case runtimeCreateOnRestore
         }
 
         func encode(to encoder: Encoder) throws {
@@ -27,6 +29,7 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
             try container.encodeIfPresent(agentResumeDescriptor, forKey: .agentResumeDescriptor)
             try container.encodeIfPresent(sshResumeDescriptor, forKey: .sshResumeDescriptor)
             try container.encodeIfPresent(runtimeDescriptor, forKey: .runtimeDescriptor)
+            try container.encodeIfPresent(runtimeCreateOnRestore, forKey: .runtimeCreateOnRestore)
         }
 
         @MainActor init(_ view: Ghostty.SurfaceView) {
@@ -91,6 +94,29 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
             }
         }
 
+        var panes: [Pane] {
+            switch self {
+            case .leaf(let pane): [pane]
+            case .split(let branch): branch.left.panes + branch.right.panes
+            }
+        }
+
+        mutating func prepareRuntimeQuit(_ replacements: [UUID: SessionRuntimeQuitReplacement]) {
+            switch self {
+            case .leaf(var pane):
+                if let id = UUID(uuidString: pane.uuid), let replacement = replacements[id] {
+                    pane.uuid = replacement.pane.uuidString
+                    pane.runtimeDescriptor = replacement.descriptor
+                    pane.runtimeCreateOnRestore = replacement.create ? true : nil
+                }
+                self = .leaf(pane)
+            case .split(var branch):
+                branch.left.prepareRuntimeQuit(replacements)
+                branch.right.prepareRuntimeQuit(replacements)
+                self = .split(branch)
+            }
+        }
+
         mutating func remapPaneIDs(using mapping: inout [String: String]) {
             switch self {
             case .leaf(var pane):
@@ -145,6 +171,13 @@ struct TerminalWorkspaceSessionState: Codable, Equatable {
         guard surfaceTree.version == 1, let ids = surfaceTree.root?.paneIDs(), !ids.isEmpty,
               ids.count <= 256, Set(ids).count == ids.count else { return nil }
         return ids
+    }
+
+    mutating func prepareRuntimeQuit(_ replacements: [UUID: SessionRuntimeQuitReplacement]) {
+        surfaceTree.root?.prepareRuntimeQuit(replacements)
+        if let focusedSurface, let id = UUID(uuidString: focusedSurface), let replacement = replacements[id] {
+            self.focusedSurface = replacement.pane.uuidString
+        }
     }
 
     mutating func remapPaneIDsForRestoreTabs() {

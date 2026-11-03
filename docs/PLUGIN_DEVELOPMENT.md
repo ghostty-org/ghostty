@@ -42,6 +42,27 @@ session, including when Close arrives before Create. This revokes the whole
 pane UUID across Agent resume generations. Old pinned hosts keep the attached
 Close path but cannot confirm durable cleanup; requests remain visible as pending.
 
+App termination separately controls local and SSH retention through
+`sessions.keepLocalOnQuit` and `sessions.keepSSHOnQuit`, both defaulting to true.
+After quit is accepted, disabled categories enqueue durable Close requests for
+the app's current/checkpointed pane UUIDs, including parked workspaces. This does
+not stop shared host daemons or enumerate and kill unrelated host sessions.
+Cancellation sends no new Close. Close intents must be saved before sending;
+unreachable or legacy hosts retain pending requests for a later connection.
+Quit attempts are bounded, use noninteractive authentication, and stop their
+temporary control helpers before the existing relay shutdown. Inline remote
+sessions are handled before their local carriers, reusing authenticated viewer
+sockets where available. Ordinary PTYs still end with the app.
+
+The final checkpoint uses a new pane UUID and the optional
+`runtimeCreateOnRestore: true` pane field for a runtime explicitly ended at quit.
+Restore Sessions creates that new session instead of attaching the ended UUID;
+subsequent live checkpoints omit the one-shot field. Restore Tabs retains its
+existing fresh-shell policy. When a local carrier ends but its inline SSH session
+is retained, the checkpoint targets the original remote UUID and descriptor.
+The saved tab and split layout stay intact. These settings add no plugin
+permission, executable loading, or new daemon protocol capability.
+
 On macOS the local relay starts `omgd host-local` through a transient
 `gui/<uid>` launchd job (`AbandonProcessGroup`, no `KeepAlive`). The job runs
 `omgd detach`, which forks the host into its own session, reports its pid and

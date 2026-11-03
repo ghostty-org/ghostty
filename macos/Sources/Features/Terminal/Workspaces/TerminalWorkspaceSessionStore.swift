@@ -320,6 +320,40 @@ final class TerminalWorkspaceSessionStore {
         capture()
     }
 
+    var runtimeQuitSessions: [SessionRuntimeQuitSession] {
+        descriptors.values.flatMap { state in
+            (state.surfaceTree.root?.panes ?? []).compactMap { pane in
+                guard let id = UUID(uuidString: pane.uuid), let descriptor = pane.runtimeDescriptor else { return nil }
+                return SessionRuntimeQuitSession(pane: id, descriptor: descriptor,
+                    inline: SessionRuntimeHandoff.shared.restoredInlineSession(for: descriptor, pane: id),
+                    workingDirectory: pane.pwd)
+            }
+        }
+    }
+
+    func prepareRuntimeQuit(_ replacements: [UUID: SessionRuntimeQuitReplacement]) throws {
+        guard started, !replacements.isEmpty else { return }
+        for id in descriptors.keys {
+            descriptors[id]?.prepareRuntimeQuit(replacements)
+        }
+        var paneIDs = Set<UUID>()
+        for state in descriptors.values {
+            guard let ids = state.paneIDs, paneIDs.isDisjoint(with: ids) else {
+                throw CocoaError(.coderInvalidValue)
+            }
+            paneIDs.formUnion(ids)
+        }
+        saved.generation = (saved.generation ?? 0) &+ 1
+        contentRevision &+= 1
+        submittedContentRevision = contentRevision
+        writer.submit(saved, descriptors: descriptors)
+        flush()
+        if let message = writer.lastError {
+            throw NSError(domain: "OMGSessionRuntimeQuit", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+
     func forget(_ controller: TerminalController) {
         guard !quitting else { return }
         closing[controller.tabSessionID] = Weak(controller)

@@ -19,6 +19,7 @@ final class SessionRuntimeCloseQueue: ObservableObject {
     private var timer: Timer?
     private var running = false
     private var stopped = false
+    private var activeCloseProcess: Process?
 
     init(url: URL?) {
         self.url = url
@@ -36,8 +37,12 @@ final class SessionRuntimeCloseQueue: ObservableObject {
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try JSONEncoder().encode(value).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let staging = url.deletingLastPathComponent().appendingPathComponent(".pending-close-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try SessionRuntimeBridgeStorage.writePrivateFile(at: staging, data: JSONEncoder().encode(value), permissions: 0o600)
+        guard rename(staging.path, url.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         requests = value
     }
 
@@ -64,6 +69,90 @@ final class SessionRuntimeCloseQueue: ObservableObject {
         stopped = true
         timer?.invalidate()
         timer = nil
+        if let process = activeCloseProcess, process.isRunning { process.terminate() }
+    }
+
+    private func launchClose(_ request: SessionRuntimeCloseRequest, socket prepared: URL? = nil) throws -> Process {
+        let socket = try prepared ?? SessionRuntimeConnections.shared.prepare(request.descriptor, interactive: false)
+        let process = Process()
+        process.executableURL = SessionRuntimeConnections.resources.appendingPathComponent("omgd")
+        process.arguments = ["close-local", socket.path, request.pane.uuidString.lowercased()]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        return process
+    }
+
+    /// Persist before calling. Every request is sent independently so one
+    /// unreachable host cannot hold up cleanup on the other hosts.
+    func finishForQuit(
+        sockets: [UUID: URL] = [:],
+        timeout: Duration = .seconds(2),
+        launch: ((SessionRuntimeCloseRequest) throws -> Process)? = nil
+    ) async {
+        guard !requests.isEmpty else { return }
+        stop()
+        // End remote viewers before their local carriers. Password-authenticated
+        // inline sessions can use the already authenticated relay socket.
+        for local in [false, true] {
+            await finishForQuit(requests.filter { $0.descriptor.isLocal == local },
+                                sockets: sockets, timeout: timeout, launch: launch)
+        }
+    }
+
+    private func finishForQuit(
+        _ requests: [SessionRuntimeCloseRequest],
+        sockets: [UUID: URL],
+        timeout: Duration,
+        launch: ((SessionRuntimeCloseRequest) throws -> Process)?
+    ) async {
+        var pending: [(SessionRuntimeCloseRequest, URL?)] = []
+        for request in requests {
+            if launch != nil {
+                pending.append((request, nil))
+            } else if let socket = sockets[request.pane], FileManager.default.fileExists(atPath: socket.path) {
+                pending.append((request, socket))
+            } else if let socket = try? SessionRuntimeConnections.shared.prepare(request.descriptor, interactive: false) {
+                pending.append((request, socket))
+            }
+        }
+        var helpers: [(SessionRuntimeCloseRequest, Process)] = []
+        var prepared: [UUID: URL] = [:]
+        for (request, socket) in pending { prepared[request.pane] = socket }
+        var attempts: [UUID: Int] = [:]
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !pending.isEmpty || !helpers.isEmpty {
+            for (request, socket) in pending {
+                guard helpers.count < 16 else { break }
+                guard launch != nil || socket.map({ FileManager.default.fileExists(atPath: $0.path) }) == true else { continue }
+                if let process = try? (launch.map { try $0(request) } ?? launchClose(request, socket: socket)) {
+                    helpers.append((request, process))
+                    attempts[request.pane, default: 0] += 1
+                }
+                pending.removeAll { $0.0 == request }
+            }
+            var waiting: [(SessionRuntimeCloseRequest, Process)] = []
+            for (request, process) in helpers {
+                if process.isRunning {
+                    waiting.append((request, process))
+                } else {
+                    process.waitUntilExit()
+                    if process.terminationStatus == 0 {
+                        try? acknowledge(request)
+                    } else if attempts[request.pane, default: 0] < 3 {
+                        pending.append((request, prepared[request.pane]))
+                    }
+                }
+            }
+            helpers = waiting
+            if pending.isEmpty && helpers.isEmpty || clock.now >= deadline { break }
+            do { try await Task.sleep(for: .milliseconds(10)) } catch { break }
+        }
+        for (_, process) in helpers where process.isRunning {
+            process.terminate()
+        }
     }
 
     func retry() {
@@ -74,21 +163,13 @@ final class SessionRuntimeCloseQueue: ObservableObject {
             for request in requests {
                 guard !stopped else { break }
                 do {
-                    let socket = try SessionRuntimeConnections.shared.prepare(request.descriptor, interactive: false)
-                    let helper = SessionRuntimeConnections.resources.appendingPathComponent("omgd")
+                    let process = try launchClose(request)
+                    activeCloseProcess = process
                     let success = await Task.detached {
-                        let process = Process()
-                        process.executableURL = helper
-                        process.arguments = ["close-local", socket.path, request.pane.uuidString.lowercased()]
-                        process.standardInput = FileHandle.nullDevice
-                        process.standardOutput = FileHandle.nullDevice
-                        process.standardError = FileHandle.nullDevice
-                        do {
-                            try process.run()
-                            process.waitUntilExit()
-                            return process.terminationStatus == 0
-                        } catch { return false }
+                        process.waitUntilExit()
+                        return process.terminationStatus == 0
                     }.value
+                    activeCloseProcess = nil
                     if success { try acknowledge(request) }
                 } catch {
                     // Keep durable intent. A later retry/startup can authenticate

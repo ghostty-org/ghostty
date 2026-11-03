@@ -115,8 +115,8 @@ struct SettingsStrings: Equatable, Sendable {
     }
     var startupModeCaption: String {
         t(
-            "New Terminal opens a fresh Shell. Tabs restores windows, tabs, splits and directories with fresh local Shells. Sessions also restores saved output and validated command anchors, reconnects SSH and resumes eligible Agent conversations. Shell processes do not survive quitting OMG. Applies on next launch.",
-            "新终端不保留旧标签；恢复标签页会还原窗口、标签、分屏和目录，但每个窗格都是新的本地 Shell；恢复会话还会回放旧输出和可验证命令锚点、重连 SSH，并恢复可用的 Agent 对话。退出 OMG 后 Shell 进程不会继续运行。下次启动生效。"
+            "New Terminal opens a fresh Shell. Tabs restores windows, tabs, splits and directories with fresh local Shells. Sessions also restores saved output, reconnects retained runtime sessions and resumes eligible Agent conversations. Background execution follows the local and SSH quit settings below; ordinary PTYs stop when OMG quits. Applies on next launch.",
+            "新终端不保留旧标签；恢复标签页会还原窗口、标签、分屏和目录，但每个窗格都是新的本地 Shell；恢复会话还会回放旧输出、重连保留的后台会话，并恢复可用的 Agent 对话。后台运行由下方的本地与 SSH 退出设置控制；普通 PTY 在退出时结束。下次启动生效。"
         )
     }
     var quitSection: String { t("Quit", "退出") }
@@ -125,8 +125,8 @@ struct SettingsStrings: Equatable, Sendable {
     }
     var quitWithoutConfirmationCaption: String {
         t(
-            "Quit immediately and terminate running terminal processes without asking.",
-            "退出时直接终止仍在运行的终端进程，不再弹出确认。"
+            "Skip the quit confirmation. Local and SSH session retention still follows the session settings.",
+            "退出时不再弹出确认。本地和 SSH 会话是否继续运行，仍由会话设置决定。"
         )
     }
 
@@ -774,6 +774,12 @@ struct SettingsStrings: Equatable, Sendable {
           "新建窗口、标签页和分屏使用本地会话运行时，最多保留 4 MiB 终端历史，并遵循 Ghostty 更低的滚动历史限制。需要更多历史时可关闭此选项使用原生 PTY；已打开的终端继续使用原进程。")
     }
     var runtimeLibrary: String { t("Browse Sessions…", "浏览后台会话…") }
+    var runtimeKeepLocalOnQuit: String { t("Keep local sessions running after quitting OMG", "退出 OMG 后，本地会话继续运行") }
+    var runtimeKeepSSHOnQuit: String { t("Keep SSH sessions running after quitting OMG", "退出 OMG 后，SSH 会话继续运行") }
+    var runtimeKeepOnQuitCaption: String {
+        t("Applies to runtime sessions open in this app, including hidden workspaces. Turn off to request session termination on quit; closing a tab keeps its existing behavior. Unconfirmed SSH closes are retained and retried on reconnect. Ordinary PTYs cannot keep running after OMG quits.",
+          "适用于本应用中打开的后台会话，包括隐藏工作区。关闭后，退出时请求结束对应会话；单独关闭标签页的行为不变。未确认的 SSH 关闭请求会保留并在重连后重试。普通 PTY 无法在退出 OMG 后继续运行。")
+    }
     var runtimeLocalCaption: String {
         t("Runs a background session on this Mac beside your existing tabs. Agent completion cleanup requires enabled local Agent integrations.",
           "在本机启动后台会话，与现有标签页并列打开。按 Agent 任务完成回收需要先启用本机 Agent 集成。")

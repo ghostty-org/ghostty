@@ -21,6 +21,10 @@ struct SessionRuntimeSettingsView: View {
             Toggle(strings.runtimeLocalRuntimeEnabled, isOn: $settings.localRuntimeEnabled)
             Text(strings.runtimeLocalRuntimeCaption)
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle(strings.runtimeKeepLocalOnQuit, isOn: $settings.keepLocalSessionsOnQuit)
+            Toggle(strings.runtimeKeepSSHOnQuit, isOn: $settings.keepSSHSessionsOnQuit)
+            Text(strings.runtimeKeepOnQuitCaption)
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 TextField(strings.runtimeLocalDirectory, text: $localWorkingDirectory)
                 Button(strings.runtimeLocalOpen) { connectLocal() }

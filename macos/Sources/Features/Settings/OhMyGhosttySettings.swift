@@ -551,7 +551,7 @@ final class OhMyGhosttySettings: ObservableObject {
                 OMGApplicationEnvironment.quitWithoutConfirmationDefault()
             ),
             allowedValues: nil, minimum: nil, maximum: nil,
-            description: "Quit immediately without confirming running terminal processes.",
+            description: "Skip quit confirmation while respecting local and SSH session retention settings.",
             requiresNewWindow: false, category: "general"),
         .init(
             id: "agents.historyLimit", type: .number, defaultValue: "10000",
@@ -563,6 +563,16 @@ final class OhMyGhosttySettings: ObservableObject {
             allowedValues: nil, minimum: nil, maximum: nil,
             description: "Launch new local terminals in the durable local session runtime.",
             requiresNewWindow: true, category: "general"),
+        .init(
+            id: "sessions.keepLocalOnQuit", type: .boolean, defaultValue: "true",
+            allowedValues: nil, minimum: nil, maximum: nil,
+            description: "Keep this app's local runtime sessions running after quitting OMG.",
+            requiresNewWindow: false, category: "general"),
+        .init(
+            id: "sessions.keepSSHOnQuit", type: .boolean, defaultValue: "true",
+            allowedValues: nil, minimum: nil, maximum: nil,
+            description: "Keep this app's managed SSH sessions running after quitting OMG.",
+            requiresNewWindow: false, category: "general"),
         .init(
             id: "sessions.runtimeDetachedHours", type: .number, defaultValue: "72",
             allowedValues: nil, minimum: 0, maximum: 8760,
@@ -920,6 +930,15 @@ final class OhMyGhosttySettings: ObservableObject {
     @Published var localRuntimeEnabled = true {
         didSet { persist("sessions.localRuntimeEnabled", localRuntimeEnabled) }
     }
+    @Published var keepLocalSessionsOnQuit = true {
+        didSet { persist("sessions.keepLocalOnQuit", keepLocalSessionsOnQuit) }
+    }
+    @Published var keepSSHSessionsOnQuit = true {
+        didSet { persist("sessions.keepSSHOnQuit", keepSSHSessionsOnQuit) }
+    }
+    var runtimeQuitPolicy: SessionRuntimeQuitPolicy {
+        .init(keepLocal: keepLocalSessionsOnQuit, keepSSH: keepSSHSessionsOnQuit)
+    }
     @Published var runtimeDetachedHours: Double = 72 {
         didSet { persist("sessions.runtimeDetachedHours", min(max(runtimeDetachedHours, 0), 8760)) }
     }
@@ -1255,6 +1274,8 @@ final class OhMyGhosttySettings: ObservableObject {
                 range: 100...50_000
             )
             localRuntimeEnabled = boolValue("sessions.localRuntimeEnabled", fallback: true)
+            keepLocalSessionsOnQuit = boolValue("sessions.keepLocalOnQuit", fallback: true)
+            keepSSHSessionsOnQuit = boolValue("sessions.keepSSHOnQuit", fallback: true)
             startupMode = enumValue("sessions.startupMode", fallback: .restoreSessions)
             runtimeDetachedHours = min(max(chosen["sessions.runtimeDetachedHours"] as? Double ?? 72, 0), 8760)
             runtimeExpiration = chosen["sessions.runtimeExpiration"] as? String ?? ""
