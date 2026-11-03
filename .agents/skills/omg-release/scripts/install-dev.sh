@@ -81,6 +81,9 @@ source_app="$repo_root/macos/build/Debug/OMG.app"
 target_app="/Applications/OMG Dev.app"
 source_bin="$source_app/Contents/MacOS/omg"
 target_bin="$target_app/Contents/MacOS/omg"
+# Persistent shells can retain this executable as `omg +ssh`. Only GUI
+# invocations must exit before replacing the bundle; CLI sessions keep running.
+gui_process_pattern='^/Applications/OMG Dev[.]app/Contents/MacOS/omg($| [^+])'
 
 dev_signing_identity=${OMG_DEV_SIGNING_IDENTITY:-}
 if [[ -z "$dev_signing_identity" ]]; then
@@ -162,15 +165,15 @@ build_mode=$(awk '/build mode/{print $NF}' <<<"$version_output")
 
 OMG_TEST_BINARY="$source_bin" bash "$dev_tool" python3 dist/test_ssh_agent_wrappers.py
 
-if pgrep -f '/Applications/OMG Dev.app/Contents/MacOS/omg' >/dev/null; then
+if pgrep -f "$gui_process_pattern" >/dev/null; then
   osascript -e 'tell application id "com.jischeng.omg.debug" to quit' >/dev/null 2>&1 || true
   for _ in {1..20}; do
-    pgrep -f '/Applications/OMG Dev.app/Contents/MacOS/omg' >/dev/null || break
+    pgrep -f "$gui_process_pattern" >/dev/null || break
     sleep 0.25
   done
 fi
 
-if pgrep -f '/Applications/OMG Dev.app/Contents/MacOS/omg' >/dev/null; then
+if pgrep -f "$gui_process_pattern" >/dev/null; then
   echo "OMG Dev is still running; refusing to overwrite it" >&2
   exit 1
 fi

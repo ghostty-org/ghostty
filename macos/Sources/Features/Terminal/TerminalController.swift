@@ -3503,7 +3503,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
             return
         }
-        if selected?.workspacePresentationIsParked == true {
+        if let selected, selected.workspacePresentationIsParked {
+            selected.workspaceCoordinator.didActivate(selected)
             return
         }
         pendingTabRefreshes.removeValue(forKey: ObjectIdentifier(tabGroup))?.work.cancel()

@@ -244,6 +244,12 @@ Workspace restoration owns native tab membership and presentation. Finishing a
 restore must not order parked members out of a retained native group. Activating
 or reopening an App with hidden terminal windows presents the catalog's current
 workspace and selected tab, after restoration and native transitions complete.
+Dock reopening checks committed workspace visibility before trusting AppKit's
+`hasVisibleWindows`: a selected retained parked tab is not a visible current
+workspace. After repairing selection, the host suppresses AppKit's default reopen
+selection. A native Window/Dock-menu selection of a parked tab activates its
+workspace and that exact tab through the coordinator, including its sidebar
+projection; it does not substitute the workspace's previously selected tab.
 Workspace presentation preserves its prepared window frame rather than replaying
 the global last-window position. These visibility repairs do not close, replace
 or recreate session runtime processes. Non-native fullscreen restores a captured

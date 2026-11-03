@@ -250,14 +250,9 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         // observations, not a newer command than a queued picker/key request.
         guard deferredSwitches[controller.windowSessionID] == nil else { return }
         if store.snapshot.isParked(controller.tabSessionID) {
-            if let current = liveControllers.first(where: {
-                $0.windowSessionID == controller.windowSessionID && !store.snapshot.isParked($0.tabSessionID)
-            }) {
-                _ = switchWorkspace(to: controller.workspaceID, from: current)
-                return
-            }
             _ = perform(hosts: [controller.windowSessionID], focus: controller) { state in
                 state.select(controller.workspaceID, in: controller.windowSessionID)
+                state.windows?[controller.windowSessionID]?.groups[controller.workspaceID]?.selected = controller.tabSessionID
                 return true
             }
             return
@@ -729,21 +724,22 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
         ensureVisibleWorkspace()
     }
 
-    func ensureVisibleWorkspace() {
+    @discardableResult
+    func ensureVisibleWorkspace() -> Bool {
         guard !restoring, !quitting, !isTerminating, !applying,
-              native.transitioningWindows.isEmpty else { return }
+              native.transitioningWindows.isEmpty else { return false }
         let state = store.snapshot
         let ordered = orderedControllers(state: state)
         let current = ordered.filter { !state.isParked($0.tabSessionID) }
         guard !current.contains(where: {
             guard let window = $0.window, window.isVisible, !window.isMiniaturized else { return false }
             return (window.tabGroup?.selectedWindow ?? window) === window
-        }) else { return }
+        }) else { return false }
         let selected = current.first {
             state.windows?[$0.windowSessionID]?.groups[$0.workspaceID]?.selected == $0.tabSessionID
         }
-        guard let target = selected ?? current.first ?? ordered.first else { return }
-        _ = perform(hosts: [target.windowSessionID], focus: target) { state in
+        guard let target = selected ?? current.first ?? ordered.first else { return false }
+        return perform(hosts: [target.windowSessionID], focus: target) { state in
             state.select(target.workspaceID, in: target.windowSessionID)
             return true
         }

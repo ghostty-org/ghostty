@@ -88,7 +88,7 @@ class AppDelegate: NSObject,
     private var dockMenu: NSMenu = NSMenu()
 
     /// This is only true before application has become active.
-    private var applicationHasBecomeActive: Bool = false
+    private(set) var applicationHasBecomeActive: Bool = false
 
     /// This is set in applicationDidFinishLaunching with the system uptime so we can determine the
     /// seconds since the process was launched.
@@ -590,25 +590,7 @@ class AppDelegate: NSObject,
     /// This is called when the application is already open and someone double-clicks the icon
     /// or clicks the dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // If we have visible windows then we allow macOS to do its default behavior
-        // of focusing one of them.
-        guard !flag else { return true }
-
-        // A restored controller can exist without an ordered window. Reopen
-        // the committed workspace instead of treating existence as visibility.
-        if TerminalController.all.contains(where: \.isAvailableForWorkspace) {
-            TerminalWorkspaceCoordinator.shared.ensureVisibleWorkspace()
-            return false
-        }
-
-        // If the application isn't active yet then we don't want to process
-        // this because we're not ready. This happens sometimes in Xcode runs
-        // but I haven't seen it happen in releases. I'm unsure why.
-        guard applicationHasBecomeActive else { return true }
-
-        // No visible windows, open a new one.
-        _ = TerminalController.newWindow(ghostty)
-        return false
+        handleReopen(hasVisibleWindows: flag, coordinator: .shared)
     }
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
