@@ -95,6 +95,7 @@ FULL_SUITE_GLOBS = (
     "macos/Sources/Features/Settings/OhMyGhosttySettings.swift", "macos/Ghostty.xcodeproj/**",
     "macos/*.xctestplan", "macos/build.nu", "dist/omg_test_plan.py", "dist/test_omg_test_plan.py",
     "macos/Tests/Helpers/TemporaryConfig.swift", "macos/Tests/Helpers/OMGTestTags.swift",
+    "macos/Tests/Helpers/AppKitTestWait.swift",
 )
 NO_SWIFT_GLOBS = ("docs/**", "*.md", "LICENSE*", ".agents/skills/*/SKILL.md")
 SMOKE_SUITE = "GhosttyTests/OhMyGhosttyVersionTests"

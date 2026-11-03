@@ -293,15 +293,15 @@ struct TerminalLiveTabLayoutTests {
     }
 
     @Test func latestLayoutRequestWaitsForNativeFullscreenCompletion() async throws {
-        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture(nativeNotifications: NotificationCenter())
         defer { fixture.close() }
         let source = try fixture.tab()
         let window = try #require(source.window)
-        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        fixture.nativeNotifications.post(name: NSWindow.willEnterFullScreenNotification, object: window)
         fixture.coordinator.requestTabLayout(.horizontal, from: source)
         #expect(source.tabLayout == .vertical)
         fixture.coordinator.requestTabLayout(.vertical, from: source)
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        fixture.nativeNotifications.post(name: NSWindow.didEnterFullScreenNotification, object: window)
         try await Task.sleep(for: .milliseconds(50))
         #expect(source.tabLayout == .vertical)
     }

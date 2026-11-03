@@ -7,15 +7,18 @@ struct TerminalWorkspaceRefactorTests {
     @MainActor final class Fixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = TerminalWorkspaceStore(fileURL: nil)
+        let nativeNotifications: NotificationCenter
         let sessions: TerminalWorkspaceSessionStore
         let coordinator: TerminalWorkspaceCoordinator
         let app: Ghostty.App
         var controllers: [TerminalController] = []
 
-        init() throws {
+        init(nativeNotifications: NotificationCenter = .default) throws {
+            self.nativeNotifications = nativeNotifications
             app = try #require(NSApp.delegate as? AppDelegate).ghostty
             sessions = TerminalWorkspaceSessionStore(url: directory.appendingPathComponent("state.json"), testing: true, workspaces: store)
-            coordinator = TerminalWorkspaceCoordinator(store: store, sessions: sessions)
+            coordinator = TerminalWorkspaceCoordinator(store: store, sessions: sessions,
+                native: TerminalWorkspaceNativeAdapter(notificationCenter: nativeNotifications))
             coordinator.finishRestoring()
         }
 

@@ -30,7 +30,7 @@ struct TerminalWorkspaceIntegrationTests {
             calls += 1
         }
         #expect(calls == 0)
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitForAppKit { calls > 0 }
         #expect(!controller.workspaceSwitcherIsPresented)
         #expect(calls == 1)
         presentation.close()

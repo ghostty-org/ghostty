@@ -31,11 +31,12 @@ final class TerminalWorkspaceNativeAdapter {
     }
     private(set) var nonNativeProjectionWindows = Set<UUID>()
     private(set) var retainedVerticalHosts = Set<UUID>()
+    private let notificationCenter: NotificationCenter
     private var observers: [NSObjectProtocol] = []
     var transitionCompleted: ((UUID) -> Void)?
 
-    init() {
-        let center = NotificationCenter.default
+    init(notificationCenter center: NotificationCenter = .default) {
+        notificationCenter = center
         for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
@@ -70,7 +71,7 @@ final class TerminalWorkspaceNativeAdapter {
         })
     }
 
-    deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
+    deinit { for observer in observers { notificationCenter.removeObserver(observer) } }
 
     func beginNonNativeProjection(in host: UUID) { nonNativeProjectionWindows.insert(host) }
     func finishNonNativeProjection(in host: UUID) { nonNativeProjectionWindows.remove(host) }

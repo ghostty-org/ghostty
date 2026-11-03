@@ -38,6 +38,19 @@ singletons use this launch marker to avoid user catalog/checkpoint reads or writ
 before XCTest classes have loaded. Persistence fixtures explicitly use temporary
 paths; test-like names in a user's catalog are not automatically deleted.
 
+Synthetic native fullscreen and close notifications must use a fixture-owned
+`NotificationCenter`, injected into `TerminalWorkspaceNativeAdapter`. Posting
+these system notifications through `.default` also reaches AppKit observers:
+clearing OMG's transition dictionary or closing the fixture window does not
+guarantee that the host application's event state has recovered. Real native
+fullscreen desktop tests continue to use `.default` and actual window actions.
+Wait for asynchronous completion with a bounded condition rather than assuming
+that a fixed sleep establishes success. The routine modal mouse-event regression
+also exercises the formerly failing workspace-transition-then-alert order within
+one test; it is not excluded as an interactive desktop test.
+`AppKitTestWait.swift` is a shared test helper, so changes to it select the broad
+routine sweep rather than only the foundation suites.
+
 The wrapper excludes interactive-desktop suites by default and prints **NOT RUN**
 when the chosen scope contains one. This is not a pass or a silently swallowed
 failure. Pure drag-policy/lifecycle and tab integration tests still run normally.

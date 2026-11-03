@@ -175,6 +175,7 @@ class PlannerTests(unittest.TestCase):
     def test_shared_core_host_or_configuration_changes_fall_back_to_all(self):
         for path in ["src/Surface.zig", "include/ghostty.h", "build.zig", "macos/build.nu",
                      "macos/Sources/Extensions/SharedAdapter.swift",
+                     "macos/Tests/Helpers/AppKitTestWait.swift",
                      "macos/Ghostty.xctestplan", "macos/Sources/App/AppDelegate.swift",
                      "macos/Sources/Features/Terminal/TerminalController.swift", planner.VERSION_PROJECT]:
             with self.subTest(path=path):

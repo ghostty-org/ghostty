@@ -2,9 +2,10 @@ import AppKit
 import Testing
 @testable import Ghostty
 
-@MainActor
+@Suite(.serialized) @MainActor
 struct WeakLocalEventMonitorTests {
     final class Owner { var consume = false }
+    private enum SyntheticTransitionEnd: CaseIterable, Sendable { case close, failure, newerExit }
 
     private func event(_ type: NSEvent.EventType, in window: NSWindow, at point: NSPoint) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
@@ -24,7 +25,38 @@ struct WeakLocalEventMonitorTests {
         #expect(handler(click) === click)
     }
 
+    @Test(arguments: SyntheticTransitionEnd.allCases)
+    private func syntheticWorkspaceTransitionsPreserveLaterModalClicks(ending: SyntheticTransitionEnd) async throws {
+        do {
+            let fixture = try TerminalWorkspaceManagementTests.Fixture(nativeNotifications: NotificationCenter())
+            defer { fixture.close() }
+            let window = try #require(fixture.controller.window)
+            let notifications = fixture.nativeNotifications
+            var completed = false
+            fixture.coordinator.native.transitionCompleted = { _ in completed = true }
+            notifications.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+            switch ending {
+            case .close:
+                notifications.post(name: NSWindow.willCloseNotification, object: window)
+            case .failure, .newerExit:
+                fixture.coordinator.native.fullscreenTransitionFailed(in: fixture.controller.windowSessionID)
+                if ending == .newerExit {
+                    notifications.post(name: NSWindow.willExitFullScreenNotification, object: window)
+                    notifications.post(name: NSWindow.didExitFullScreenNotification, object: window)
+                }
+            }
+            #expect(!completed)
+            try await waitForAppKit { completed }
+        }
+        // Keep the formerly failing order inside one test, independent of suite scheduling.
+        try await checkModalButtonsReceiveClicks()
+    }
+
     @Test func modalButtonsReceiveClicksAfterMonitorOwnerExpires() async throws {
+        try await checkModalButtonsReceiveClicks()
+    }
+
+    private func checkModalButtonsReceiveClicks() async throws {
         var owner: Owner? = Owner()
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown,
             handler: WeakLocalEventMonitor.handler(for: owner!) { _, event in event })

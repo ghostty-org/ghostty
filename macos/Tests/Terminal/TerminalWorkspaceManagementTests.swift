@@ -41,6 +41,7 @@ struct TerminalWorkspaceManagementTests {
 
     @MainActor final class Fixture {
         let store = TerminalWorkspaceStore(fileURL: nil)
+        let nativeNotifications: NotificationCenter
         let coordinator: TerminalWorkspaceCoordinator
         let controller: TerminalController
         var deferred: (() -> Void)?
@@ -48,9 +49,11 @@ struct TerminalWorkspaceManagementTests {
         lazy var model = TerminalWorkspacePickerModel(controller: controller, dismiss: { [weak self] in self?.deferred = $0 },
             reopen: { [weak self] in self?.reopenCount += 1 })
 
-        init() throws {
+        init(nativeNotifications: NotificationCenter = .default) throws {
+            self.nativeNotifications = nativeNotifications
             let app = try #require(NSApp.delegate as? AppDelegate).ghostty
-            coordinator = TerminalWorkspaceCoordinator(store: store)
+            coordinator = TerminalWorkspaceCoordinator(store: store,
+                native: TerminalWorkspaceNativeAdapter(notificationCenter: nativeNotifications))
             coordinator.finishRestoring()
             var config = Ghostty.SurfaceConfiguration()
             config.command = "/bin/sleep 60"
@@ -97,15 +100,15 @@ struct TerminalWorkspaceManagementTests {
     }
 
     @Test func fullscreenCompletionDoesNotReenterTheNativeNotification() async throws {
-        let fixture = try Fixture()
+        let fixture = try Fixture(nativeNotifications: NotificationCenter())
         defer { fixture.close() }
         let window = try #require(fixture.controller.window)
         var completed = false
         fixture.coordinator.native.transitionCompleted = { _ in completed = true }
-        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        fixture.nativeNotifications.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        fixture.nativeNotifications.post(name: NSWindow.didEnterFullScreenNotification, object: window)
         #expect(!completed)
-        try await Task.sleep(for: .milliseconds(20))
+        try await waitForAppKit { completed }
         #expect(completed)
     }
 
@@ -239,16 +242,16 @@ struct TerminalWorkspaceManagementTests {
     }
 
     @Test func nativeTransitionOwnershipSurvivesLogicalIdentityChanges() throws {
-        let fixture = try Fixture()
+        let fixture = try Fixture(nativeNotifications: NotificationCenter())
         defer { fixture.close() }
         let window = try #require(fixture.controller.window)
         let host = fixture.controller.windowSessionID
-        let unrelated = TerminalWorkspaceNativeAdapter()
-        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        let unrelated = TerminalWorkspaceNativeAdapter(notificationCenter: fixture.nativeNotifications)
+        fixture.nativeNotifications.post(name: NSWindow.willEnterFullScreenNotification, object: window)
         #expect(fixture.coordinator.native.transitioningWindows.contains(host))
         #expect(unrelated.transitioningWindows.isEmpty)
         fixture.controller.windowSessionID = UUID()
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+        fixture.nativeNotifications.post(name: NSWindow.didEnterFullScreenNotification, object: window)
         #expect(!fixture.coordinator.native.transitioningWindows.contains(host))
         fixture.controller.windowSessionID = host
     }

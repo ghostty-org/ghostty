@@ -34,7 +34,8 @@ struct TerminalWorkspacePopoverSwitchTests {
 
     private func exercisePopoverSwitch(route: ClickRoute) async throws {
         let sourceTabCount = 60
-        let fixture = try TerminalWorkspaceManagementTests.Fixture()
+        let fixture = try TerminalWorkspaceManagementTests.Fixture(
+            nativeNotifications: route == .queuedPerformClick ? NotificationCenter() : .default)
         defer {
             fixture.controller.workspacePopover.close()
             fixture.close()
@@ -151,7 +152,7 @@ struct TerminalWorkspacePopoverSwitchTests {
         let windowID = source.windowSessionID
         if queued {
             // Only the scheduling gate is synthetic; the popover and button are live AppKit objects.
-            NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+            fixture.nativeNotifications.post(name: NSWindow.willEnterFullScreenNotification, object: window)
             #expect(native.transitioningWindows.contains(windowID))
         }
 
@@ -184,7 +185,7 @@ struct TerminalWorkspacePopoverSwitchTests {
             try #require(reopened)
             let stillBusy = await waitUntil { source.workspacePopover.isManagementActionPerforming && targetButton()?.isEnabled == false }
             #expect(stillBusy, "The same picker session must stay busy while the switch is queued")
-            NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
+            fixture.nativeNotifications.post(name: NSWindow.didEnterFullScreenNotification, object: window)
         }
 
         let switched = await waitUntil {
