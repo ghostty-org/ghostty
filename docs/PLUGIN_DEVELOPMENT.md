@@ -267,11 +267,18 @@ and per-window selection are unchanged. Checkpoint-created controllers enter the
 selection-restoration owner directly, since they bypass AppKit's per-window
 restoration callbacks. Once the checkpoint owns restoration, a later AppKit
 selection archive cannot replace its topology or foreground selection.
-The checkpoint is presented only once the application is active. AppKit orders
-launch windows front conditionally while the app is inactive; restored windows
-shown then can remain marked visible without reaching the window server, and
-later reopen or tab selection cannot reveal them. A background launch therefore
-defers checkpoint restoration until its first activation.
+Background launches defer checkpoint presentation until first activation.
+Activation alone is insufficient for cold native tab groups: the native adapter
+orders each group's saved selected window before attaching the never-shown
+members. Joining only hidden windows first can leave the selected window
+logically visible but absent from WindowServer, even in an active application.
+Cold assembly retains the presentation guard, screen-update suppression and
+restored geometry, but does not wrap initial ordering in an animation transaction:
+that would defer the anchor's order until after attachment. Warm workspace
+handoffs retain their existing animation transaction. Foreground focus is applied
+after all groups are assembled, so opening
+a later group cannot displace the saved foreground. No window-server polling or
+forced order-out/rejoin recovery is part of normal presentation.
 Dock reopening checks committed workspace visibility before trusting AppKit's
 `hasVisibleWindows`: a selected retained parked tab is not a visible current
 workspace. After repairing selection, the host suppresses AppKit's default reopen

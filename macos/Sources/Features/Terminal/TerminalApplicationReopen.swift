@@ -1,10 +1,8 @@
 import AppKit
 
-/// AppKit orders launch windows front only conditionally while the app is not
-/// yet active. Restored windows shown before activation can stay marked
-/// visible without ever reaching the window server, so neither Dock reopen nor
-/// tab selection can bring them back. The checkpoint is therefore presented
-/// only once the application is actually active.
+/// Background launches wait for activation before presenting the checkpoint.
+/// This gate controls when restoration starts; the native adapter owns the
+/// order in which windows are shown and joined into tab groups.
 @MainActor
 final class TerminalWorkspaceLaunchGate {
     static let shared = TerminalWorkspaceLaunchGate()

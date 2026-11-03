@@ -4,6 +4,57 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalWorkspaceLaunchTests {
+    @Test(.tags(.interactiveDesktop))
+    func coldTabGroupDisplaysItsSavedSelectionOnTheWindowServer() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        try await activateTestHost()
+
+        let first = try fixture.tab()
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        for _ in 0..<2 {
+            let member = TerminalController(fixture.app, withBaseConfig: config, tabLayout: .vertical,
+                workspaceID: first.workspaceID, windowSessionID: first.windowSessionID,
+                workspaceGroupID: first.workspaceGroupID, workspaceCoordinator: fixture.coordinator)
+            fixture.controllers.append(member)
+            _ = try #require(member.window)
+        }
+        let members = fixture.controllers
+        let selected = members[1]
+        let window = try #require(selected.window)
+        try #require(members.allSatisfy { $0.window?.isVisible == false })
+        let panes = members.flatMap { $0.surfaceTree.map(\.id) }
+        let groups = [TerminalWorkspaceNativeAdapter.Group(members: members, selected: selected,
+            tabLayout: .vertical, visible: true, layout: selected.tabLayoutState)]
+        let transaction = TerminalWorkspacePresentationTransaction(members, initialPresentation: true)
+        let applied = fixture.coordinator.native.apply(groups, previous: [], focus: selected)
+        transaction.publish { fixture.coordinator.native.publish(groups) }
+        try #require(applied)
+
+        for _ in 0..<100 {
+            if isOnWindowServer(window) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(window.tabGroup?.windows == members.compactMap(\.window))
+        #expect(window.tabGroup?.selectedWindow === window)
+        #expect(window.isVisible)
+        #expect(isOnWindowServer(window))
+        #expect(members.flatMap { $0.surfaceTree.map(\.id) } == panes)
+
+        // Selecting a sibling and returning must preserve the same native group.
+        let sibling = try #require(members[2].window)
+        sibling.makeKeyAndOrderFront(nil)
+        await Task.yield()
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<100 {
+            if isOnWindowServer(window) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(window.tabGroup?.windows == members.compactMap(\.window))
+        #expect(isOnWindowServer(window))
+    }
+
     @Test func checkpointCapturesForegroundChangesWithoutChangingTheWorkspaceGraph() throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
@@ -33,6 +84,44 @@ struct TerminalWorkspaceLaunchTests {
 
     @Test(arguments: [false, true])
     func checkpointLaunchRestoresForegroundSelectionWithoutAppKitWindowCallbacks(legacy: Bool) async throws {
+        try await exerciseCheckpointLaunch(legacy: legacy)
+    }
+
+    @Test(.tags(.interactiveDesktop))
+    func checkpointLaunchPresentsBothWindowGroupsOnTheWindowServer() async throws {
+        try await activateTestHost()
+        // Saving/closing the source fixture is test setup, not an actual app
+        // quit. Keep a host window so that teardown cannot deactivate the app.
+        let host = NSWindow(contentRect: .init(x: 40, y: 40, width: 120, height: 80),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false
+        host.makeKeyAndOrderFront(nil)
+        defer { host.close() }
+        try await exerciseCheckpointLaunch(legacy: false, verifyWindowServer: true)
+    }
+
+    private func activateTestHost() async throws {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        try String(ProcessInfo.processInfo.processIdentifier).write(
+            toFile: "/tmp/omg-cold-tab-test.pid", atomically: true, encoding: .utf8
+        )
+        for _ in 0..<600 {
+            if NSApp.isActive { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try #require(NSApp.isActive, "Requires an unlocked foreground desktop")
+    }
+
+    private func isOnWindowServer(_ target: NSWindow) -> Bool {
+        let records = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        return records.contains {
+            ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == ProcessInfo.processInfo.processIdentifier &&
+                ($0[kCGWindowNumber as String] as? NSNumber)?.intValue == target.windowNumber
+        }
+    }
+
+    private func exerciseCheckpointLaunch(legacy: Bool, verifyWindowServer: Bool = false) async throws {
         let previousMode = OhMyGhosttySettings.shared.startupMode
         OhMyGhosttySettings.shared.startupMode = .restoreSessions
         defer { OhMyGhosttySettings.shared.startupMode = previousMode }
@@ -103,10 +192,15 @@ struct TerminalWorkspaceLaunchTests {
         let group = try #require(targetWindow.tabGroup)
         let firstWindow = try #require(restored.first { $0.tabSessionID == firstID }?.window)
         let otherWindow = try #require(restored.first { $0.tabSessionID == otherID }?.window)
-        TerminalWorkspacePresentation.begin()
-        group.selectedWindow = firstWindow
-        otherWindow.makeKeyAndOrderFront(nil)
-        TerminalWorkspacePresentation.end()
+        if verifyWindowServer {
+            #expect(group.selectedWindow === targetWindow)
+            if NSApp.isActive { #expect(targetWindow.isKeyWindow) }
+        } else {
+            TerminalWorkspacePresentation.begin()
+            group.selectedWindow = firstWindow
+            otherWindow.makeKeyAndOrderFront(nil)
+            TerminalWorkspacePresentation.end()
+        }
 
         // The checkpoint's controllers never entered registerRestored through
         // AppKit. A later system selection snapshot must not displace them.
@@ -144,6 +238,14 @@ struct TerminalWorkspaceLaunchTests {
         #expect(host.sidebar.configuration.layoutState === target.tabLayoutState)
         #expect(Set(host.sidebar.list.nodes.values.compactMap { $0.tab?.controller.tabSessionID }) ==
                 [firstID, selectedID])
+        if verifyWindowServer {
+            for _ in 0..<100 {
+                if isOnWindowServer(targetWindow), isOnWindowServer(otherWindow) { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(isOnWindowServer(targetWindow))
+            #expect(isOnWindowServer(otherWindow))
+        }
     }
 
     @Test func nativeSelectionOfAParkedTabActivatesItsWorkspaceAndExactTab() async throws {

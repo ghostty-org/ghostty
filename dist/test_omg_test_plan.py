@@ -28,6 +28,10 @@ BORDERLESS_DESKTOP_TESTS = {
     "GhosttyTests/TerminalWorkspaceManagementTests/nativeTabObservationSurvivesRepeatedBorderlessStyleChanges()",
     "GhosttyTests/TerminalWorkspaceManagementTests/nonNativeFullscreenSupportsWorkspaceCreationAndReturn()",
 }
+LAUNCH_DESKTOP_TESTS = {
+    "GhosttyTests/TerminalWorkspaceLaunchTests/coldTabGroupDisplaysItsSavedSelectionOnTheWindowServer()",
+    "GhosttyTests/TerminalWorkspaceLaunchTests/checkpointLaunchPresentsBothWindowGroupsOnTheWindowServer()",
+}
 DESKTOP_TESTS = {
     "GhosttyTests/VerticalTabMouseTests",
     "GhosttyTests/VerticalTabFullscreenTests",
@@ -39,6 +43,7 @@ DESKTOP_TESTS = {
     WORKSPACE_POPOVER_DESKTOP_TEST,
     TERMINATION_DESKTOP_TEST,
     *BORDERLESS_DESKTOP_TESTS,
+    *LAUNCH_DESKTOP_TESTS,
     "GhosttyTests/TerminalWorkspacePresentationTests/clickingWorkspaceButtonOpensItsNativePopover()",
 }
 
@@ -116,6 +121,7 @@ class PlannerTests(unittest.TestCase):
                      LINK_HOVER_DESKTOP_TEST, LINK_HOVER_DESKTOP_TEST[:-2], QUICK_INPUT_DESKTOP_TEST,
                      WORKSPACE_POPOVER_DESKTOP_TEST, WORKSPACE_POPOVER_DESKTOP_TEST[:-2],
                      TERMINATION_DESKTOP_TEST, TERMINATION_DESKTOP_TEST[:-2],
+                     *LAUNCH_DESKTOP_TESTS, *(test[:-2] for test in LAUNCH_DESKTOP_TESTS),
                      *BORDERLESS_DESKTOP_TESTS, *(test[:-2] for test in BORDERLESS_DESKTOP_TESTS)]:
             with self.subTest(test=test), self.assertRaisesRegex(ValueError, "requires --include-desktop-tests"):
                 self.plan(only_testing=[test])

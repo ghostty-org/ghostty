@@ -153,12 +153,15 @@ final class TerminalWorkspaceNativeAdapter {
                 target.toggleFullscreen(mode: mode)
             }
         }
-        var frontedWindows = Set<ObjectIdentifier>()
         for group in groups where group.visible {
             guard let selectedWindow = group.selected.window else { return false }
             let outgoing = previousVisible.first {
                 $0.selected.windowSessionID == group.selected.windowSessionID
             }?.selected.window
+            // A cold native tab stack needs an ordered anchor. Joining only
+            // never-shown windows can leave its selection logically visible
+            // but absent from WindowServer; ordering it later cannot repair it.
+            if outgoing == nil, !show(group.selected) { return false }
             var anchor = outgoing ?? selectedWindow
             let physicalMembers = physicalMembers(for: group, in: groups, retaining: retainedHosts)
             let activeIDs = Set(group.members.map(ObjectIdentifier.init))
@@ -196,10 +199,10 @@ final class TerminalWorkspaceNativeAdapter {
                 member.finishWorkspaceTabAttachment()
                 anchor = window
             }
-            if outgoing !== selectedWindow {
+            if let outgoing, outgoing !== selectedWindow {
                 let canSelectRetained = keepsExistingGroup && !restoringTopology &&
                     !selectedWindow.styleMask.contains(.fullScreen) &&
-                    !(outgoing?.styleMask.contains(.fullScreen) ?? false) &&
+                    !outgoing.styleMask.contains(.fullScreen) &&
                     !physicalMembers.contains(where: \.workspaceTabAttachmentIsPending) &&
                     physicalMembersWereAttachedAtEntry &&
                     physicalMembers.allSatisfy {
@@ -207,20 +210,12 @@ final class TerminalWorkspaceNativeAdapter {
                         return attached.contains(ObjectIdentifier(window))
                     }
                 let retainedSelection: (() -> Bool)? = canSelectRetained ? {
-                    let selected = self.selectRetained(group.selected)
-                    if selected { frontedWindows.insert(ObjectIdentifier(selectedWindow)) }
-                    return selected
+                    self.selectRetained(group.selected)
                 } : nil
                 guard group.selected.withNewTabPresentation(
                     from: outgoing,
                     selectRetained: retainedSelection,
-                    show: {
-                        let shown = self.show(group.selected)
-                        if shown, selectedWindow.isKeyWindow {
-                            frontedWindows.insert(ObjectIdentifier(selectedWindow))
-                        }
-                        return shown
-                    }
+                    show: { self.show(group.selected) }
                 ) else { return false }
             }
         }
@@ -267,14 +262,15 @@ final class TerminalWorkspaceNativeAdapter {
                 if native.selectedWindow !== window { native.selectedWindow = window }
             } else if windows.count != 1 { return false }
             if window.isMiniaturized { window.deminiaturize(nil) }
-            if group.selected === focus {
-                let id = ObjectIdentifier(window)
-                if !window.isKeyWindow, !frontedWindows.contains(id),
-                   !window.makeKeyAndOrderFrontSafely(nil) { return false }
-            } else if !window.isVisible {
+            if group.selected !== focus, !window.isVisible {
                 window.orderFront(nil)
             }
         }
+        // Later groups can take key status while they are first shown. Apply
+        // foreground once, after every group's membership and selection settle.
+        if let focus, groups.contains(where: { $0.visible && $0.selected === focus }),
+           let window = focus.window, !window.isKeyWindow,
+           !window.makeKeyAndOrderFrontSafely(nil) { return false }
         completed = true
         return true
     }
@@ -348,15 +344,21 @@ final class TerminalWorkspaceNativeAdapter {
 final class TerminalWorkspacePresentationTransaction {
     private var animations: [(NSWindow, NSWindow.AnimationBehavior)] = []
     private var ended = false
+    private let initialPresentation: Bool
 
-    init(_ controllers: [TerminalController]) {
+    init(_ controllers: [TerminalController], initialPresentation: Bool = false) {
+        self.initialPresentation = initialPresentation
         TerminalWorkspacePresentation.begin()
         NSDisableScreenUpdates()
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        NSAnimationContext.current.allowsImplicitAnimation = false
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        // Cold anchors must reach WindowServer before native tab attachment.
+        // Animation transactions defer that order even with duration zero.
+        if !initialPresentation {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            NSAnimationContext.current.allowsImplicitAnimation = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+        }
         var seen = Set<ObjectIdentifier>()
         for controller in controllers {
             guard let window = controller.window, seen.insert(ObjectIdentifier(window)).inserted else { continue }
@@ -370,8 +372,10 @@ final class TerminalWorkspacePresentationTransaction {
         ended = true
         TerminalWorkspacePresentation.end()
         update()
-        CATransaction.commit()
-        NSAnimationContext.endGrouping()
+        if !initialPresentation {
+            CATransaction.commit()
+            NSAnimationContext.endGrouping()
+        }
         for (window, behavior) in animations { window.animationBehavior = behavior }
         NSEnableScreenUpdates()
     }

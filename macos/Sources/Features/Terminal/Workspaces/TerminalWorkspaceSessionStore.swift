@@ -202,7 +202,7 @@ final class TerminalWorkspaceSessionStore {
         if !testing { TerminalWorkspaceCoordinator.shared.useSessions(self) }
         restoring = true
         if ownsRestoration {
-            let transaction = TerminalWorkspacePresentationTransaction([])
+            let transaction = TerminalWorkspacePresentationTransaction([], initialPresentation: true)
             let restoreSessions = SessionRuntimeRestorationPolicy.attachesSavedRuntime(
                 for: OhMyGhosttySettings.shared.startupMode
             )

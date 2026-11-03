@@ -152,3 +152,51 @@ Checkpoint restoration now starts only once the app is active: immediately for
 a normal launch, otherwise on first activation. With two tab groups, six normal
 launches showed the current tab in both groups, and three background launches
 showed nothing until activation and then both groups.
+
+## Cold native tab stack root cause
+
+The activation-only diagnosis above was incomplete. An independent three-window
+AppKit application reproduces the loss with `isActive=true`, `isKeyWindow=true`,
+and `isVisible=true`, while the selected window's ID is absent from the onscreen
+WindowServer list. A single-window control appears normally. Grouping hidden
+windows then showing the selection still fails when assembly is deferred by a
+main-queue turn, presentation is deferred, or reordering is omitted.
+
+Ordering the selected window before the first `addTabbedWindow` makes the same
+group appear. This also works with screen updates disabled around assembly.
+However, adding either an explicit `NSAnimationContext` group or a
+`CATransaction` reproduces the failure again: the anchor's order is deferred
+until after attachment. Both the ordering and the transaction boundary matter.
+The distinction is a cold native stack with no ordered anchor, not terminal
+rendering or session recovery.
+
+The adapter now shows a cold group's selected anchor before attaching members.
+Warm workspace handoffs keep the existing outgoing anchor and native fullscreen
+path. The launch transaction retains its presentation guard and screen-update
+suppression, but skips the animation transaction for initial presentation.
+Deleting the whole transaction also removed the guards against intermediate
+sidebar refresh and last-window geometry replay.
+Foreground is applied once after all groups have been assembled, replacing the
+historical set of windows that were key at some earlier point in assembly.
+
+The desktop regression uses three never-shown terminal windows and checks their
+actual WindowServer IDs, native order, selection, and pane identities. On the
+baseline, its two onscreen assertions and key-window assertion fail even though
+the logical visibility and selected-window assertions pass. This distinguishes
+the reported bug from tests that only inspect AppKit's logical state.
+
+Final source validation on macOS 27.2 (26B123):
+
+- All 1,383 routine Swift tests in 173 suites passed in 15 serial batches.
+- Both WindowServer desktop regressions passed: cold tab assembly and full
+  checkpoint restoration of two independent window groups.
+- The existing 60-tab native fullscreen termination desktop regression passed.
+- All 42 selector contract tests, scoped strict Swift lint, documentation,
+  plist and whitespace checks passed.
+
+The desktop checkpoint fixture also serves routine delayed-selection tests.
+Its desktop path checks the actual startup selection without deliberately
+corrupting it, since real mouse/key input correctly cancels deferred selection
+repair. The routine path continues to exercise stale native/AppKit selections.
+WindowServer visibility remains an unconditional desktop assertion, independent
+of whether another application subsequently takes keyboard focus.
