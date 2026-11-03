@@ -495,10 +495,15 @@ pub fn RefCountedSet(
 
         /// Release a specified number of references to an item by its ID.
         ///
-        /// Asserts that the item's reference count is at least `n`.
+        /// Asserts that `n` is greater than 0 and that the item's
+        /// reference count is at least `n`.
         pub fn releaseMultiple(self: *Self, base: anytype, id: Id, n: Id) void {
             assert(id > 0);
             assert(id < self.layout.cap);
+
+            // Releasing zero references from a dead item would count
+            // it as dying again and undercount `living`.
+            assert(n > 0);
 
             const items = self.items.ptr(base);
             const item = &items[id];
