@@ -606,6 +606,8 @@ pub const StreamHandler = struct {
                 // before freeing the viewer.
             },
 
+            .message => |text| self.tmuxPrint(text),
+
             .command => |command| {
                 assert(command.len > 0);
                 assert(command[command.len - 1] == '\n');
