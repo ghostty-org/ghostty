@@ -132,6 +132,18 @@ struct TerminalWorkspaceLaunchTests {
         #expect(Set(target.tabLayoutState.tabSnapshot.controllers.map(\.tabSessionID)) == [firstID, selectedID])
         #expect(Set(restored.flatMap { $0.surfaceTree.map(\.id) }) == panes)
         #expect(store.group(window: target.windowSessionID, workspace: target.workspaceID)?.selected == selectedID)
+        for _ in 0..<100 {
+            if let host = target.tabLayoutState.sidebarHost.liveView as? NativeTabSidebarHostingView,
+               host.window === targetWindow,
+               host.sidebar.list.nodes.values.filter({ $0.tab != nil }).count == 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let host = try #require(target.tabLayoutState.sidebarHost.liveView as? NativeTabSidebarHostingView)
+        #expect(host.window === targetWindow)
+        #expect(host.sidebar.configuration.controller === target)
+        #expect(host.sidebar.configuration.layoutState === target.tabLayoutState)
+        #expect(Set(host.sidebar.list.nodes.values.compactMap { $0.tab?.controller.tabSessionID }) ==
+                [firstID, selectedID])
     }
 
     @Test func nativeSelectionOfAParkedTabActivatesItsWorkspaceAndExactTab() async throws {

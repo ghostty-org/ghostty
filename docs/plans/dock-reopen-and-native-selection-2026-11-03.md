@@ -109,3 +109,21 @@ final tree passes all 766 tests in the 84 affected routine suites across seven
 serial fresh-host batches, including the normal reconciliation regression.
 The foreground 60-tab fullscreen termination test also passes. Strict lint,
 documentation, plist, settings JSON and whitespace checks pass.
+
+Installed `0.18.0-dev.8191da29` was tested with only the two new A/B fixture
+tabs in the active checkpoint. Separate normal quit/reopen cycles restore A
+and B respectively without issuing a selection command after launch. The
+selected pane UUID and shell PID match before and after each cycle.
+
+An apparent sidebar screenshot mismatch prompted a temporary bounded diagnostic
+build. Its four presentation observations report two native members, two
+sidebar nodes, the correct controller/layout owner and mounted sidebar/surface
+in the selected window. The probe was removed after collecting that private
+evidence. The regression now additionally checks the actual mounted native
+sidebar controller, node membership and window, and all nine launch tests pass.
+
+The computer-use tool subsequently reports that the desktop is locked and
+automatic unlocking failed. Thus unlocked visual/pointer acceptance remains
+pending; scripting and model/view observations do not count as that pass.
+Historical data remains backed up outside the active Dev restoration profile,
+and only the two new fixture tabs remain active.
