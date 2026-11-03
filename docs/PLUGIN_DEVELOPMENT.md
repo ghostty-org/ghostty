@@ -42,6 +42,14 @@ session, including when Close arrives before Create. This revokes the whole
 pane UUID across Agent resume generations. Old pinned hosts keep the attached
 Close path but cannot confirm durable cleanup; requests remain visible as pending.
 
+On macOS the local relay starts `omgd host-local` through a transient
+`gui/<uid>` launchd job (`AbandonProcessGroup`, no `KeepAlive`). The job runs
+`omgd detach`, which forks the host into its own session, reports its pid and
+exits; the relay then removes the job. The host is therefore outside the app
+coalition, so Cmd-Q fully quits the app instead of leaving it "running in the
+background", and reopening reattaches to the same host. If the GUI launchd
+domain is unavailable, the relay falls back to direct `setsid` startup.
+
 On supported Linux hosts, systemd supervises the single host service with
 `Delegate=yes` and `KillMode=control-group`. Each Session owns a child cgroup,
 joined before shell exec; normal setsid/double-fork descendants stay in it.

@@ -242,6 +242,35 @@ fn ensure_host_with(
         }
         return Err(io::Error::other("supervised host failed to become ready"));
     }
+    if local {
+        // The relay runs inside the app; keep the persistent host out of the
+        // app coalition so Cmd-Q fully quits the app. The current helper does
+        // the detach so older pinned host revisions need not support it.
+        let command = [
+            executable.to_string_lossy().into_owned(),
+            "host-local".into(),
+            root.to_string_lossy().into_owned(),
+            "--".into(),
+            shell.clone(),
+            "-l".into(),
+        ];
+        if let Some(pid) = omg_session_runtime::launchd::spawn(
+            &env::current_exe()?,
+            &command,
+            &root.join("host.log"),
+        )? {
+            for _ in 0..100 {
+                if UnixStream::connect(&socket).is_ok() {
+                    return Ok(());
+                }
+                if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            return Err(io::Error::other("detached host daemon failed to start"));
+        }
+    }
     eprintln!("runtime supervision unavailable; process-group cleanup only");
     let mut c = Command::new(executable);
     c.arg(if local { "host-local" } else { "host" })
@@ -319,6 +348,9 @@ fn main() -> io::Result<()> {
         }
         Some("host-local") if a.len() >= 5 && a[3] == "--" => {
             omg_session_runtime::host::serve_local(Path::new(&a[2]), a[4..].to_vec())
+        }
+        Some("detach") if a.len() >= 5 && a[3] == "--" => {
+            omg_session_runtime::launchd::detach(Path::new(&a[2]), &a[4..])
         }
         Some("session-holder") if a.len() == 2 => omg_session_runtime::holder::run_from_stdin(),
         Some("bridge") if a.len() == 3 => bridge(&a[2]),

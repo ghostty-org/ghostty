@@ -21,6 +21,7 @@ pub const RESIZE: u8 = b'R';
 pub const INFO: u8 = b'J';
 pub const ACK: u8 = b'A';
 pub mod containment;
+pub mod launchd;
 pub mod supervision;
 pub const CLOSE: u8 = b'K';
 pub const EXIT: u8 = b'X';

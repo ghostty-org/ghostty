@@ -64,6 +64,7 @@ SSH handoff 保留当前 Surface、pane UUID 和本地 PTY。经过 pane capabil
 - 单 writer、多 observer；输入和 resize 都验证 writer generation。无人连接保留最后有效尺寸，不停止读取 PTY。
 - CloseSession 先在客户端持久化，再由远端持久化 UUID 关闭标记；后台重试直至远端确认。关闭是整个 pane UUID 的永久撤销，禁止后续自动 resume 或重建，因此不会因 generation 更新漏掉已经关闭的 pane。仍保留原 attached `K` 供旧版本使用，但旧 host 不支持确认时请求保持待确认。
 - Linux systemd/cgroup v2 监管模式中，每 Session 一个 cgroup、仍由同一个 omgd 的线程持有 PTY。子进程在 exec 前加入 cgroup，普通 setsid/nohup/double-fork 不改变归属。退出时清理该组并检查 populated=0；daemon SIGKILL 则由 systemd KillMode=control-group 清理整个服务。macOS 或无监管能力的主机仍只有进程组清理保证。
+- macOS 本地 host 通过临时 `gui/<uid>` launchd 任务启动：任务运行 `omgd detach`，fork 出独立会话的 `host-local` 并回报 pid 后退出，relay 随即 bootout 该任务。host 因此不在 App 的 coalition 中，Cmd-Q 后 App 完全退出、不再显示“在后台运行”，重新打开时连回同一个 host。GUI launchd 域不可用时回退到直接 `setsid` 启动。
 - SSH 配置负责路由；host ID 加远端账号/daemon namespace 负责身份。克隆机器可能复制 host ID，不能替代 SSH 主机认证。
 
 ## VT 状态恢复：首要技术验证
