@@ -2340,6 +2340,16 @@ pub const Row = packed struct(u64) {
         self.* = @bitCast((v | set) & ~clear);
     }
 
+    /// Mark a cleared row dirty and blank in one write. This only records
+    /// the clear: the caller guarantees the row's cells and metadata are
+    /// already in the zero state, such as a row just exposed by
+    /// `PageList.grow`. Other header fields are left as they are.
+    pub inline fn markCleared(self: *Row) void {
+        const set: Backing = comptime fieldMask(Row, &.{ "dirty", "blank" });
+        const v: Backing = @bitCast(self.*);
+        self.* = @bitCast(v | set);
+    }
+
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
     pub inline fn managedMemory(self: Row) bool {

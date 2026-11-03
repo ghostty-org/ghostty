@@ -606,6 +606,22 @@ pub fn printRepeat(self: *Terminal, count_req: usize) !void {
 /// slower per-codepoint path. They're less common and this is optimized
 /// for the aforementioned cases.
 pub fn printSlice(self: *Terminal, cps: []const u32) !void {
+    return self.printSliceOf(u32, cps);
+}
+
+/// printSlice for text that is all printable ASCII (0x20 to 0x7F), given
+/// as bytes. The stream hands ASCII text over this way (see Stream's
+/// vtPrintAscii), so it is never widened to codepoints and the batched
+/// path doesn't classify it again. Any other byte is illegal, and is
+/// caught in safe builds.
+pub fn printSliceAscii(self: *Terminal, bytes: []const u8) !void {
+    return self.printSliceOf(u8, bytes);
+}
+
+/// printSlice over codepoints of type Cp: u32 for any codepoints, u8 for
+/// printable ASCII (see printSliceAscii). Cp is comptime so that each
+/// compiles as if the other didn't exist.
+fn printSliceOf(self: *Terminal, comptime Cp: type, cps: []const Cp) !void {
     // Check if we can do the fast path up front. If we can't
     // we need to go back to scalar `print`.
     const fast = fast: {
@@ -634,9 +650,9 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
     // doesn't pay for the linking. A slice never spans an OSC 8 open or
     // close, so this holds for the whole slice.
     if (self.screens.active.cursor.hyperlink_id != 0) {
-        return @call(.never_inline, printSliceBatched, .{ self, true, cps });
+        return @call(.never_inline, printSliceBatched, .{ self, true, Cp, cps });
     }
-    return @call(.always_inline, printSliceBatched, .{ self, false, cps });
+    return @call(.always_inline, printSliceBatched, .{ self, false, Cp, cps });
 }
 
 /// The batched part of printSlice, specialized on whether a hyperlink is
@@ -644,7 +660,8 @@ pub fn printSlice(self: *Terminal, cps: []const u32) !void {
 fn printSliceBatched(
     self: *Terminal,
     comptime linked: bool,
-    cps: []const u32,
+    comptime Cp: type,
+    cps: []const Cp,
 ) !void {
     const grapheme_cluster = self.modes.get(.grapheme_cluster);
 
@@ -665,6 +682,7 @@ fn printSliceBatched(
         // codepoints it consumed.
         const consumed = try self.printSliceFast(
             linked,
+            Cp,
             cps[i..],
             grapheme_cluster,
             allow_unicode,
@@ -677,7 +695,8 @@ fn printSliceBatched(
             // run: in text that alternates width classes every few
             // codepoints (CJK with ASCII spaces, digits and
             // punctuation) the setup of each batch would dominate.
-            if (i < cps.len) {
+            // ASCII is all one width.
+            if (Cp == u32 and i < cps.len) {
                 if (printSliceTransition(
                     cps[i - 1],
                     cps[i],
@@ -717,10 +736,21 @@ fn printSliceBatched(
 fn printSliceFast(
     self: *Terminal,
     comptime linked: bool,
-    cps: []const u32,
+    comptime Cp: type,
+    cps: []const Cp,
     grapheme_cluster: bool,
     allow_unicode: bool,
 ) !usize {
+    // Printable ASCII is always narrow and eligible.
+    if (comptime Cp == u8) return self.printSliceFill(
+        .narrow,
+        linked,
+        Cp,
+        cps,
+        grapheme_cluster,
+        allow_unicode,
+    );
+
     const screen: *Screen = self.screens.active;
 
     // Codepoints in [0x10, 0xFF] are always narrow (width 1, matching
@@ -749,6 +779,7 @@ fn printSliceFast(
         return self.printSliceFill(
             .narrow,
             linked,
+            Cp,
             cps,
             grapheme_cluster,
             allow_unicode,
@@ -812,6 +843,7 @@ fn printSliceFast(
         1 => self.printSliceFill(
             .narrow,
             linked,
+            Cp,
             cps,
             grapheme_cluster,
             allow_unicode,
@@ -819,6 +851,7 @@ fn printSliceFast(
         2 => self.printSliceFill(
             .wide,
             linked,
+            Cp,
             cps,
             grapheme_cluster,
             allow_unicode,
@@ -865,7 +898,8 @@ inline fn printSliceEligible(cp: u32, comptime width: PrintSliceWidth) bool {
 /// auto-vectorizes it as Zig 0.15 (LLVM 20) did.
 inline fn printSliceStoreRun(
     cells: [*]Cell,
-    cps: [*]const u32,
+    comptime Cp: type,
+    cps: [*]const Cp,
     from: usize,
     to: usize,
     template_bits: u64,
@@ -895,36 +929,41 @@ inline fn printSliceStoreRun(
 
     var idx = from;
 
-    // Vectorized bulk of the run.
-    if (simd.lanes(u64)) |lanes| {
-        // u64 due to backing integer of Cell
-        const V = @Vector(lanes, u64);
+    // Vectorized bulk of the run. Bytes go several vectors of cells at
+    // a time first, so that each load fills a whole vector of input,
+    // then one vector at a time.
+    if (simd.lanes(u64)) |cell_lanes| {
+        const widths = if (Cp == u8) .{ cell_lanes * 4, cell_lanes } else .{cell_lanes};
+        inline for (widths) |lanes| {
+            // u64 due to backing integer of Cell
+            const V = @Vector(lanes, u64);
 
-        // The template and shift amount are loop-invariant, so
-        // broadcast them to every lane once up front.
-        const template: V = @splat(template_bits);
-        const shift: @Vector(
-            lanes,
-            std.math.Log2Int(u64),
-        ) = @splat(cp_shift);
+            // The template and shift amount are loop-invariant, so
+            // broadcast them to every lane once up front.
+            const template: V = @splat(template_bits);
+            const shift: @Vector(
+                lanes,
+                std.math.Log2Int(u64),
+            ) = @splat(cp_shift);
 
-        while (idx + lanes <= to) : (idx += lanes) {
-            // Load `lanes` decoded codepoints...
-            const narrow: @Vector(lanes, u32) = cps[idx..][0..lanes].*;
+            while (idx + lanes <= to) : (idx += lanes) {
+                // Load `lanes` codepoints...
+                const narrow: @Vector(lanes, Cp) = cps[idx..][0..lanes].*;
 
-            // ...widen each u32 lane to the u64 cell size...
-            const wide: V = @intCast(narrow);
+                // ...widen each lane to the u64 cell size...
+                const wide: V = @intCast(narrow);
 
-            // ...shift each codepoint into the content field's bit
-            // position and merge with the template, producing
-            // `lanes` finished cells (coerced from vector to array
-            // so they can be bitcast for the store below)...
-            const bits: [lanes]u64 = template | (wide << shift);
+                // ...shift each codepoint into the content field's bit
+                // position and merge with the template, producing
+                // `lanes` finished cells (coerced from vector to array
+                // so they can be bitcast for the store below)...
+                const bits: [lanes]u64 = template | (wide << shift);
 
-            // ...and store them contiguously. Cell is a packed
-            // struct(u64) so an array of u64 bit patterns has
-            // identical layout to an array of cells.
-            cells[idx..][0..lanes].* = @bitCast(bits);
+                // ...and store them contiguously. Cell is a packed
+                // struct(u64) so an array of u64 bit patterns has
+                // identical layout to an array of cells.
+                cells[idx..][0..lanes].* = @bitCast(bits);
+            }
         }
     }
 
@@ -956,7 +995,8 @@ fn printSliceFill(
     self: *Terminal,
     comptime width: PrintSliceWidth,
     comptime linked: bool,
-    cps: []const u32,
+    comptime Cp: type,
+    cps: []const Cp,
     grapheme_cluster: bool,
     allow_unicode: bool,
 ) !usize {
@@ -977,7 +1017,15 @@ fn printSliceFill(
     // can batch. For codepoints after the first, the previous codepoint
     // in the run is always written as a fresh, single-codepoint cell,
     // so the grapheme break check against it is exact.
-    const run_len: usize = run: {
+    const run_len: usize = if (comptime Cp == u8) ascii: {
+        // Printable ASCII is always narrow and eligible: one run with
+        // nothing to scan.
+        comptime assert(width == .narrow);
+        if (comptime std.debug.runtime_safety) {
+            for (cps) |cp| assert(cp >= 0x20 and cp <= 0x7F);
+        }
+        break :ascii cps.len;
+    } else run: {
         var idx: usize = 1;
 
         // Vectorized scan for the narrow class: codepoints in
@@ -1146,6 +1194,16 @@ fn printSliceFill(
             // several cells at a time manually.
             var simple = k;
             simple: {
+                // A blank row holds only zero cells (see Row.blank): each
+                // is simple once it holds a reference to our style, so
+                // there is nothing to scan.
+                if (k == 0 and cursor.page_row.blank) {
+                    if (style_id != style.default_id) {
+                        page.styles.useMultiple(page.memory, style_id, @intCast(cell_count));
+                    }
+                    simple = cell_count;
+                    break :simple;
+                }
                 while (simple + SimpleMask.group_len <= cell_count) {
                     const p = SimpleMask.eqlPrefix(
                         cells[0..cell_count],
@@ -1210,6 +1268,7 @@ fn printSliceFill(
             } else {
                 printSliceStoreRun(
                     cells,
+                    Cp,
                     cps.ptr + printed,
                     k,
                     simple,
@@ -1269,6 +1328,7 @@ fn printSliceFill(
 
                 printSliceStoreRun(
                     cells,
+                    Cp,
                     cps.ptr + printed,
                     k,
                     m,
@@ -15916,6 +15976,68 @@ test "Terminal: printSlice simple ascii" {
     }
 }
 
+test "Terminal: printSliceAscii matches printSlice" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+
+    // Printable ASCII including DEL, long enough to wrap and scroll.
+    var bytes: [37]u8 = undefined;
+    var cps: [bytes.len]u32 = undefined;
+    for (&bytes, &cps, 0..) |*b, *cp, i| {
+        b.* = 0x20 + @as(u8, @intCast(i * 7 % 0x60));
+        cp.* = b.*;
+    }
+
+    // 0: blank rows. 1: a row with content in another style, with a
+    // wide character the fill can't overwrite in bulk. 2: the cursor
+    // at the right margin with a pending wrap.
+    for (0..3) |setup| {
+        var t1 = try init(io_impl, alloc, .{ .cols = 10, .rows = 4 });
+        defer t1.deinit(alloc);
+        var t2 = try init(io_impl, alloc, .{ .cols = 10, .rows = 4 });
+        defer t2.deinit(alloc);
+        inline for (.{ &t1, &t2 }) |t| {
+            switch (setup) {
+                0 => {},
+                1 => {
+                    try t.setAttribute(.{ .bold = {} });
+                    for ("abc") |c| try t.print(c);
+                    try t.print(0x4E00);
+                    for ("defgh") |c| try t.print(c);
+                    try t.setAttribute(.{ .unset = {} });
+                    t.setCursorPos(1, 2);
+                },
+                2 => {
+                    for ("0123456789") |c| try t.print(c);
+                    try testing.expect(t.screens.active.cursor.pending_wrap);
+                },
+                else => unreachable,
+            }
+        }
+
+        try t1.printSlice(&cps);
+        try t2.printSliceAscii(&bytes);
+
+        const c1 = t1.screens.active.cursor;
+        const c2 = t2.screens.active.cursor;
+        try testing.expectEqual(c1.x, c2.x);
+        try testing.expectEqual(c1.y, c2.y);
+        try testing.expectEqual(c1.pending_wrap, c2.pending_wrap);
+        try testing.expectEqual(t1.previous_char, t2.previous_char);
+        for (0..4) |y| {
+            const p1 = t1.screens.active.pages.pin(.{ .active = .{ .y = @intCast(y) } }).?;
+            const p2 = t2.screens.active.pages.pin(.{ .active = .{ .y = @intCast(y) } }).?;
+            try testing.expectEqual(
+                @as(u64, @bitCast(p1.rowAndCell().row.*)),
+                @as(u64, @bitCast(p2.rowAndCell().row.*)),
+            );
+            for (p1.cells(.all), p2.cells(.all)) |a, b| {
+                try testing.expectEqual(@as(u64, @bitCast(a)), @as(u64, @bitCast(b)));
+            }
+        }
+    }
+}
+
 test "Terminal: printSlice charset batched fill" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
@@ -15935,7 +16057,7 @@ test "Terminal: printSlice charset batched fill" {
     for ([_]sgr.Attribute{ .unset, .unset, .bold, .bold, .unset }) |attr| {
         t.setCursorPos(1, 1);
         try t.setAttribute(attr);
-        try testing.expectEqual(cps.len, try t.printSliceFast(false, &cps, true, false));
+        try testing.expectEqual(cps.len, try t.printSliceFast(false, u32, &cps, true, false));
         const str = try t.plainString(alloc);
         defer alloc.free(str);
         try testing.expectEqualStrings("┌───┐\n└───┘", str);
@@ -16354,7 +16476,7 @@ test "Terminal: printSlice with hyperlink takes the fast path" {
 
     // The batched fill writes the whole run, rather than print().
     const cps = [_]u32{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j' };
-    try testing.expectEqual(cps.len, try t.printSliceFast(true, &cps, false, true));
+    try testing.expectEqual(cps.len, try t.printSliceFast(true, u32, &cps, false, true));
 
     // One map entry and one reference per cell, plus the cursor's.
     const page = t.screens.active.cursor.page_pin.node.page();

@@ -1104,8 +1104,11 @@ pub fn cursorDownScroll(self: *Screen) !void {
             self.cursor.page_cell = page_rac.cell;
         }
 
-        // Our new row is always dirty
-        self.cursorMarkDirty();
+        // Our new row is always dirty. It is also always in the zero
+        // state: from unused page capacity, a fresh page, or a recycled
+        // page that grow() zeroed. Marking it blank too, in the same
+        // write, lets printing into it skip checking its old cells.
+        self.cursor.page_row.markCleared();
 
         // Clear the new row so it gets our bg color. We only do this
         // if we have a bg color at all.
