@@ -347,6 +347,12 @@ pub fn RefCountedSet(
                     items[id].meta.ref += 1;
                     assert(items[id].meta.ref == 1);
                     self.living += 1;
+
+                    // `insert` may reuse a smaller dead ID it reaped on its
+                    // way, leaving `dead_id` dead and out of the table.
+                    // Reclaim it next.
+                    if (id != dead_id) self.free_cursor = dead_id;
+
                     return id;
                 }
 
@@ -1193,4 +1199,61 @@ test "add reclaims a reaped item when the default bucket is a real bucket" {
     try testing.expectEqual(@as(u8, 1), set.lookup(buf, 50 + 256).?);
     try testing.expectEqual(@as(u8, 2), set.lookup(buf, 5).?);
     try testing.expectEqual(n - 20, set.count());
+}
+
+test "add reclaims the dead ID that insert passed over" {
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u16,
+        u16,
+        struct {
+            // Identity hash, so each value's home bucket is its value
+            // modulo the table size.
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return value;
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(16);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+
+    // Hand out every ID. ID n gets value n, so it sits in bucket n.
+    const n = layout.cap - 1;
+    for (1..n + 1) |id| {
+        try testing.expectEqual(@as(u16, @intCast(id)), try set.add(buf, @intCast(id)));
+    }
+
+    // Reclaim ID 9, which moves the search past it.
+    set.release(buf, 9);
+    set.release(buf, 10);
+    try testing.expectEqual(@as(u16, 9), try set.add(buf, 13));
+
+    // The search reclaims ID 10, but the new value's home is ID 3's
+    // bucket, so `insert` reaps ID 3 and uses that smaller ID instead.
+    set.release(buf, 3);
+    try testing.expectEqual(@as(u16, 3), try set.add(buf, 3 + 16));
+
+    // ID 10 is still dead, so the next reclaim takes it rather than
+    // ID 5, which died later.
+    set.release(buf, 5);
+    try testing.expectEqual(@as(u16, 10), try set.add(buf, 14));
+
+    try testing.expectEqual(@as(u16, 9), set.lookup(buf, 13).?);
+    try testing.expectEqual(@as(u16, 3), set.lookup(buf, 3 + 16).?);
+    try testing.expectEqual(@as(u16, 10), set.lookup(buf, 14).?);
+    try testing.expectEqual(@as(?u16, null), set.lookup(buf, 5));
+    try testing.expectEqual(n - 1, set.count());
 }
