@@ -2374,10 +2374,11 @@ const ReflowCursor = struct {
                 // call fails so we aren't leaking memory.
                 dst_link.free(self.page);
 
-                // If the add failed then either the set needs to grow
-                // or it needs to be rehashed. Either one of those can
-                // be accomplished by increasing capacity, either with
-                // no actual change or with an increased hyperlink cap.
+                // If the add failed then the set needs to grow, which
+                // increasing the hyperlink cap does. `NeedsRehash` only
+                // happens if the set's bookkeeping is wrong (safe builds
+                // panic instead), and increasing capacity with no
+                // actual change rebuilds it.
                 try self.increaseCapacity(list, switch (err) {
                     error.OutOfMemory => .hyperlink_bytes,
                     error.NeedsRehash => null,
@@ -2488,10 +2489,11 @@ const ReflowCursor = struct {
                 style,
                 cell.style_id,
             ) catch |err| id: {
-                // If the add failed then either the set needs to grow
-                // or it needs to be rehashed. Either one of those can
-                // be accomplished by increasing capacity, either with
-                // no actual change or with an increased style cap.
+                // If the add failed then the set needs to grow, which
+                // increasing the style cap does. `NeedsRehash` only
+                // happens if the set's bookkeeping is wrong (safe builds
+                // panic instead), and increasing capacity with no
+                // actual change rebuilds it.
                 try self.increaseCapacity(list, switch (err) {
                     error.OutOfMemory => .styles,
                     error.NeedsRehash => null,

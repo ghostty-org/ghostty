@@ -2619,8 +2619,10 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
         page.memory,
         self.cursor.style,
     ) catch |err| id: {
-        // Our style map is full or needs to be rehashed, so we need to
-        // increase style capacity (or rehash).
+        // Our style map is full, so we need to increase style capacity.
+        // `NeedsRehash` only happens if the set's bookkeeping is wrong
+        // (safe builds panic instead), and a clone at the same capacity
+        // rebuilds it.
         const node = self.increaseCapacity(
             self.cursor.page_pin.node,
             switch (err) {
@@ -2652,10 +2654,10 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
                 return error.OutOfMemory;
             },
             error.NeedsRehash => {
-                // This should be impossible because we rehash above
-                // and rehashing should never result in a duplicate. But
-                // we don't want to simply hard crash so log it and
-                // clear our style.
+                // This should be impossible because the page was just
+                // rebuilt, so the set's bookkeeping is right. But we
+                // don't want to simply hard crash so log it and clear
+                // our style.
                 log.err("style rehash resulted in needs rehash", .{});
                 return;
             },
@@ -2871,7 +2873,8 @@ pub fn startHyperlink(
                 .hyperlink_bytes,
             ),
 
-            // hyperlink set is too full, rehash it
+            // hyperlink set bookkeeping is wrong (safe builds panic
+            // instead), rebuild it with a clone at the same capacity
             error.SetNeedsRehash => _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
                 null,

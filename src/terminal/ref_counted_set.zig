@@ -280,8 +280,15 @@ pub fn RefCountedSet(
         /// keeps its existing copy, so the context's `deleted` callback runs
         /// on the `value` you passed in.
         ///
-        /// Once every ID has been handed out, new values reuse the IDs of dead
-        /// items. If fewer than 10% of IDs are dead, this returns `OutOfMemory`.
+        /// A new value may take the ID of a dead item at any time: dead items
+        /// at the end of the IDs are freed first, and a dead item in the new
+        /// value's probe sequence can give up its ID. Once every ID has been
+        /// handed out, new values always reuse the ID of a dead item. If
+        /// fewer than 10% of IDs are dead, this returns `OutOfMemory`.
+        ///
+        /// This also returns `OutOfMemory` if a probe sequence in the table is
+        /// about to get too long, which only a poor hash or crafted input
+        /// causes. Growing the set spreads the values over more buckets.
         ///
         /// ```zig
         /// const a = try set.add(base, 1);
@@ -337,8 +344,7 @@ pub fn RefCountedSet(
 
                         // Only possible if `living` is wrong. Fail loudly
                         // in safe builds. Release builds recover by
-                        // asking the caller to rehash. In a future PR
-                        // I plan to remove this completely.
+                        // asking the caller to rehash.
                         if (comptime std.debug.runtime_safety) assert(false);
                         return AddError.NeedsRehash;
                     };
