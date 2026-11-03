@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import os
 
 /// OpenSSH owns connection/channel lifetimes and expires idle masters after
 /// 60 seconds. A private socket namespace prevents sharing an interactive
@@ -23,6 +24,36 @@ enum GitSSHControlSocket {
         let identity = session + "\0" + executablePath + "\0" + connection.identity
         let digest = SHA256.hash(data: Data(identity.utf8)).prefix(20)
             .map { String(format: "%02x", $0) }.joined()
-        return directory + "/" + digest
+        let path = directory + "/" + digest
+        issued.withLock { $0[path] = executablePath }
+        return path
+    }
+
+    private static let issued = OSAllocatedUnfairLock(initialState: [String: String]())
+
+    /// Masters persist 60 seconds after their last channel. Their sockets are
+    /// unique to this launch, so nothing can reuse them after quit; leaving
+    /// them (and their ProxyJump helpers) running keeps the quit app listed
+    /// as running in the background. Ask each live master to exit.
+    static func closeAll(timeout: TimeInterval = 1) {
+        let sockets = issued.withLock { current -> [String: String] in
+            defer { current.removeAll() }
+            return current
+        }
+        let processes: [Process] = sockets.compactMap { path, executable in
+            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = ["-S", path, "-O", "exit", "omg-git"]
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            return (try? process.run()) == nil ? nil : process
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        for process in processes {
+            while process.isRunning, Date() < deadline { usleep(10_000) }
+            if process.isRunning { process.terminate() }
+        }
     }
 }

@@ -781,6 +781,7 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
             if getpgid(pid) == pid { kill(-pid, SIGTERM) } else { relay.process.terminate() }
         }
         relays.removeAll()
+        GitSSHControlSocket.closeAll()
         Self.terminateDirectSSHChildren()
     }
 
