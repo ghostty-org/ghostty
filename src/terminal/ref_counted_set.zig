@@ -726,7 +726,15 @@ pub fn RefCountedSet(
                 // for our value so that we can reuse its ID,
                 // unless its ID is greater than the one we're
                 // given (i.e. prefer smaller IDs).
-                if (item.meta.ref == 0) {
+                //
+                // Only take its bucket if the held item may displace
+                // it anyway. A dead item with a longer PSL may sit in
+                // the middle of other items' probe sequences, and
+                // putting a shorter PSL there makes `lookup` stop
+                // early and miss them.
+                if (item.meta.ref == 0 and
+                    item.meta.psl <= held_item.meta.psl)
+                {
                     // Dead items aren't super common relative
                     // to other places to insert/swap the held
                     // item in to the set.
@@ -1010,4 +1018,56 @@ test "add reclaims dead IDs in place instead of NeedsRehash" {
     for (0..n) |i| if (i % 2 == 1) {
         try testing.expectEqual(ids[i], set.lookup(buf, @intCast(i + 1000)).?);
     };
+}
+
+test "add does not hide live items behind a reaped dead item" {
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u16,
+        u16,
+        struct {
+            // Identity hash, so each value's home bucket is its value
+            // modulo the table size.
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return value;
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(8);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+
+    // Three values with home bucket 0 fill buckets 0, 1 and 2
+    // with PSLs 0, 1 and 2.
+    const a = try set.add(buf, 8);
+    const b = try set.add(buf, 16);
+    const c = try set.add(buf, 24);
+
+    // The dead item in bucket 1 is in the middle of c's probe sequence.
+    set.release(buf, b);
+
+    // A value with home bucket 1 must not take that bucket with PSL 0,
+    // or the lookup for c stops there.
+    const d = try set.add(buf, 1);
+    try testing.expectEqual(@as(usize, 3), set.count());
+    try testing.expectEqual(a, set.lookup(buf, 8).?);
+    try testing.expectEqual(c, set.lookup(buf, 24).?);
+    try testing.expectEqual(d, set.lookup(buf, 1).?);
+
+    // Adding c's value again must find it rather than add a duplicate.
+    try testing.expectEqual(c, try set.add(buf, 24));
+    try testing.expectEqual(@as(u16, 2), set.refCount(buf, c));
+    try testing.expectEqual(@as(usize, 3), set.count());
 }
