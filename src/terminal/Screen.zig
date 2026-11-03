@@ -1361,8 +1361,9 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
     const page: *Page = pin.node.pageAssumeResident();
     const rows = page.rows.ptr(page.memory.ptr)[pin.y - limit ..][0 .. limit + 1];
 
-    // Clear the erased (top) row.
-    {
+    // Clear the erased (top) row and build its reset header, which the
+    // rotation below writes into the row's new slot.
+    const reset_row: Row = reset: {
         const row: *Row = &rows[0];
 
         // Whether our blank cell is a plain zero cell. This is true
@@ -1385,15 +1386,22 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
 
         // The row becomes the new blank cursor row after the rotation
         // below and must not retain metadata (wrap state, semantic
-        // prompt) from the discarded content.
-        row.reset();
-    }
+        // prompt) from the discarded content. This is Row.reset.
+        assert(!row.managedMemory());
+        break :reset .{ .cells = row.cells, .dirty = true };
+    };
 
     // Rotate the region rows so the now-blank top row moves to the
     // bottom (the cursor row) and everything else shifts up by one.
     // Rotating the region changes which logical row its coordinates identify.
+    //
+    // The reset header goes straight to its new slot rather than through
+    // row.reset() and rotateOnce: x86-64 codegen narrows that reset to a
+    // 4-byte store, and the rotation's 8-byte load of the same header
+    // right after it can't be store-forwarded, which stalls every
+    // scrolled line (about 6% on vtebench's region scrolling).
     self.pages.invalidateNodeLayout(pin.node);
-    fastmem.rotateOnce(Row, rows);
+    _ = fastmem.rotateIn(Row, rows, reset_row);
 
     // Mark the whole page as dirty.
     //
