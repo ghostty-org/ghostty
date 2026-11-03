@@ -470,8 +470,7 @@ class AppDelegate: NSObject,
                 NSApp.arrangeInFront(nil)
             }
         }
-        TerminalWorkspaceSessionStore.shared.start(ghostty)
-        TerminalTabSelectionRestoration.shared.finishLaunching()
+        startWorkspaceRestorationWhenActive()
     }
 
     func applicationDidHide(_ notification: Notification) {
@@ -482,6 +481,7 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
+        startPendingWorkspaceRestoration()
         let wasActiveBefore = applicationHasBecomeActive
 
         // First launch stuff

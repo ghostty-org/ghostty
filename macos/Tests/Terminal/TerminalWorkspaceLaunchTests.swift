@@ -213,6 +213,22 @@ struct TerminalWorkspaceLaunchTests {
         #expect(fixture.store.snapshot.windows?[current.windowSessionID]?.currentWorkspace == other)
     }
 
+    @Test func checkpointPresentationWaitsForApplicationActivation() {
+        let gate = TerminalWorkspaceLaunchGate()
+        var starts = 0
+        gate.request(isActive: false) { starts += 1 }
+        #expect(starts == 0)
+        gate.activate()
+        #expect(starts == 1)
+        gate.activate()
+        #expect(starts == 1)
+
+        gate.request(isActive: true) { starts += 1 }
+        #expect(starts == 2)
+        gate.activate()
+        #expect(starts == 2)
+    }
+
     @Test func dockReopenKeepsAppKitBehaviorForAHealthyVisibleWorkspace() throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }

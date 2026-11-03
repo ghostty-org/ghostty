@@ -127,3 +127,28 @@ automatic unlocking failed. Thus unlocked visual/pointer acceptance remains
 pending; scripting and model/view observations do not count as that pass.
 Historical data remains backed up outside the active Dev restoration profile,
 and only the two new fixture tabs remain active.
+
+## Background-run quit and launch-time window loss
+
+Cmd-Q left LaunchServices reporting OMG Dev as `exited-with-subordinates`:
+`omgd host-local` was a child of the app's relay and stayed in the app
+coalition despite `setsid`, so the Dock showed the app as running in the
+background. Local hosts now start through a transient `gui/<uid>` launchd job
+(`omgd detach`), matching Herdr. After Cmd-Q the app is no longer registered,
+the hosts keep running, and reopening reattaches to the same host processes.
+
+Windows missing after launch had a separate cause. A debuggable copy showed
+restored terminal windows with AppKit `isVisible=1` and selected in their tab
+groups but absent from the window server, while a plain probe window in the
+same process appeared normally. `orderFront`, `orderFrontRegardless`, screen
+update and CATransaction rebalancing did not reveal them; `orderOut` followed by
+`makeKeyAndOrderFront` did but split native tab groups. Tracing showed the
+checkpoint shows and groups windows inside `applicationDidFinishLaunching`,
+before activation, where AppKit orders them only conditionally. Results varied
+with timing (slowing launch under lldb hid the bug; a background launch hid
+windows deterministically).
+
+Checkpoint restoration now starts only once the app is active: immediately for
+a normal launch, otherwise on first activation. With two tab groups, six normal
+launches showed the current tab in both groups, and three background launches
+showed nothing until activation and then both groups.
