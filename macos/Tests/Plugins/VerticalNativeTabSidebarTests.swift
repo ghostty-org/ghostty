@@ -6,6 +6,45 @@ import Testing
 struct VerticalNativeTabSidebarTests {
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
+    @Test func singleAndSplitIconsFillTheSameNativeFootprint() throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let preview = NSView(frame: .init(x: 0, y: 0, width: 348, height: 76))
+        preview.wantsLayer = true
+        preview.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        let window = NSWindow(contentRect: preview.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = preview
+        defer { window.close() }
+        let cloud = NativeTabIconView(frame: .init(x: 84, y: 25, width: 26, height: 26))
+        preview.addSubview(cloud)
+        cloud.configure(controller: nil, icon: .systemSymbol("cloud"), selected: false, activity: nil)
+        cloud.layoutSubtreeIfNeeded()
+        for count in 1...4 {
+            let controller = try fixture.tab()
+            var config = Ghostty.SurfaceConfiguration()
+            config.command = "/bin/sleep 60"
+            for index in 1..<count {
+                let surfaces = Array(controller.surfaceTree)
+                let surface = try #require(index == 3 ? surfaces.last : surfaces.first)
+                _ = try #require(controller.newSplit(at: surface, direction: index == 1 ? .right : .down, baseConfig: config))
+            }
+            let x = count == 1 ? 20 : CGFloat(count) * 64 + 24
+            let icon = NativeTabIconView(frame: .init(x: x, y: 25, width: 26, height: 26))
+            preview.addSubview(icon)
+            icon.configure(controller: controller, icon: .systemSymbol("terminal"), selected: false, activity: nil)
+            icon.layoutSubtreeIfNeeded()
+            let marks = icon.subviews.compactMap { $0 as? NSImageView }
+            #expect(marks.count == count)
+            #expect(marks.allSatisfy { icon.bounds.contains($0.frame) })
+            if count == 1 { #expect((marks.first?.frame.width ?? 0) >= TabIconMetrics.composition) }
+        }
+        let bitmap = try #require(preview.bitmapImageRepForCachingDisplay(in: preview.bounds))
+        preview.cacheDisplay(in: preview.bounds, to: bitmap)
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: "/tmp/omg-native-tab-icon-sizes.png"))
+    }
+
     @Test func remoteGroupingSeparatesConnectionsWithTheSameDirectory() throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
