@@ -3872,14 +3872,17 @@ test "Page insertHyperlink reclaims dead IDs once IDs run out" {
     });
     defer page.deinit();
 
-    // Hand out every ID, one link per cell. All URIs are the same length,
-    // so each uses the same amount of string memory.
+    // Hand out every ID, one link per cell. Every link has an explicit
+    // ID, so it owns two strings. All URIs and IDs are the same length,
+    // so each link uses the same amount of string memory.
     const n = page.hyperlink_set.layout.cap - 1;
     var ids: [32]hyperlink.Id = undefined;
     var uri_buf: [32]u8 = undefined;
+    var id_buf: [32]u8 = undefined;
     for (0..n) |x| {
         const uri = try std.fmt.bufPrint(&uri_buf, "https://example.com/{d:0>2}", .{x});
-        ids[x] = try page.insertHyperlink(.{ .id = .{ .implicit = @intCast(x) }, .uri = uri });
+        const link_id = try std.fmt.bufPrint(&id_buf, "a{d:0>2}", .{x});
+        ids[x] = try page.insertHyperlink(.{ .id = .{ .explicit = link_id }, .uri = uri });
         const rac = page.getRowAndCell(x, 0);
         try page.setHyperlink(rac.row, rac.cell, ids[x]);
     }
@@ -3893,12 +3896,14 @@ test "Page insertHyperlink reclaims dead IDs once IDs run out" {
     };
     const strings_used = page.string_alloc.usedBytes(page.memory);
 
-    // New links reuse dead IDs, and removing a dead item frees its strings,
-    // so string memory never grows. Stop before 90% of IDs are live.
+    // New links reuse dead IDs, and removing a dead item frees both of its
+    // strings, so string memory never grows. Stop before 90% of IDs are
+    // live.
     var x: usize = 0;
     while (x < 8) : (x += 2) {
         const uri = try std.fmt.bufPrint(&uri_buf, "https://example.org/{d:0>2}", .{x});
-        const id = try page.insertHyperlink(.{ .id = .{ .implicit = @intCast(x) }, .uri = uri });
+        const link_id = try std.fmt.bufPrint(&id_buf, "b{d:0>2}", .{x});
+        const id = try page.insertHyperlink(.{ .id = .{ .explicit = link_id }, .uri = uri });
         const rac = page.getRowAndCell(x, 0);
         try page.setHyperlink(rac.row, rac.cell, id);
         try testing.expectEqualStrings(

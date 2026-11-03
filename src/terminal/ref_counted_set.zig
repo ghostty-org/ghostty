@@ -996,52 +996,68 @@ test "add reclaims dead IDs in place instead of NeedsRehash" {
         },
     );
 
-    const layout: TestSet.Layout = .init(16);
-    const buf = try alloc.alignedAlloc(
-        u8,
-        TestSet.base_align,
-        layout.total_size,
-    );
-    defer alloc.free(buf);
-
-    var set: TestSet = .init(.init(buf), layout, .{});
-
-    // Hand out every ID. All are live, so `add` must ask to grow.
-    const n: usize = layout.cap - 1;
-    var ids: [64]u16 = undefined;
-    for (0..n) |i| ids[i] = try set.add(buf, @intCast(i + 1000));
-    try testing.expectEqual(layout.cap, @as(usize, set.next_id));
-    try testing.expectError(error.OutOfMemory, set.add(buf, 5000));
-
-    // Release the even items. The last item stays live, so `add` can't
-    // just free IDs from the end.
-    for (0..n) |i| if (i % 2 == 0) set.release(buf, ids[i]);
-
-    // New values reuse dead IDs until 90% of IDs are live.
-    const threshold: usize = @intFromFloat(@as(f64, @floatFromInt(layout.cap)) * 0.9);
-    const addable = threshold - n / 2;
-    var new_ids: [64]u16 = undefined;
-    for (0..addable) |j| new_ids[j] = try set.add(buf, @intCast(j + 7000));
-    try testing.expectEqual(threshold, set.count());
-    for (0..addable) |j| {
-        try testing.expectEqual(new_ids[j], set.lookup(buf, @intCast(j + 7000)).?);
-    }
-    try testing.expectError(error.OutOfMemory, set.add(buf, 9000));
-
-    // Release and re-add many times so the search wraps around.
-    for (0..200) |round| {
-        for (0..addable) |j| set.release(buf, new_ids[j]);
-        for (0..addable) |j| new_ids[j] = try set.add(
-            buf,
-            @intCast(100_000 + round * 1000 + j),
+    // 3 is the smallest set that can reuse an ID: two IDs, one of
+    // which must die. 5 has an odd number of IDs, so releasing every
+    // other one also releases the last and `add` trims it first.
+    for ([_]usize{ 3, 5, 16 }) |requested_cap| {
+        const layout: TestSet.Layout = .init(requested_cap);
+        const buf = try alloc.alignedAlloc(
+            u8,
+            TestSet.base_align,
+            layout.total_size,
         );
-    }
-    try testing.expectEqual(threshold, set.count());
+        defer alloc.free(buf);
 
-    // Items that were never released keep their IDs.
-    for (0..n) |i| if (i % 2 == 1) {
-        try testing.expectEqual(ids[i], set.lookup(buf, @intCast(i + 1000)).?);
-    };
+        var set: TestSet = .init(.init(buf), layout, .{});
+
+        // Hand out every ID. All are live, so `add` must ask to grow.
+        const n: usize = layout.cap - 1;
+        var ids: [64]u16 = undefined;
+        for (0..n) |i| ids[i] = try set.add(buf, @intCast(i + 1000));
+        try testing.expectEqual(layout.cap, @as(usize, set.next_id));
+        try testing.expectError(error.OutOfMemory, set.add(buf, 5000));
+
+        // Release every other item, starting with the first.
+        for (0..n) |i| if (i % 2 == 0) set.release(buf, ids[i]);
+
+        // New values reuse dead IDs until 90% of IDs are live.
+        const threshold: usize = @intFromFloat(@as(f64, @floatFromInt(layout.cap)) * 0.9);
+        const addable = threshold - n / 2;
+        var new_ids: [64]u16 = undefined;
+        for (0..addable) |j| new_ids[j] = try set.add(buf, @intCast(j + 7000));
+        try testing.expectEqual(threshold, set.count());
+        for (0..addable) |j| {
+            try testing.expectEqual(new_ids[j], set.lookup(buf, @intCast(j + 7000)).?);
+        }
+        try testing.expectError(error.OutOfMemory, set.add(buf, 9000));
+
+        // Release and re-add many times so the search wraps around.
+        const rounds = 200;
+        for (0..rounds) |round| {
+            for (0..addable) |j| set.release(buf, new_ids[j]);
+            for (0..addable) |j| new_ids[j] = try set.add(
+                buf,
+                @intCast(100_000 + round * 1000 + j),
+            );
+        }
+        try testing.expectEqual(threshold, set.count());
+        try testing.expectEqual(layout.cap, @as(usize, set.next_id));
+
+        // The last round's values are findable, each under its own ID
+        // with the one reference `add` took.
+        for (0..addable) |j| {
+            const value: u32 = @intCast(100_000 + (rounds - 1) * 1000 + j);
+            try testing.expectEqual(new_ids[j], set.lookup(buf, value).?);
+            try testing.expectEqual(@as(u16, 1), set.refCount(buf, new_ids[j]));
+            for (0..j) |k| try testing.expect(new_ids[j] != new_ids[k]);
+        }
+
+        // Items that were never released keep their IDs and references.
+        for (0..n) |i| if (i % 2 == 1) {
+            try testing.expectEqual(ids[i], set.lookup(buf, @intCast(i + 1000)).?);
+            try testing.expectEqual(@as(u16, 1), set.refCount(buf, ids[i]));
+        };
+    }
 }
 
 test "add does not hide live items behind a reaped dead item" {
