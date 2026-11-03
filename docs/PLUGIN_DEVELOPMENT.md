@@ -244,6 +244,12 @@ Workspace restoration owns native tab membership and presentation. Finishing a
 restore must not order parked members out of a retained native group. Activating
 or reopening an App with hidden terminal windows presents the catalog's current
 workspace and selected tab, after restoration and native transitions complete.
+The same atomic workspace checkpoint stores the optional `foregroundTab`
+identity. A foreground-only change must persist even when workspace membership
+and per-window selection are unchanged. Checkpoint-created controllers enter the
+selection-restoration owner directly, since they bypass AppKit's per-window
+restoration callbacks. Once the checkpoint owns restoration, a later AppKit
+selection archive cannot replace its topology or foreground selection.
 Dock reopening checks committed workspace visibility before trusting AppKit's
 `hasVisibleWindows`: a selected retained parked tab is not a visible current
 workspace. After repairing selection, the host suppresses AppKit's default reopen

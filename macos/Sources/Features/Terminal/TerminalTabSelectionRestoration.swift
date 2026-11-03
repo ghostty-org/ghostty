@@ -29,8 +29,11 @@ final class TerminalTabSelectionRestoration {
     private var monitor: Any?
     private var generation = UUID()
     private var launchFinished = false
+    private var ownsCheckpoint = false
+    private var checkpointControllers: [Weak<TerminalController>] = []
     private let captureSnapshot: @MainActor () -> Snapshot
     private let finishRestoring: @MainActor () -> Void
+    var pendingForeground: UUID? { pending?.foreground }
 
     init(
         captureSnapshot: @escaping @MainActor () -> Snapshot = {
@@ -100,7 +103,7 @@ final class TerminalTabSelectionRestoration {
     }
 
     func decode(from coder: NSCoder) {
-        guard coder.containsValue(forKey: Self.codingKey),
+        guard !ownsCheckpoint, coder.containsValue(forKey: Self.codingKey),
               let data = coder.decodeObject(of: NSData.self, forKey: Self.codingKey) as Data?,
               data.count <= 128 * 1_024,
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
@@ -110,6 +113,19 @@ final class TerminalTabSelectionRestoration {
 
     func registerRestored(_ controller: TerminalController) {
         restored.insert(controller.tabSessionID)
+    }
+
+    /// The workspace checkpoint owns both topology and foreground selection.
+    /// Its windows bypass AppKit's per-window restoration callback.
+    func restoreCheckpoint(_ snapshot: Snapshot, controllers: [TerminalController]) {
+        ownsCheckpoint = true
+        generation = UUID()
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        restored = Set(controllers.map(\.tabSessionID))
+        checkpointControllers = controllers.map { Weak($0) }
+        pending = snapshot
+        if launchFinished { beginSelectionRestore() }
     }
 
     /// Called once after application launch, not during each window's restore
@@ -134,6 +150,7 @@ final class TerminalTabSelectionRestoration {
     private func cancel() {
         generation = UUID()
         pending = nil
+        checkpointControllers = []
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         finishRestoring()
@@ -141,7 +158,9 @@ final class TerminalTabSelectionRestoration {
 
     private func apply(token: UUID, attempt: Int) {
         guard generation == token, let pending else { return }
-        let controllers = TerminalController.all.filter { restored.contains($0.tabSessionID) }
+        let controllers = ownsCheckpoint
+            ? checkpointControllers.compactMap(\.value).filter(\.isAvailableForWorkspace)
+            : TerminalController.all.filter { restored.contains($0.tabSessionID) }
         var unresolved: [Group] = []
         for group in pending.groups {
             guard let selected = controllers.first(where: { $0.tabSessionID == group.selected }),
@@ -149,7 +168,7 @@ final class TerminalTabSelectionRestoration {
                 unresolved.append(group)
                 continue
             }
-            let actual = Set(selected.workspaceTabWindows.filter(\.isRestorable).compactMap {
+            let actual = Set(selected.workspaceTabWindows.filter { ownsCheckpoint || $0.isRestorable }.compactMap {
                 ($0.windowController as? TerminalController)?.tabSessionID
             })
             guard pending.selection(for: actual) == group.selected else {

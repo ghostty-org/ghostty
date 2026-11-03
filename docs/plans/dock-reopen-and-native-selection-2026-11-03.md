@@ -75,3 +75,37 @@ restoration.
 The installed baseline quit/reopen retained all 43 tab IDs, 45 pane IDs and
 tab owners. Fixed-version installation and live acceptance are checked
 separately from the app-hosted test results.
+
+## Automatic launch follow-up
+
+The user rejected the previous acceptance: opening the application must show
+the previous window and selected tab without choosing a Window/Dock-menu item.
+The previous installed-app check selected a window manually after relaunch and
+therefore did not establish automatic foreground restoration.
+
+The historical Dev workspace and scrollback records were backed up and moved
+out of the active profile with user authorization. AppKit initially reintroduced
+old tab IDs from its own saved state, so the clean setup used one `open -F`
+launch to suppress that legacy restoration. All subsequent quit/reopen checks
+use normal launches. Fresh local A/B sessions reproduce the mismatch: the
+checkpoint selects B, while the native group selects A and the sidebar shows
+only one row. Both fixture processes remain alive.
+
+The workspace checkpoint previously omitted application foreground identity.
+Its reconstructed controllers also skipped the registration normally performed
+by AppKit's per-window restoration callback. Consequently the existing deferred
+selection restorer could not find checkpoint-owned windows.
+
+The checkpoint now persists foreground identity and supplies its reconstructed
+controllers and committed selections to the existing restorer. The handoff is
+authoritative over later AppKit selection archives. Regression coverage checks
+foreground-only persistence, multiple windows, delayed native selection changes,
+sidebar membership, pane identity and launch without per-window callbacks.
+
+The first regression run exposed an overly broad restoration guard that also
+blocked normal native tab reconciliation for a manually assembled coordinator.
+The guard now applies only while a loaded checkpoint owns restoration. The
+final tree passes all 766 tests in the 84 affected routine suites across seven
+serial fresh-host batches, including the normal reconciliation regression.
+The foreground 60-tab fullscreen termination test also passes. Strict lint,
+documentation, plist, settings JSON and whitespace checks pass.

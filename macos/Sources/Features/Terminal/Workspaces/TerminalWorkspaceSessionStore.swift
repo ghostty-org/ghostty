@@ -22,6 +22,7 @@ final class TerminalWorkspaceSessionStore {
         var generation: UInt64?
         var catalog: TerminalWorkspaceState?
         var explicitlyEmpty: Bool?
+        var foregroundTab: UUID?
 
         /// Validate an entire generation without constructing any host objects.
         /// Shared by loading and backup rotation so a malformed payload cannot
@@ -50,6 +51,7 @@ final class TerminalWorkspaceSessionStore {
     private let testing: Bool
     let workspaces: TerminalWorkspaceStore
     private let writer: TerminalWorkspaceSnapshotWriter
+    private let selectionRestoration: TerminalTabSelectionRestoration?
     private var saved = Snapshot()
     private var descriptors: [UUID: TerminalWorkspaceSessionState] = [:]
     private var timer: AnyCancellable?
@@ -68,10 +70,12 @@ final class TerminalWorkspaceSessionStore {
     private(set) var recoveryWarnings: [String] = []
     var writeCount: Int { writer.writeCount }
 
-    init(url: URL? = nil, testing: Bool = false, workspaces: TerminalWorkspaceStore? = nil) {
+    init(url: URL? = nil, testing: Bool = false, workspaces: TerminalWorkspaceStore? = nil,
+         selectionRestoration: TerminalTabSelectionRestoration? = nil) {
         self.url = url ?? OMGApplicationEnvironment.applicationSupportURL().appendingPathComponent("workspaces/state.json")
         self.testing = testing
         self.workspaces = workspaces ?? .shared
+        self.selectionRestoration = selectionRestoration ?? (testing ? nil : .shared)
         writer = TerminalWorkspaceSnapshotWriter(url: self.url)
         writer.onCompletion = { [weak self] error in
             guard let self else { return }
@@ -223,10 +227,20 @@ final class TerminalWorkspaceSessionStore {
                         visible: visible, layout: layout, scrollOffset: group.scrollOffset))
                 }
             }
-            if !runtime.native.apply(groups, previous: [], focus: groups.first(where: \.visible)?.selected) {
+            let preferredForeground = saved.foregroundTab ?? selectionRestoration?.pendingForeground
+            let foreground = groups.first {
+                $0.visible && $0.selected.tabSessionID == preferredForeground
+            }?.selected ?? groups.first(where: \.visible)?.selected
+            if !runtime.native.apply(groups, previous: [], focus: foreground) {
                 recoveryWarnings.append("Native window grouping could not be restored")
                 workspaces.reportSaveError(WorkspaceL10n.text("Some restored windows could not be grouped.", "部分恢复窗口无法组成标签组。"))
             }
+            selectionRestoration?.restoreCheckpoint(
+                .init(groups: groups.map {
+                    .init(members: $0.members.map(\.tabSessionID), selected: $0.selected.tabSessionID)
+                }, foreground: foreground?.tabSessionID),
+                controllers: groups.flatMap(\.members)
+            )
             transaction.publish { runtime.native.publish(groups) }
             for group in groups where group.visible {
                 let selected = group.selected
@@ -322,11 +336,19 @@ final class TerminalWorkspaceSessionStore {
         DispatchQueue.main.async(execute: work)
     }
 
-    func capture() {
+    func capture(foreground: NSWindow? = NSApp.mainWindow) {
         guard started, !restoring, !quitting, !runtime.isChanging, !TerminalWorkspacePresentation.isChanging else { return }
         closing = closing.filter { $0.value.value != nil }
         var records = Dictionary(uniqueKeysWithValues: saved.tabs.map { ($0.id, $0) })
         let catalog = workspaces.snapshot
+        let foregroundTab: UUID?
+        if let controller = foreground?.windowController as? TerminalController,
+           controller.workspaceCoordinator === runtime, controller.isAvailableForWorkspace,
+           let host = catalog.windows?[controller.windowSessionID] {
+            foregroundTab = host.groups[host.currentWorkspace]?.selected
+        } else {
+            foregroundTab = saved.foregroundTab
+        }
         for controller in runtime.liveControllers where closing[controller.tabSessionID]?.value !== controller {
             guard catalog.owner(of: controller.tabSessionID) != nil else { continue }
             let descriptor = TerminalWorkspaceSessionState(controller)
@@ -339,7 +361,8 @@ final class TerminalWorkspaceSessionStore {
                 contentRevision &+= 1
             }
         }
-        guard catalog != lastSubmittedCatalog || contentRevision != submittedContentRevision else { return }
+        guard catalog != lastSubmittedCatalog || contentRevision != submittedContentRevision ||
+                foregroundTab != saved.foregroundTab else { return }
         var tabs: [Tab] = []
         for host in (catalog.windows ?? [:]).keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             guard let window = catalog.windows?[host] else { continue }
@@ -364,7 +387,8 @@ final class TerminalWorkspaceSessionStore {
         for tab in catalog.membership.keys where !included.contains(tab) { durable.remove(tab) }
         guard durable.validationErrors.isEmpty else { return }
         let next = Snapshot(version: 2, tabs: tabs, generation: saved.generation ?? 0,
-            catalog: durable, explicitlyEmpty: tabs.isEmpty)
+            catalog: durable, explicitlyEmpty: tabs.isEmpty,
+            foregroundTab: foregroundTab.flatMap { included.contains($0) && !durable.isParked($0) ? $0 : nil })
         guard next != saved || contentRevision != submittedContentRevision || lastSubmittedCatalog == nil else { return }
         saved = next
         saved.generation = (saved.generation ?? 0) &+ 1

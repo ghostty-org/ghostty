@@ -186,7 +186,8 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
     /// Native user joins/detaches/reorders enter the model only at this boundary.
     /// A command's temporary mixed native group can never become authoritative.
     func reconcileNativeGroup(_ members: [TerminalController]) {
-        guard !quitting, !applying, !TerminalWorkspacePresentation.isChanging, let first = members.first,
+        guard !(restoring && sessions.ownsRestoration), !quitting, !applying,
+              !TerminalWorkspacePresentation.isChanging, let first = members.first,
               members.allSatisfy({ $0.workspaceCoordinator === self && !$0.workspacePresentationIsParked }),
               !hasNonNativeFullscreen(in: first.windowSessionID) else { return }
         let nativeGroup = first.window?.tabGroup

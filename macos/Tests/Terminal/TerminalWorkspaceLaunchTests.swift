@@ -4,6 +4,136 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalWorkspaceLaunchTests {
+    @Test func checkpointCapturesForegroundChangesWithoutChangingTheWorkspaceGraph() throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        first.showWindow(nil)
+        let second = try fixture.tab()
+        second.showWindow(nil)
+        fixture.sessions.start(fixture.app)
+        fixture.sessions.capture(foreground: first.window)
+        fixture.sessions.flush()
+        let url = fixture.directory.appendingPathComponent("state.json")
+        let firstSnapshot = try JSONDecoder().decode(TerminalWorkspaceSessionStore.Snapshot.self,
+                                                    from: Data(contentsOf: url))
+        #expect(firstSnapshot.foregroundTab == first.tabSessionID)
+        let catalog = fixture.store.snapshot
+        let writes = fixture.sessions.writeCount
+
+        fixture.sessions.capture(foreground: second.window)
+        fixture.sessions.flush()
+
+        let secondSnapshot = try JSONDecoder().decode(TerminalWorkspaceSessionStore.Snapshot.self,
+                                                     from: Data(contentsOf: url))
+        #expect(secondSnapshot.foregroundTab == second.tabSessionID)
+        #expect(fixture.store.snapshot == catalog)
+        #expect(fixture.sessions.writeCount == writes + 1)
+    }
+
+    @Test(arguments: [false, true])
+    func checkpointLaunchRestoresForegroundSelectionWithoutAppKitWindowCallbacks(legacy: Bool) async throws {
+        let previousMode = OhMyGhosttySettings.shared.startupMode
+        OhMyGhosttySettings.shared.startupMode = .restoreSessions
+        defer { OhMyGhosttySettings.shared.startupMode = previousMode }
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        first.showWindow(nil)
+        let selected = try fixture.tab(parent: first)
+        selected.window?.makeKeyAndOrderFront(nil)
+        fixture.coordinator.didActivate(selected)
+        let other = try fixture.tab()
+        other.showWindow(nil)
+        fixture.sessions.start(fixture.app)
+        fixture.sessions.capture(foreground: selected.window)
+        fixture.sessions.flush()
+        let selectedID = selected.tabSessionID
+        let firstID = first.tabSessionID
+        let otherID = other.tabSessionID
+        let panes = Set(fixture.controllers.flatMap { $0.surfaceTree.map(\.id) })
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let checkpoint = directory.appendingPathComponent("state.json")
+        try FileManager.default.copyItem(at: fixture.directory.appendingPathComponent("state.json"), to: checkpoint)
+        if legacy {
+            var snapshot = try JSONDecoder().decode(TerminalWorkspaceSessionStore.Snapshot.self,
+                                                   from: Data(contentsOf: checkpoint))
+            snapshot.foregroundTab = nil
+            try JSONEncoder().encode(snapshot).write(to: checkpoint)
+        }
+        fixture.close()
+
+        let store = TerminalWorkspaceStore(fileURL: nil)
+        var restoredCoordinator: TerminalWorkspaceCoordinator?
+        var completed = 0
+        let selection = TerminalTabSelectionRestoration(finishRestoring: {
+            completed += 1
+            restoredCoordinator?.finishRestoring()
+        })
+        if legacy {
+            let archive = TerminalTabSelectionRestoration(captureSnapshot: {
+                .init(groups: [], foreground: selectedID)
+            })
+            let coder = NSKeyedArchiver(requiringSecureCoding: true)
+            archive.encode(into: coder)
+            coder.finishEncoding()
+            let decoder = try NSKeyedUnarchiver(forReadingFrom: coder.encodedData)
+            selection.decode(from: decoder)
+            decoder.finishDecoding()
+        }
+        let sessions = TerminalWorkspaceSessionStore(url: checkpoint, testing: true, workspaces: store,
+                                                    selectionRestoration: selection)
+        let coordinator = TerminalWorkspaceCoordinator(store: store, sessions: sessions)
+        restoredCoordinator = coordinator
+        defer { restoredCoordinator = nil }
+        sessions.prepare()
+        sessions.start(fixture.app)
+        let restored = coordinator.liveControllers
+        defer {
+            sessions.prepareToQuit()
+            coordinator.commitTermination()
+            coordinator.closeBackgroundTabsForTermination()
+            for controller in restored { controller.window?.close() }
+            sessions.flush()
+        }
+        let target = try #require(restored.first { $0.tabSessionID == selectedID })
+        let targetWindow = try #require(target.window)
+        let group = try #require(targetWindow.tabGroup)
+        let firstWindow = try #require(restored.first { $0.tabSessionID == firstID }?.window)
+        let otherWindow = try #require(restored.first { $0.tabSessionID == otherID }?.window)
+        TerminalWorkspacePresentation.begin()
+        group.selectedWindow = firstWindow
+        otherWindow.makeKeyAndOrderFront(nil)
+        TerminalWorkspacePresentation.end()
+
+        // The checkpoint's controllers never entered registerRestored through
+        // AppKit. A later system selection snapshot must not displace them.
+        let stale = TerminalTabSelectionRestoration(captureSnapshot: {
+            .init(groups: [.init(members: [firstID, selectedID], selected: firstID)], foreground: otherID)
+        })
+        let coder = NSKeyedArchiver(requiringSecureCoding: true)
+        stale.encode(into: coder)
+        coder.finishEncoding()
+        let decoder = try NSKeyedUnarchiver(forReadingFrom: coder.encodedData)
+        selection.decode(from: decoder)
+        decoder.finishDecoding()
+        selection.finishLaunching()
+        for _ in 0..<100 {
+            if completed > 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(completed == 1)
+        #expect(group.selectedWindow === targetWindow)
+        #expect(targetWindow.isVisible)
+        #expect(target.tabLayoutState.tabSnapshot.selectedID == ObjectIdentifier(target))
+        #expect(Set(target.tabLayoutState.tabSnapshot.controllers.map(\.tabSessionID)) == [firstID, selectedID])
+        #expect(Set(restored.flatMap { $0.surfaceTree.map(\.id) }) == panes)
+        #expect(store.group(window: target.windowSessionID, workspace: target.workspaceID)?.selected == selectedID)
+    }
+
     @Test func nativeSelectionOfAParkedTabActivatesItsWorkspaceAndExactTab() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
