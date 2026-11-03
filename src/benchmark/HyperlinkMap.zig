@@ -52,16 +52,13 @@ pub fn create(alloc: Allocator, opts: Options) !*HyperlinkMap {
     const ptr = try alloc.create(HyperlinkMap);
     errdefer alloc.destroy(ptr);
 
-    // The page requests one map slot per `hyperlink_cell_multiplier` set
-    // entries. Keep this relationship explicit so `entries` is the working
-    // set size under test regardless of the map's reserved probe headroom.
-    const set_entries = opts.entries / 16;
+    // The page sizes its hyperlink map from `hyperlink_cells`, so
+    // `entries` is the working set size under test regardless of the
+    // map's reserved probe headroom.
     var page = try terminal.Page.init(.{
         .cols = opts.entries,
         .rows = 1,
-        .hyperlink_bytes = @intCast(
-            @as(usize, set_entries) * @sizeOf(hyperlink.Set.Item),
-        ),
+        .hyperlink_cells = opts.entries,
     });
     errdefer page.deinit();
 

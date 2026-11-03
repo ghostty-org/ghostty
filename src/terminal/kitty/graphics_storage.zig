@@ -1912,7 +1912,7 @@ pub const ImageStorage = struct {
     /// complete.
     pub const ScrollMargins = struct {
         screen: *terminal.Screen,
-        restores: std.ArrayListUnmanaged(Restore) = .empty,
+        restores: std.ArrayList(Restore) = .empty,
 
         const Restore = struct {
             pin: *PageList.Pin,

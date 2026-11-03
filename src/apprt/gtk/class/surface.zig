@@ -720,8 +720,8 @@ pub const Surface = extern struct {
         vadj_signal_group: ?*gobject.SignalGroup = null,
 
         // Key state tracking for key sequences and tables
-        key_sequence: std.ArrayListUnmanaged([:0]const u8) = .empty,
-        key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
+        key_sequence: std.ArrayList([:0]const u8) = .empty,
+        key_tables: std.ArrayList([:0]const u8) = .empty,
 
         // Template binds
         broadcast_overlay: *gtk.Widget,

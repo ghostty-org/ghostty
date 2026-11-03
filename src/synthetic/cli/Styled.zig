@@ -20,6 +20,10 @@
 //!   ghostty-gen styled --seed=42 --weight-two=1 --weight-three=1 \
 //!     --weight-four=0.5 --grapheme-rate=0.1
 //!
+//!   # Every run restyled with three attributes per SGR sequence,
+//!   # e.g. ESC[0;1;38;5;Nm
+//!   ghostty-gen styled --seed=42 --style-rate=1 --sgr-attrs=3
+//!
 //!   # Mixed: styles, Unicode, and hyperlinks
 //!   ghostty-gen styled --seed=42 --style-rate=0.3 --weight-two=0.5 \
 //!     --weight-three=0.25 --weight-four=0.1 --grapheme-rate=0.05 \
@@ -44,6 +48,14 @@ pub const Options = struct {
     /// Probability that a style change (SGR sequence) is emitted at
     /// each run boundary. Zero (default) produces unstyled output.
     @"style-rate": f64 = 0.0,
+
+    /// The number of attributes in each SGR sequence, from 1 to 4. With
+    /// more than one, a sequence such as `ESC[0;1;38;5;Nm` changes
+    /// several attributes at once, as TUI programs commonly do. Only
+    /// the first attribute of a sequence can be a reset. The limit keeps
+    /// the parameters of the longest sequence (four RGB colors, five
+    /// parameters each) within what the CSI parser accepts.
+    @"sgr-attrs": u8 = 1,
 
     /// The length in characters of a "run": a sequence of characters
     /// that share styling. Style/hyperlink changes only happen on run
@@ -104,6 +116,7 @@ pub fn create(
 
     if (opts.@"line-min" == 0) return error.InvalidValue;
     if (opts.@"run-min" == 0) return error.InvalidValue;
+    if (opts.@"sgr-attrs" < 1 or opts.@"sgr-attrs" > 4) return error.InvalidValue;
 
     const ptr = try alloc.create(Styled);
     errdefer alloc.destroy(ptr);
@@ -243,38 +256,59 @@ fn writeSgr(
     rand: std.Random,
     state: *State,
 ) std.Io.Writer.Error!void {
-    _ = self;
+    try writer.writeAll("\x1b[");
+    for (0..self.opts.@"sgr-attrs") |i| {
+        if (i > 0) try writer.writeByte(';');
 
-    switch (rand.uintLessThan(u8, 8)) {
+        // Only the first attribute may reset: a reset later in the
+        // sequence would discard the attributes before it.
+        const styled = try writeSgrAttr(writer, rand, i == 0);
+        state.styled = if (i == 0) styled else styled or state.styled;
+    }
+    try writer.writeByte('m');
+}
+
+/// Write the parameters of one SGR attribute. Returns false if the
+/// attribute was a reset, which leaves the style at the default.
+fn writeSgrAttr(
+    writer: *std.Io.Writer,
+    rand: std.Random,
+    allow_reset: bool,
+) std.Io.Writer.Error!bool {
+    const kind = if (allow_reset)
+        rand.uintLessThan(u8, 8)
+    else
+        rand.intRangeAtMostBiased(u8, 1, 7);
+
+    switch (kind) {
         // Reset.
         0 => {
-            try writer.writeAll("\x1b[0m");
-            state.styled = false;
-            return;
+            try writer.writeAll("0");
+            return false;
         },
 
         // 16-color foreground.
         1 => {
             const base: u8 = if (rand.boolean()) 30 else 90;
-            try writer.print("\x1b[{d}m", .{base + rand.uintLessThan(u8, 8)});
+            try writer.print("{d}", .{base + rand.uintLessThan(u8, 8)});
         },
 
         // 16-color background.
         2 => {
             const base: u8 = if (rand.boolean()) 40 else 100;
-            try writer.print("\x1b[{d}m", .{base + rand.uintLessThan(u8, 8)});
+            try writer.print("{d}", .{base + rand.uintLessThan(u8, 8)});
         },
 
         // 256-color foreground/background.
-        3 => try writer.print("\x1b[38;5;{d}m", .{rand.int(u8)}),
-        4 => try writer.print("\x1b[48;5;{d}m", .{rand.int(u8)}),
+        3 => try writer.print("38;5;{d}", .{rand.int(u8)}),
+        4 => try writer.print("48;5;{d}", .{rand.int(u8)}),
 
         // RGB foreground/background. Components are quantized so the
         // number of unique styles stays bounded (6^3 per channel pair)
         // rather than pathologically unique per cell.
-        5, 6 => |kind| {
+        5, 6 => {
             const layer: u8 = if (kind == 5) 38 else 48;
-            try writer.print("\x1b[{d};2;{d};{d};{d}m", .{
+            try writer.print("{d};2;{d};{d};{d}", .{
                 layer,
                 rand.uintLessThan(u8, 6) * 51,
                 rand.uintLessThan(u8, 6) * 51,
@@ -285,7 +319,7 @@ fn writeSgr(
         // Attributes: bold, italic, underline, inverse, strikethrough.
         7 => {
             const attrs = [_]u8{ 1, 3, 4, 7, 9 };
-            try writer.print("\x1b[{d}m", .{
+            try writer.print("{d}", .{
                 attrs[rand.uintLessThan(usize, attrs.len)],
             });
         },
@@ -293,7 +327,7 @@ fn writeSgr(
         else => unreachable,
     }
 
-    state.styled = true;
+    return true;
 }
 
 fn toggleLink(
@@ -364,6 +398,59 @@ test "Styled styled output" {
     try testing.expect(std.mem.indexOf(u8, output, "\x1b]8;;") != null);
 }
 
+test "Styled multiple attributes per SGR" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    for ([_]u8{ 1, 3, 4 }) |n| {
+        const impl: *Styled = try .create(alloc, .{
+            .seed = 1,
+            .@"style-rate" = 1.0,
+            .@"sgr-attrs" = n,
+        });
+        defer impl.destroy(alloc);
+
+        var prng = std.Random.DefaultPrng.init(1);
+        var buf: [16384]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try impl.run(&writer, prng.random());
+        const output = writer.buffered();
+
+        // Every SGR sequence carries exactly n attributes, except the
+        // single reset that closes a styled line, and only the first
+        // attribute may be a reset.
+        var seqs: usize = 0;
+        var it = std.mem.splitSequence(u8, output, "\x1b[");
+        _ = it.next();
+        while (it.next()) |rest| {
+            // Skip a sequence truncated by the end of the buffer.
+            const end = std.mem.indexOfScalar(u8, rest, 'm') orelse break;
+            const params = rest[0..end];
+            if (std.mem.eql(u8, params, "0") and
+                end + 1 < rest.len and rest[end + 1] == '\r') continue;
+
+            var attrs: usize = 0;
+            var p = std.mem.splitScalar(u8, params, ';');
+            while (p.next()) |param| {
+                const v = try std.fmt.parseInt(u8, param, 10);
+                if (v == 0) try testing.expectEqual(@as(usize, 0), attrs);
+                if (v == 38 or v == 48) {
+                    const skip: usize = switch (try std.fmt.parseInt(u8, p.next().?, 10)) {
+                        5 => 1,
+                        2 => 3,
+                        else => return error.TestUnexpectedResult,
+                    };
+                    for (0..skip) |_| _ = p.next().?;
+                }
+                attrs += 1;
+            }
+            try testing.expectEqual(@as(usize, n), attrs);
+            seqs += 1;
+        }
+        try testing.expect(seqs > 100);
+    }
+}
+
 test "Styled unicode output" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -406,5 +493,11 @@ test "Styled invalid options" {
     }));
     try testing.expectError(error.InvalidValue, Styled.create(alloc, .{
         .@"line-min" = 0,
+    }));
+    try testing.expectError(error.InvalidValue, Styled.create(alloc, .{
+        .@"sgr-attrs" = 0,
+    }));
+    try testing.expectError(error.InvalidValue, Styled.create(alloc, .{
+        .@"sgr-attrs" = 5,
     }));
 }

@@ -37,9 +37,7 @@ stdenv.mkDerivation (finalAttrs: {
     );
   };
 
-  deps = callPackage ../build.zig.zon.nix {
-    name = "${finalAttrs.pname}-cache-${finalAttrs.version}";
-  };
+  deps = callPackage ../build.zig.zon.nix {};
 
   nativeBuildInputs =
     [

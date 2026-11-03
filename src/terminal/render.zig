@@ -1453,7 +1453,7 @@ pub const RenderState = struct {
                 const end = @min(run.end, styles.len);
                 const start = @min(run.start, end);
 
-                fillStyles(styles[start..end], run.style);
+                fillStyles(styles[start..end], @bitCast(run.style));
             }
 
             // Record what we applied so the next rebuild of this row
@@ -1522,37 +1522,27 @@ pub const RenderState = struct {
     /// Fill a slice of styles with one value.
     ///
     /// This is equivalent to `@memset(dst, value)` but manually vectorized:
-    /// `@memset` with a struct value lowers to a per-element field copy
-    /// that reloads the source at every iteration because LLVM cannot
-    /// prove the destination doesn't alias it. And, Zig 0.16 disables
-    /// auto-vectorization due to an LLVM bug.
+    /// `@memset` with a packed u128 lowers to two 64-bit stores per cell on
+    /// x86-64, and is slower in V8 without SIMD128 with Zig 0.16.
     ///
-    /// This complexity is justified by accounting for ~10% of the endUpdate
-    /// times under heavily styled cases.
-    fn fillStyles(dst: []Style, value: Style) void {
-        // Each element is written as two overlapping 16-byte vector
-        // stores held in registers, which requires 16 <= size <= 32.
-        const elem_size = @sizeOf(Style);
-        comptime assert(elem_size >= 16 and elem_size <= 32);
-
-        const V = @Vector(16, u8);
-        const src: *align(@alignOf(Style)) const [elem_size]u8 = @ptrCast(&value);
-        const lo = @as(*align(4) const V, @ptrCast(src[0..16])).*;
-        const hi = @as(*align(1) const V, @ptrCast(src[elem_size - 16 ..][0..16])).*;
+    /// We use byte offsets because iterating over a `[]@Vector(2, u64)` is
+    /// slower for long fills in V8 with SIMD128.
+    ///
+    /// Passing the style as a vector produces one vector store on x86-64.
+    /// Bitcasting it here instead makes LLVM use two 64-bit stores.
+    fn fillStyles(dst: []Style, v: @Vector(2, u64)) void {
+        comptime assert(@sizeOf(Style) == @sizeOf(@TypeOf(v)));
+        const V = @TypeOf(v);
 
         const dst_bytes = std.mem.sliceAsBytes(dst);
         var off: usize = 0;
         for (0..dst.len) |_| {
-            @as(*align(1) V, @ptrCast(dst_bytes[off..][0..16])).* = lo;
-            @as(*align(1) V, @ptrCast(dst_bytes[off + elem_size - 16 ..][0..16])).* = hi;
-            off += elem_size;
+            @as(*align(1) V, @ptrCast(dst_bytes[off..][0..@sizeOf(V)])).* = v;
+            off += @sizeOf(V);
         }
     }
 
-    /// Returns true if the two style run lists denormalize to
-    /// identical per-cell style data. This is a semantic comparison
-    /// (styles are compared field-wise, never by bytes, since padding
-    /// is undefined).
+    /// Returns true if both lists have the same run boundaries and styles.
     fn runsEql(a: []const StyleRun, b: []const StyleRun) bool {
         if (a.len != b.len) return false;
         for (a, b) |ar, br| {
@@ -1652,7 +1642,7 @@ pub const RenderState = struct {
         if (any_dirty and self.dirty == .false) self.dirty = .partial;
     }
 
-    pub const StringMap = std.ArrayListUnmanaged(point.Coordinate);
+    pub const StringMap = std.ArrayList(point.Coordinate);
 
     /// Convert the current render state contents to a UTF-8 encoded
     /// string written to the given writer. This will unwrap all the wrapped
@@ -2764,6 +2754,10 @@ const RowBuilder = struct {
         const cells_grapheme = cells_slice.items(.grapheme);
         const n = page_cells.len;
         const runs_start = b.pending_styles.items.len;
+
+        // Each cell starts at most one style run, so reserve a row's worth
+        // up front to keep the appends below allocation-free.
+        try b.pending_styles.ensureUnusedCapacity(b.alloc, n);
         var x: usize = 0;
         scan: while (x < n) {
             // Skip runs of plain cells a group at a time. Cells that
@@ -2828,7 +2822,7 @@ const RowBuilder = struct {
                         )) break;
                     }
 
-                    try b.pending_styles.append(b.alloc, .{
+                    b.pending_styles.appendAssumeCapacity(.{
                         .y = @intCast(vy),
                         .start = @intCast(start),
                         .end = @intCast(x),
@@ -2856,7 +2850,7 @@ const RowBuilder = struct {
                             p.memory,
                             page_cell.style_id,
                         ).*;
-                        try b.pending_styles.append(b.alloc, .{
+                        b.pending_styles.appendAssumeCapacity(.{
                             .y = @intCast(vy),
                             .start = @intCast(x),
                             .end = @intCast(x + 1),
@@ -2889,14 +2883,14 @@ const RowBuilder = struct {
                 // with a background color pending is one run).
                 .bg_color_rgb, .bg_color_palette => {
                     const style_val: Style = switch (page_cell.content_tag) {
-                        .bg_color_rgb => .{ .bg_color = .{ .rgb = .{
+                        .bg_color_rgb => .{ .bg_color = .rgb(.{
                             .r = page_cell.content.color_rgb.r,
                             .g = page_cell.content.color_rgb.g,
                             .b = page_cell.content.color_rgb.b,
-                        } } },
-                        .bg_color_palette => .{ .bg_color = .{
-                            .palette = page_cell.content.color_palette.data,
-                        } },
+                        }) },
+                        .bg_color_palette => .{
+                            .bg_color = .palette(page_cell.content.color_palette.data),
+                        },
                         else => unreachable,
                     };
 
@@ -2916,7 +2910,7 @@ const RowBuilder = struct {
                             break;
                     }
 
-                    try b.pending_styles.append(b.alloc, .{
+                    b.pending_styles.appendAssumeCapacity(.{
                         .y = @intCast(vy),
                         .start = @intCast(start),
                         .end = @intCast(x),
@@ -3061,6 +3055,9 @@ fn testCompareStates(
     // mark). This staleness predates the chunked update
     // implementation; it is present in the row-iterator implementation
     // as well.
+    //
+    // `blank` is left out on purpose. Every change to it comes with a
+    // dirty mark, so checking it here catches a writer that forgets one.
     const StaleOkMask = page.Mask(page.Row, &.{
         "wrap",
         "wrap_continuation",
@@ -3434,7 +3431,7 @@ test "bg color cells" {
             cell.raw.content_tag,
         );
         try testing.expectEqual(
-            Style.Color{ .palette = 1 },
+            Style.Color.palette(1),
             cell.style.bg_color,
         );
     }

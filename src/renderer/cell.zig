@@ -7,7 +7,7 @@ const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const symbols = @import("../unicode/symbols_table.zig").table;
 
-const CellTextRow = std.ArrayListUnmanaged(shaderpkg.CellText);
+const CellTextRow = std.ArrayList(shaderpkg.CellText);
 
 /// The possible cell content keys that exist.
 pub const Key = enum {

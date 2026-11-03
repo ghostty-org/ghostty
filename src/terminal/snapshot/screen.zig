@@ -490,7 +490,10 @@ pub fn decode(
     // `seen` is derived state. Only resident prompt metadata participates
     // because omitted history is outside the restored Screen model.
     result.semantic_prompt.seen = seen: {
-        if (result.cursor.semantic_content == .prompt) break :seen true;
+        // A cursor in prompt or input content counts even when no row is
+        // marked yet, because the next linefeed marks a row as a prompt
+        // continuation. See `SemanticPrompt.seen`.
+        if (result.cursor.semantic_content != .output) break :seen true;
 
         var node = result.pages.getTopLeft(.screen).node;
         while (true) {
@@ -1190,12 +1193,12 @@ fn testHeader() Header {
         },
         .cursor_pen = .{
             .fg_color = .none,
-            .bg_color = .{ .palette = 0x7f },
-            .underline_color = .{ .rgb = .{
+            .bg_color = .palette(0x7f),
+            .underline_color = .rgb(.{
                 .r = 0x12,
                 .g = 0x34,
                 .b = 0x56,
-            } },
+            }),
             .flags = .{
                 .bold = true,
                 .italic = true,
@@ -1890,9 +1893,17 @@ test "SCREEN encodes the minimal complete-page active suffix" {
     // Mark each native page so the encoded sequence proves both omission and
     // oldest-to-newest ordering. The mixed page's marker is in its incidental
     // history prefix and must survive because complete pages are encoded.
-    historical.page().getRowAndCell(0, 0).cell.* = .init('A');
-    mixed.page().getRowAndCell(0, 0).cell.* = .init('B');
-    newest.page().getRowAndCell(0, 0).cell.* = .init('C');
+    // Rows that scrolling created are marked blank, so writing a cell
+    // directly must clear that like the terminal's own writers do.
+    inline for (.{
+        .{ historical, 'A' },
+        .{ mixed, 'B' },
+        .{ newest, 'C' },
+    }) |marker| {
+        const rac = marker[0].page().getRowAndCell(0, 0);
+        rac.cell.* = .init(marker[1]);
+        rac.row.blank = false;
+    }
 
     var destination: std.Io.Writer.Allocating = .init(
         std.testing.allocator,

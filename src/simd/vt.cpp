@@ -284,6 +284,27 @@ static HWY_NOINLINE size_t DecodeNonAsciiUntilControlSeq(
   return base + trimmed_len;
 }
 
+// The rest of DecodeUTF8UntilControlSeqImpl once it has found a
+// non-ASCII byte at offset `base`: widens the ASCII prefix input[0..base)
+// into output, one codepoint per byte, and decodes the rest (up to an
+// ESC) with the full decoder.
+template <class D>
+static HWY_NOINLINE size_t DecodeAfterAscii(D d,
+                                            const T* HWY_RESTRICT input,
+                                            size_t count,
+                                            size_t base,
+                                            char32_t* output,
+                                            size_t* output_count) {
+  const size_t N = hn::Lanes(d);
+  size_t i = 0;
+  for (; i < base && i + N <= count; i += N) {
+    WidenAsciiStore(d, hn::LoadU(d, input + i), output + i);
+  }
+  for (; i < base; ++i) output[i] = input[i];
+  return DecodeNonAsciiUntilControlSeq(d, input, count, base, output,
+                                       output_count);
+}
+
 /// Decode the UTF-8 text in input into output until an escape
 /// character is found. This returns the number of bytes consumed
 /// from input and writes the number of decoded characters into
@@ -293,70 +314,69 @@ static HWY_NOINLINE size_t DecodeNonAsciiUntilControlSeq(
 /// character if the input ends with an incomplete UTF-8 sequence.
 /// The caller should check the next byte manually to determine
 /// if it is incomplete.
+///
+/// When everything before the ESC (or the end) is ASCII, which is most
+/// terminal input, the decoded codepoints are just the input bytes:
+/// *ascii is set to true and nothing is written to output, so the
+/// caller reads the bytes directly. Otherwise *ascii is set to false
+/// and output holds the decoded codepoints.
 template <class D>
 size_t DecodeUTF8UntilControlSeqImpl(D d,
                                      const T* HWY_RESTRICT input,
                                      size_t count,
                                      char32_t* output,
-                                     size_t* output_count) {
+                                     size_t* output_count,
+                                     bool* ascii) {
   const size_t N = hn::Lanes(d);
 
   // Create a vector containing ESC since that denotes a control sequence.
   const hn::Vec<D> esc_vec = Set(d, 0x1B);
-  // Any byte >= 0x80 is part of a multi-byte UTF-8 sequence.
-  const hn::Vec<D> high_vec = Set(d, 0x80);
 
-  // ASCII fast path: terminal input is overwhelmingly ASCII, for which
-  // UTF-8 decoding is a simple widening of each byte to 32 bits. We
-  // fuse the ESC scan with the decode, one chunk at a time, and only
-  // fall back to the full UTF-8 decoder (simdutf) when we encounter a
-  // non-ASCII byte. This avoids a second pass over the input and, for
-  // the common short runs between escape sequences, avoids the fixed
-  // overhead of the general-purpose decoder.
+  // Any byte >= 0x80 is part of a multi-byte UTF-8 sequence, which is
+  // exactly the bytes that are negative when read as signed.
+  const hn::RebindToSigned<D> di;
+  const hn::Vec<decltype(di)> zero = hn::Zero(di);
+
+  // ASCII fast path: terminal input is overwhelmingly ASCII, which
+  // needs no decoding at all. Scan for an ESC or a non-ASCII byte, and
+  // only decode (widen the ASCII prefix and fall back to the full
+  // UTF-8 decoder, simdutf) when we find a non-ASCII byte.
   size_t i = 0;
   for (; i + N <= count; i += N) {
     const hn::Vec<D> input_vec = hn::LoadU(d, input + i);
-
-    // Find the first byte that stops the ASCII fast path: an ESC or
-    // any non-ASCII byte.
-    const hn::Mask<D> stop_mask =
-        hn::Or(hn::Eq(input_vec, esc_vec), hn::Ge(input_vec, high_vec));
+    const hn::Mask<D> stop_mask = hn::Or(
+        hn::Eq(input_vec, esc_vec),
+        hn::RebindMask(d, hn::Lt(hn::BitCast(di, input_vec), zero)));
     const intptr_t stop = hn::FindFirstTrue(d, stop_mask);
-
-    // Widen the whole chunk unconditionally: output is guaranteed to
-    // be at least as large as input, and if we stop mid-chunk only
-    // the prefix is reported (the rest is scratch that the caller
-    // never reads).
-    WidenAsciiStore(d, input_vec, output + i);
     if (stop < 0) continue;
 
     const size_t stop_idx = i + static_cast<size_t>(stop);
     if (input[stop_idx] == 0x1B) {
-      // ESC: everything before it was ASCII, one codepoint per byte.
+      *ascii = true;
       *output_count = stop_idx;
       return stop_idx;
     }
 
-    // Non-ASCII: decode the rest (up to an ESC) with the full decoder.
-    return DecodeNonAsciiUntilControlSeq(d, input, count, stop_idx, output,
-                                         output_count);
+    *ascii = false;
+    return DecodeAfterAscii(d, input, count, stop_idx, output, output_count);
   }
 
   // Leftover input (< N bytes): process one byte at a time.
   for (; i < count; ++i) {
     const T b = input[i];
     if (b == 0x1B) {
+      *ascii = true;
       *output_count = i;
       return i;
     }
     if (b >= 0x80) {
-      return DecodeNonAsciiUntilControlSeq(d, input, count, i, output,
-                                           output_count);
+      *ascii = false;
+      return DecodeAfterAscii(d, input, count, i, output, output_count);
     }
-    output[i] = b;
   }
 
   // The entire input was ASCII (no ESC, no partial sequences possible).
+  *ascii = true;
   *output_count = count;
   return count;
 }
@@ -364,9 +384,11 @@ size_t DecodeUTF8UntilControlSeqImpl(D d,
 size_t DecodeUTF8UntilControlSeq(const uint8_t* HWY_RESTRICT input,
                                  size_t count,
                                  char32_t* output,
-                                 size_t* output_count) {
+                                 size_t* output_count,
+                                 bool* ascii) {
   const hn::ScalableTag<uint8_t> d;
-  return DecodeUTF8UntilControlSeqImpl(d, input, count, output, output_count);
+  return DecodeUTF8UntilControlSeqImpl(d, input, count, output, output_count,
+                                       ascii);
 }
 
 }  // namespace HWY_NAMESPACE
@@ -383,9 +405,10 @@ HWY_EXPORT(DecodeUTF8UntilControlSeq);
 size_t DecodeUTF8UntilControlSeq(const uint8_t* HWY_RESTRICT input,
                                  size_t count,
                                  char32_t* output,
-                                 size_t* output_count) {
+                                 size_t* output_count,
+                                 bool* ascii) {
   return HWY_DYNAMIC_DISPATCH(DecodeUTF8UntilControlSeq)(input, count, output,
-                                                         output_count);
+                                                         output_count, ascii);
 }
 
 }  // namespace ghostty
@@ -396,8 +419,10 @@ size_t ghostty_simd_decode_utf8_until_control_seq(const uint8_t* HWY_RESTRICT
                                                       input,
                                                   size_t count,
                                                   char32_t* output,
-                                                  size_t* output_count) {
-  return ghostty::DecodeUTF8UntilControlSeq(input, count, output, output_count);
+                                                  size_t* output_count,
+                                                  bool* ascii) {
+  return ghostty::DecodeUTF8UntilControlSeq(input, count, output, output_count,
+                                            ascii);
 }
 
 }  // extern "C"

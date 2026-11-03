@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Lon Sagisawa <lon@sagisawa.me>, 2025.
 # ekusiadadus <ekusiadadus@gmail.com>, 2026.
+# Jun <jun@clavinjune.dev>, 2026.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-27 20:45-0700\n"
-"PO-Revision-Date: 2026-10-07 10:07+0900\n"
-"Last-Translator: ekusiadadus <ekusiadadus@gmail.com>\n"
+"POT-Creation-Date: 2026-11-03 13:20-0800\n"
+"PO-Revision-Date: 2026-11-03 01:27+0800\n"
+"Last-Translator: Jun <jun@clavinjune.dev>\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
 "MIME-Version: 1.0\n"
@@ -346,6 +347,14 @@ msgstr "ウィンドウ内のすべてのターミナルセッションが終了
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:195
 msgid "The currently running process in this split will be terminated."
 msgstr "この分割ウィンドウで現在実行中のプロセスが終了します。"
+
+#: src/apprt/gtk/class/command_palette.zig:693
+msgid "Untitled"
+msgstr "無題"
+
+#: src/apprt/gtk/class/command_palette.zig:697
+msgid "Focus"
+msgstr "フォーカス"
 
 #: src/apprt/gtk/class/surface.zig:1208
 msgid "Command Finished"
@@ -1133,10 +1142,6 @@ msgstr ""
 #: src/input/command.zig:709
 msgid "Quit the application."
 msgstr "アプリケーションを終了します。"
-
-#: src/input/command.zig:714
-msgid "Ghostty"
-msgstr "Ghostty"
 
 #: src/input/command.zig:715
 msgid "Put a little Ghostty in your terminal."

@@ -28,29 +28,21 @@ pub const Color = extern struct {
     // fromColor converts the tag as a plain integer, which requires
     // the internal and C tag values to line up.
     comptime {
-        const Tag = std.meta.Tag(style.Style.Color);
+        const Tag = style.Style.Color.Tag;
         for (@typeInfo(Tag).@"enum".field_names, @typeInfo(Tag).@"enum".field_values) |f, f_value| {
             assert(f_value == @backingInt(@field(ColorTag, f)));
         }
     }
 
     pub fn fromColor(c: style.Style.Color) Color {
-        // The value is built as a single integer rather than through
-        // the per-variant union fields: the C union layout puts
-        // .palette at byte 0 and .rgb at bytes 0-2, which is exactly
-        // the internal payload representation, so each variant is the
-        // payload zero-extended to the u64 union backing. This keeps
+        // The C union puts .palette at byte 0 and .rgb at bytes 0-2, which
+        // is exactly the internal payload representation, so each variant
+        // is the payload zero-extended to the u64 union backing. This keeps
         // the conversion to two stores (tag + value) per color, which
-        // matters for the per-cell style reads in the render state
-        // API.
-        const value: u64 = switch (c) {
-            .none => 0,
-            .palette => |idx| idx,
-            .rgb => |rgb| @as(u24, @bitCast(rgb)),
-        };
+        // matters for the per-cell style reads in the render state API.
         return .{
-            .tag = @fromBackingInt(@backingInt(std.meta.activeTag(c))),
-            .value = .{ ._padding = value },
+            .tag = @fromBackingInt(@backingInt(c.tag)),
+            .value = .{ ._padding = c.data },
         };
     }
 };
@@ -182,8 +174,8 @@ test "default style" {
 
 test "convert style with colors" {
     const zig_style: style.Style = .{
-        .fg_color = .{ .palette = 42 },
-        .bg_color = .{ .rgb = .{ .r = 255, .g = 128, .b = 64 } },
+        .fg_color = .palette(42),
+        .bg_color = .rgb(.{ .r = 255, .g = 128, .b = 64 }),
         .underline_color = .none,
         .flags = .{ .bold = true, .underline = .curly },
     };

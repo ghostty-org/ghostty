@@ -346,7 +346,7 @@ test "base64 streaming decode chunk boundaries" {
     const expect = "some longer data with padding>??";
     for (0..input.len + 1) |split| {
         var s: Streaming = .{};
-        var result: std.ArrayListUnmanaged(u8) = .empty;
+        var result: std.ArrayList(u8) = .empty;
         defer result.deinit(alloc);
         var output: [64]u8 = undefined;
         try result.appendSlice(alloc, try s.feed(input[0..split], &output));
@@ -356,7 +356,7 @@ test "base64 streaming decode chunk boundaries" {
     }
     {
         var s: Streaming = .{};
-        var result: std.ArrayListUnmanaged(u8) = .empty;
+        var result: std.ArrayList(u8) = .empty;
         defer result.deinit(alloc);
         var output: [4]u8 = undefined;
         for (0..input.len) |i| {

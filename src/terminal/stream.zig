@@ -125,7 +125,7 @@ pub const Action = union(Key) {
     clipboard_contents: ClipboardContents,
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
-    set_attribute: sgr.Attribute,
+    set_attributes: SetAttributes,
     kitty_color_report: kitty.color.OSC,
     color_operation: ColorOperation,
     semantic_prompt: SemanticPrompt,
@@ -138,6 +138,10 @@ pub const Action = union(Key) {
     xt_checksum_extension: XtChecksumExtension,
     program_status: ProgramStatus,
     soft_reset,
+    back_index,
+    forward_index,
+    insert_columns: usize,
+    delete_columns: usize,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -233,7 +237,7 @@ pub const Action = union(Key) {
             "clipboard_contents",
             "mouse_shape",
             "configure_charset",
-            "set_attribute",
+            "set_attributes",
             "kitty_color_report",
             "color_operation",
             "semantic_prompt",
@@ -246,6 +250,10 @@ pub const Action = union(Key) {
             "xt_checksum_extension",
             "program_status",
             "soft_reset",
+            "back_index",
+            "forward_index",
+            "insert_columns",
+            "delete_columns",
         },
     );
 
@@ -294,6 +302,42 @@ pub const Action = union(Key) {
 
         pub fn cval(self: PrintSlice) PrintSlice.C {
             return .{ .cps = self.cps.ptr, .len = self.cps.len };
+        }
+    };
+
+    /// All the attributes of one SGR sequence (`CSI ... m`), as its raw
+    /// parameters. A handler iterates them with `parser`. Sending the
+    /// whole sequence at once lets a handler apply every attribute
+    /// before doing per-sequence work, such as interning the resulting
+    /// style, instead of repeating that work per attribute.
+    ///
+    /// The slice is only valid for the duration of the handler call.
+    pub const SetAttributes = struct {
+        params: []const u16,
+        params_sep: Parser.Action.CSI.SepList,
+
+        /// A parser over the attributes of this sequence.
+        pub fn parser(self: SetAttributes) sgr.Parser {
+            return .{
+                .params = self.params,
+                .params_sep = self.params_sep,
+            };
+        }
+
+        pub const C = extern struct {
+            params: [*]const u16,
+            len: usize,
+            /// Bit `i` is set when a colon follows `params[i]`, as in
+            /// `ghostty_sgr_parser_set_params` separators.
+            params_sep: u32,
+        };
+
+        pub fn cval(self: SetAttributes) SetAttributes.C {
+            return .{
+                .params = self.params.ptr,
+                .len = self.params.len,
+                .params_sep = self.params_sep.mask,
+            };
         }
     };
 
@@ -524,6 +568,16 @@ pub const Action = union(Key) {
 /// codepoints at once, and via `print` actions otherwise. Handlers
 /// that care about text must handle both.
 ///
+/// A handler may also have a `vtPrintAscii` function, which receives
+/// instead of `print_slice` the runs the stream already knows are
+/// printable ASCII (0x20 to 0x7F), as the input bytes, so neither side
+/// widens or classifies them:
+///
+///   fn(bytes: []const u8) void
+///
+/// It is a separate function rather than a flag on PrintSlice so that
+/// every other print_slice stays as cheap to hand over as before.
+///
 /// The Handler type must also have a `deinit` function.
 ///
 /// The "comptime" key is on purpose (vs. a standard Zig tagged union)
@@ -660,6 +714,19 @@ pub fn Stream(comptime H: type) type {
                 if (self.parser.state != .ground) .vt else .utf8,
                 input,
             );
+        }
+
+        /// Hand a run of printable ASCII to the handler (see Stream). A
+        /// handler without vtPrintAscii gets it as a print_slice, widened
+        /// into `buf`.
+        inline fn printAscii(self: *Self, bytes: []const u8, buf: []u32) void {
+            if (comptime @hasDecl(T, "vtPrintAscii")) {
+                self.handler.vtPrintAscii(bytes);
+            } else {
+                const cps = buf[0..bytes.len];
+                for (bytes, cps) |b, *cp| cp.* = b;
+                self.handler.vt(.print_slice, .{ .cps = cps });
+            }
         }
 
         /// Process a string of characters.
@@ -834,68 +901,15 @@ pub fn Stream(comptime H: type) type {
             // up to that point are just UTF-8.
             while (self.parser.state == .ground and offset < input.len) {
                 const res = simd.vt.utf8DecodeUntilControlSeq(input[offset..], cp_buf);
-                const cps = cp_buf[0..res.decoded];
 
-                // Hand runs of printable codepoints to the handler as
-                // print_slice actions so it can process them with
-                // per-run rather than per-codepoint overhead.
-                var i: usize = 0;
-                while (i < cps.len) {
-                    const cp = cps[i];
-                    // C0 and UTF-8-decoded C1 controls never enter
-                    // printable runs. A codepoint is one of those
-                    // exactly when it has no bit set outside 0x9F:
-                    // bits 0-4 and bit 7 cover 0x00-0x1F and
-                    // 0x80-0x9F and nothing else, so a single
-                    // AND-test classifies both ranges.
-                    if ((cp & ~@as(u32, 0x9F)) == 0) {
-                        @branchHint(.unlikely);
-                        if (cp <= 0x1F) {
-                            // C0 controls execute rather than print.
-                            self.execute(@intCast(cp));
-                        } else {
-                            // C1 controls decoded from UTF-8 are ignored.
-                            logUnsupportedOnce(
-                                "ignoring UTF-8-decoded C1 controls, first: 0x{x}",
-                                .{cp},
-                                0x80,
-                            );
-                        }
-                        i += 1;
-                        continue;
-                    }
-
-                    // Find the end of the printable run. This is an
-                    // early-exit search loop that LLVM won't
-                    // auto-vectorize, and printable runs dominate real
-                    // input, so scan several codepoints at a time
-                    // manually (same idiom as the printSliceFill run
-                    // scan).
-                    var end = i + 1;
-                    scan: {
-                        if (simd.lanes(u32)) |lanes| {
-                            const V = @Vector(lanes, u32);
-                            // Non-printable (C0 or decoded C1) is
-                            // equivalent to "no bit outside 0x9F is
-                            // set": one AND-test per lane.
-                            const mask: V = @splat(~@as(u32, 0x9F));
-                            const zero: V = @splat(0);
-                            while (end + lanes <= cps.len) {
-                                const v: V = cps[end..][0..lanes].*;
-                                const stop = (v & mask) == zero;
-                                if (@reduce(.Or, stop)) {
-                                    const bits: @Int(.unsigned, lanes) = @bitCast(stop);
-                                    end += @ctz(bits);
-                                    break :scan;
-                                }
-                                end += lanes;
-                            }
-                        }
-                        while (end < cps.len and (cps[end] & ~@as(u32, 0x9F)) != 0) end += 1;
-                    }
-                    self.handler.vt(.print_slice, .{ .cps = cps[i..end] });
-                    i = end;
+                // ASCII needs no decoding, so the decoder leaves it in
+                // the input and we split it into runs there.
+                if (res.ascii) {
+                    self.printRuns(u8, input[offset..][0..res.consumed], cp_buf);
+                } else {
+                    self.printRuns(u32, cp_buf[0..res.decoded], cp_buf);
                 }
+
                 // Consume the bytes we just processed.
                 offset += res.consumed;
 
@@ -913,6 +927,84 @@ pub fn Stream(comptime H: type) type {
                 // Process control sequences until we run out.
                 offset += self.consumeAllEscapes(input[offset..], until, u);
                 if (comptime until) if (self.untilReached(u, input.ptr + offset)) return;
+            }
+        }
+
+        /// Hand the runs of printable codepoints in cps to the handler as
+        /// print_slice actions, so it can process them with per-run
+        /// rather than per-codepoint overhead, and execute the controls
+        /// between them. ASCII comes as bytes (u8), and then every run
+        /// is printable ASCII. `buf` may be overwritten unless it holds
+        /// cps.
+        inline fn printRuns(
+            self: *Self,
+            comptime Cp: type,
+            cps: []const Cp,
+            buf: []u32,
+        ) void {
+            const ascii = Cp == u8;
+            var i: usize = 0;
+            while (i < cps.len) {
+                const cp = cps[i];
+                // C0 and UTF-8-decoded C1 controls never enter
+                // printable runs. A codepoint is one of those
+                // exactly when it has no bit set outside 0x9F:
+                // bits 0-4 and bit 7 cover 0x00-0x1F and
+                // 0x80-0x9F and nothing else, so a single
+                // AND-test classifies both ranges. ASCII has no C1.
+                const control = if (ascii) cp < 0x20 else (cp & ~@as(u32, 0x9F)) == 0;
+                if (control) {
+                    @branchHint(.unlikely);
+                    if (ascii or cp <= 0x1F) {
+                        // C0 controls execute rather than print.
+                        self.execute(@intCast(cp));
+                    } else {
+                        // C1 controls decoded from UTF-8 are ignored.
+                        logUnsupportedOnce(
+                            "ignoring UTF-8-decoded C1 controls, first: 0x{x}",
+                            .{cp},
+                            0x80,
+                        );
+                    }
+                    i += 1;
+                    continue;
+                }
+
+                // Find the end of the printable run. This is an
+                // early-exit search loop that LLVM won't
+                // auto-vectorize, and printable runs dominate real
+                // input, so scan several codepoints at a time
+                // manually (same idiom as the printSliceFill run
+                // scan).
+                var end = i + 1;
+                scan: {
+                    if (simd.lanes(Cp)) |lanes| {
+                        const V = @Vector(lanes, Cp);
+                        while (end + lanes <= cps.len) {
+                            const v: V = cps[end..][0..lanes].*;
+                            const stop = if (ascii)
+                                v < @as(V, @splat(0x20))
+                            else
+                                (v & @as(V, @splat(~@as(u32, 0x9F)))) == @as(V, @splat(0));
+                            if (@reduce(.Or, stop)) {
+                                const bits: @Int(.unsigned, lanes) = @bitCast(stop);
+                                end += @ctz(bits);
+                                break :scan;
+                            }
+                            end += lanes;
+                        }
+                    }
+                    while (end < cps.len) : (end += 1) {
+                        const c = cps[end];
+                        if (if (ascii) c < 0x20 else (c & ~@as(u32, 0x9F)) == 0) break;
+                    }
+                }
+                if (ascii) {
+                    self.printAscii(cps[i..end], buf);
+                } else {
+                    self.handler.vt(.print_slice, .{ .cps = cps[i..end] });
+                }
+                i = end;
             }
         }
 
@@ -2214,14 +2306,11 @@ pub fn Stream(comptime H: type) type {
                             // This is the most common case.
                             @branchHint(.likely);
                             // log.info("parse SGR params={any}", .{input.params});
-                            var p: sgr.Parser = .{
+                            const attrs: streampkg.Action.SetAttributes = .{
                                 .params = input.params,
                                 .params_sep = input.params_sep,
                             };
-                            while (p.next()) |attr| {
-                                // log.info("SGR attribute: {}", .{attr});
-                                self.handler.vt(.set_attribute, attr);
-                            }
+                            self.handler.vt(.set_attributes, attrs);
                         },
 
                         1 => switch (input.intermediates[0]) {
@@ -2795,13 +2884,36 @@ pub fn Stream(comptime H: type) type {
                     ),
                 },
 
-                // DECSASD - Select Active Status Display
                 '}' => decsasd: {
-                    // Verify we're getting a DECSASD command
-                    if (input.intermediates.len != 1 or input.intermediates[0] != '$') {
+                    if (input.intermediates.len != 1) {
                         log.warn("unimplemented CSI callback: {f}", .{input});
                         break :decsasd;
                     }
+
+                    switch (input.intermediates[0]) {
+                        // DECSASD - Select Active Status Display
+                        '$' => {},
+
+                        // DECIC - Insert Column
+                        '\'' => {
+                            self.handler.vt(.insert_columns, switch (input.params.len) {
+                                0 => 1,
+                                1 => @max(1, input.params[0]),
+                                else => {
+                                    @branchHint(.unlikely);
+                                    log.warn("invalid DECIC command: {f}", .{input});
+                                    break :decsasd;
+                                },
+                            });
+                            break :decsasd;
+                        },
+
+                        else => {
+                            log.warn("unimplemented CSI callback: {f}", .{input});
+                            break :decsasd;
+                        },
+                    }
+
                     if (input.params.len != 1) {
                         log.warn("unimplemented CSI callback: {f}", .{input});
                         break :decsasd;
@@ -2817,6 +2929,25 @@ pub fn Stream(comptime H: type) type {
                     };
 
                     self.handler.vt(.active_status_display, display);
+                },
+
+                // DECDC - Delete Column
+                '~' => switch (input.intermediates.len) {
+                    1 => switch (input.intermediates[0]) {
+                        '\'' => self.handler.vt(.delete_columns, switch (input.params.len) {
+                            0 => 1,
+                            1 => @max(1, input.params[0]),
+                            else => {
+                                @branchHint(.unlikely);
+                                log.warn("invalid DECDC command: {f}", .{input});
+                                return;
+                            },
+                        }),
+
+                        else => log.warn("unimplemented CSI action: {f}", .{input}),
+                    },
+
+                    else => log.warn("unimplemented CSI action: {f}", .{input}),
                 },
 
                 else => log.warn("unimplemented CSI action: {f}", .{input}),
@@ -3088,6 +3219,26 @@ pub fn Stream(comptime H: type) type {
                         .{action},
                         action.final,
                     );
+                },
+
+                // DECBI - Back Index
+                '6' => switch (action.intermediates.len) {
+                    0 => self.handler.vt(.back_index, {}),
+                    else => {
+                        @branchHint(.unlikely);
+                        log.warn("invalid back index command: {f}", .{action});
+                        return;
+                    },
+                },
+
+                // DECFI - Forward Index
+                '9' => switch (action.intermediates.len) {
+                    0 => self.handler.vt(.forward_index, {}),
+                    else => {
+                        @branchHint(.unlikely);
+                        log.warn("invalid forward index command: {f}", .{action});
+                        return;
+                    },
                 },
 
                 // IND - Index
@@ -4525,7 +4676,7 @@ test "stream: osc 52 large payload in chunks" {
 
     const H = struct {
         const Self = @This();
-        data: std.ArrayListUnmanaged(u8) = .empty,
+        data: std.ArrayList(u8) = .empty,
         kind: u8 = 0,
         terminator: ?osc.Terminator = null,
         count: usize = 0,
@@ -4555,7 +4706,7 @@ test "stream: osc 52 large payload in chunks" {
     // sequence so the bulk path sees every kind of boundary.
     const prefix = "\x1b]52;c;";
     const payload_len = 150_000;
-    var input: std.ArrayListUnmanaged(u8) = .empty;
+    var input: std.ArrayList(u8) = .empty;
     defer input.deinit(alloc);
     try input.appendSlice(alloc, prefix);
     for (0..payload_len) |i| try input.append(
@@ -4594,7 +4745,7 @@ test "stream: osc bulk path matches per-byte path" {
     const H = struct {
         const Self = @This();
         alloc: Allocator,
-        journal: std.ArrayListUnmanaged(u8) = .empty,
+        journal: std.ArrayList(u8) = .empty,
 
         fn record(self: *Self, comptime fmt: []const u8, args: anytype) void {
             const s = self.alloc.print(
@@ -4707,6 +4858,103 @@ test "stream: osc bulk path matches per-byte path" {
     }
 }
 
+test "stream: printable ASCII with C0 controls matches per-byte path" {
+    const alloc = testing.allocator;
+
+    // Journals prints (per codepoint) and the C0 controls in a text form
+    // so streams fed different ways can be compared byte-for-byte, and
+    // checks every slice hinted as ASCII.
+    const H = struct {
+        const Self = @This();
+        alloc: Allocator,
+        journal: std.ArrayList(u8) = .empty,
+        ascii_slices: usize = 0,
+        wrong_hint: bool = false,
+
+        fn record(self: *Self, comptime fmt: []const u8, args: anytype) void {
+            const s = self.alloc.print(fmt, args) catch @panic("OOM");
+            defer self.alloc.free(s);
+            self.journal.appendSlice(self.alloc, s) catch @panic("OOM");
+        }
+
+        pub fn vtPrintAscii(self: *Self, bytes: []const u8) void {
+            self.ascii_slices += 1;
+            for (bytes) |cp| {
+                if (cp < 0x20 or cp > 0x7F) self.wrong_hint = true;
+                self.record("print {x}\n", .{cp});
+            }
+        }
+
+        pub fn vt(
+            self: *Self,
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            switch (action) {
+                .print => self.record("print {x}\n", .{value.cp}),
+                .print_slice => for (value.cps) |cp| self.record("print {x}\n", .{cp}),
+                .bell => self.record("bell\n", .{}),
+                .backspace => self.record("bs\n", .{}),
+                .horizontal_tab => self.record("ht {}\n", .{value}),
+                .linefeed => self.record("lf\n", .{}),
+                .carriage_return => self.record("cr\n", .{}),
+                .set_attributes => self.record("sgr\n", .{}),
+                else => {},
+            }
+        }
+    };
+
+    // Two chunks' worth of printable ASCII (the stream decodes at most
+    // 4096 bytes at a time) with DEL in it, and C0 controls placed on
+    // both sides of the 16-, 32- and 64-byte SIMD chunk boundaries and
+    // the 4096-byte cap, in runs (CR LF), and followed by an escape
+    // sequence and by non-ASCII text.
+    var input: [4096 * 2 + 64]u8 = undefined;
+    for (&input, 0..) |*b, i| b.* = 0x20 + @as(u8, @intCast(i % 0x60));
+    const c0s = [_]struct { usize, []const u8 }{
+        .{ 0, "\x07" },
+        .{ 1, "\x08" },
+        .{ 15, "\t" },
+        .{ 16, "\r\n" },
+        .{ 31, "\n" },
+        .{ 33, "\r" },
+        .{ 63, "\x07" },
+        .{ 64, "\x08" },
+        .{ 100, "\r\x1b[m" },
+        .{ 200, "\n\xc3\xa9" },
+        .{ 4094, "\r\n" },
+        .{ 4096, "\t" },
+        .{ 4097, "\n" },
+        .{ 4096 * 2 - 1, "\r" },
+        .{ input.len - 1, "\n" },
+    };
+    for (c0s) |c| @memcpy(input[c[0]..][0..c[1].len], c[1]);
+
+    // Reference: byte-at-a-time.
+    var ref: Stream(H) = .init(.{ .handler = .{ .alloc = alloc } });
+    defer ref.handler.journal.deinit(alloc);
+    for (input) |c| ref.next(c);
+
+    // The whole slice at once, and split around every control.
+    var splits: [c0s.len * 3 + 1]usize = undefined;
+    splits[0] = input.len;
+    for (c0s, 0..) |c, i| {
+        for (0..3) |d| splits[1 + i * 3 + d] = @min(input.len, (c[0] + d) -| 1);
+    }
+    for (splits) |split| {
+        var s: Stream(H) = .init(.{ .handler = .{ .alloc = alloc } });
+        defer s.handler.journal.deinit(alloc);
+        s.nextSlice(input[0..split]);
+        s.nextSlice(input[split..]);
+        try testing.expect(s.handler.ascii_slices > 0);
+        try testing.expect(!s.handler.wrong_hint);
+        try testing.expectEqualStrings(
+            ref.handler.journal.items,
+            s.handler.journal.items,
+        );
+    }
+}
+
 test "stream: insert characters" {
     const H = struct {
         const Self = @This();
@@ -4754,6 +5002,68 @@ test "stream: insert characters explicit zero clamps to 1" {
     var s: Stream(H) = .init(.{ .handler = .{} });
     for ("\x1B[0@") |c| s.next(c);
     try testing.expectEqual(@as(usize, 1), s.handler.value.?);
+}
+
+test "stream: DECIC and DECDC" {
+    const H = struct {
+        const Self = @This();
+        insert: ?usize = null,
+        delete: ?usize = null,
+
+        pub fn vt(
+            self: *Self,
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            switch (action) {
+                .insert_columns => self.insert = value,
+                .delete_columns => self.delete = value,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{ .handler = .{} });
+    for ("\x1B['}") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 1), s.handler.insert.?);
+    for ("\x1B[3'}") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 3), s.handler.insert.?);
+    for ("\x1B[0'~") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 1), s.handler.delete.?);
+    for ("\x1B[5'~") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 5), s.handler.delete.?);
+
+    // Without the intermediate these are other sequences.
+    s.handler = .{};
+    for ("\x1B[3}\x1B[3~") |c| s.next(c);
+    try testing.expect(s.handler.insert == null);
+    try testing.expect(s.handler.delete == null);
+}
+
+test "stream: DECBI and DECFI" {
+    const H = struct {
+        const Self = @This();
+        back: usize = 0,
+        forward: usize = 0,
+
+        pub fn vt(
+            self: *Self,
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            _ = value;
+            switch (action) {
+                .back_index => self.back += 1,
+                .forward_index => self.forward += 1,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{ .handler = .{} });
+    for ("\x1B6\x1B9\x1B9") |c| s.next(c);
+    try testing.expectEqual(@as(usize, 1), s.handler.back);
+    try testing.expectEqual(@as(usize, 2), s.handler.forward);
 }
 
 test "stream: SCOSC" {
@@ -5201,8 +5511,8 @@ test "stream CSI ? W reset tab stops" {
 
 test "stream: SGR with 17+ parameters for underline color" {
     const H = struct {
-        attrs: ?sgr.Attribute = null,
-        called: bool = false,
+        attrs: usize = 0,
+        last: ?sgr.Attribute = null,
 
         pub fn vt(
             self: *@This(),
@@ -5210,9 +5520,12 @@ test "stream: SGR with 17+ parameters for underline color" {
             value: anytype,
         ) void {
             switch (action) {
-                .set_attribute => {
-                    self.attrs = value;
-                    self.called = true;
+                .set_attributes => {
+                    var p = value.parser();
+                    while (p.next()) |attr| {
+                        self.attrs += 1;
+                        self.last = attr;
+                    }
                 },
                 else => {},
             }
@@ -5224,7 +5537,8 @@ test "stream: SGR with 17+ parameters for underline color" {
     // Kakoune-style SGR with underline color as 17th parameter
     // This tests the fix where param 17 was being dropped
     s.nextSlice("\x1b[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136;0m");
-    try testing.expect(s.handler.called);
+    try testing.expectEqual(5, s.handler.attrs);
+    try testing.expectEqual(sgr.Attribute.unset, s.handler.last.?);
 }
 
 test "stream: tab clear with no param clears the current stop" {

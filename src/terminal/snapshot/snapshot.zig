@@ -1343,6 +1343,59 @@ test "complete snapshot restores a canonical Stream continuation" {
     );
 }
 
+test "complete snapshot restores semantic prompt state for an input cursor" {
+    const testing = std.testing;
+
+    var source_terminal = try Terminal.init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 10, .rows = 15 },
+    );
+    defer source_terminal.deinit(testing.allocator);
+    for (0..10) |_| {
+        try source_terminal.printString("x");
+        source_terminal.carriageReturn();
+        try source_terminal.linefeed();
+    }
+
+    // The shell started input (OSC 133;B) but no row is marked as a
+    // prompt yet, so only the cursor carries the semantic content.
+    try source_terminal.semanticPrompt(.init(.end_prompt_start_input));
+    try source_terminal.printString("echo hi");
+
+    var encoded: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer encoded.deinit();
+    try encode(
+        testing.allocator,
+        &encoded.writer,
+        &source_terminal,
+        test_encode_options,
+    );
+
+    var encoded_source: std.Io.Reader = .fixed(encoded.written());
+    var decoded = try decode(
+        testing.allocator,
+        testing.io,
+        &encoded_source,
+        test_decode_options,
+    );
+    defer decoded.deinit(testing.allocator);
+    var t = decoded.toOwned();
+    defer t.deinit(testing.allocator);
+    try testing.expect(t.screens.active.semantic_prompt.seen);
+
+    // The linefeed marks the next row as a prompt continuation, so a
+    // full erase must scroll before clearing.
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("more");
+    t.setCursorPos(1, 1);
+    t.eraseDisplay(.complete, false);
+    try testing.expect(
+        t.screens.active.pages.total_rows > t.screens.active.pages.rows,
+    );
+}
+
 test "complete snapshot validates continuation before writing" {
     const testing = std.testing;
     var t = try Terminal.init(

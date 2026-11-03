@@ -617,6 +617,14 @@ pub const Handler = struct {
         };
     }
 
+    /// The stream's hook for runs it knows are printable ASCII.
+    pub fn vtPrintAscii(self: *Handler, bytes: []const u8) void {
+        self.terminal.printSliceAscii(bytes) catch |err| {
+            self.semantic_failure = true;
+            log.warn("error handling VT action action=print_slice err={}", .{err});
+        };
+    }
+
     fn unknownSequence(self: *Handler, value: UnknownSequence) void {
         const func = self.unknown_sequence orelse return;
         func(self, value);
@@ -640,6 +648,8 @@ pub const Handler = struct {
                 self.terminal.carriageReturn();
             },
             .reverse_index => self.terminal.reverseIndex(),
+            .back_index => self.terminal.backIndex(),
+            .forward_index => self.terminal.forwardIndex(),
             .cursor_up => self.terminal.cursorUp(value.value),
             .cursor_down => self.terminal.cursorDown(value.value),
             .cursor_left => self.terminal.cursorLeft(value.value),
@@ -663,6 +673,8 @@ pub const Handler = struct {
             .erase_chars => self.terminal.eraseChars(value),
             .insert_lines => self.terminal.insertLines(value),
             .insert_blanks => self.terminal.insertBlanks(value),
+            .insert_columns => self.terminal.insertColumns(value),
+            .delete_columns => self.terminal.deleteColumns(value),
             .delete_lines => self.terminal.deleteLines(value),
             .scroll_up => try self.terminal.scrollUp(value),
             .scroll_down => self.terminal.scrollDown(value),
@@ -701,10 +713,7 @@ pub const Handler = struct {
             .restore_cursor => self.terminal.restoreCursor(),
             .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
             .configure_charset => self.terminal.configureCharset(value.slot, value.charset),
-            .set_attribute => switch (value) {
-                .unknown => {},
-                else => try self.terminal.setAttribute(value),
-            },
+            .set_attributes => try self.terminal.setAttributes(value.parser()),
             .protected_mode_off => self.terminal.setProtectedMode(.off),
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
@@ -3005,6 +3014,64 @@ test "attributes" {
     try testing.expectEqualStrings("Bold", str);
 }
 
+test "SGR with several attributes interns one style" {
+    const Style = @import("style.zig").Style;
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    // A styled cell that keeps its style alive.
+    s.nextSlice("\x1B[31mA");
+    const screen = t.screens.active;
+    const page = screen.cursor.page_pin.node.page();
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+
+    // Reset, then several attributes in one sequence.
+    s.nextSlice("\x1B[0;1;3;4;38;2;10;20;30;48;5;200mBC");
+    try testing.expectEqual(@as(usize, 2), page.styles.count());
+
+    const id = screen.cursor.style_id;
+    const want = page.styles.get(page.memory, id);
+    try testing.expect(want.eql(screen.cursor.style));
+    try testing.expect(want.flags.bold);
+    try testing.expect(want.flags.italic);
+    try testing.expectEqual(.single, want.flags.underline);
+    try testing.expectEqual(
+        Style.Color.rgb(.{ .r = 10, .g = 20, .b = 30 }),
+        want.fg_color,
+    );
+    try testing.expectEqual(Style.Color.palette(200), want.bg_color);
+
+    // Both printed cells reference the new style.
+    for (1..3) |x| {
+        const cell = screen.pages.getCell(.{ .active = .{
+            .x = @intCast(x),
+        } }).?.cell;
+        try testing.expectEqual(id, cell.style_id);
+    }
+
+    // The first cell keeps its own style.
+    const a = screen.pages.getCell(.{ .active = .{} }).?.cell;
+    try testing.expect(a.style_id != id);
+    try testing.expectEqual(
+        Style.Color.palette(1),
+        page.styles.get(page.memory, a.style_id).fg_color,
+    );
+
+    // A sequence that ends where it started changes nothing.
+    s.nextSlice("\x1B[0;1;3;4;38;2;10;20;30;48;5;200m");
+    try testing.expectEqual(id, screen.cursor.style_id);
+    try testing.expectEqual(@as(usize, 2), page.styles.count());
+
+    // A sequence that ends at the default style releases nothing in use.
+    s.nextSlice("\x1B[1;0m");
+    try testing.expectEqual(@as(u16, 0), screen.cursor.style_id);
+    try testing.expectEqual(@as(usize, 2), page.styles.count());
+}
+
 test "DECRQSS responses" {
     var t: Terminal = try .init(
         testing.io,
@@ -3052,6 +3119,11 @@ test "DECRQSS responses" {
     // Overline
     s.nextSlice("\x1B[0;53m\x1BP$qm\x1B\\");
     try S.expectResponse("\x1BP1$r0;53m\x1B\\");
+
+    // Several attributes in one sequence
+    s.nextSlice("\x1B[0;1;3;4:3;38;5;100;48;2;1;2;3m\x1BP$qm\x1B\\");
+    try S.expectResponse("\x1BP1$r0;1;3;4:3;38:5:100;48:2::1:2:3m\x1B\\");
+    s.nextSlice("\x1B[0;53m");
 
     // Requests larger than the parser's fixed request buffer are ignored,
     // and the next DCS command must still be processed normally.
@@ -6952,7 +7024,7 @@ test "continuation reconstructs standard stream without duplicate effects" {
 
 test "kitty dnd: query response" {
     const S = struct {
-        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
         }
@@ -6974,7 +7046,7 @@ test "kitty dnd: query response" {
 
 test "kitty dnd: register, drop, and serve data" {
     const S = struct {
-        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
         }
@@ -7050,7 +7122,7 @@ test "kitty dnd: state updates work without write_pty effect" {
 
 test "kitty dnd: registration survives terminal reset" {
     const S = struct {
-        var pty: std.ArrayListUnmanaged(u8) = .empty;
+        var pty: std.ArrayList(u8) = .empty;
         fn writePty(_: *Handler, data: []const u8) void {
             pty.appendSlice(testing.allocator, data) catch unreachable;
         }
@@ -7081,8 +7153,8 @@ test "kitty dnd: registration survives terminal reset" {
 
 test "kitty dnd: effect reports registration, acceptance, and conclusion" {
     const S = struct {
-        var events: std.ArrayListUnmanaged(kitty_dnd.Event) = .empty;
-        var mimes: std.ArrayListUnmanaged(u8) = .empty;
+        var events: std.ArrayList(kitty_dnd.Event) = .empty;
+        var mimes: std.ArrayList(u8) = .empty;
 
         fn clear() void {
             events.deinit(testing.allocator);

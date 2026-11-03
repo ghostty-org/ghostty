@@ -73,9 +73,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261019-151001-86a776d.tgz",
-    "dest": "vendor/p/N-V-__8AAJ3vBQAq1fLMh5J8uWLkeDLS6WAdR2x5KcrmEyz6",
-    "sha256": "ab2513e316372c45c9f86e3e511aebdbfa6c39fa03c210096b19152fe288505b"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz",
+    "dest": "vendor/p/N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3",
+    "sha256": "38bb80d98456677bad9a78a76e83a1e4851e88900aec93af74c6251ca32b78a0"
   },
   {
     "type": "archive",
@@ -181,9 +181,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/z2d-40af3e84a4e15a9f31d126b3f281f23ce6a3dae5.tar.gz",
-    "dest": "vendor/p/z2d-0.13.0-j5P_HgsRFABzZDH54gI35P0OSrg7HFyJwS2bXX5uBdU4",
-    "sha256": "fdaca4e2789bb8b781eef2cc76eab5ef3490d8cceec699e40d1cc96b53ad3f74"
+    "url": "https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
+    "dest": "vendor/p/z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_",
+    "sha256": "9e094da050d264dabe8df55123328362f232908030e76c3e8323248553b26d25"
   },
   {
     "type": "archive",
