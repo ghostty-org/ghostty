@@ -86,6 +86,10 @@ struct TerminalWorkspaceSwitchSchedulingTests {
         try await Task.sleep(for: .milliseconds(20))
         #expect(completed)
         #expect(fixture.coordinator.native.transitioningWindows.isEmpty)
+        // The faked native fullscreen transition must unwind. A window left in
+        // a native fullscreen transition keeps the app from assigning a key
+        // window, which breaks every later suite that needs one.
+        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
     }
 
     @Test func delayedPickerDismissalCannotReplaceANewerKeyboardIntent() async throws {
