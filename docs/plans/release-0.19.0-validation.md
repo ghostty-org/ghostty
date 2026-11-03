@@ -66,3 +66,37 @@ DMG, launch, and Sparkle verification.
   explicit SSH deployment, disposable Linux containment host, and legacy
   packaged local runtime were not configured.
 - Runtime bundle contract: two tests passed. SSH Agent wrappers: six passed.
+
+## Final artifact verification
+
+- ReleaseFast arm64, x86_64, and universal Apps built as OMG 0.19.0, build 46.
+- Every App contains a universal local relay and macOS aarch64/x86_64 plus Linux
+  aarch64/x86_64 runtime artifacts. All platform manifests and SHA-256 hashes
+  were verified after signing.
+- Runtime revision: `4c3958f3604e5884d8d7`; snapshot revision:
+  `59c5cc7b4d1fe408faf5`. The bundled relay reports
+  `omg-session-runtime/2 snapshot/1`.
+- The persistent release signature and designated requirement were verified
+  against the preserved 0.18.0 App. All three read-only mounted DMGs passed the
+  same signature and identity checks.
+- arm64 and universal App and mounted-DMG command-line launch probes passed.
+  Intel architecture checks passed; Intel execution was not run because
+  Rosetta is unavailable. These are not GUI interaction or TCC upgrade tests.
+- The actual arm64 App's generated SSH bootstrap matched the current source;
+  all six Agent-wrapper checks passed. Twelve shell scenarios passed using
+  Bash, Zsh, and Fish with a local fake SSH transport; no external SSH host was
+  used.
+- Fifteen local session, reconnect, close, inline-viewer, and working-directory
+  tests passed using the signed packaged relay in isolated temporary fixtures.
+  This does not establish execution of the foreign-platform binaries or real
+  Agent conversation recovery.
+- Sparkle's EdDSA archive signature was verified. Its public key matches
+  0.18.0, and the new feed advances build 45 to 46 while preserving older items.
+
+Release DMG checksums:
+
+```text
+b29ef6393b928c5f9f480fc2d7a63e8d33691c8cd93f11a00f80f8d5f2e99b45  OMG-0.19.0-macos-arm64.dmg
+42f62efe21266f7ecf48396f93e2aa168f16a68224d4bf33c9c09c93d94cb06d  OMG-0.19.0-macos-x86_64.dmg
+aa9c009d3239ac62b9475139d756f3c6dc3d1aede0f9132799af340a8c2de5d4  OMG-0.19.0-macos-universal.dmg
+```
