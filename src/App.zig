@@ -194,6 +194,15 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
         .config_change,
         .{ .config = applied },
     );
+
+    // Broadcast group border colors come from broadcast-group-colors, which
+    // the apprt only reads when a surface's membership is synced. Re-sync
+    // every grouped surface now that the apprt has the new config.
+    for (self.surfaces.items) |rt_surface| {
+        const surface = rt_surface.core();
+        if (surface.broadcast_group == null) continue;
+        syncBroadcastGroup(rt_app, surface);
+    }
 }
 
 /// Add an initialized surface. This is really only for the runtime
