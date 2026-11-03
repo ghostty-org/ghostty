@@ -308,8 +308,8 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
             else => return err,
         };
         if (vsn.tag) |tag| {
-            // Tip releases behave just like any other pre-release so we skip.
-            if (!std.mem.eql(u8, tag, "tip")) {
+            // Tip and dev releases behave just like any other pre-release so we skip.
+            if (!std.mem.eql(u8, tag, "tip") and !std.mem.startsWith(u8, tag, "dev-")) {
                 const expected = b.fmt("v{d}.{d}.{d}", .{
                     app_version.major,
                     app_version.minor,
