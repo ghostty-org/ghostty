@@ -26,7 +26,7 @@ pub fn expand(
     while (it.next()) |search_path| {
         // We need enough space in our path buffer to store this
         const path_len = search_path.len + cmd.len + 1;
-        if (path_buf.len < path_len) return error.PathTooLong;
+        if (path_buf.len <= path_len) return error.PathTooLong;
 
         // Copy in the full path
         @memcpy(path_buf[0..search_path.len], search_path);
@@ -97,4 +97,21 @@ test "expand: slash" {
     const path = (try expand(testing.io, testing.allocator, &environ_map, "foo/env")).?;
     defer testing.allocator.free(path);
     try testing.expect(path.len == 7);
+}
+
+test "expand: reject path without room for null terminator" {
+    var environ_map: std.process.Environ.Map =
+        .init(testing.allocator);
+    defer environ_map.deinit();
+
+    // The directory, separator and command exactly fill the buffer,
+    // leaving no room for the null terminator.
+    var search_path: [std.Io.Dir.max_path_bytes - "/x".len]u8 = undefined;
+    @memset(&search_path, 'a');
+    try environ_map.put("PATH", &search_path);
+
+    try testing.expectError(
+        error.PathTooLong,
+        expand(testing.io, testing.allocator, &environ_map, "x"),
+    );
 }
