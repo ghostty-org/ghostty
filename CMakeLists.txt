@@ -67,7 +67,29 @@
 # compilation example.
 
 cmake_minimum_required(VERSION 3.19)
-project(ghostty-vt VERSION 0.1.0 LANGUAGES C)
+
+# The library version comes from LIB_VERSION in lib-vt source tarballs and
+# from the lib_version constant in build.zig otherwise, the same sources
+# build.zig uses. CMake versions are numeric only, so any pre-release or
+# build metadata (e.g. "0.1.0-dev+abc1234") is dropped here.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/LIB_VERSION")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/LIB_VERSION" _ghostty_vt_version LIMIT_COUNT 1)
+else()
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/build.zig" _ghostty_vt_version
+        REGEX "^const lib_version = \"[^\"]+\";")
+endif()
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" _ghostty_vt_version "${_ghostty_vt_version}")
+if(NOT _ghostty_vt_version)
+    message(FATAL_ERROR "ghostty-vt: could not determine the library version from LIB_VERSION or build.zig")
+endif()
+
+project(ghostty-vt VERSION ${_ghostty_vt_version} LANGUAGES C)
+unset(_ghostty_vt_version)
+
+# ghostty_vt_add_target() runs in the caller's scope, where PROJECT_VERSION
+# is the caller's project, so make ours available globally.
+set_property(GLOBAL PROPERTY GHOSTTY_VT_VERSION "${PROJECT_VERSION}")
+set_property(GLOBAL PROPERTY GHOSTTY_VT_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
 
 # --- Options ----------------------------------------------------------------
 
@@ -102,16 +124,16 @@ set(ZIG_OUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/zig-out")
 # Shared library names (zig build produces both shared and static).
 if(APPLE)
     set(GHOSTTY_VT_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt${CMAKE_SHARED_LIBRARY_SUFFIX}")
-    set(GHOSTTY_VT_SONAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt.0${CMAKE_SHARED_LIBRARY_SUFFIX}")
-    set(GHOSTTY_VT_REALNAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt.0.1.0${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    set(GHOSTTY_VT_SONAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt.${PROJECT_VERSION_MAJOR}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    set(GHOSTTY_VT_REALNAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt.${PROJECT_VERSION}${CMAKE_SHARED_LIBRARY_SUFFIX}")
 elseif(WIN32)
     set(GHOSTTY_VT_LIBNAME "ghostty-vt.dll")
     set(GHOSTTY_VT_REALNAME "ghostty-vt.dll")
     set(GHOSTTY_VT_IMPLIB "ghostty-vt.lib")
 else()
     set(GHOSTTY_VT_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt${CMAKE_SHARED_LIBRARY_SUFFIX}")
-    set(GHOSTTY_VT_SONAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt${CMAKE_SHARED_LIBRARY_SUFFIX}.0")
-    set(GHOSTTY_VT_REALNAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt${CMAKE_SHARED_LIBRARY_SUFFIX}.0.1.0")
+    set(GHOSTTY_VT_SONAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt${CMAKE_SHARED_LIBRARY_SUFFIX}.${PROJECT_VERSION_MAJOR}")
+    set(GHOSTTY_VT_REALNAME "${CMAKE_SHARED_LIBRARY_PREFIX}ghostty-vt${CMAKE_SHARED_LIBRARY_SUFFIX}.${PROJECT_VERSION}")
 endif()
 
 if(WIN32)
@@ -285,6 +307,8 @@ function(ghostty_vt_add_target)
     endif()
 
     set(_src_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
+    get_property(_version GLOBAL PROPERTY GHOSTTY_VT_VERSION)
+    get_property(_version_major GLOBAL PROPERTY GHOSTTY_VT_VERSION_MAJOR)
     set(_prefix "${CMAKE_CURRENT_BINARY_DIR}/ghostty-${_GVT_NAME}")
 
     # Build flags
@@ -316,10 +340,10 @@ function(ghostty_vt_add_target)
         set(_implib "${_prefix}/lib/ghostty-vt.lib")
     elseif(_GVT_ZIG_TARGET MATCHES "darwin|macos")
         set(_static_lib "${_prefix}/lib/libghostty-vt.a")
-        set(_shared_lib "${_prefix}/lib/libghostty-vt.0.1.0.dylib")
+        set(_shared_lib "${_prefix}/lib/libghostty-vt.${_version}.dylib")
     else()
         set(_static_lib "${_prefix}/lib/libghostty-vt.a")
-        set(_shared_lib "${_prefix}/lib/libghostty-vt.so.0.1.0")
+        set(_shared_lib "${_prefix}/lib/libghostty-vt.so.${_version}")
     endif()
 
     file(MAKE_DIRECTORY "${_include_dir}")
@@ -366,11 +390,11 @@ function(ghostty_vt_add_target)
         )
     elseif(_GVT_ZIG_TARGET MATCHES "darwin|macos")
         set_target_properties(${_shared_target} PROPERTIES
-            IMPORTED_SONAME "@rpath/libghostty-vt.0.dylib"
+            IMPORTED_SONAME "@rpath/libghostty-vt.${_version_major}.dylib"
         )
     else()
         set_target_properties(${_shared_target} PROPERTIES
-            IMPORTED_SONAME "libghostty-vt.so.0"
+            IMPORTED_SONAME "libghostty-vt.so.${_version_major}"
         )
     endif()
     add_dependencies(${_shared_target} ${_build_target})

@@ -229,8 +229,15 @@ fn initLib(
         .name = if (kind == .static) "ghostty-vt-static" else "ghostty-vt",
         .linkage = linkage,
         .root_module = zig.vt_c,
+        // Zig names the shared library from this version and records it as
+        // the dylib's current version. See SharedVersion.
         .version = zig.version,
     });
+    if (kind == .shared and target.result.os.tag.isDarwin()) {
+        // Zig has no option for the compatibility version and always writes
+        // 1.0.0, so only the install name can follow SharedVersion here.
+        lib.install_name = SharedVersion.init(b, zig.version).install_name;
+    }
     lib.installHeadersDirectory(
         b.path("include/ghostty"),
         "ghostty",
@@ -393,14 +400,11 @@ fn initLibApple(
         "_ghostty_*\n",
     );
 
-    // Match Zig's versioned dylib naming so existing consumers and packaging
-    // continue to receive the same real name and compatibility symlinks.
-    const real_name = b.fmt("libghostty-vt.{d}.{d}.{d}.dylib", .{
-        zig.version.major,
-        zig.version.minor,
-        zig.version.patch,
-    });
-    const soname = b.fmt("libghostty-vt.{d}.dylib", .{zig.version.major});
+    // Use the same file names Zig would, so both linkers install the same
+    // files. See SharedVersion.
+    const shared_version: SharedVersion = .init(b, zig.version);
+    const real_name = shared_version.real_name;
+    const soname = shared_version.major_name;
 
     const native_link = try @import("apple_sdk").nativeLink.addCommand(
         b,
@@ -423,19 +427,15 @@ fn initLibApple(
     // Link the archive produced by the normal static-library path.
     native_link.addFileArg(static.output);
     native_link.addArgs(&.{
-        // Give framework consumers a stable runtime-relative identity.
+        // The name programs record and load at run time, found via @rpath.
         "-install_name",
-        "@rpath/libghostty-vt.dylib",
-        // Record the exact package version for runtime inspection.
+        shared_version.install_name,
+        // The full library version.
         "-current_version",
-        b.fmt("{d}.{d}.{d}", .{
-            zig.version.major,
-            zig.version.minor,
-            zig.version.patch,
-        }),
-        // Preserve compatibility with the initial public ABI.
+        shared_version.current_version,
+        // The oldest release with the same ABI.
         "-compatibility_version",
-        "1.0.0",
+        shared_version.compatibility_version,
         // Write the fully versioned dylib used by the install symlinks.
         "-o",
     });
@@ -499,6 +499,84 @@ fn initLibApple(
         .pkg_config_static = pcs.static,
     };
 }
+
+/// The version metadata of the libghostty-vt shared library. All of it is
+/// derived from `lib_version` here, so every link path agrees.
+/// CMakeLists.txt, nix/libghostty-vt.nix and the CI checks compute the same
+/// values, so update them together with this.
+///
+/// The file names are Zig's usual ones. For version 0.1.0:
+///
+///   | Platform      | File                      | Runtime name                 |
+///   | ------------- | ------------------------- | ---------------------------- |
+///   | Linux and BSD | libghostty-vt.so.0.1.0    | libghostty-vt.so.0 (SONAME)  |
+///   | macOS and iOS | libghostty-vt.0.1.0.dylib | @rpath/libghostty-vt.0.dylib |
+///   | Windows       | ghostty-vt.dll            | ghostty-vt.dll               |
+///
+/// Except on Windows, the runtime name and the unversioned name
+/// (libghostty-vt.so or libghostty-vt.dylib) are installed as symlinks to
+/// the real file.
+///
+/// The runtime name only carries the major version. Before 1.0 there is no
+/// ABI promise: any minor release may break the ABI, even though 0.1 and
+/// 0.2 share a runtime name. Packagers handle that by rebuilding everything
+/// that depends on the library whenever the minor version changes. From 1.0
+/// on, the library follows semver and only a new major version breaks the
+/// ABI.
+///
+/// macOS and iOS dylibs also record two versions:
+///
+///   - The current version is the full version, for example 0.1.3.
+///   - The compatibility version is the oldest release with the same ABI.
+///     Before 1.0 every minor release is its own ABI, so it is 0.<minor>.0
+///     (0.1.0 for 0.1.3). From 1.0 on it is <major>.0.0 (1.0.0 for 1.4.2).
+///
+/// Programs that link against the dylib store its compatibility version,
+/// but current versions of dyld don't check it when loading. Treat it as a
+/// record of the ABI, not as a guard against loading the wrong release.
+///
+/// Zig's own linker can't set the compatibility version and always writes
+/// 1.0.0. That path is only used for Darwin dylibs built on non-Apple hosts.
+const SharedVersion = struct {
+    /// The file the linker writes, for example "libghostty-vt.0.1.0.dylib".
+    real_name: []const u8,
+
+    /// The file name with only the major version, for example
+    /// "libghostty-vt.0.dylib". It is a symlink to `real_name`.
+    major_name: []const u8,
+
+    /// The dylib's runtime name, for example "@rpath/libghostty-vt.0.dylib".
+    install_name: []const u8,
+
+    /// The full version, for example "0.1.3".
+    current_version: []const u8,
+
+    /// The oldest version with the same ABI, for example "0.1.0" for 0.1.3
+    /// or "1.0.0" for 1.4.2.
+    compatibility_version: []const u8,
+
+    fn init(b: *std.Build, version: std.SemanticVersion) SharedVersion {
+        const major_name = b.fmt("libghostty-vt.{d}.dylib", .{version.major});
+        return .{
+            .real_name = b.fmt("libghostty-vt.{d}.{d}.{d}.dylib", .{
+                version.major,
+                version.minor,
+                version.patch,
+            }),
+            .major_name = major_name,
+            .install_name = b.fmt("@rpath/{s}", .{major_name}),
+            .current_version = b.fmt("{d}.{d}.{d}", .{
+                version.major,
+                version.minor,
+                version.patch,
+            }),
+            .compatibility_version = if (version.major == 0)
+                b.fmt("0.{d}.0", .{version.minor})
+            else
+                b.fmt("{d}.0.0", .{version.major}),
+        };
+    }
+};
 
 /// Returns the Libs.private value for the pkg-config file.
 /// Vendored C++ dependencies are built in no-libcxx mode so consumers

@@ -93,6 +93,31 @@ stdenv.mkDerivation (finalAttrs: {
       if stdenv.hostPlatform.isDarwin
       then "libghostty-vt.${version}${sharedExt}"
       else "libghostty-vt${sharedExt}.${version}";
+
+    # The version metadata policy is documented on SharedVersion in
+    # src/build/GhosttyLibVt.zig. These follow it.
+    #
+    # libVersion drops any pre-release or build suffix, for example "0.1.0"
+    # for "0.1.0-dev+abc-nix".
+    libVersion = "${lib.versions.major finalAttrs.version}.${lib.versions.minor finalAttrs.version}.${lib.versions.patch finalAttrs.version}";
+    libMajor = lib.versions.major finalAttrs.version;
+
+    # The oldest release with the same ABI. Every 0.x minor release may break
+    # the ABI, so before 1.0 this is 0.<minor>.0, and <major>.0.0 after.
+    libCompatVersion =
+      if libMajor == "0"
+      then "0.${lib.versions.minor finalAttrs.version}.0"
+      else "${libMajor}.0.0";
+
+    # The library name a program records when it links against the shared
+    # library. On Linux this is the SONAME, which only has the major version
+    # (libghostty-vt.so.0). On Darwin the fixup phase replaces the @rpath
+    # install name with the absolute path of the real file, so the full
+    # version appears there (/libghostty-vt.0.1.0.dylib).
+    runtimeName =
+      if stdenv.hostPlatform.isDarwin
+      then "/${sharedLibName libVersion}"
+      else "libghostty-vt${sharedExt}.${libMajor}";
     linkCheck = bin: pat:
       if stdenv.hostPlatform.isDarwin
       then ''otool -L "${bin}" | grep -q ${pat}''
@@ -162,7 +187,10 @@ stdenv.mkDerivation (finalAttrs: {
           then "yes"
           else "no"
         }"
-        ${linkCheck "$out/bin/test" "libghostty-vt"}
+        ${linkCheck "$out/bin/test" "-F '${runtimeName} '"}
+        ${lib.optionalString stdenv.hostPlatform.isDarwin ''
+          otool -L "$out/bin/test" | grep -qF "(compatibility version ${libCompatVersion}, current version ${libVersion})"
+        ''}
 
         runHook postInstallCheckHooks
       '';

@@ -21,8 +21,12 @@ if(NOT TARGET ghostty-vt::ghostty-vt)
     unset(_ghostty_vt_shared_location)
 
     if(APPLE)
+        # The install name, for example @rpath/libghostty-vt.0.dylib. It is
+        # split in two because configure_file would read a literal
+        # "@rpath/@" as a reference to a variable named "rpath/".
+        string(CONCAT _ghostty_vt_install_name "@" "rpath/@GHOSTTY_VT_SONAME@")
         set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
-            IMPORTED_SONAME "@rpath/@GHOSTTY_VT_SONAME@"
+            IMPORTED_SONAME "${_ghostty_vt_install_name}"
             INTERFACE_LINK_DIRECTORIES "${_ghostty_vt_libdir}"
         )
         # Ensure consumers can find the @rpath dylib at runtime

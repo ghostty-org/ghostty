@@ -427,7 +427,8 @@ jobs:
 
       - name: Verify artifacts
         run: |
-          test -f zig-out/lib/libghostty-vt.so.0.1.0
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
+          test -f "zig-out/lib/libghostty-vt.so.${lib_version}"
           test -d zig-out/include/ghostty
           ls -la zig-out/lib/
           ls -la zig-out/include/ghostty/
@@ -474,10 +475,22 @@ jobs:
           # vendored C++ deps are built in no-libcxx mode).
           ! pkg-config --libs --static libghostty-vt | grep -qE -- '-lc\+\+|-lc\+\+abi'
 
+      - name: Verify shared library name and SONAME
+        run: |
+          # Zig's usual layout: the SONAME only carries the major version,
+          # and the .so.<major> and .so names are symlinks to the real file.
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
+          lib_major=${lib_version%%.*}
+          test -f "zig-out/lib/libghostty-vt.so.${lib_version}"
+          test "$(readlink zig-out/lib/libghostty-vt.so.${lib_major})" = "libghostty-vt.so.${lib_version}"
+          test "$(readlink zig-out/lib/libghostty-vt.so)" = "libghostty-vt.so.${lib_major}"
+          objdump -p "zig-out/lib/libghostty-vt.so.${lib_version}" | grep -E "^\s*SONAME\s+libghostty-vt\.so\.${lib_major}\$"
+
       - name: Verify shared library has no libc++ dependency
         run: |
-          ldd zig-out/lib/libghostty-vt.so.0.1.0
-          ! ldd zig-out/lib/libghostty-vt.so.0.1.0 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
+          ldd "zig-out/lib/libghostty-vt.so.${lib_version}"
+          ! ldd "zig-out/lib/libghostty-vt.so.${lib_version}" 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'
 
       - name: Verify static archive contains SIMD deps
         run: |
