@@ -14,14 +14,26 @@ const Result = @import("result.zig").Result;
 
 /// C: GhosttyGridRef
 ///
-/// A sized struct that holds a reference to a position in the terminal grid.
-/// The ref points to a specific cell position within the terminal's
-/// internal page structure.
+/// A reference to a single cell in the terminal grid. It points at a cell
+/// within the terminal's internal page structure.
+///
+/// C callers allocate this struct themselves, so its size and field
+/// offsets are part of the ABI. The C header documents them, and the
+/// comptime block below keeps the two in sync.
 pub const CGridRef = extern struct {
-    size: usize = @sizeOf(CGridRef),
     node: ?*PageList.List.Node = null,
     x: size.CellCountInt = 0,
     y: size.CellCountInt = 0,
+
+    // Expected sizes: 16 bytes on 64-bit targets, 8 bytes on 32-bit.
+    comptime {
+        std.debug.assert(size.CellCountInt == u16);
+        std.debug.assert(@sizeOf(CGridRef) == switch (@sizeOf(usize)) {
+            8 => 16,
+            4 => 8,
+            else => unreachable,
+        });
+    }
 
     pub fn fromPin(pin: PageList.Pin) CGridRef {
         return .{

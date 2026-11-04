@@ -43,7 +43,7 @@ int main(void) {
 
   // Select "underlined" on the second row. Render state exposes this
   // later as a row-local selected cell range.
-  GhosttyGridRef selection_start = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef selection_start = {0};
   GhosttyPoint selection_start_pt = {
       .tag = GHOSTTY_POINT_TAG_ACTIVE,
       .value = { .coordinate = { .x = 0, .y = 1 } },
@@ -52,7 +52,7 @@ int main(void) {
       terminal, selection_start_pt, &selection_start);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttyGridRef selection_end = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef selection_end = {0};
   GhosttyPoint selection_end_pt = {
       .tag = GHOSTTY_POINT_TAG_ACTIVE,
       .value = { .coordinate = { .x = 9, .y = 1 } },
@@ -60,7 +60,7 @@ int main(void) {
   result = ghostty_terminal_grid_ref(terminal, selection_end_pt, &selection_end);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection selection = {0};
   selection.start = selection_start;
   selection.end = selection_end;
   result = ghostty_terminal_set(

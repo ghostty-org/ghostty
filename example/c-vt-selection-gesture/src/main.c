@@ -10,7 +10,7 @@ static void vt_write(GhosttyTerminal terminal, const char *s) {
 }
 
 static GhosttyGridRef ref_at(GhosttyTerminal terminal, uint16_t x, uint16_t y) {
-  GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef ref = {0};
   GhosttyPoint point = {
     .tag = GHOSTTY_POINT_TAG_ACTIVE,
     .value = { .coordinate = { .x = x, .y = y } },
@@ -111,7 +111,7 @@ int main() {
       drag, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY, &geometry);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection selection = {0};
   result = ghostty_selection_gesture_event(
       gesture, terminal, drag, &selection);
   assert(result == GHOSTTY_SUCCESS);

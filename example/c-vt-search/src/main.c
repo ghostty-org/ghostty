@@ -61,7 +61,7 @@ int main() {
     // Read the selection state in one call. Index 0 is the newest
     // match, so a "k of n" find bar renders index + 1.
     size_t idx = 0;
-    GhosttySelection match = GHOSTTY_INIT_SIZED(GhosttySelection);
+    GhosttySelection match = {0};
     const GhosttySearchData keys[] = {
       GHOSTTY_SEARCH_DATA_SELECTED_INDEX,
       GHOSTTY_SEARCH_DATA_SELECTED_MATCH,

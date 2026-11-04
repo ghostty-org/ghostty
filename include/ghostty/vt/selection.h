@@ -71,47 +71,61 @@ typedef struct GhosttySelectionGestureImpl* GhosttySelectionGesture;
 typedef struct GhosttySelectionGestureEventImpl* GhosttySelectionGestureEvent;
 
 /**
- * A snapshot selection range defined by two grid references.
+ * A range of terminal content between two cells.
  *
- * Both endpoints are inclusive. The endpoints preserve selection direction
- * and may be reversed; callers must not assume that start is the top-left
- * endpoint or that end is the bottom-right endpoint.
+ * A selection is described by the two cells at its ends, `start` and `end`.
+ * Both ends are included in the selection. By default the selection is
+ * linear: it runs from `start` to `end` the way text flows, wrapping from
+ * the end of one row to the start of the next. Set `rectangle` to true to
+ * select a rectangular block instead, with `start` and `end` at opposite
+ * corners.
  *
- * When rectangle is false, the endpoints describe a linear selection. When
- * rectangle is true, the same endpoints are interpreted as opposite corners
- * of a rectangular/block selection.
+ * The ends keep the direction the user selected in. If the user dragged
+ * up or to the left, `start` comes after `end` in the terminal. Don't
+ * assume `start` is the top-left end. Use
+ * ghostty_terminal_selection_ordered() when you need the ends in order.
  *
- * The start and end values are untracked GhosttyGridRef snapshots and are
- * only valid until the next mutating operation on the terminal that produced
- * them unless the selection is reconstructed from tracked references.
+ * Both ends are untracked grid references, so a selection is only valid
+ * until the next call that changes the terminal. To keep a selection
+ * across changes, track its ends with GhosttyTrackedGridRef and build a new
+ * GhosttySelection from fresh snapshots when you need one.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * Start with a zero-initialized value. The example below selects the first
+ * ten cells of the second row and makes that the terminal's active
+ * selection.
+ *
+ * @code{.c}
+ * GhosttyPoint start_pt = {
+ *     .tag = GHOSTTY_POINT_TAG_ACTIVE,
+ *     .value = { .coordinate = { .x = 0, .y = 1 } },
+ * };
+ * GhosttyPoint end_pt = {
+ *     .tag = GHOSTTY_POINT_TAG_ACTIVE,
+ *     .value = { .coordinate = { .x = 9, .y = 1 } },
+ * };
+ *
+ * GhosttySelection selection = {0};
+ * ghostty_terminal_grid_ref(terminal, start_pt, &selection.start);
+ * ghostty_terminal_grid_ref(terminal, end_pt, &selection.end);
+ * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+ * @endcode
+ *
+ * The layout of this struct is frozen. It is 40 bytes on 64-bit targets
+ * and 20 bytes on 32-bit targets such as wasm32. If it ever needs to hold
+ * more, that will be a new type.
  *
  * @ingroup selection
  */
 typedef struct {
-  /** Size of this struct in bytes. Must be set to sizeof(GhosttySelection). */
-  size_t size;
-
-  /**
-   * Start of the selection range (inclusive).
-   *
-   * This may be after end in terminal order. It is an untracked
-   * GhosttyGridRef snapshot and follows untracked grid-ref lifetime rules.
-   */
+  /** The cell where the selection starts. It is included in the selection. */
   GhosttyGridRef start;
 
-  /**
-   * End of the selection range (inclusive).
-   *
-   * This may be before start in terminal order. It is an untracked
-   * GhosttyGridRef snapshot and follows untracked grid-ref lifetime rules.
-   */
+  /** The cell where the selection ends. It is included in the selection. */
   GhosttyGridRef end;
 
   /**
-   * Whether the endpoints are interpreted as a rectangular/block selection
-   * rather than a linear selection.
+   * Whether this is a rectangular selection. When true, `start` and `end`
+   * are opposite corners of a block of cells.
    */
   bool rectangle;
 } GhosttySelection;

@@ -98,16 +98,54 @@ extern "C" {
  */
 
 /**
- * A resolved reference to a terminal cell position.
+ * A reference to a single cell in the terminal grid.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * You don't fill in a grid reference yourself. Get one from the library,
+ * usually with ghostty_terminal_grid_ref(), and then pass it to the
+ * ghostty_grid_ref_* functions to read the cell, its row, its style, and
+ * more.
+ *
+ * A grid reference is an untracked snapshot. It is only valid until the
+ * next call that changes the terminal, such as ghostty_terminal_vt_write()
+ * or ghostty_terminal_resize(). To keep pointing at the same cell across
+ * changes, use a tracked reference instead (see GhosttyTrackedGridRef).
+ *
+ * Start with a zero-initialized value. A zeroed reference doesn't point at
+ * any cell, and the ghostty_grid_ref_* functions return
+ * GHOSTTY_INVALID_VALUE for it.
+ *
+ * @code{.c}
+ * GhosttyGridRef ref = {0};
+ * GhosttyPoint point = {
+ *     .tag = GHOSTTY_POINT_TAG_ACTIVE,
+ *     .value = { .coordinate = { .x = 4, .y = 0 } },
+ * };
+ *
+ * if (ghostty_terminal_grid_ref(terminal, point, &ref) == GHOSTTY_SUCCESS) {
+ *     GhosttyCell cell;
+ *     ghostty_grid_ref_cell(&ref, &cell);
+ * }
+ * @endcode
+ *
+ * The fields describe where the cell lives in the terminal's internal
+ * storage. Treat them as read-only. In particular, `x` and `y` are not
+ * screen coordinates. To get the cell's position on the screen, call
+ * ghostty_terminal_point_from_grid_ref().
+ *
+ * The layout of this struct is frozen. It is 16 bytes on 64-bit targets
+ * and 8 bytes on 32-bit targets such as wasm32. If it ever needs to hold
+ * more, that will be a new type.
  *
  * @ingroup grid_ref
  */
 typedef struct {
-  size_t size;
+  /** The internal storage page that holds the cell. */
   void *node;
+
+  /** The cell's column within its page. */
   uint16_t x;
+
+  /** The cell's row within its page. */
   uint16_t y;
 } GhosttyGridRef;
 

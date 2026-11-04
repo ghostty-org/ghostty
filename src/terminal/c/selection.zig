@@ -17,11 +17,24 @@ pub const Order = Selection.Order;
 pub const Format = formatterpkg.Format;
 
 /// C: GhosttySelection
+///
+/// A range of terminal content between two cells. C callers allocate this
+/// struct themselves, so its size and field offsets are part of the ABI.
+/// The C header documents them, and the comptime block below keeps the
+/// two in sync.
 pub const CSelection = extern struct {
-    size: usize = @sizeOf(CSelection),
     start: grid_ref.CGridRef,
     end: grid_ref.CGridRef,
     rectangle: bool = false,
+
+    // Expected sizes: 40 bytes on 64-bit targets, 20 bytes on 32-bit.
+    comptime {
+        std.debug.assert(@sizeOf(CSelection) == switch (@sizeOf(usize)) {
+            8 => 40,
+            4 => 20,
+            else => unreachable,
+        });
+    }
 
     pub fn toZig(self: CSelection) ?Selection {
         const start_pin = self.start.toPin() orelse return null;
