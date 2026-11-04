@@ -134,7 +134,6 @@ class CommunityDocsTests(unittest.TestCase):
             self.assertIn("jischeng/oh-my-ghostty/blob/main/docs/REPORTING.md", text)
         note = (folder / "note.yml").read_text()
         self.assertIn("name: Note / 备忘", note)
-        self.assertIn('title: "[Note] "', note)
         self.assertIn("id: note", note)
         self.assertIn("id: kind", note)
         self.assertIn("docs/CONTRIBUTING.md", (ROOT / ".github/pull_request_template.md").read_text())

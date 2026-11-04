@@ -1,6 +1,5 @@
 name: Note / 备忘
 description: Record a short observation, wish or task you want to remember.
-title: "[Note] "
 body:
   - type: markdown
     attributes:
@@ -8,6 +7,7 @@ body:
         Search existing issues first. See the [reporting guide](https://github.com/jischeng/oh-my-ghostty/blob/main/docs/REPORTING.md).
         Use this form for a short observation, wish or task, not for a confirmed defect.
         It does not need a verified version, logs or reproduction steps.
+        Write a short one-line title in your own words, like the existing notes in this tracker.
         English and Chinese are welcome; please keep private workflow details and prompts redacted.
   - type: textarea
     id: note
