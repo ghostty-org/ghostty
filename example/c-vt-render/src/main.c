@@ -187,7 +187,7 @@ int main(void) {
 
       // Read the style for this cell. Returns the default style for
       // cells that have no explicit styling.
-      GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
+      GhosttyStyle style;
       ghostty_render_state_row_cells_get(
           cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
 
@@ -197,8 +197,8 @@ int main(void) {
 
       // Emit ANSI true-color escape for the foreground.
       printf("\033[38;2;%u;%u;%um", fg.r, fg.g, fg.b);
-      if (style.bold) printf("\033[1m");
-      if (style.underline) printf("\033[4m");
+      if (style.flags & GHOSTTY_STYLE_FLAG_BOLD) printf("\033[1m");
+      if (GHOSTTY_STYLE_UNDERLINE(style)) printf("\033[4m");
 
       // Read grapheme codepoints into a buffer and print them.
       // The buffer must be at least grapheme_len elements.

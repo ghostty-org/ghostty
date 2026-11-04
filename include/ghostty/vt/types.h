@@ -422,11 +422,11 @@ typedef struct {
  *       "values": { "INVALID": 0, "DIRTY": 3, "MAX_VALUE": 2147483647 }
  *     },
  *     "GhosttyStyleColor": {
- *       "kind": "struct", "size": 16, "align": 8,
+ *       "kind": "struct", "size": 4, "align": 1,
  *       "fields": {
- *         "tag": { "offset": 0, "size": 4,
+ *         "tag": { "offset": 0, "size": 1,
  *                  "type": "GhosttyStyleColorTag" },
- *         "value": { "offset": 8, "size": 8,
+ *         "value": { "offset": 1, "size": 3,
  *                    "type": "GhosttyStyleColorValue", "tag": "tag",
  *                    "arms": { "NONE": null, "PALETTE": "palette",
  *                              "RGB": "rgb" } }

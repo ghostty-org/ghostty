@@ -69,9 +69,10 @@ int main() {
     printf(" (wrap=%s", wrap ? "true" : "false");
 
     // Check the style of the first cell with text
-    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
+    GhosttyStyle style;
     ghostty_grid_ref_style(&ref, &style);
-    printf(", bold=%s)\n", style.bold ? "true" : "false");
+    printf(", bold=%s)\n",
+           (style.flags & GHOSTTY_STYLE_FLAG_BOLD) ? "true" : "false");
   }
 
   ghostty_terminal_free(terminal);
