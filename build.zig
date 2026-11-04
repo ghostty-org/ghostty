@@ -140,6 +140,7 @@ pub fn build(b: *std.Build) !void {
         break :shared try buildpkg.GhosttyLibVt.initShared(
             b,
             &mod,
+            config.is_dep,
         );
     };
     if (libghostty_vt_shared) |shared| {

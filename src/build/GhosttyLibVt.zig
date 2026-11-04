@@ -116,6 +116,7 @@ pub fn initStatic(
 pub fn initShared(
     b: *std.Build,
     zig: *const GhosttyZig,
+    is_dep: bool,
 ) !GhosttyLibVt {
     const target = zig.vt.resolved_target.?;
 
@@ -123,7 +124,14 @@ pub fn initShared(
     // available. Besides producing the platform load commands expected by
     // Apple distribution, this lets the static archive's libSystem symbol
     // override take effect. Cross-compiled macOS dylibs continue through Zig.
-    if (@import("apple_sdk").nativeLink.available(target)) {
+    //
+    // A Zig dependent gets the Zig-linked library instead. The native link
+    // is a Run step, and dep.artifact("ghostty-vt") only finds Compile
+    // steps installed with addInstallArtifact. The dependent links the
+    // library into its own build, so the Apple linker's packaging details
+    // (compatibility version, distribution load commands) don't matter
+    // there.
+    if (!is_dep and @import("apple_sdk").nativeLink.available(target)) {
         return initLibApple(b, zig);
     }
 
