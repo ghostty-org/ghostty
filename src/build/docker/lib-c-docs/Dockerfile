@@ -14,6 +14,7 @@ WORKDIR /ghostty
 COPY include/ ./include/
 COPY images/ ./images/
 COPY dist/doxygen/ ./dist/doxygen/
+COPY src/terminal/c/types.schema.json ./src/terminal/c/types.schema.json
 COPY example/ ./example/
 COPY Doxyfile ./
 COPY DoxygenLayout.xml ./

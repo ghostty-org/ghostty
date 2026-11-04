@@ -1,15 +1,17 @@
-//! Compiles a blueprint file using `blueprint-compiler`. This performs
-//! additional checks to ensure that various minimum versions are met.
+//! Checks that `libadwaita` is at least the given version and that
+//! `blueprint-compiler` is on the PATH and new enough. The blueprints
+//! themselves are compiled by `blueprint-compiler` directly from the build
+//! system; see `gtkDistResources` in `src/build/SharedDeps.zig`.
 //!
-//! Usage: blueprint.zig <major> <minor> <output> <input>
+//! Usage: blueprint.zig <major> <minor> <stamp>
 //!
-//! Example: blueprint.zig 1 5 output.ui input.blp
+//! Example: blueprint.zig 1 5 blueprint-check.stamp
+//!
+//! `<stamp>` is written when every check passes, so the build system has an
+//! output to cache this step by.
 
 const std = @import("std");
-
-pub const c = @cImport({
-    @cInclude("adwaita.h");
-});
+const adw_c = @import("adw_c");
 
 pub const blueprint_compiler_help =
     \\
@@ -26,29 +28,29 @@ pub const blueprint_compiler_help =
 ;
 
 const adwaita_version = std.SemanticVersion{
-    .major = c.ADW_MAJOR_VERSION,
-    .minor = c.ADW_MINOR_VERSION,
-    .patch = c.ADW_MICRO_VERSION,
+    .major = adw_c.ADW_MAJOR_VERSION,
+    .minor = adw_c.ADW_MINOR_VERSION,
+    .patch = adw_c.ADW_MICRO_VERSION,
 };
+
 const required_blueprint_version = std.SemanticVersion{
     .major = 0,
-    .minor = 16,
+    .minor = 20,
     .patch = 0,
 };
 
-pub fn main() !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+pub fn main(init: std.process.Init) !void {
+    var debug_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     defer _ = debug_allocator.deinit();
     const alloc = debug_allocator.allocator();
 
     // Get our args
-    var it = try std.process.argsWithAllocator(alloc);
+    var it = try init.minimal.args.iterateAllocator(alloc);
     defer it.deinit();
     _ = it.next(); // Skip argv0
     const arg_major = it.next() orelse return error.NoMajorVersion;
     const arg_minor = it.next() orelse return error.NoMinorVersion;
-    const output = it.next() orelse return error.NoOutput;
-    const input = it.next() orelse return error.NoInput;
+    const stamp = it.next() orelse return error.NoStamp;
 
     const required_adwaita_version = std.SemanticVersion{
         .major = try std.fmt.parseUnsigned(u8, arg_major, 10),
@@ -60,54 +62,40 @@ pub fn main() !void {
             \\`libadwaita` is too old.
             \\
             \\Ghostty requires a version {f} or newer of `libadwaita` to
-            \\compile this blueprint. Please install it, ensure that it is
+            \\compile its blueprints. Please install it, ensure that it is
             \\available on your PATH, and then retry building Ghostty.
         , .{required_adwaita_version});
-        std.posix.exit(1);
+        std.process.exit(1);
     }
 
     // Version checks
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-        defer stderr.deinit(alloc);
-
-        var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "--version",
-            },
-            alloc,
-        );
-        blueprint_compiler.stdout_behavior = .Pipe;
-        blueprint_compiler.stderr_behavior = .Pipe;
-        try blueprint_compiler.spawn();
-        try blueprint_compiler.collectOutput(
-            alloc,
-            &stdout,
-            &stderr,
-            std.math.maxInt(u16),
-        );
-        const term = blueprint_compiler.wait() catch |err| switch (err) {
+        const blueprint_compiler = std.process.run(alloc, init.io, .{
+            .argv = &.{ "blueprint-compiler", "--version" },
+        }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                 ++ blueprint_compiler_help,
                     .{required_blueprint_version},
                 );
-                std.posix.exit(1);
+                std.process.exit(1);
             },
             else => return err,
         };
-        switch (term) {
-            .Exited => |rc| if (rc != 0) std.process.exit(1),
+        defer {
+            alloc.free(blueprint_compiler.stdout);
+            alloc.free(blueprint_compiler.stderr);
+        }
+
+        switch (blueprint_compiler.term) {
+            .exited => |rc| if (rc != 0) std.process.exit(1),
             else => std.process.exit(1),
         }
 
         const version = try std.SemanticVersion.parse(std.mem.trim(
             u8,
-            stdout.items,
+            blueprint_compiler.stdout,
             &std.ascii.whitespace,
         ));
         if (version.order(required_blueprint_version) == .lt) {
@@ -116,59 +104,11 @@ pub fn main() !void {
             ++ blueprint_compiler_help,
                 .{required_blueprint_version},
             );
-            std.posix.exit(1);
+            std.process.exit(1);
         }
     }
 
-    // Compilation
-    {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-        defer stderr.deinit(alloc);
-
-        var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "compile",
-                "--output",
-                output,
-                input,
-            },
-            alloc,
-        );
-        blueprint_compiler.stdout_behavior = .Pipe;
-        blueprint_compiler.stderr_behavior = .Pipe;
-        try blueprint_compiler.spawn();
-        try blueprint_compiler.collectOutput(
-            alloc,
-            &stdout,
-            &stderr,
-            std.math.maxInt(u16),
-        );
-        const term = blueprint_compiler.wait() catch |err| switch (err) {
-            error.FileNotFound => {
-                std.debug.print(
-                    \\`blueprint-compiler` not found.
-                ++ blueprint_compiler_help,
-                    .{required_blueprint_version},
-                );
-                std.posix.exit(1);
-            },
-            else => return err,
-        };
-
-        switch (term) {
-            .Exited => |rc| {
-                if (rc != 0) {
-                    std.debug.print("{s}", .{stderr.items});
-                    std.process.exit(1);
-                }
-            },
-            else => {
-                std.debug.print("{s}", .{stderr.items});
-                std.process.exit(1);
-            },
-        }
-    }
+    // Everything passed.
+    const file = try std.Io.Dir.cwd().createFile(init.io, stamp, .{});
+    file.close(init.io);
 }

@@ -194,12 +194,12 @@ pub const PageEntry = struct {
         const alloc = &page.string_alloc;
         switch (self.id) {
             .implicit => {},
-            .explicit => |v| alloc.free(
+            .explicit => |v| if (v.len > 0) alloc.free(
                 page.memory,
                 v.slice(page.memory),
             ),
         }
-        alloc.free(
+        if (self.uri.len > 0) alloc.free(
             page.memory,
             self.uri.slice(page.memory),
         );

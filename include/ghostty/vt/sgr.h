@@ -319,31 +319,6 @@ GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(GhosttySgrAttribute
 GHOSTTY_API GhosttySgrAttributeValue* ghostty_sgr_attribute_value(
     GhosttySgrAttribute* attr);
 
-#ifdef __wasm__
-/**
- * Allocate memory for an SGR attribute (WebAssembly only).
- *
- * This is a convenience function for WebAssembly environments to allocate
- * memory for an SGR attribute structure that can be passed to ghostty_sgr_next.
- *
- * @return Pointer to the allocated attribute structure
- *
- * @ingroup wasm
- */
-GHOSTTY_API GhosttySgrAttribute* ghostty_wasm_alloc_sgr_attribute(void);
-
-/**
- * Free memory for an SGR attribute (WebAssembly only).
- *
- * Frees memory allocated by ghostty_wasm_alloc_sgr_attribute.
- *
- * @param attr Pointer to the attribute structure to free
- *
- * @ingroup wasm
- */
-GHOSTTY_API void ghostty_wasm_free_sgr_attribute(GhosttySgrAttribute* attr);
-#endif
-
 #ifdef __cplusplus
 }
 #endif

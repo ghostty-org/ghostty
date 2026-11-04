@@ -352,8 +352,7 @@ pub const Key = enum(c_int) {
         )) |key| return key;
 
         // We need to convert FooBar to foo_bar
-        var fbs = std.io.fixedBufferStream(&result);
-        const w = fbs.writer();
+        var w: std.Io.Writer = .fixed(&result);
         for (code, 0..) |ch, i| switch (ch) {
             'a'...'z' => w.writeByte(ch) catch return null,
 
@@ -367,7 +366,7 @@ pub const Key = enum(c_int) {
             else => return null,
         };
 
-        return std.meta.stringToEnum(Key, fbs.getWritten());
+        return std.meta.stringToEnum(Key, w.buffered());
     }
 
     /// Converts a Ghostty key enum value to a W3C key code.
@@ -379,8 +378,7 @@ pub const Key = enum(c_int) {
                 const name = @tagName(tag);
 
                 var buf: [128]u8 = undefined;
-                var fbs = std.io.fixedBufferStream(&buf);
-                const w = fbs.writer();
+                var w: std.Io.Writer = .fixed(&buf);
                 var i: usize = 0;
                 while (i < name.len) {
                     if (i == 0) {
@@ -396,7 +394,7 @@ pub const Key = enum(c_int) {
                 }
 
                 const written = buf;
-                const result = written[0..fbs.getWritten().len];
+                const result = written[0..w.end];
                 break :w3c result;
             },
         };
@@ -772,8 +770,8 @@ pub const Key = enum(c_int) {
         // We don't support every key in the W3C spec, so we only
         // check the enum fields.
         const testing = std.testing;
-        inline for (@typeInfo(Key).@"enum".fields) |field| {
-            const key = @field(Key, field.name);
+        inline for (@typeInfo(Key).@"enum".field_names) |field| {
+            const key = @field(Key, field);
             const w3c_name = key.w3c();
             try testing.expectEqual(key, Key.fromW3C(w3c_name).?);
         }

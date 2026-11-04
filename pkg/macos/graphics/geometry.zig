@@ -12,19 +12,36 @@ pub const Rect = extern struct {
     size: Size,
 
     pub fn init(x: f64, y: f64, width: f64, height: f64) Rect {
-        return @bitCast(c.CGRectMake(x, y, width, height));
+        return .{
+            .origin = .{ .x = x, .y = y },
+            .size = .{ .width = width, .height = height },
+        };
+    }
+
+    pub fn cval(self: Rect) c.CGRect {
+        return .{
+            .origin = .{ .x = self.origin.x, .y = self.origin.y },
+            .size = .{ .width = self.size.width, .height = self.size.height },
+        };
+    }
+
+    pub fn fromC(value: c.CGRect) Rect {
+        return .{
+            .origin = .{ .x = value.origin.x, .y = value.origin.y },
+            .size = .{ .width = value.size.width, .height = value.size.height },
+        };
     }
 
     pub fn isNull(self: Rect) bool {
-        return c.CGRectIsNull(@bitCast(self));
+        return c.CGRectIsNull(self.cval());
     }
 
     pub fn getHeight(self: Rect) c.CGFloat {
-        return c.CGRectGetHeight(@bitCast(self));
+        return c.CGRectGetHeight(self.cval());
     }
 
     pub fn getWidth(self: Rect) c.CGFloat {
-        return c.CGRectGetWidth(@bitCast(self));
+        return c.CGRectGetWidth(self.cval());
     }
 };
 

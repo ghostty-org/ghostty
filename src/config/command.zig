@@ -63,24 +63,26 @@ pub const Command = union(enum) {
             break :tag .{ .shell, trimmed };
         };
 
+        if (str.len == 0) return error.ValueRequired;
+
         switch (tag) {
             .shell => {
                 // We have a shell command, so we can just dupe it.
-                const copy = try alloc.dupeZ(u8, std.mem.trim(u8, str, " "));
+                const copy = try alloc.dupeSentinel(u8, std.mem.trim(u8, str, " "), 0);
                 self.* = .{ .shell = copy };
             },
 
             .direct => {
                 // We're not shell expanding, so the arguments are naively
                 // split on spaces.
-                var builder: std.ArrayListUnmanaged([:0]const u8) = .empty;
-                var args = std.mem.splitScalar(
+                var builder: std.ArrayList([:0]const u8) = .empty;
+                var args = std.mem.tokenizeScalar(
                     u8,
-                    std.mem.trim(u8, str, " "),
+                    str,
                     ' ',
                 );
                 while (args.next()) |arg| {
-                    const copy = try alloc.dupeZ(u8, arg);
+                    const copy = try alloc.dupeSentinel(u8, arg, 0);
                     try builder.append(alloc, copy);
                 }
 
@@ -97,7 +99,7 @@ pub const Command = union(enum) {
         alloc: Allocator,
     ) Allocator.Error![:0]const u8 {
         return switch (self.*) {
-            .shell => |v| try alloc.dupeZ(u8, v),
+            .shell => |v| try alloc.dupeSentinel(u8, v, 0),
             .direct => |v| try std.mem.joinZ(alloc, " ", v),
         };
     }
@@ -123,7 +125,7 @@ pub const Command = union(enum) {
 
     /// Iterates over each argument in the command.
     pub const ArgIterator = union(enum) {
-        shell: std.process.ArgIteratorGeneral(.{}),
+        shell: std.process.Args.IteratorGeneral(.{}),
         direct: struct {
             i: usize = 0,
             args: []const [:0]const u8,
@@ -156,10 +158,10 @@ pub const Command = union(enum) {
         alloc: Allocator,
     ) Allocator.Error!Self {
         return switch (self.*) {
-            .shell => |v| .{ .shell = try alloc.dupeZ(u8, v) },
+            .shell => |v| .{ .shell = try alloc.dupeSentinel(u8, v, 0) },
             .direct => |v| direct: {
                 const copy = try alloc.alloc([:0]const u8, v.len);
-                for (v, 0..) |arg, i| copy[i] = try alloc.dupeZ(u8, arg);
+                for (v, 0..) |arg, i| copy[i] = try alloc.dupeSentinel(u8, arg, 0);
                 break :direct .{ .direct = copy };
             },
         };
@@ -207,6 +209,8 @@ pub const Command = union(enum) {
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, null));
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, ""));
         try testing.expectError(error.ValueRequired, v.parseCLI(alloc, " "));
+        try testing.expectError(error.ValueRequired, v.parseCLI(alloc, "direct:"));
+        try testing.expectError(error.ValueRequired, v.parseCLI(alloc, "shell:"));
     }
 
     test "Command: parseCLI shell expanded" {
@@ -245,6 +249,13 @@ pub const Command = union(enum) {
         try testing.expectEqual(v.direct.len, 2);
         try testing.expectEqualStrings(v.direct[0], "echo");
         try testing.expectEqualStrings(v.direct[1], "hello");
+
+        // Repeated spaces between arguments.
+        try v.parseCLI(alloc, "direct:echo   hello");
+        try testing.expect(v == .direct);
+        try testing.expectEqual(@as(usize, 2), v.direct.len);
+        try testing.expectEqualStrings("echo", v.direct[0]);
+        try testing.expectEqualStrings("hello", v.direct[1]);
     }
 
     test "Command: argIterator shell" {

@@ -2,8 +2,10 @@ const std = @import("std");
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
+const global = @import("../global.zig");
 const Action = @import("ghostty.zig").Action;
 const Duration = @import("../config.zig").Config.Duration;
+const terminfopkg = @import("../terminfo/main.zig");
 pub const Entry = @import("ssh-cache/Entry.zig");
 pub const DiskCache = @import("ssh-cache/DiskCache.zig");
 
@@ -32,12 +34,15 @@ pub const Options = struct {
 /// inspects and maintains that cache.
 ///
 /// The cache stores destinations (a hostname or user@hostname) along with
-/// timestamps.
+/// timestamps. A destination on a port other than 22 carries it as a
+/// `:port` suffix (`user@hostname:2222`, or `user@[2001:db8::1]:2222` for an
+/// IPv6 address), since each port can be a different machine.
 ///
 /// A positional destination queries the cache: `user@hostname` shows that
 /// exact entry, while a bare `hostname` shows every cached entry for that
-/// host regardless of user. With no destination and no action, the entire
-/// cache is listed. A query that matches nothing exits 1.
+/// host regardless of user and port, and a bare `hostname:port` every entry
+/// for that port. With no destination and no action, the entire cache is
+/// listed. A query that matches nothing exits 1.
 ///
 /// At most one action (`--clear`, `--add`, `--remove`, or `--prune`) may be
 /// specified, and not together with a positional destination; combining them
@@ -48,13 +53,15 @@ pub const Options = struct {
 /// `--prune=6h`, `--prune=1y`.
 ///
 /// Examples:
-///   ghostty +ssh-cache                           # List all cached destinations
-///   ghostty +ssh-cache user@example.com          # Show that destination
-///   ghostty +ssh-cache example.com               # Show all users on that host
-///   ghostty +ssh-cache --add=user@example.com    # Manually add a destination
-///   ghostty +ssh-cache --remove=user@example.com # Remove a destination
-///   ghostty +ssh-cache --prune=30d               # Remove entries older than 30 days
-///   ghostty +ssh-cache --clear                   # Clear entire cache
+///
+///     ghostty +ssh-cache                           # List all cached destinations
+///     ghostty +ssh-cache user@example.com          # Show that destination
+///     ghostty +ssh-cache example.com               # Show all users on that host
+///     ghostty +ssh-cache user@example.com:2222     # Show that destination on port 2222
+///     ghostty +ssh-cache --add=user@example.com    # Manually add a destination
+///     ghostty +ssh-cache --remove=user@example.com # Remove a destination
+///     ghostty +ssh-cache --prune=30d               # Remove entries older than 30 days
+///     ghostty +ssh-cache --clear                   # Clear entire cache
 pub fn run(alloc_gpa: Allocator) !u8 {
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -64,13 +71,13 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(global.io(), &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_file: std.fs.File = .stderr();
-    var stderr_writer = stderr_file.writer(&stderr_buffer);
+    var stderr_file: std.Io.File = .stderr();
+    var stderr_writer = stderr_file.writer(global.io(), &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
     // The cache is queried by a positional destination (`user@host` or a
@@ -81,7 +88,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     var query: ?[]const u8 = null;
     var flags: std.ArrayList([]const u8) = .empty;
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(alloc_gpa, global.args());
         defer iter.deinit();
         while (iter.next()) |arg| {
             const is_host_flag = std.mem.startsWith(u8, arg, "--host=");
@@ -132,7 +139,24 @@ pub fn run(alloc_gpa: Allocator) !u8 {
         };
     }
 
-    const result = runInner(alloc, opts, query, stdout, stderr);
+    // Setup our disk cache to the standard location
+    const cache_path = DiskCache.defaultPath(alloc, "ghostty") catch |err| {
+        try stderr.print(
+            "Error: unable to determine the cache path: {t}\n",
+            .{err},
+        );
+        stderr.flush() catch {};
+        return 1;
+    };
+
+    const result = runInner(
+        alloc,
+        opts,
+        query,
+        .{ .path = cache_path },
+        stdout,
+        stderr,
+    );
 
     // Flushing *shouldn't* fail but...
     stdout.flush() catch {};
@@ -144,6 +168,7 @@ pub fn runInner(
     alloc: Allocator,
     opts: Options,
     query: ?[]const u8,
+    cache: DiskCache,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
@@ -164,28 +189,35 @@ pub fn runInner(
         return 2;
     }
 
-    // Setup our disk cache to the standard location
-    const cache_path = try DiskCache.defaultPath(alloc, "ghostty");
-    const cache: DiskCache = .{ .path = cache_path };
-
     if (opts.clear) {
-        try cache.clear();
+        cache.clear() catch |err| {
+            try stderr.print(
+                "Error: unable to clear cache '{s}': {t}\n",
+                .{ cache.path, err },
+            );
+            return 1;
+        };
         return 0;
     }
 
     if (opts.add) |dest| {
-        cache.add(alloc, dest, std.time.timestamp()) catch |err| switch (err) {
+        cache.add(
+            alloc,
+            dest,
+            terminfopkg.version,
+            std.Io.Timestamp.now(global.io(), .real).toSeconds(),
+        ) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
-                    "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
+                    "Error: invalid destination '{s}' (expected [user@]hostname[:port])\n",
                     .{dest},
                 );
                 return 2;
             },
             else => {
                 try stderr.print(
-                    "Error: Unable to add '{s}' to cache. Error: {}\n",
-                    .{ dest, err },
+                    "Error: unable to add '{s}' to cache '{s}': {t}\n",
+                    .{ dest, cache.path, err },
                 );
                 return 1;
             },
@@ -197,15 +229,15 @@ pub fn runInner(
         const removed = cache.remove(alloc, dest) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
-                    "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
+                    "Error: invalid destination '{s}' (expected [user@]hostname[:port])\n",
                     .{dest},
                 );
                 return 2;
             },
             else => {
                 try stderr.print(
-                    "Error: Unable to remove '{s}' from cache. Error: {}\n",
-                    .{ dest, err },
+                    "Error: unable to remove '{s}' from cache '{s}': {t}\n",
+                    .{ dest, cache.path, err },
                 );
                 return 1;
             },
@@ -228,14 +260,23 @@ pub fn runInner(
             return 2;
         }
         const pruned = cache.prune(alloc, max_age_s) catch |err| {
-            try stderr.print("Error: Unable to prune cache. Error: {}\n", .{err});
+            try stderr.print(
+                "Error: unable to prune cache '{s}': {t}\n",
+                .{ cache.path, err },
+            );
             return 1;
         };
         try stdout.print("Pruned cache entries: {d}\n", .{pruned});
         return 0;
     }
 
-    var entries = try cache.list(alloc);
+    var entries = cache.list(alloc) catch |err| {
+        try stderr.print(
+            "Error: unable to read cache '{s}': {t}\n",
+            .{ cache.path, err },
+        );
+        return 1;
+    };
     defer DiskCache.deinitEntries(alloc, &entries);
 
     // A positional query filters the listing: an exact `user@host` match,
@@ -243,7 +284,7 @@ pub fn runInner(
     if (query) |q| {
         if (!DiskCache.isValidCacheKey(q)) {
             try stderr.print(
-                "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
+                "Error: invalid destination '{s}' (expected [user@]hostname[:port])\n",
                 .{q},
             );
             return 2;
@@ -295,7 +336,7 @@ fn listEntries(
         widest = @max(widest, entry.hostname.len);
     }
 
-    const now = std.time.timestamp();
+    const now = std.Io.Timestamp.now(global.io(), .real).toSeconds();
     for (items.items) |entry| {
         try writer.print("{s}", .{entry.hostname});
         try writer.splatByteAll(' ', widest - entry.hostname.len + 2);
@@ -310,17 +351,25 @@ fn listEntries(
 }
 
 /// Whether a cache `key` matches a positional `query`. A `user@host` query
-/// (containing `@`) matches one exact key; a bare `host` query matches every
-/// key on that host regardless of user, comparing against the key's host
-/// component (everything after its first `@`, or the whole key if userless).
+/// (containing `@`) matches one exact destination; a bare `host` query
+/// matches every key on that host regardless of user and port, and a bare
+/// `host:port` query every key on that host and port regardless of user.
+/// A missing port is the same as port 22.
 fn matchesQuery(key: []const u8, query: []const u8) bool {
-    if (std.mem.indexOfScalar(u8, query, '@') != null) {
-        return std.mem.eql(u8, key, query);
+    const key_at = std.mem.indexOfScalar(u8, key, '@');
+    const query_at = std.mem.indexOfScalar(u8, query, '@');
+    if (query_at) |i| {
+        const key_user = if (key_at) |j| key[0..j] else return false;
+        if (!std.mem.eql(u8, key_user, query[0..i])) return false;
     }
 
-    const at = std.mem.indexOfScalar(u8, key, '@');
-    const host = if (at) |i| key[i + 1 ..] else key;
-    return std.mem.eql(u8, host, query);
+    const key_hp = DiskCache.splitHostPort(if (key_at) |i| key[i + 1 ..] else key);
+    const query_hp = DiskCache.splitHostPort(if (query_at) |i| query[i + 1 ..] else query);
+    if (!std.mem.eql(u8, key_hp.host, query_hp.host)) return false;
+
+    // Only a bare host query matches every port.
+    if (query_at == null and query_hp.port == null) return true;
+    return std.mem.eql(u8, key_hp.port orelse "22", query_hp.port orelse "22");
 }
 
 test matchesQuery {
@@ -336,6 +385,30 @@ test matchesQuery {
     try testing.expect(matchesQuery("root@example.com", "example.com"));
     try testing.expect(matchesQuery("example.com", "example.com"));
     try testing.expect(!matchesQuery("user@other.com", "example.com"));
+
+    // Bare host: every port on that host too.
+    try testing.expect(matchesQuery("user@example.com:2222", "example.com"));
+    try testing.expect(matchesQuery("user@[::1]:2222", "::1"));
+    try testing.expect(matchesQuery("user@::1", "::1"));
+
+    // Bare host:port: that port only, any user.
+    try testing.expect(matchesQuery("user@example.com:2222", "example.com:2222"));
+    try testing.expect(matchesQuery("root@example.com:2222", "example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com", "example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com:2223", "example.com:2222"));
+    try testing.expect(matchesQuery("user@[::1]:2222", "[::1]:2222"));
+
+    // Exact user@host:port.
+    try testing.expect(matchesQuery("user@example.com:2222", "user@example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com", "user@example.com:2222"));
+    try testing.expect(!matchesQuery("user@example.com:2222", "user@example.com"));
+
+    // A missing port is port 22.
+    try testing.expect(matchesQuery("user@example.com", "example.com:22"));
+    try testing.expect(matchesQuery("user@example.com", "user@example.com:22"));
+    try testing.expect(matchesQuery("user@example.com:22", "user@example.com"));
+    try testing.expect(matchesQuery("user@[::1]:22", "user@::1"));
+    try testing.expect(!matchesQuery("user@example.com:2222", "example.com:22"));
 }
 
 /// Format a Unix timestamp as an ISO-8601 UTC string
@@ -353,7 +426,7 @@ fn formatTimestamp(buf: []u8, timestamp: i64) []const u8 {
     const year_day = day.calculateYearDay();
     const month_day = year_day.calculateMonthDay();
     const ds = epoch_secs.getDaySeconds();
-    return std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
+    return std.mem.print(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
         year_day.year,
         month_day.month.numeric(),
         month_day.day_index + 1,
@@ -420,7 +493,7 @@ fn relativeAge(buf: []u8, now: i64, timestamp: i64) []const u8 {
     const max_age = std.math.maxInt(u64) / std.time.ns_per_s;
     const rounded = @min(age, max_age) / unit * unit;
     const d: Duration = .{ .duration = rounded * std.time.ns_per_s };
-    return std.fmt.bufPrint(buf, "{f} ago", .{d}) catch unreachable;
+    return std.mem.print(buf, "{f} ago", .{d}) catch unreachable;
 }
 
 test relativeAge {
@@ -469,10 +542,11 @@ test "runInner rejects multiple actions" {
     defer stderr.deinit();
 
     // The check runs before any cache access, so it never touches disk.
+    const cache: DiskCache = .{ .path = "/nonexistent/ssh_cache" };
     const code = try runInner(alloc, .{
         .add = "example.com",
         .remove = "other.com",
-    }, null, &stdout.writer, &stderr.writer);
+    }, null, cache, &stdout.writer, &stderr.writer);
 
     try testing.expectEqual(@as(u8, 2), code);
     try testing.expectEqualStrings("", stdout.written());
@@ -482,7 +556,39 @@ test "runInner rejects multiple actions" {
     stderr.clearRetainingCapacity();
     const code2 = try runInner(alloc, .{
         .clear = true,
-    }, "example.com", &stdout.writer, &stderr.writer);
+    }, "example.com", cache, &stdout.writer, &stderr.writer);
     try testing.expectEqual(@as(u8, 2), code2);
     try testing.expect(std.mem.indexOf(u8, stderr.written(), "only one") != null);
+}
+
+test "runInner fails cleanly when the cache is unusable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    // A directory where the cache file belongs fails every operation.
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "ssh_cache");
+    const tmp_path = try tmp.dir.realPathFileAlloc(io, ".", alloc);
+    defer alloc.free(tmp_path);
+    const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "ssh_cache" });
+    defer alloc.free(cache_path);
+    const cache: DiskCache = .{ .path = cache_path };
+
+    var stdout: std.Io.Writer.Allocating = .init(alloc);
+    defer stdout.deinit();
+    var stderr: std.Io.Writer.Allocating = .init(alloc);
+    defer stderr.deinit();
+
+    const opts: []const Options = &.{
+        .{}, // the default listing
+        .{ .add = "example.com" },
+        .{ .remove = "example.com" },
+        .{ .prune = .{ .duration = std.time.ns_per_s } },
+    };
+    for (opts) |o| {
+        const code = try runInner(alloc, o, null, cache, &stdout.writer, &stderr.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+    }
 }

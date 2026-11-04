@@ -80,8 +80,8 @@ pub fn setopt(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
-            log.warn("setopt invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
+            log.warn("setopt invalid option value={d}", .{@backingInt(option)});
             return;
         };
     }
@@ -113,8 +113,8 @@ fn setoptTyped(
         },
         .macos_option_as_alt => {
             if (comptime std.debug.runtime_safety) {
-                _ = std.meta.intToEnum(OptionAsAlt, @intFromEnum(value.*)) catch {
-                    log.warn("setopt invalid OptionAsAlt value={d}", .{@intFromEnum(value.*)});
+                _ = std.enums.fromInt(OptionAsAlt, @backingInt(value.*)) orelse {
+                    log.warn("setopt invalid OptionAsAlt value={d}", .{@backingInt(value.*)});
                     return;
                 };
             }
@@ -257,7 +257,8 @@ test "setopt_from_terminal" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+        80,
+        24,
     ));
     defer terminal_c.free(t);
 
@@ -283,7 +284,8 @@ test "setopt_from_terminal null" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+        80,
+        24,
     ));
     defer terminal_c.free(t);
     setopt_from_terminal(null, t);

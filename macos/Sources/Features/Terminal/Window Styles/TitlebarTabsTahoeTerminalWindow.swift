@@ -170,9 +170,13 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
 
-        // Make sure tabBar's height won't be stretched
-        guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
-        tabBarView.frame.size.height = newTabButton.frame.width
+        // Keep the tab bar from stretching vertically by matching its height
+        // to the new tab button. On macOS 27 the button is added after the
+        // rest of the tab bar, so it may not exist yet. In that case skip only
+        // the height fix, so the constraints below still get applied.
+        if let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") {
+            tabBarView.frame.size.height = newTabButton.frame.width
+        }
 
         // The container is the view that we'll constrain our tab bar within.
         let container = toolbarView
@@ -203,6 +207,14 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         clipView.needsLayout = true
         accessoryView.needsLayout = true
+
+        if #available(macOS 27.0, *) {
+            // Add some delay to cover the case where:
+            // AppKit resets the style after exiting fullscreen
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+                self?.reduceTabBarBackgroundGoldenGate()
+            }
+        }
 
         // Setup an observer for the NSTabBar frame. When system appearance changes or
         // other events occur, the tab bar can resize and clear our constraints. When this

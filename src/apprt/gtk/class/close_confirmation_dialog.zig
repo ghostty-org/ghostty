@@ -1,18 +1,18 @@
 const std = @import("std");
+const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const gresource = @import("../build/gresource.zig");
 const i18n = @import("../../../os/main.zig").i18n;
 const Common = @import("../class.zig").Common;
-const Dialog = @import("dialog.zig").Dialog;
 
 const log = std.log.scoped(.gtk_ghostty_close_confirmation_dialog);
 
 pub const CloseConfirmationDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
-    pub const Parent = Dialog;
+    pub const Parent = adw.AlertDialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttyCloseConfirmationDialog",
         .instanceInit = &init,
@@ -83,15 +83,15 @@ pub const CloseConfirmationDialog = extern struct {
     pub fn present(self: *Self, parent: ?*gtk.Widget) void {
         // Setup our title/body text.
         const priv = self.private();
-        self.as(Dialog.Parent).setHeading(priv.target.title());
-        self.as(Dialog.Parent).setBody(priv.target.body());
+        self.as(adw.AlertDialog).setHeading(priv.target.title());
+        self.as(adw.AlertDialog).setBody(priv.target.body());
 
         // Show it
-        self.as(Dialog).present(parent);
+        self.as(adw.Dialog).present(parent);
     }
 
     pub fn close(self: *Self) void {
-        self.as(Dialog).close();
+        self.as(adw.Dialog).forceClose();
     }
 
     fn response(
@@ -140,12 +140,11 @@ pub const CloseConfirmationDialog = extern struct {
         pub const Instance = Self;
 
         fn init(class: *Class) callconv(.c) void {
-            gobject.ext.ensureType(Dialog);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 2,
+                    .minor = 5,
                     .name = "close-confirmation-dialog",
                 }),
             );
@@ -161,7 +160,7 @@ pub const CloseConfirmationDialog = extern struct {
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
-            Dialog.virtual_methods.response.implement(class, &response);
+            adw.AlertDialog.virtual_methods.response.implement(class, &response);
         }
 
         pub const as = C.Class.as;

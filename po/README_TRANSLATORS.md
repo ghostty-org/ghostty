@@ -160,25 +160,31 @@ the right click menu.
 
 ## Localization teams
 
-Every locale has a localization team consisting of the locale's maintainers.
-These maintainers review contributions to their locale's translations, and are
-responsible for translating new strings when requested: occasionally, all locale
-maintainers are pinged and requested to translate missing strings.
+Every locale has a _localization team_ consisting of the locale's _maintainers_.
+These maintainers are responsible for upkeep of their locale's translations.
+Anyone can contribute strings for any language's translations, and may also
+volunteer to join that locale's team; a locale maintainer is only distinguished
+from other speakers of the language in that:
 
-The primary purposes of being a locale maintainer are a declaration of
-_commitment_ to their upkeep, and being _informed_ of updates or update requests
-of the translations, via GitHub's review requests or @mentions.
+1. Locale maintainers _declare commitment_ to updating their translations.
+2. Locale maintainers are _occasionally pinged_, via GitHub's @mentions, when
+   there are untranslated strings.
+3. Locale maintainers are _informed of updates_ to the translations they
+   maintain via GitHub's review requests.
 
-So that future updates to a locale are possible, each localization team must
-have at least two members. If you are introducing a new language, please
-**consider volunteering** to be a part of the localization team, by mentioning
-that you are willing to be a part of it in the pull request description! You,
-and all reviewers, will be offered to join the locale team before the pull
-request to add the new language is merged, but this denotes your dedication
-upfront—for a pull request adding a new language to be merged, it needs at least
-one review from a speaker of that language _and_ at least two localization team
-members. No one is _required_ to join a localization team, even if they
-introduced support for the language.
+That's all there is to it, really. If you wish, you may leave your localization
+teams at any point in the future.
+
+Each localization team must have at least two maintainers, who can review each
+other's translations. Likewise, if you open a pull request for a new language,
+it won't be merged until at least two people volunteer. You—the creator of the
+PR—likely intend to continue helping out with them, so please make it clear
+up-front if that is not your intent.
+
+There is no requirement that locale maintainers must not know each other. If you
+are adding translations for languages that have few speakers, you might wish to
+ask a friend of yours who also speaks that language whether they'd be willing to
+help with Ghostty translations.
 
 ### `CODEOWNERS`
 

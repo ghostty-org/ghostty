@@ -16,7 +16,7 @@ pub const Value = struct {
         message: []const u8,
     ) Value {
         return .{ .value = c.sentry_value_new_message_event_n(
-            @intFromEnum(level),
+            @backingInt(level),
             if (logger) |v| v.ptr else null,
             if (logger) |v| v.len else 0,
             message.ptr,

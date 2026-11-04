@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const terminalpkg = @import("../terminal/main.zig");
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"apc-parser-bench");
 
@@ -19,7 +20,7 @@ opts: Options,
 stream: Stream,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The data to read as a filepath. If this is "-" then
@@ -51,10 +52,10 @@ const Handler = struct {
             .apc_start => self.apc.start(),
             .apc_put => self.apc.feed(self.alloc, value),
             .apc_put_slice => self.apc.feedSlice(self.alloc, value.bytes),
-            .apc_end => if (self.apc.end()) |cmd| {
-                var c = cmd;
-                std.mem.doNotOptimizeAway(&c);
-                c.deinit(self.alloc);
+            .apc_end => if (self.apc.end()) |result| {
+                var r = result;
+                std.mem.doNotOptimizeAway(&r);
+                r.deinit(self.alloc);
             },
             else => {},
         }
@@ -70,7 +71,10 @@ pub fn create(
     errdefer alloc.destroy(ptr);
     ptr.* = .{
         .opts = opts,
-        .stream = .init(.{ .alloc = alloc }),
+        .stream = .init(.{
+            .allocator = alloc,
+            .handler = .{ .alloc = alloc },
+        }),
     };
     return ptr;
 }
@@ -103,7 +107,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *ApcParser = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(global.io());
         self.data_f = null;
     }
 }
@@ -114,7 +118,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
 
     var read_buf: [64 * 1024]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(global.io(), &read_buf);
     const r = &f_reader.interface;
 
     // This buffer size matches the read buffer size used by the

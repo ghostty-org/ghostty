@@ -223,8 +223,8 @@ struct ConfigTests {
 
     // MARK: - Keybind
 
-    @Test
-    func uppercasedLetterShouldBeNormalized() async throws {
+    @MainActor @Test
+    func uppercasedLetterShouldBeNormalized() throws {
         let config = try TemporaryConfig("""
         keybind=cmd+L=goto_split:left
         """)
@@ -238,8 +238,8 @@ struct ConfigTests {
         #expect(shortcut2 == .init("ä", modifiers: [.command]))
     }
 
-    @Test
-    func emptyConfigShouldBeHaveDefaultShortcut() async throws {
+    @MainActor @Test
+    func emptyConfigShouldBeHaveDefaultShortcut() throws {
         let config = try TemporaryConfig("")
         let newWindow = try #require(config.keyboardShortcut(for: "new_window"))
         #expect(newWindow == .init("n", modifiers: [.command]))

@@ -43,10 +43,11 @@ pub fn treeNode(state: struct {
     // Setup our node.
     const open = open: {
         var label_buf: [160]u8 = undefined;
-        const label = std.fmt.bufPrintZ(
+        const label = std.mem.printSentinel(
             &label_buf,
             "Page {d}",
             .{state.index},
+            0,
         ) catch "Page";
 
         const flags = cimgui.c.ImGuiTreeNodeFlags_AllowOverlap |

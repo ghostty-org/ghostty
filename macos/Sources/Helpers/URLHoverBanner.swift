@@ -6,6 +6,11 @@ struct URLHoverBanner: View {
     let padding: CGFloat = 5
     let cornerRadius: CGFloat = 9
     let url: String
+
+    private var displayedURL: String {
+        UntrustedURL(url).displayString
+    }
+
     var body: some View {
         ZStack {
             HStack {
@@ -13,7 +18,7 @@ struct URLHoverBanner: View {
                 VStack(alignment: .leading) {
                     Spacer()
 
-                    Text(verbatim: url)
+                    Text(verbatim: displayedURL)
                         .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
                         .background(
                             UnevenRoundedRectangle(cornerRadii: .init(topLeading: cornerRadius))
@@ -29,7 +34,7 @@ struct URLHoverBanner: View {
                 VStack(alignment: .leading) {
                     Spacer()
 
-                    Text(verbatim: url)
+                    Text(verbatim: displayedURL)
                         .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
                         .background(
                             UnevenRoundedRectangle(cornerRadii: .init(topTrailing: cornerRadius))

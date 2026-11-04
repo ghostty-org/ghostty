@@ -68,11 +68,6 @@ pub const Parser = struct {
         // we're in a broken state then we'd have already deinited the buffer.
         if (self.state == .broken) return null;
 
-        if (self.buffer.written().len >= self.max_bytes) {
-            self.broken();
-            return error.OutOfMemory;
-        }
-
         switch (self.state) {
             // Drop because we're in a broken state.
             .broken => return null,
@@ -117,7 +112,7 @@ pub const Parser = struct {
                 const line = written[idx..];
 
                 if (parseBlockTerminator(line)) |terminator| {
-                    const output = std.mem.trimRight(
+                    const output = std.mem.trimEnd(
                         u8,
                         written[0..idx],
                         "\r\n",
@@ -137,6 +132,13 @@ pub const Parser = struct {
 
                 // Didn't end the block, continue accumulating.
             },
+        }
+
+        // Only enforce the limit on bytes we actually store, so a line
+        // filling the buffer exactly can still be terminated.
+        if (self.buffer.written().len >= self.max_bytes) {
+            self.broken();
+            return error.OutOfMemory;
         }
 
         self.buffer.writer.writeByte(byte) catch |err| switch (err) {
@@ -211,34 +213,30 @@ pub const Parser = struct {
             self.buffer.clearRetainingCapacity();
             return null;
         } else if (std.mem.eql(u8, cmd, "%output")) cmd: {
-            var re = oni.Regex.init(
-                "^%output %([0-9]+) (.+)$",
-                .{ .capture_group = true },
-                oni.Encoding.utf8,
-                oni.Syntax.default,
-                null,
-            ) catch |err| {
-                log.warn("regex init failed error={}", .{err});
-                return error.RegexError;
-            };
-            defer re.deinit();
-
-            var region = re.search(line, .{}) catch |err| {
-                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+            // `%output %<pane> <data>`. The data is whatever the pane wrote,
+            // with only bytes below 32 and `\` escaped, so it is not
+            // necessarily valid UTF-8 and is taken verbatim to the end of
+            // the line.
+            //
+            // Slice `line` rather than using `cutPrefix` so that the data
+            // keeps the mutability of the parser buffer it points into.
+            const prefix = "%output %";
+            if (!std.mem.startsWith(u8, line, prefix)) {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            }
+            const rest = line[prefix.len..];
+            const split = std.mem.findScalar(u8, rest, ' ') orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
                 break :cmd;
             };
-            defer region.deinit();
-            const starts = region.starts();
-            const ends = region.ends();
+            const id = parseDecimalId(rest[0..split]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+            const data = rest[split + 1 ..];
 
-            const id = std.fmt.parseInt(
-                usize,
-                line[@intCast(starts[1])..@intCast(ends[1])],
-                10,
-            ) catch unreachable;
-            const data = line[@intCast(starts[2])..@intCast(ends[2])];
-
-            // Important: do not clear buffer here since name points to it
+            // Important: do not clear buffer here since data points to it
             self.state = .idle;
             return .{ .output = .{ .pane_id = id, .data = data } };
         } else if (std.mem.eql(u8, cmd, "%session-changed")) cmd: {
@@ -349,6 +347,29 @@ pub const Parser = struct {
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
             return .{ .window_add = .{ .id = id } };
+        } else if (std.mem.eql(u8, cmd, "%window-close") or
+            std.mem.eql(u8, cmd, "%unlinked-window-close"))
+        cmd: {
+            // tmux sends %window-close when the window is still linked to
+            // this session, and %unlinked-window-close once it is not
+            // (typical for shell-exit destroying the last pane).
+            const prefix = if (std.mem.eql(u8, cmd, "%window-close"))
+                "%window-close @"
+            else
+                "%unlinked-window-close @";
+            const id = parseDecimalId(std.mem.cutPrefix(u8, line, prefix) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            }) orelse {
+                // A non-numeric or oversized id is a bad notification, not
+                // a crash. parseInt overflow must not be unreachable.
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .window_close = .{ .id = id } };
         } else if (std.mem.eql(u8, cmd, "%window-renamed")) cmd: {
             var re = oni.Regex.init(
                 "^%window-renamed @([0-9]+) (.+)$",
@@ -415,6 +436,33 @@ pub const Parser = struct {
             self.buffer.clearRetainingCapacity();
             self.state = .idle;
             return .{ .window_pane_changed = .{ .window_id = window_id, .pane_id = pane_id } };
+        } else if (std.mem.eql(u8, cmd, "%session-window-changed")) cmd: {
+            // Emitted when the session's current window changes (select-window).
+            // Distinct from %window-pane-changed (active pane within a window).
+            // `%session-window-changed $<session> @<window>`
+            const rest = std.mem.cutPrefix(u8, line, "%session-window-changed $") orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+            const split = std.mem.find(u8, rest, " @") orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+            const session_id = parseDecimalId(rest[0..split]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+            const window_id = parseDecimalId(rest[split + 2 ..]) orelse {
+                log.warn("failed to match notification cmd={s} line=\"{s}\"", .{ cmd, line });
+                break :cmd;
+            };
+
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .session_window_changed = .{
+                .session_id = session_id,
+                .window_id = window_id,
+            } };
         } else if (std.mem.eql(u8, cmd, "%client-detached")) cmd: {
             var re = oni.Regex.init(
                 "^%client-detached (.+)$",
@@ -441,6 +489,13 @@ pub const Parser = struct {
             // Important: do not clear buffer here since client points to it
             self.state = .idle;
             return .{ .client_detached = .{ .client = client } };
+        } else if (std.mem.eql(u8, cmd, "%exit")) {
+            // tmux and htm both emit %exit when the control client should
+            // leave control mode. Act on it immediately rather than
+            // waiting for the trailing ST.
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .exit = {} };
         } else if (std.mem.eql(u8, cmd, "%client-session-changed")) cmd: {
             var re = oni.Regex.init(
                 "^%client-session-changed (.+) \\$([0-9]+) (.+)$",
@@ -491,6 +546,14 @@ pub const Parser = struct {
         self.buffer.deinit();
     }
 };
+
+/// A tmux numeric id: a non-empty run of decimal digits that fits in `usize`.
+/// Oversized values are rejected so a hostile notification cannot crash us.
+fn parseDecimalId(text: []const u8) ?usize {
+    if (text.len == 0) return null;
+    for (text) |byte| if (!std.ascii.isDigit(byte)) return null;
+    return std.fmt.parseInt(usize, text, 10) catch null;
+}
 
 /// Possible notification types from tmux control mode. These are documented
 /// in tmux(1). A lot of the simple documentation was copied from that man
@@ -545,6 +608,11 @@ pub const Notification = union(enum) {
         id: usize,
     },
 
+    /// The window with ID window-id was closed (or unlinked from this session).
+    window_close: struct {
+        id: usize,
+    },
+
     /// The window with ID window-id was renamed to name.
     window_renamed: struct {
         id: usize,
@@ -556,6 +624,12 @@ pub const Notification = union(enum) {
     window_pane_changed: struct {
         window_id: usize,
         pane_id: usize,
+    },
+
+    /// The session's current window changed (e.g. ``select-window``).
+    session_window_changed: struct {
+        session_id: usize,
+        window_id: usize,
     },
 
     /// The client has detached.
@@ -581,10 +655,10 @@ pub const Notification = union(enum) {
             try writer.writeAll(@tagName(@as(TagType, self)));
             try writer.writeAll(" = ");
 
-            inline for (info.fields) |u_field| {
-                if (self == @field(TagType, u_field.name)) {
-                    const value = @field(self, u_field.name);
-                    switch (u_field.type) {
+            inline for (info.field_names, info.field_types) |field_name, field_type| {
+                if (self == @field(TagType, field_name)) {
+                    const value = @field(self, field_name);
+                    switch (field_type) {
                         []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
                         else => try writer.print("{any}", .{value}),
                     }
@@ -620,6 +694,49 @@ test "tmux begin/error empty" {
     const n = (try c.put('\n')).?;
     try testing.expect(n == .block_err);
     try testing.expectEqualStrings("", n.block_err);
+}
+
+test "tmux notification exactly max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const line = "%sessions-changed";
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = line.len };
+    defer c.deinit();
+
+    // Twice, because the second '%' arrives while the buffer is still
+    // full from the first notification.
+    for (0..2) |_| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        const n = (try c.put('\n')).?;
+        try testing.expect(n == .sessions_changed);
+    }
+}
+
+test "tmux block terminator exactly max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const block = "hello\n%end 1578922740 269 1";
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = block.len };
+    defer c.deinit();
+    for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
+    for (block) |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .block_end);
+    try testing.expectEqualStrings("hello", n.block_end);
+}
+
+test "tmux exceeding max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const line = "%sessions-changed";
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = line.len - 1 };
+    defer c.deinit();
+    for (line[0 .. line.len - 1]) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expectError(error.OutOfMemory, c.put(line[line.len - 1]));
+    try testing.expect(try c.put('\n') == null);
 }
 
 test "tmux begin/end data" {
@@ -724,6 +841,66 @@ test "tmux output" {
     try testing.expectEqualStrings("foo bar baz", n.output.data);
 }
 
+test "tmux output with invalid UTF-8" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    // tmux does not escape bytes at or above 0x80, so pane output reaches
+    // us as whatever bytes the application wrote.
+    for ("%output %42 a\xff\xc3b") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("a\xff\xc3b", n.output.data);
+}
+
+test "tmux output with empty data" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %42 ") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(42, n.output.pane_id);
+    try testing.expectEqualStrings("", n.output.data);
+}
+
+test "tmux output rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%output %1111111111111111111111 foo";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux output rejects malformed lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const lines: []const []const u8 = &.{
+        "%output",
+        "%output %42",
+        "%output 42 foo",
+        "%output % foo",
+        "%output %4x2 foo",
+    };
+    for (lines) |line| {
+        for (line) |byte| try testing.expect(try c.put(byte) == null);
+        try testing.expect(try c.put('\n') == null);
+        try testing.expect(c.state == .idle);
+    }
+}
+
 test "tmux session-changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -786,6 +963,53 @@ test "tmux window-add" {
     try testing.expectEqual(14, n.window_add.id);
 }
 
+test "tmux window-close" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%window-close @7") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_close);
+    try testing.expectEqual(7, n.window_close.id);
+}
+
+test "tmux unlinked-window-close" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%unlinked-window-close @2") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_close);
+    try testing.expectEqual(2, n.window_close.id);
+}
+
+test "tmux window-close rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%window-close @1111111111111111111111";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux window-close rejects trailing junk" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%window-close @7 extra") |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
 test "tmux window-renamed" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -810,6 +1034,57 @@ test "tmux window-pane-changed" {
     try testing.expect(n == .window_pane_changed);
     try testing.expectEqual(42, n.window_pane_changed.window_id);
     try testing.expectEqual(2, n.window_pane_changed.pane_id);
+}
+
+test "tmux session-window-changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%session-window-changed $0 @3") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .session_window_changed);
+    try testing.expectEqual(0, n.session_window_changed.session_id);
+    try testing.expectEqual(3, n.session_window_changed.window_id);
+}
+
+test "tmux session-window-changed rejects an oversized id" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    const line = "%session-window-changed $1 @1111111111111111111111";
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    try testing.expect(try c.put('\n') == null);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux exit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%exit") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
+    try testing.expect(c.state == .idle);
+}
+
+test "tmux exit with reason" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    // tmux reasons can contain spaces ("server exited"). The reason is
+    // currently dropped; the notification is still an exit.
+    for ("%exit server exited") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
+    try testing.expect(c.state == .idle);
 }
 
 test "tmux client-detached" {

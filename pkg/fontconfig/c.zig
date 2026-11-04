@@ -1,3 +1,1 @@
-pub const c = @cImport({
-    @cInclude("fontconfig/fontconfig.h");
-});
+pub const c = @import("fontconfig_c");

@@ -13,5 +13,6 @@
 
         .apple_sdk = .{ .path = "../apple-sdk" },
         .breakpad = .{ .path = "../breakpad", .lazy = true },
+        .translate_c = .{ .path = "../translate-c" },
     },
 }

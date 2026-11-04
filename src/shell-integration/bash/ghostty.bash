@@ -134,7 +134,7 @@ _ghostty_executing=""
 _ghostty_last_reported_cwd=""
 
 function __ghostty_precmd() {
-  local ret="$?"
+  local ret="${1:-$?}"
   if test "$_ghostty_executing" != "0"; then
     _GHOSTTY_SAVE_PS1="$PS1"
     _GHOSTTY_SAVE_PS2="$PS2"
@@ -193,7 +193,12 @@ function __ghostty_precmd() {
   # command like cd /test && cat. PS0 is evaluated before cd is run.
   if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
     _ghostty_last_reported_cwd="$PWD"
-    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
+    # Remove control bytes from the hostname and directory before sending
+    # them. A directory name that contains a raw ESC or BEL byte could
+    # otherwise end our OSC 7 early and start a sequence of its own, such
+    # as an OSC 52 clipboard write. Backslashes are safe here because
+    # printf only expands escapes in the format string, not in %s values.
+    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "${HOSTNAME//[[:cntrl:]]/}" "${PWD//[[:cntrl:]]/}"
   fi
 
   _ghostty_executing=0
@@ -223,8 +228,15 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
     [[ -n "$cmd" ]] && __ghostty_preexec "$cmd"
   }
 
+  # Bash 5.1+ restores the command status for each PROMPT_COMMAND array entry.
+  # Scalar values need to save and restore it before existing commands run.
+  __ghostty_restore_status() {
+    builtin return "$1"
+  }
+
   __ghostty_hook() {
-    builtin local ret=$?
+    builtin local ret="${__ghostty_status:-$?}"
+    builtin unset __ghostty_status
     __ghostty_precmd "$ret"
 
     # Append preexec hook to PS0 if not already present.
@@ -240,24 +252,26 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
     fi
   }
 
-  # Append our hook to PROMPT_COMMAND, preserving its existing type.
+  # Append our hook to PROMPT_COMMAND, preserving its existing type. Array
+  # entries receive their command's status directly, while scalar values
+  # need a leading status capture before existing commands run.
   #
   # The 2>/dev/null suppresses "command not found" in subshells that inherit
-  # PROMPT_COMMAND without the function definition. This also silences any
-  # errors from inside __ghostty_hook itself, but those are all terminal escape
-  # sequences and non-actionable.
-  #
+  # PROMPT_COMMAND without the function definitions. This also silences any
+  # errors from inside our hooks, but those are all terminal escape sequences
+  # and non-actionable.
   # shellcheck disable=SC2128,SC2178,SC2179
-  if [[ ";${PROMPT_COMMAND[*]:-};" != *";__ghostty_hook 2>/dev/null;"* ]]; then
+  if [[ "${PROMPT_COMMAND[*]:-}" != *"__ghostty_hook 2>/dev/null"* ]]; then
     if [[ -z "${PROMPT_COMMAND[*]}" ]]; then
       if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
         PROMPT_COMMAND=("__ghostty_hook 2>/dev/null")
       else
         PROMPT_COMMAND="__ghostty_hook 2>/dev/null"
       fi
-    elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a "* ]]; then
+    elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
       PROMPT_COMMAND+=("__ghostty_hook 2>/dev/null")
     else
+      PROMPT_COMMAND='__ghostty_status=$?;if builtin declare -F __ghostty_restore_status >/dev/null;then __ghostty_restore_status "$__ghostty_status";else (exit "$__ghostty_status");fi;'"${PROMPT_COMMAND}"
       [[ "${PROMPT_COMMAND}" =~ (\;[[:space:]]*|$'\n')$ ]] || PROMPT_COMMAND+=";"
       PROMPT_COMMAND+="__ghostty_hook 2>/dev/null"
     fi

@@ -1,4 +1,5 @@
 const std = @import("std");
+const lib = @import("../lib.zig");
 const terminal = @import("../main.zig");
 const RGB = terminal.color.RGB;
 const Terminator = terminal.osc.Terminator;
@@ -41,14 +42,14 @@ pub const Special = enum {
 };
 
 pub const Kind = union(enum) {
-    pub const max: usize = std.math.maxInt(u8) + @typeInfo(Special).@"enum".fields.len;
+    pub const max: usize = std.math.maxInt(u8) + @typeInfo(Special).@"enum".field_names.len;
 
     palette: u8,
     special: Special,
 
     pub fn parse(key: []const u8) ?Kind {
         if (std.meta.stringToEnum(Special, key)) |s| return .{ .special = s };
-        return .{ .palette = std.fmt.parseUnsigned(u8, key, 10) catch return null };
+        return .{ .palette = lib.parseInt(u8, key, 10) catch return null };
     }
 
     /// Returns true when a terminal has built-in state for this key.
@@ -79,16 +80,25 @@ pub const Kind = union(enum) {
     }
 };
 
+test "OSC: kitty color indexes reject digit separators" {
+    try std.testing.expectEqual(null, Kind.parse("1_0"));
+    try std.testing.expectEqualDeep(Kind{ .palette = 10 }, Kind.parse("10").?);
+    try std.testing.expectEqualDeep(
+        Kind{ .special = .selection_foreground },
+        Kind.parse("selection_foreground").?,
+    );
+}
+
 test "OSC: kitty color protocol kind string" {
     const testing = std.testing;
 
     var buf: [256]u8 = undefined;
     {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .special = .foreground }});
+        const actual = try std.mem.print(&buf, "{f}", .{Kind{ .special = .foreground }});
         try testing.expectEqualStrings("foreground", actual);
     }
     {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .palette = 42 }});
+        const actual = try std.mem.print(&buf, "{f}", .{Kind{ .palette = 42 }});
         try testing.expectEqualStrings("42", actual);
     }
 

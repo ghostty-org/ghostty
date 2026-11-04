@@ -19,6 +19,7 @@ const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const Terminal = terminalpkg.Terminal;
 const Stream = terminalpkg.TerminalStream;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
@@ -27,7 +28,7 @@ terminal: Terminal,
 stream: Stream,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The size of the terminal. This affects benchmarking when
@@ -36,13 +37,34 @@ pub const Options = struct {
     @"terminal-rows": u16 = 80,
     @"terminal-cols": u16 = 120,
 
-    /// The data to read as a filepath. If this is "-" then
+    /// How the terminal computes the width of multi-codepoint graphemes.
+    /// `unicode` enables mode 2027 (grapheme clustering) as the default
+    /// mode, matching the app's `grapheme-width-method = unicode` default.
+    /// `legacy` leaves it off, which is the library default.
+    @"grapheme-width": GraphemeWidth = .legacy,
+
+    /// Enable opt-in continuation tracking on the stream.
+    @"continuation-enabled": bool = false,
+
+    /// Maximum continuation suffix retained when tracking is enabled.
+    @"continuation-max-bytes": usize = 1024 * 1024,
+
+    /// The most bytes to keep from each OSC sequence whose number the
+    /// parser does not implement. Zero, the default, discards them. Any
+    /// other value also installs an `unknown_sequence` callback that does
+    /// nothing, so the benchmark measures the whole path from input to
+    /// callback.
+    @"osc-unknown-max-bytes": usize = 0,
+
+    /// Pre-generated data from ghostty-gen. If this is "-" then
     /// we will read stdin. If this is unset, then we will
     /// do nothing (benchmark is a noop). It'd be more unixy to
     /// use stdin by default but I find that a hanging CLI command
     /// with no interaction is a bit annoying.
     data: ?[]const u8 = null,
 };
+
+pub const GraphemeWidth = enum { legacy, unicode };
 
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
@@ -54,15 +76,44 @@ pub fn create(
 
     ptr.* = .{
         .opts = opts,
-        .terminal = try .init(alloc, .{
+        .terminal = try .init(global.io(), alloc, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
+            // A default mode so that the fullReset in setup keeps it,
+            // like the app's Termio does.
+            .default_modes = .{
+                .grapheme_cluster = opts.@"grapheme-width" == .unicode,
+            },
         }),
         .stream = undefined,
     };
-    ptr.stream = .initAlloc(alloc, .init(&ptr.terminal));
+    errdefer ptr.terminal.deinit(alloc);
+    var handler: Stream.Handler = .init(&ptr.terminal);
+    if (opts.@"osc-unknown-max-bytes" > 0) {
+        handler.unknown_sequence = &unknownSequence;
+    }
+    ptr.stream = .init(.{
+        .allocator = alloc,
+        .handler = handler,
+        .continuation_max_bytes = if (opts.@"continuation-enabled")
+            opts.@"continuation-max-bytes"
+        else
+            null,
+        .osc_unknown_max_bytes = opts.@"osc-unknown-max-bytes",
+    });
 
     return ptr;
+}
+
+/// Stands in for an application that receives every unknown sequence
+/// and does nothing with it.
+fn unknownSequence(
+    _: *Stream.Handler,
+    value: terminalpkg.UnknownSequence,
+) void {
+    switch (value) {
+        inline else => |v| std.mem.doNotOptimizeAway(v.content.len),
+    }
 }
 
 pub fn destroy(self: *TerminalStream, alloc: Allocator) void {
@@ -85,8 +136,8 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Always reset our terminal state
     self.terminal.fullReset();
 
-    // Open our data file to prepare for reading. We can do more
-    // validation here eventually.
+    // Open our data file to prepare for reading. We can do more validation
+    // here eventually.
     assert(self.data_f == null);
     self.data_f = options.dataFile(self.opts.data) catch |err| {
         log.warn("error opening data file err={}", .{err});
@@ -97,12 +148,20 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(global.io());
         self.data_f = null;
     }
 }
 
-fn step(ptr: *anyopaque) Benchmark.Error!void {
+// The whole stream parser is inlined into this function, and on Apple
+// Silicon its speed depends on where the function starts: CSI-heavy
+// input runs 3-5% faster at some start addresses than others. Without a
+// fixed alignment, any unrelated change that adds or removes code before
+// this function moves it, and that shows up as a speedup or slowdown in
+// comparisons between branches. Pinning the start makes those
+// comparisons measure the code under test instead of where the linker
+// placed this loop.
+fn step(ptr: *anyopaque) align(64) Benchmark.Error!void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
 
     // Get our buffered reader so we're not predominantly
@@ -112,8 +171,10 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // aren't currently IO bound.
     const f = self.data_f orelse return;
 
-    var read_buf: [64 * 1024]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    // Unbuffered: readSliceShort below reads directly into `buf`,
+    // avoiding a per-chunk memcpy through an intermediate reader
+    // buffer that would pollute the measurement.
+    var f_reader = f.reader(global.io(), &.{});
     const r = &f_reader.interface;
 
     // This buffer size matches the read buffer size used by the
@@ -139,4 +200,21 @@ test TerminalStream {
 
     const bench = impl.benchmark();
     _ = try bench.run(.once);
+
+    const tracked: *TerminalStream = try .create(alloc, .{
+        .@"continuation-enabled" = true,
+    });
+    defer tracked.destroy(alloc);
+
+    const tracked_bench = tracked.benchmark();
+    _ = try tracked_bench.run(.once);
+
+    const unicode: *TerminalStream = try .create(alloc, .{
+        .@"grapheme-width" = .unicode,
+    });
+    defer unicode.destroy(alloc);
+
+    const unicode_bench = unicode.benchmark();
+    _ = try unicode_bench.run(.once);
+    try testing.expect(unicode.terminal.modes.get(.grapheme_cluster));
 }

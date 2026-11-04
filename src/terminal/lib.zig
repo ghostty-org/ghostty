@@ -10,12 +10,14 @@ pub const target: lib.Target = if (build_options.c_abi) .c else .zig;
 /// This is always .c for now. I want to make this "Zig" when we're not
 /// building the C ABI but there are bigger issues we need to resolve to
 /// make that possible (change it and see for yourself).
-pub const calling_conv: std.builtin.CallingConvention = .c;
+pub const calling_conv: std.lang.CallingConvention = .c;
 
 /// Forwarded decls from lib that are used.
 pub const alloc = lib.allocator;
+pub const TinyIo = lib.TinyIo;
 pub const Buffer = lib.Buffer;
 pub const Enum = lib.Enum;
+pub const parseInt = lib.parseInt;
 pub const TaggedUnion = lib.TaggedUnion;
 pub const Struct = lib.Struct;
 pub const String = lib.String;

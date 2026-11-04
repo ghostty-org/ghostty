@@ -34,11 +34,12 @@ const Metrics = font.Metrics;
 const Presentation = font.Presentation;
 const Style = font.Style;
 const RenderOptions = font.Glyph.RenderOptions;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.font_shared_grid);
 
 /// Cache for codepoints to font indexes in a group.
-codepoints: std.AutoHashMapUnmanaged(CodepointKey, ?Collection.Index) = .{},
+codepoints: std.HashMapUnmanaged(CodepointKey, ?Collection.Index, CodepointKey.Context, 80) = .{},
 
 /// Cache for glyph renders into the atlas.
 glyphs: std.HashMapUnmanaged(GlyphKey, Render, GlyphKey.Context, 80) = .{},
@@ -60,13 +61,15 @@ metrics: Metrics,
 /// this directly if they need to i.e. access the atlas directly. Because
 /// callers can use this lock directly, maintainers need to be extra careful
 /// to review call sites to ensure they are using the lock correctly.
-lock: std.Thread.RwLock,
+lock: std.Io.RwLock,
 
 pub const init_tw = tripwire.module(enum {
     codepoints_capacity,
     glyphs_capacity,
     reload_metrics,
 }, init);
+
+pub const InitError = std.mem.Allocator.Error || Collection.UpdateMetricsError;
 
 /// Initialize the grid.
 ///
@@ -80,7 +83,7 @@ pub const init_tw = tripwire.module(enum {
 pub fn init(
     alloc: Allocator,
     resolver: CodepointResolver,
-) !SharedGrid {
+) InitError!SharedGrid {
     const tw = init_tw;
 
     // We need to support loading options since we use the size data
@@ -95,7 +98,7 @@ pub fn init(
         .resolver = resolver,
         .atlas_grayscale = atlas_grayscale,
         .atlas_color = atlas_color,
-        .lock = .{},
+        .lock = .init,
         .metrics = undefined, // Loaded below
     };
 
@@ -157,19 +160,19 @@ pub fn getIndex(
     style: Style,
     p: ?Presentation,
 ) !?Collection.Index {
-    const key: CodepointKey = .{ .style = style, .codepoint = cp, .presentation = p };
+    const key = CodepointKey.from(.{ .style = style, .codepoint = cp, .presentation = p });
 
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
     {
-        self.lock.lockShared();
-        defer self.lock.unlockShared();
+        self.lock.lockSharedUncancelable(global.io());
+        defer self.lock.unlockShared(global.io());
         if (self.codepoints.get(key)) |v| return v;
     }
 
     // Slow path: we need to search this codepoint
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(global.io());
+    defer self.lock.unlock(global.io());
 
     // Try to get it, if it is now in the cache another thread beat us to it.
     const gop = try self.codepoints.getOrPut(alloc, key);
@@ -201,8 +204,8 @@ pub fn hasCodepoint(
     cp: u32,
     p: ?Presentation,
 ) bool {
-    self.lock.lockShared();
-    defer self.lock.unlockShared();
+    self.lock.lockSharedUncancelable(global.io());
+    defer self.lock.unlockShared(global.io());
     return self.resolver.collection.hasCodepoint(
         idx,
         cp,
@@ -236,8 +239,8 @@ pub fn renderCodepoint(
 
     // Get the glyph for the font
     const glyph_index = glyph_index: {
-        self.lock.lockShared();
-        defer self.lock.unlockShared();
+        self.lock.lockSharedUncancelable(global.io());
+        defer self.lock.unlockShared(global.io());
         const face = try self.resolver.collection.getFace(index);
         break :glyph_index face.glyphIndex(cp) orelse return null;
     };
@@ -250,6 +253,127 @@ pub const renderGlyph_tw = tripwire.module(enum {
     get_presentation,
 }, renderGlyph);
 
+// FIXME: This gets a massive manual error set for now because there is an
+// equally massive call stack in the get_presentation tracepoint. This should
+// be consolidated into something better ASAP.
+pub const RenderGlyphError = error{
+    ArrayTooLarge,
+    AtlasFull,
+    BadArgument,
+    BbxTooBig,
+    BitmapHandlingError,
+    CMapTableMissing,
+    CannotOpenResource,
+    CannotOpenStream,
+    CannotRenderGlyph,
+    CodeOverflow,
+    CorruptedFontGlyphs,
+    CorruptedFontHeader,
+    CouldNotFindContext,
+    DebugOpCode,
+    DeferredLoadingUnavailable,
+    DivideByZero,
+    ENDFInExecStream,
+    ExecutionTooLong,
+    FontHasNoFile,
+    FontPathCantDecode,
+    FontconfigFailed,
+    FontconfigNoId,
+    FontconfigNoMatch,
+    FontconfigTypeMismatch,
+    GlyphResizeFailed,
+    HarfbuzzFailed,
+    HmtxTableMissing,
+    HorizHeaderMissing,
+    Ignore,
+    IndexOutOfBounds,
+    InvalidArgument,
+    InvalidAtlasFormat,
+    InvalidCacheHandle,
+    InvalidCharMapFormat,
+    InvalidCharMapHandle,
+    InvalidCharacterCode,
+    InvalidCodeRange,
+    InvalidComposite,
+    InvalidDriverHandle,
+    InvalidFaceHandle,
+    InvalidFileFormat,
+    InvalidFrameOperation,
+    InvalidFrameRead,
+    InvalidGlyphFormat,
+    InvalidGlyphIndex,
+    InvalidHandle,
+    InvalidHeight,
+    InvalidHorizMetrics,
+    InvalidLibraryHandle,
+    InvalidMatrix,
+    InvalidOffset,
+    InvalidOpcode,
+    InvalidOutline,
+    InvalidPPem,
+    InvalidPixelSize,
+    InvalidPostTable,
+    InvalidPostTableFormat,
+    InvalidReference,
+    InvalidSVGTable,
+    InvalidSizeHandle,
+    InvalidSlotHandle,
+    InvalidState,
+    InvalidStreamHandle,
+    InvalidStreamOperation,
+    InvalidStreamRead,
+    InvalidStreamSeek,
+    InvalidStreamSkip,
+    InvalidTable,
+    InvalidVersion,
+    InvalidVertMetrics,
+    InvalidWidth,
+    LocationsMissing,
+    LowerModuleVersion,
+    MathError,
+    MissingBbxField,
+    MissingCharsField,
+    MissingEncodingField,
+    MissingFontField,
+    MissingFontboundingboxField,
+    MissingModule,
+    MissingProperty,
+    MissingSizeField,
+    MissingStartcharField,
+    MissingStartfontField,
+    NameTableMissing,
+    NestedDEFS,
+    NestedFrameAccess,
+    NoCurrentPoint,
+    NoUnicodeGlyphName,
+    OutOfMemory,
+    PathNotClosed,
+    PixelSourceNotPreMultiplied,
+    PostTableMissing,
+    RasterCorrupted,
+    RasterNegativeHeight,
+    RasterOverflow,
+    RasterUninitialized,
+    SpecialHasNoFace,
+    StackOverflow,
+    StackUnderflow,
+    Syntax,
+    TableMissing,
+    TooFewArguments,
+    TooManyCaches,
+    TooManyDrivers,
+    TooManyExtensions,
+    TooManyFunctionDefs,
+    TooManyHints,
+    TooManyInstructionDefs,
+    UnimplementedFeature,
+    UnknownFileFormat,
+    UnknownFreetypeError,
+    UnlistedObject,
+    UnsupportedGlyphFormat,
+    WrongAtlas,
+};
+
 /// Render a glyph index. This automatically determines the correct texture
 /// atlas to use and caches the result.
 pub fn renderGlyph(
@@ -258,22 +382,22 @@ pub fn renderGlyph(
     index: Collection.Index,
     glyph_index: u32,
     opts: RenderOptions,
-) !Render {
+) RenderGlyphError!Render {
     const tw = renderGlyph_tw;
 
-    const key: GlyphKey = .{ .index = index, .glyph = glyph_index, .opts = opts };
+    const key = GlyphKey.from(.{ .index = index, .glyph = glyph_index, .opts = opts });
 
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
     {
-        self.lock.lockShared();
-        defer self.lock.unlockShared();
+        self.lock.lockSharedUncancelable(global.io());
+        defer self.lock.unlockShared(global.io());
         if (self.glyphs.get(key)) |v| return v;
     }
 
     // Slow path: we need to search this codepoint
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(global.io());
+    defer self.lock.unlock(global.io());
 
     const gop = try self.glyphs.getOrPut(alloc, key);
     if (gop.found_existing) return gop.value_ptr.*;
@@ -339,56 +463,79 @@ pub fn renderGlyph(
     return gop.value_ptr.*;
 }
 
-const CodepointKey = struct {
-    style: Style,
+const CodepointKey = packed struct(u64) {
     codepoint: u32,
-    presentation: ?Presentation,
+    style: Style,
+    has_presentation: bool,
+    presentation: Presentation,
+    _padding: u27 = 0,
+
+    const Context = struct {
+        pub fn hash(_: Context, key: CodepointKey) u64 {
+            const x: u64 = @bitCast(key);
+            return x ^ (x >> 32);
+        }
+
+        pub fn eql(_: Context, a: CodepointKey, b: CodepointKey) bool {
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        }
+    };
+
+    inline fn from(k: struct {
+        style: Style,
+        codepoint: u32,
+        presentation: ?Presentation,
+    }) CodepointKey {
+        return .{
+            .codepoint = k.codepoint,
+            .style = k.style,
+            .has_presentation = k.presentation != null,
+            .presentation = k.presentation orelse .text,
+        };
+    }
 };
 
-const GlyphKey = struct {
-    index: Collection.Index,
+/// Cache key for rendered glyphs. Packed to 8 bytes so HashMap stores
+/// and compares a u64 instead of a full RenderOptions (metrics,
+/// nerd-font constraint, etc. are not part of the identity).
+const GlyphKey = packed struct(u64) {
     glyph: u32,
-    opts: RenderOptions,
+    index: Collection.Index,
+    opts: packed struct(u16) {
+        cell_width: u2,
+        thicken: bool,
+        thicken_strength: u8,
+        constraint_width: u2,
+        _padding: u3 = 0,
+    },
 
     const Context = struct {
         pub fn hash(_: Context, key: GlyphKey) u64 {
-            // Packed is a u64 but std.hash.int improves uniformity and
-            // avoids collisions in our hashmap.
-            const packed_key = Packed.from(key);
-            return std.hash.int(@as(u64, @bitCast(packed_key)));
+            const x: u64 = @bitCast(key);
+            return x ^ (x >> 32);
         }
 
         pub fn eql(_: Context, a: GlyphKey, b: GlyphKey) bool {
-            // Packed checks glyphs but in most cases the glyphs are NOT
-            // equal so the first check leads to increased throughput.
-            return a.glyph == b.glyph and Packed.from(a) == Packed.from(b);
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
         }
     };
 
-    const Packed = packed struct(u64) {
+    inline fn from(k: struct {
         index: Collection.Index,
         glyph: u32,
-        opts: packed struct(u16) {
-            cell_width: u2,
-            thicken: bool,
-            thicken_strength: u8,
-            constraint_width: u2,
-            _padding: u3 = 0,
-        },
-
-        inline fn from(key: GlyphKey) Packed {
-            return .{
-                .index = key.index,
-                .glyph = key.glyph,
-                .opts = .{
-                    .cell_width = key.opts.cell_width orelse 0,
-                    .thicken = key.opts.thicken,
-                    .thicken_strength = key.opts.thicken_strength,
-                    .constraint_width = key.opts.constraint_width,
-                },
-            };
-        }
-    };
+        opts: RenderOptions,
+    }) GlyphKey {
+        return .{
+            .glyph = k.glyph,
+            .index = k.index,
+            .opts = .{
+                .cell_width = k.opts.cell_width orelse 0,
+                .thicken = k.opts.thicken,
+                .thicken_strength = k.opts.thicken_strength,
+                .constraint_width = k.opts.constraint_width,
+            },
+        };
+    }
 };
 
 const TestMode = enum { normal };
@@ -468,14 +615,14 @@ test "renderGlyph error after cache insert rolls back cache entry" {
 
     // Get the glyph index for 'A'
     const glyph_index = glyph_index: {
-        grid.lock.lockShared();
-        defer grid.lock.unlockShared();
+        grid.lock.lockSharedUncancelable(testing.io);
+        defer grid.lock.unlockShared(testing.io);
         const face = try grid.resolver.collection.getFace(idx);
         break :glyph_index face.glyphIndex('A').?;
     };
 
     const render_opts: RenderOptions = .{ .grid_metrics = grid.metrics };
-    const key: GlyphKey = .{ .index = idx, .glyph = glyph_index, .opts = render_opts };
+    const key = GlyphKey.from(.{ .index = idx, .glyph = glyph_index, .opts = render_opts });
 
     // Verify the cache is empty for this glyph
     try testing.expect(grid.glyphs.get(key) == null);

@@ -22,10 +22,10 @@ pub fn init(
                 .target = deps.config.target,
                 // We always want our datagen to be fast because it
                 // takes awhile to run.
-                .optimize = .ReleaseFast,
+                .optimize = .fast,
+                .link_libc = true,
             }),
         });
-        exe.linkLibC();
         _ = try deps.add(exe);
         try steps.append(b.allocator, exe);
     }
@@ -38,10 +38,10 @@ pub fn init(
                 .root_source_file = b.path("src/main_bench.zig"),
                 .target = deps.config.target,
                 // We always want our benchmarks to be in release mode.
-                .optimize = .ReleaseFast,
+                .optimize = .fast,
+                .link_libc = true,
             }),
         });
-        exe.linkLibC();
         _ = try deps.add(exe);
         try steps.append(b.allocator, exe);
     }

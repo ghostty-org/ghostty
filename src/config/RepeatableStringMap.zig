@@ -40,7 +40,7 @@ pub fn parseCLI(
     const key = std.mem.trim(u8, value[0..index], &std.ascii.whitespace);
     const val = std.mem.trim(u8, value[index + 1 ..], &std.ascii.whitespace);
 
-    const key_copy = try alloc.dupeZ(u8, key);
+    const key_copy = try alloc.dupeSentinel(u8, key, 0);
     errdefer alloc.free(key_copy);
 
     // Empty value removes the key from the map.
@@ -50,7 +50,7 @@ pub fn parseCLI(
         return;
     }
 
-    const val_copy = try alloc.dupeZ(u8, val);
+    const val_copy = try alloc.dupeSentinel(u8, val, 0);
     errdefer alloc.free(val_copy);
 
     try self.map.put(alloc, key_copy, val_copy);
@@ -75,8 +75,8 @@ pub fn clone(
 
     var it = self.map.iterator();
     while (it.next()) |entry| {
-        const key = try alloc.dupeZ(u8, entry.key_ptr.*);
-        const value = try alloc.dupeZ(u8, entry.value_ptr.*);
+        const key = try alloc.dupeSentinel(u8, entry.key_ptr.*, 0);
+        const value = try alloc.dupeSentinel(u8, entry.value_ptr.*, 0);
         map.putAssumeCapacity(key, value);
     }
 
@@ -113,11 +113,7 @@ pub fn formatEntry(self: RepeatableStringMap, formatter: formatterpkg.EntryForma
 
     var it = self.map.iterator();
     while (it.next()) |entry| {
-        var buf: [256]u8 = undefined;
-        const value = std.fmt.bufPrint(&buf, "{s}={s}", .{ entry.key_ptr.*, entry.value_ptr.* }) catch |err| switch (err) {
-            error.NoSpaceLeft => return error.OutOfMemory,
-        };
-        try formatter.formatEntry([]const u8, value);
+        try formatter.writer.print("{s} = {s}={s}\n", .{ formatter.name, entry.key_ptr.*, entry.value_ptr.* });
     }
 }
 
@@ -195,4 +191,27 @@ test "RepeatableStringMap: formatConfig multiple items" {
         try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8, "a = A=B\na = B=C\n", buf.written());
     }
+}
+
+test "RepeatableStringMap: formatConfig long value" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var value: [300]u8 = undefined;
+    @memset(&value, 'x');
+
+    const input = try alloc.print("EXAMPLE={s}", .{&value});
+
+    var map: RepeatableStringMap = .{};
+    try map.parseCLI(alloc, input);
+
+    var output: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer output.deinit();
+
+    try map.formatEntry(formatterpkg.entryFormatter("env", &output.writer));
+
+    const expected = try alloc.print("env = {s}\n", .{input});
+    try testing.expectEqualStrings(expected, output.written());
 }

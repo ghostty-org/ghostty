@@ -67,6 +67,8 @@ const options = @import("options.zig");
 const compress = @import("../terminal/compress.zig");
 const CompressedPage = compress.Page;
 const lz4 = compress.lz4;
+const compat_file = @import("../lib/compat/file.zig");
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"page-compression-bench");
 
@@ -210,9 +212,9 @@ fn setupData(self: *PageCompression) !void {
         return error.InvalidRetainedPages;
 
     const data_file = try options.dataFile(self.opts.data) orelse return;
-    defer data_file.close();
+    defer data_file.close(global.io());
 
-    self.data = try data_file.readToEndAlloc(self.alloc, max_data_size);
+    self.data = try compat_file.readToEndAlloc(data_file, self.alloc, max_data_size);
     errdefer {
         self.alloc.free(self.data);
         self.data = &.{};

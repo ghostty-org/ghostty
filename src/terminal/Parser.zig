@@ -87,7 +87,7 @@ pub const Action = union(enum) {
         /// bit can be mapped to Sep. The index of this bit set specifies
         /// the separator AFTER that param. For example: 0;4:3 would have
         /// index 1 set.
-        pub const SepList = std.StaticBitSet(MAX_PARAMS);
+        pub const SepList = std.bit_set.Static(MAX_PARAMS);
 
         /// The separator used for CSI params.
         pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
@@ -151,10 +151,10 @@ pub const Action = union(enum) {
             try writer.writeAll(@tagName(@as(TagType, self)));
             try writer.writeAll(" = ");
 
-            inline for (info.fields) |u_field| {
+            inline for (info.field_names) |u_field| {
                 // If this is the active field...
-                if (self == @field(TagType, u_field.name)) {
-                    const value = @field(self, u_field.name);
+                if (self == @field(TagType, u_field)) {
+                    const value = @field(self, u_field);
                     switch (@TypeOf(value)) {
                         // Unicode
                         u21 => try writer.print("'{u}' (U+{X})", .{ value, value }),
@@ -166,12 +166,18 @@ pub const Action = union(enum) {
                         // of invisible characters we don't want to handle right
                         // now.
 
-                        // All others do the default behavior
+                        // All others do the default behavior. Note the max
+                        // depth of 1: this is only used for logging so we
+                        // only want the top-level fields. Larger depths
+                        // instantiate a recursive formatter for every nested
+                        // type of every action payload (e.g. the full
+                        // osc.Command union), which costs tens of kilobytes
+                        // of binary size.
                         else => try writer.printValue(
                             "any",
                             .{},
-                            @field(self, u_field.name),
-                            3,
+                            @field(self, u_field),
+                            1,
                         ),
                     }
                 }
@@ -223,7 +229,7 @@ pub fn init() Parser {
     var result: Parser = .{
         .state = .ground,
         .intermediates_idx = 0,
-        .params_sep = .initEmpty(),
+        .params_sep = .empty,
         .params_idx = 0,
         .param_acc = 0,
         .param_acc_idx = 0,
@@ -249,7 +255,7 @@ pub fn deinit(self: *Parser) void {
 /// Up to 3 actions may need to be executed -- in order -- representing
 /// the state exit, transition, and entry actions.
 pub fn next(self: *Parser, c: u8) [3]?Action {
-    const effect = table[c][@intFromEnum(self.state)];
+    const effect = table[c][@backingInt(self.state)];
 
     // log.info("next: {x}", .{c});
 
@@ -386,10 +392,7 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             // We only allow colon or mixed separators for the 'm' command.
             if (c != 'm' and self.params_sep.count() > 0) {
                 @branchHint(.cold);
-                log.warn(
-                    "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
-                    .{result},
-                );
+                warnCsiSepMismatch(result.csi_dispatch);
                 break :csi_dispatch null;
             }
 
@@ -406,10 +409,24 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
     };
 }
 
+/// Log a warning for a CSI dispatch with colon/mixed separators on a
+/// non-'m' command.
+///
+/// This is noinline on purpose so that this unlikely (cold) behavior
+/// doesn't bloat the hot dispatch path which has been measured to actually
+/// affect both binary size and performance due to icache busts.
+noinline fn warnCsiSepMismatch(csi: Action.CSI) void {
+    @branchHint(.cold);
+    log.warn(
+        "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
+        .{csi},
+    );
+}
+
 pub inline fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .initEmpty();
+    self.params_sep = .empty;
     self.param_acc = 0;
     self.param_acc_idx = 0;
 }
@@ -956,6 +973,18 @@ test "osc: 104 empty" {
         }
         try std.testing.expect(it.next() == null);
     }
+}
+
+test "osc: 105 empty" {
+    var p: Parser = init();
+    defer p.deinit();
+    p.osc_parser.alloc = std.testing.allocator;
+
+    for ("\x1b]105") |c| _ = p.next(c);
+
+    const cmd = p.next(0x07)[0].?.osc_dispatch;
+    try testing.expect(cmd == .color_operation);
+    try testing.expect(cmd.color_operation.op == .osc_105);
 }
 
 test "csi: too many params" {

@@ -7,7 +7,7 @@
 const std = @import("std");
 const uucode = @import("uucode");
 
-pub const Properties = packed struct {
+pub const Properties = packed struct(u16) {
     /// Codepoint width. We clamp to [0, 2] since Ghostty handles control
     /// characters and we max out at 2 for wide characters (i.e. 3-em dash
     /// becomes a 2-em dash).
@@ -18,10 +18,20 @@ pub const Properties = packed struct {
     width_zero_in_grapheme: bool = false,
 
     /// Grapheme break property.
-    grapheme_break: uucode.x.types.GraphemeBreakNoControl = .other,
+    grapheme_break: uucode.types.GraphemeBreakNoControl = .other,
 
     /// Emoji VS compatibility
     emoji_vs_base: bool = false,
+
+    /// Explicit padding to give the struct a power-of-two backing integer.
+    /// This is a performance workaround: with a non-power-of-two backing
+    /// integer (u9), Zig 0.16 lowers loads/stores of this struct through
+    /// mismatched exotic-width LLVM integer types (store i9 / load i16),
+    /// which blocks LLVM from promoting temporaries to registers and forces
+    /// stack round-trips in hot paths like `graphemeBreak`. See
+    /// https://github.com/ziglang/zig/issues/21891 for the upstream issue.
+    /// The size of the lookup table is unchanged (@sizeOf was already 2).
+    _padding: u7 = 0,
 
     // Needed for lut.Generator
     pub fn eql(a: Properties, b: Properties) bool {

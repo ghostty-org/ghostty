@@ -7,14 +7,21 @@ pub const ColorScheme = lib.Enum(lib.target, &.{
     "dark",
 });
 
+/// The visibility state reported in response to a CSI ? 998 n query or when
+/// DEC mode 2033 is enabled.
+pub const Visibility = lib.Enum(lib.target, &.{
+    "potentially_visible",
+    "not_visible",
+});
+
 /// Maximum number of bytes that `encodeColorSchemeReport` will write.
 pub const max_color_scheme_report_encode_size = max: {
     var result: usize = 0;
-    for (@typeInfo(ColorScheme).@"enum".fields) |field| {
+    for (@typeInfo(ColorScheme).@"enum".field_values) |field_value| {
         var discarding: std.Io.Writer.Discarding = .init(&.{});
         encodeColorSchemeReport(
             &discarding.writer,
-            @enumFromInt(field.value),
+            @fromBackingInt(field_value),
         ) catch unreachable;
         result = @max(result, @as(usize, @intCast(discarding.count)));
     }
@@ -33,26 +40,35 @@ pub fn encodeColorSchemeReport(
     });
 }
 
+/// Maximum number of bytes that `encodeVisibilityReport` will write.
+pub const max_visibility_report_encode_size = "\x1B[?999;2n".len;
+
+/// Encode a visibility report response for CSI ? 998 n queries and DEC mode
+/// 2033 notifications.
+pub fn encodeVisibilityReport(
+    writer: *std.Io.Writer,
+    visibility: Visibility,
+) std.Io.Writer.Error!void {
+    try writer.writeAll(switch (visibility) {
+        .potentially_visible => "\x1B[?999;1n",
+        .not_visible => "\x1B[?999;2n",
+    });
+}
+
 /// An enum(u16) of the available device status requests.
 pub const Request = dsr_enum: {
-    const EnumField = std.builtin.Type.EnumField;
-    var fields: [entries.len]EnumField = undefined;
-    for (entries, 0..) |entry, i| {
-        fields[i] = .{
-            .name = entry.name,
-            .value = @as(Tag.Backing, @bitCast(Tag{
-                .value = entry.value,
-                .question = entry.question,
-            })),
-        };
+    var names: [entries.len][]const u8 = undefined;
+    var values: [entries.len]Tag.Backing = undefined;
+
+    for (entries, &names, &values) |entry, *name, *value| {
+        name.* = entry.name;
+        value.* = @bitCast(Tag{
+            .value = entry.value,
+            .question = entry.question,
+        });
     }
 
-    break :dsr_enum @Type(.{ .@"enum" = .{
-        .tag_type = Tag.Backing,
-        .fields = &fields,
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    break :dsr_enum @Enum(Tag.Backing, .exhaustive, &names, &values);
 };
 
 /// The tag type for our enum is a u16 but we use a packed struct
@@ -76,7 +92,7 @@ pub fn reqFromInt(v: u16, question: bool) ?Request {
         if (entry.value == v and entry.question == question) {
             const tag: Tag = .{ .question = question, .value = entry.value };
             const int: Tag.Backing = @bitCast(tag);
-            return @enumFromInt(int);
+            return @fromBackingInt(int);
         }
     }
 
@@ -96,7 +112,11 @@ const Entry = struct {
 const entries: []const Entry = &.{
     .{ .name = "operating_status", .value = 5 },
     .{ .name = "cursor_position", .value = 6 },
+    // DECXCPR: the "?" form of value 6 reports the extended cursor position
+    // (adds a page number) rather than the plain CPR.
+    .{ .name = "cursor_position_extended", .value = 6, .question = true },
     .{ .name = "color_scheme", .value = 996, .question = true },
+    .{ .name = "visibility", .value = 998, .question = true },
 };
 
 test "encode color scheme report dark" {
@@ -113,4 +133,15 @@ test "encode color scheme report light" {
     var writer: std.Io.Writer = .fixed(&buf);
     try encodeColorSchemeReport(&writer, .light);
     try std.testing.expectEqualStrings("\x1B[?997;2n", writer.buffered());
+}
+
+test "encode visibility report" {
+    var buf: [max_visibility_report_encode_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeVisibilityReport(&writer, .potentially_visible);
+    try std.testing.expectEqualStrings("\x1B[?999;1n", writer.buffered());
+
+    writer = .fixed(&buf);
+    try encodeVisibilityReport(&writer, .not_visible);
+    try std.testing.expectEqualStrings("\x1B[?999;2n", writer.buffered());
 }

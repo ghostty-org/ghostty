@@ -27,7 +27,7 @@ pub fn detect() i64 {
     var t: HwyTargets = .{};
 
     // x86_64 always has SSE2.
-    if (comptime builtin.cpu.arch == .x86_64) {
+    if (comptime builtin.target.cpu.arch == .x86_64) {
         t.sse2 = true;
     }
 
@@ -38,7 +38,7 @@ pub fn detect() i64 {
     const leaf1 = cpuid(1, 0);
 
     // -- SSE2 on 32-bit x86 -------------------------------------------------
-    if (comptime builtin.cpu.arch == .x86) {
+    if (comptime builtin.target.cpu.arch == .x86) {
         if (bit(leaf1.edx, 25) and bit(leaf1.edx, 26)) {
             t.sse2 = true;
         }
@@ -70,7 +70,7 @@ pub fn detect() i64 {
     const has_avx_save = (xcr0 & 0x6) == 0x6; // SSE + AVX state
 
     // Darwin lazily saves AVX-512 context on first use.
-    const has_avx512_save = if (comptime builtin.os.tag.isDarwin())
+    const has_avx512_save = if (comptime builtin.target.os.tag.isDarwin())
         true
     else
         (xcr0 & 0xE0) == 0xE0; // opmask + zmm_hi256 + hi16_zmm

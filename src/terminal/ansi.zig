@@ -99,8 +99,11 @@ pub const ModifyKeyFormat = lib.Enum(
 
 /// The protection modes that can be set for the terminal. See DECSCA and
 /// ESC V, W.
-pub const ProtectedMode = enum {
-    off,
-    iso, // ESC V, W
-    dec, // CSI Ps " q
-};
+pub const ProtectedMode = lib.Enum(
+    lib.target,
+    &.{
+        "off",
+        "iso", // ESC V, W
+        "dec", // CSI Ps " q
+    },
+);

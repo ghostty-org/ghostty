@@ -1,10 +1,14 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const build_options = @import("terminal_options");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 pub const ZigTerminal = @import("../Terminal.zig");
+const Action = @import("../stream.zig").Action;
+const osc = @import("../osc.zig");
 const Stream = @import("../stream_terminal.zig").Stream;
+const StreamBoundary = @import("../stream.zig").Boundary;
 const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
@@ -12,6 +16,7 @@ const apc = @import("../apc.zig");
 const kitty = @import("../kitty/key.zig");
 const kitty_gfx_c = @import("kitty_graphics.zig");
 const modes = @import("../modes.zig");
+const mouse = @import("../mouse.zig");
 const point = @import("../point.zig");
 const size = @import("../size.zig");
 const device_attributes = @import("../device_attributes.zig");
@@ -21,24 +26,74 @@ const cell_c = @import("cell.zig");
 const row_c = @import("row.zig");
 const grid_ref_c = @import("grid_ref.zig");
 const grid_ref_tracked_c = @import("grid_ref_tracked.zig");
+const search_c = @import("search.zig");
 const selection_c = @import("selection.zig");
 const style_c = @import("style.zig");
 const color = @import("../color.zig");
 const clipboard = @import("../clipboard.zig");
+const kitty_clipboard = @import("../kitty/clipboard.zig");
+const c_io = @import("io.zig");
+const snapshot_core = @import("../snapshot/main.zig");
+const terminal_mem = @import("../mem.zig");
 const Result = @import("result.zig").Result;
+const assert = @import("../../quirks.zig").inlineAssert;
 
 const Handler = @import("../stream_terminal.zig").Handler;
 
+const max_path_bytes = if (builtin.target.os.tag == .freestanding) 4096 else std.Io.Dir.max_path_bytes;
+
 const log = std.log.scoped(.terminal_c);
+
+/// C terminals do not retain replay bytes unless the embedding application
+/// opts in through `GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES`.
+pub const default_continuation_max_bytes: usize = 0;
+
+/// Owns the `std.Io` implementation retained by every C terminal.
+///
+/// Snapshot decoding creates this before the native terminal exists and
+/// transfers it into the final C wrapper after READY.
+///
+/// This is TinyIo on every target: it is stateless and supports exactly
+/// the operations the terminal needs at a fraction of the code size of
+/// `std.Io.Threaded` (see lib/TinyIo.zig), on POSIX and Windows alike.
+/// On the remaining targets (e.g. freestanding wasm) TinyIo degrades to
+/// `std.Io.failing`, which is correct: they have no filesystem.
+pub const Io = struct {
+    impl: lib.TinyIo,
+
+    pub const init: Io = .{ .impl = .init };
+
+    /// Return the value passed to native terminal construction and decoding.
+    pub fn io(self: Io) std.Io {
+        return self.impl.io();
+    }
+};
 
 /// Wrapper around ZigTerminal that tracks additional state for C API usage,
 /// such as the persistent VT stream needed to handle escape sequences split
 /// across multiple vt_write calls.
 const TerminalWrapper = struct {
     terminal: *ZigTerminal,
+    /// C construction has no I/O argument, so the wrapper retains the owner
+    /// created by `new` or transferred from snapshot decoding until `free`.
+    io: Io,
+    /// Allocator-owned copy of the temporary directory path for some
+    /// operations (e.g. kitty graphics). This is only allocated once the
+    /// embedder sets the option.
+    tmp_dir_path: ?[]u8 = null,
+    /// The terminfo name reported for XTGETTCAP "TN". The stream handler holds
+    /// a slice into this.
+    terminfo_name_buf: [Handler.max_terminfo_name_bytes]u8,
     stream: Stream,
     effects: Effects = .{},
     tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
+    searches: std.AutoArrayHashMapUnmanaged(*search_c.SearchWrapper, void) = .{},
+
+    /// Fetches a `TerminalWrapper` reference from a `Handler`.
+    fn fromHandler(handler: *Handler) *TerminalWrapper {
+        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
+        return @alignCast(@fieldParentPtr("stream", stream_ptr));
+    }
 };
 
 /// A single MIME representation in a clipboard write.
@@ -50,6 +105,8 @@ pub const ClipboardContent = extern struct {
 };
 
 /// A protocol-neutral request to replace or clear clipboard contents.
+/// The embedder answers by calling `reply` with the request before the
+/// callback returns.
 ///
 /// C: GhosttyClipboardWrite
 pub const ClipboardWrite = extern struct {
@@ -57,23 +114,251 @@ pub const ClipboardWrite = extern struct {
     location: clipboard.Location,
     contents: ?[*]const ClipboardContent,
     contents_len: usize,
+    name: lib.String,
+    granted: bool,
+    can_remember: bool,
+    /// Terminal-owned reply state; opaque to the embedder.
+    ctx: *const anyopaque,
+    reply: ClipboardWriteReplyFn,
 };
 
-/// C callback state for terminal effects. Trampolines are always
-/// installed on the stream handler; they check these fields and
-/// no-op when the corresponding callback is null.
+/// The reply to a clipboard write request.
+///
+/// C: GhosttyClipboardWriteReply
+pub const ClipboardWriteReply = extern struct {
+    size: usize,
+    result: clipboard.Write.Status,
+    remember: bool,
+};
+
+/// C function pointer type for replying to a clipboard write.
+///
+/// C: GhosttyClipboardWriteReplyFn
+pub const ClipboardWriteReplyFn = *const fn (*const ClipboardWrite, *const ClipboardWriteReply) callconv(lib.calling_conv) void;
+
+/// The reply to a clipboard read request.
+///
+/// C: GhosttyClipboardReadReply
+pub const ClipboardReadReply = extern struct {
+    size: usize,
+    result: clipboard.Read.Status,
+    contents: ?[*]const ClipboardContent,
+    contents_len: usize,
+    available: ?[*]const lib.String,
+    available_len: usize,
+    remember: bool,
+};
+
+/// A synchronous request to read clipboard contents. The embedder answers
+/// by calling `reply` with the request before the callback returns.
+///
+/// C: GhosttyClipboardRead
+pub const ClipboardRead = extern struct {
+    size: usize,
+    location: clipboard.Location,
+    mimes: ?[*]const lib.String,
+    mimes_len: usize,
+    list: bool,
+    name: lib.String,
+    granted: bool,
+    can_remember: bool,
+    /// Terminal-owned reply state; opaque to the embedder.
+    ctx: *const anyopaque,
+    reply: ClipboardReadReplyFn,
+};
+
+/// C function pointer type for replying to a clipboard read.
+///
+/// C: GhosttyClipboardReadReplyFn
+pub const ClipboardReadReplyFn = *const fn (*const ClipboardRead, *const ClipboardReadReply) callconv(lib.calling_conv) void;
+
+/// A request to show a desktop notification.
+///
+/// C: GhosttyTerminalDesktopNotification
+pub const DesktopNotification = extern struct {
+    size: usize,
+    title: lib.String,
+    body: lib.String,
+};
+
+/// C: GhosttyTerminalProgressState
+pub const ProgressState = osc.Command.ProgressReport.State;
+
+/// A progress report emitted by the running program.
+///
+/// C: GhosttyTerminalProgressReport
+pub const ProgressReport = extern struct {
+    size: usize,
+    state: ProgressState,
+    progress: i8,
+};
+
+/// C: GhosttyProgramStatusState
+pub const ProgramStatusState = osc.Command.ProgramStatus.State;
+
+/// What a blocked program needs from the user. This matches
+/// `osc.Command.ProgramStatus.Kind` but adds `none` first, because C has
+/// no optional enums and a zeroed value must mean "no kind".
+///
+/// C: GhosttyProgramStatusKind
+pub const ProgramStatusKind = lib.Enum(lib.target, &.{
+    "none",
+    "permission",
+    "question",
+    "auth",
+});
+
+/// A program status report (OSC 7501). Absent text is an empty string,
+/// an absent kind is `none`, and absent progress is -1. See the header
+/// for the meaning of each field.
+///
+/// C: GhosttyTerminalProgramStatus
+pub const ProgramStatus = extern struct {
+    size: usize,
+    state: ProgramStatusState,
+    kind: ProgramStatusKind,
+    progress: i8,
+    id: lib.String,
+    app: lib.String,
+    title: lib.String,
+    message: lib.String,
+};
+
+/// C: GhosttySemanticPromptKind
+pub const SemanticPromptKind = Handler.SemanticPrompt.Kind;
+
+/// C: GhosttySemanticPromptPromptKind
+pub const SemanticPromptPromptKind = Handler.SemanticPrompt.PromptKind;
+
+/// A shell integration event. See `Handler.SemanticPrompt`.
+///
+/// C: GhosttyTerminalSemanticPrompt
+pub const SemanticPrompt = extern struct {
+    size: usize,
+    kind: SemanticPromptKind,
+    prompt_kind: SemanticPromptPromptKind,
+    has_exit_code: bool,
+    exit_code: i32,
+    command: lib.String,
+    @"error": lib.String,
+};
+
+/// A request to resize the window's text area to a size in rows and columns.
+///
+/// C: GhosttyTerminalResizeWindowGrid
+pub const ResizeWindowGrid = extern struct {
+    rows: u16,
+    columns: u16,
+};
+
+/// A request from the running program to resize the window.
+///
+/// C: GhosttyTerminalResizeWindow
+pub const ResizeWindow = union(Tag) {
+    grid: ResizeWindowGrid,
+
+    /// C: GhosttyTerminalResizeWindowTag
+    pub const Tag = lib.Enum(lib.target, &.{"grid"});
+
+    const c_union = lib.TaggedUnion(
+        lib.target,
+        @This(),
+        // Padding: the largest variant is 4 bytes. Use [2]u64 (16 bytes)
+        // so that other kinds of resize requests can be added without an
+        // ABI break.
+        .{ .padding = [2]u64 },
+    );
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
+};
+
+/// A borrowed unsupported string sequence.
+///
+/// C: GhosttyTerminalUnknownStringSequence
+pub const UnknownStringSequence = extern struct {
+    truncated: bool,
+    content: lib.String,
+};
+
+/// An OSC sequence whose number is not implemented.
+///
+/// C: GhosttyTerminalUnknownOscSequence
+pub const UnknownOscSequence = osc.Command.Unknown.C;
+
+/// An unsupported terminal sequence reported to the C callback.
+///
+/// C: GhosttyTerminalUnknownSequence
+pub const UnknownSequence = union(Tag) {
+    apc: UnknownStringSequence,
+    osc: UnknownOscSequence,
+
+    /// C: GhosttyTerminalUnknownSequenceTag
+    pub const Tag = lib.Enum(lib.target, &.{ "apc", "osc" });
+
+    const c_union = lib.TaggedUnion(
+        lib.target,
+        @This(),
+        // A future borrowed CSI payload may need parameter, separator, and
+        // intermediate arrays. Reserve 128 bytes so that representation and
+        // other structured sequence types can be added without an ABI break.
+        .{ .padding = [16]u64 },
+    );
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
+};
+
+/// A terminal mode and boolean value used for mode configuration.
+///
+/// C: GhosttyTerminalModeConfig
+pub const ModeConfig = extern struct {
+    mode: modes.ModeTag.Backing,
+    value: bool,
+
+    fn toMode(self: ModeConfig) ?modes.Mode {
+        const tag: modes.ModeTag = @bitCast(self.mode);
+        return modes.modeFromInt(tag.value, tag.ansi);
+    }
+};
+
+/// C callback state for terminal effects.
+///
+/// Most trampolines are always installed on the stream handler. They check
+/// these fields and do nothing when the C callback is null.
+///
+/// A few trampolines are only installed while their C callback is set,
+/// because the stream handler behaves differently when the Zig effect is
+/// null:
+///
+/// - `unknown_sequence`: unknown sequences are skipped without being
+///   captured.
+/// - `clipboard_write`: Kitty clipboard writes fail up front instead of
+///   collecting data for a write that can never finish.
+/// - `clipboard_read`: clipboard reads are denied.
+/// - `program_status`: the OSC 7501 support query gets no reply, so
+///   programs know not to send reports.
 const Effects = struct {
     userdata: ?*anyopaque = null,
     write_pty: ?WritePtyFn = null,
     bell: ?BellFn = null,
     color_scheme: ?ColorSchemeFn = null,
+    desktop_notification: ?DesktopNotificationFn = null,
     device_attributes_cb: ?DeviceAttributesFn = null,
     enquiry: ?EnquiryFn = null,
     xtversion: ?XtversionFn = null,
     title_changed: ?TitleChangedFn = null,
     pwd_changed: ?PwdChangedFn = null,
+    progress_report: ?ProgressReportFn = null,
+    program_status: ?ProgramStatusFn = null,
+    semantic_prompt: ?SemanticPromptFn = null,
+    reset: ?ResetFn = null,
     size_cb: ?SizeFn = null,
     clipboard_write: ?ClipboardWriteFn = null,
+    clipboard_read: ?ClipboardReadFn = null,
+    unknown_sequence: ?UnknownSequenceFn = null,
+    render_hold: ?RenderHoldFn = null,
+    resize_window: ?ResizeWindowFn = null,
 
     /// Scratch buffer for DA1 feature codes. The device attributes
     /// trampoline converts C feature codes into this buffer and returns
@@ -105,18 +390,53 @@ const Effects = struct {
     pub const XtversionFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) lib.String;
 
     /// C function pointer type for the clipboard_write callback. The request
-    /// and its contents are borrowed and only valid for the callback duration.
-    pub const ClipboardWriteFn = *const fn (Terminal, ?*anyopaque, *const ClipboardWrite) callconv(lib.calling_conv) clipboard.WriteResult;
+    /// is borrowed for the callback duration and must be answered through
+    /// its reply function before the callback returns.
+    pub const ClipboardWriteFn = *const fn (Terminal, ?*anyopaque, *const ClipboardWrite) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the clipboard_read callback. The request
+    /// is borrowed for the callback duration and must be answered through
+    /// its reply function before the callback returns.
+    pub const ClipboardReadFn = *const fn (Terminal, ?*anyopaque, *const ClipboardRead) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the desktop_notification callback. The
+    /// request and its strings are borrowed for the callback duration.
+    pub const DesktopNotificationFn = *const fn (Terminal, ?*anyopaque, *const DesktopNotification) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the title_changed callback.
     pub const TitleChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
+    /// C function pointer type for the render_hold callback.
+    pub const RenderHoldFn = *const fn (Terminal, ?*anyopaque, bool) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the resize_window callback.
+    pub const ResizeWindowFn = *const fn (Terminal, ?*anyopaque, *const ResizeWindow.C) callconv(lib.calling_conv) void;
+
     /// C function pointer type for the pwd_changed callback.
     pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
-    /// C function pointer type for the size callback.
-    /// Returns true and fills out_size if size is available,
-    /// or returns false to silently ignore the query.
+    /// C function pointer type for the progress_report callback.
+    pub const ProgressReportFn = *const fn (Terminal, ?*anyopaque, *const ProgressReport) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the program_status callback. The report
+    /// and its strings are borrowed for the callback duration.
+    pub const ProgramStatusFn = *const fn (Terminal, ?*anyopaque, *const ProgramStatus) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the semantic_prompt callback. The event
+    /// and its strings are borrowed for the callback duration.
+    pub const SemanticPromptFn = *const fn (Terminal, ?*anyopaque, *const SemanticPrompt) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the reset callback.
+    pub const ResetFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the unknown_sequence callback. The request
+    /// and its content are borrowed for the callback duration.
+    pub const UnknownSequenceFn = *const fn (Terminal, ?*anyopaque, *const UnknownSequence.C) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the size callback. Used by XTWINOPS queries
+    /// and VT-driven mode 2048 enable reports. Returns true and fills out_size
+    /// if size is available, or false to suppress the XTWINOPS response or
+    /// mode 2048 report.
     pub const SizeFn = *const fn (Terminal, ?*anyopaque, *size_report.Size) callconv(lib.calling_conv) bool;
 
     /// C function pointer type for the device_attributes callback.
@@ -148,24 +468,27 @@ const Effects = struct {
         };
     };
 
-    fn writePtyTrampoline(handler: *Handler, data: [:0]const u8) void {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+    fn writePtyTrampoline(handler: *Handler, data: []const u8) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.write_pty orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata, data.ptr, data.len);
     }
 
     fn bellTrampoline(handler: *Handler) void {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.bell orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
-    fn clipboardWriteTrampoline(handler: *Handler, write: clipboard.Write) clipboard.WriteResult {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
-        const func = wrapper.effects.clipboard_write orelse return .unsupported;
+    /// Opaque context behind ClipboardWrite.ctx for the reply trampoline.
+    const ClipboardWriteCtx = struct {
+        write: clipboard.Write,
+    };
+
+    fn clipboardWriteTrampoline(handler: *Handler, write: clipboard.Write) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.clipboard_write orelse
+            return write.reply(.unsupported);
 
         // Most protocols currently produce one representation, so keep that
         // path allocation-free while supporting arbitrary multi-MIME writes.
@@ -174,35 +497,160 @@ const Effects = struct {
             stack_contents[0..write.contents.len]
         else
             wrapper.terminal.gpa().alloc(ClipboardContent, write.contents.len) catch
-                return .io_error;
+                return write.reply(.io_error);
         defer if (write.contents.len > stack_contents.len)
             wrapper.terminal.gpa().free(contents);
 
         for (contents, write.contents) |*c_content, content| {
             c_content.* = .{
-                .mime = .{
-                    .ptr = content.mime.ptr,
-                    .len = content.mime.len,
-                },
-                .data = .{
-                    .ptr = content.data.ptr,
-                    .len = content.data.len,
-                },
+                .mime = .init(content.mime),
+                .data = .init(content.data),
             };
         }
 
+        const ctx: ClipboardWriteCtx = .{ .write = write };
         const request: ClipboardWrite = .{
             .size = @sizeOf(ClipboardWrite),
             .location = write.location,
             .contents = if (contents.len > 0) contents.ptr else null,
             .contents_len = contents.len,
+            .name = .init(write.name),
+            .granted = write.granted,
+            .can_remember = write.can_remember,
+            .ctx = &ctx,
+            .reply = &clipboardWriteReplyTrampoline,
         };
-        return func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
+    }
+
+    fn clipboardWriteReplyTrampoline(
+        request: *const ClipboardWrite,
+        reply: *const ClipboardWriteReply,
+    ) callconv(lib.calling_conv) void {
+        const ctx: *const ClipboardWriteCtx = @ptrCast(@alignCast(request.ctx));
+        const write = ctx.write;
+        switch (reply.result) {
+            .success => write.reply(.{ .success = .{ .remember = reply.remember } }),
+            .denied => write.reply(.denied),
+            .busy => write.reply(.busy),
+            .invalid_data => write.reply(.invalid_data),
+            .io_error => write.reply(.io_error),
+            .unsupported, _ => write.reply(.unsupported),
+        }
+    }
+
+    /// Opaque context behind ClipboardRead.ctx for the reply trampoline.
+    const ClipboardReadCtx = struct {
+        read: clipboard.Read,
+        wrapper: *TerminalWrapper,
+    };
+
+    fn clipboardReadTrampoline(handler: *Handler, read: clipboard.Read) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.clipboard_read orelse return;
+
+        // Requests carry a handful of MIME types, so keep the common case
+        // allocation-free. On OOM the request goes unanswered and the
+        // handler replies with an empty clipboard.
+        var sfa_buf: [128]u8 = undefined;
+        var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, wrapper.terminal.gpa());
+        const alloc = sfa.allocator();
+        const mimes = alloc.alloc(lib.String, read.mimes.len) catch {
+            log.warn("out of memory converting clipboard read request", .{});
+            return;
+        };
+        defer alloc.free(mimes);
+        for (mimes, read.mimes) |*c_mime, mime| c_mime.* = .init(mime);
+
+        const ctx: ClipboardReadCtx = .{ .read = read, .wrapper = wrapper };
+        const request: ClipboardRead = .{
+            .size = @sizeOf(ClipboardRead),
+            .location = read.location,
+            .mimes = if (mimes.len > 0) mimes.ptr else null,
+            .mimes_len = mimes.len,
+            .list = read.list,
+            .name = .init(read.name),
+            .granted = read.granted,
+            .can_remember = read.can_remember,
+            .ctx = &ctx,
+            .reply = &clipboardReadReplyTrampoline,
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
+    }
+
+    fn clipboardReadReplyTrampoline(
+        request: *const ClipboardRead,
+        reply: *const ClipboardReadReply,
+    ) callconv(lib.calling_conv) void {
+        const ctx: *const ClipboardReadCtx = @ptrCast(@alignCast(request.ctx));
+        const read = ctx.read;
+        switch (reply.result) {
+            .success => {},
+            .denied => return read.reply(.denied),
+            .busy => return read.reply(.busy),
+            .io_error => return read.reply(.io_error),
+            .unsupported, _ => return read.reply(.unsupported),
+        }
+
+        const c_contents: []const ClipboardContent = if (reply.contents) |ptr|
+            ptr[0..reply.contents_len]
+        else
+            &.{};
+        const c_available: []const lib.String = if (reply.available) |ptr|
+            ptr[0..reply.available_len]
+        else
+            &.{};
+
+        // Most replies carry one representation, so keep that path
+        // allocation-free while supporting arbitrary multi-MIME replies.
+        // On OOM we don't reply and the handler answers with an empty
+        // clipboard.
+        var sfa_buf: [256]u8 = undefined;
+        var sfa: std.heap.BufferFirstAllocator = .init(&sfa_buf, ctx.wrapper.terminal.gpa());
+        const alloc = sfa.allocator();
+        const contents = alloc.alloc(clipboard.Content, c_contents.len) catch {
+            log.warn("out of memory converting clipboard read reply", .{});
+            return;
+        };
+        defer alloc.free(contents);
+        for (contents, c_contents) |*content, c_content| {
+            content.* = .{
+                .mime = c_content.mime.ptr[0..c_content.mime.len],
+                .data = c_content.data.ptr[0..c_content.data.len],
+            };
+        }
+        const available = alloc.alloc([]const u8, c_available.len) catch {
+            log.warn("out of memory converting clipboard read reply", .{});
+            return;
+        };
+        defer alloc.free(available);
+        for (available, c_available) |*mime, c_mime| {
+            mime.* = c_mime.ptr[0..c_mime.len];
+        }
+
+        read.reply(.{ .success = .{
+            .contents = contents,
+            .available = available,
+            .remember = reply.remember,
+        } });
+    }
+
+    fn desktopNotificationTrampoline(
+        handler: *Handler,
+        notification: Action.ShowDesktopNotification,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.desktop_notification orelse return;
+        const request: DesktopNotification = .{
+            .size = @sizeOf(DesktopNotification),
+            .title = .init(notification.title),
+            .body = .init(notification.body),
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
     }
 
     fn colorSchemeTrampoline(handler: *Handler) ?device_status.ColorScheme {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.color_scheme orelse return null;
         var scheme: device_status.ColorScheme = undefined;
         if (func(@ptrCast(wrapper), wrapper.effects.userdata, &scheme)) return scheme;
@@ -210,8 +658,7 @@ const Effects = struct {
     }
 
     fn deviceAttributesTrampoline(handler: *Handler) device_attributes.Attributes {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.device_attributes_cb orelse return .{};
 
         // Get our attributes from the callback.
@@ -222,15 +669,15 @@ const Effects = struct {
         // because all our types are non-exhaustive enums.
 
         const n: usize = @min(c_attrs.primary.num_features, 64);
-        for (0..n) |i| wrapper.effects.da_features_buf[i] = @enumFromInt(c_attrs.primary.features[i]);
+        for (0..n) |i| wrapper.effects.da_features_buf[i] = @fromBackingInt(c_attrs.primary.features[i]);
 
         return .{
             .primary = .{
-                .conformance_level = @enumFromInt(c_attrs.primary.conformance_level),
+                .conformance_level = @fromBackingInt(c_attrs.primary.conformance_level),
                 .features = wrapper.effects.da_features_buf[0..n],
             },
             .secondary = .{
-                .device_type = @enumFromInt(c_attrs.secondary.device_type),
+                .device_type = @fromBackingInt(c_attrs.secondary.device_type),
                 .firmware_version = c_attrs.secondary.firmware_version,
                 .rom_cartridge = c_attrs.secondary.rom_cartridge,
             },
@@ -241,8 +688,7 @@ const Effects = struct {
     }
 
     fn enquiryTrampoline(handler: *Handler) []const u8 {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.enquiry orelse return "";
         const result = func(@ptrCast(wrapper), wrapper.effects.userdata);
         if (result.len == 0) return "";
@@ -250,8 +696,7 @@ const Effects = struct {
     }
 
     fn xtversionTrampoline(handler: *Handler) []const u8 {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.xtversion orelse return "";
         const result = func(@ptrCast(wrapper), wrapper.effects.userdata);
         if (result.len == 0) return "";
@@ -259,22 +704,127 @@ const Effects = struct {
     }
 
     fn titleChangedTrampoline(handler: *Handler) void {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.title_changed orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
+    fn renderHoldTrampoline(handler: *Handler, held: bool) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.render_hold orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata, held);
+    }
+
     fn pwdChangedTrampoline(handler: *Handler) void {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.pwd_changed orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
+    fn progressReportTrampoline(
+        handler: *Handler,
+        report: osc.Command.ProgressReport,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.progress_report orelse return;
+        const c_report: ProgressReport = .{
+            .size = @sizeOf(ProgressReport),
+            .state = @fromBackingInt(@backingInt(report.state)),
+            .progress = if (report.progress) |value| @intCast(value) else -1,
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &c_report);
+    }
+
+    fn programStatusTrampoline(
+        handler: *Handler,
+        report: osc.Command.ProgramStatus.Report,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.program_status orelse return;
+
+        // Both buffers hold the longest text the parser accepts, so
+        // writing to them can't fail.
+        var title_buf: [osc.program_status.max_title_bytes]u8 = undefined;
+        var title: std.Io.Writer = .fixed(&title_buf);
+        report.writeText(.title, &title) catch unreachable;
+        var message_buf: [osc.program_status.max_msg_bytes]u8 = undefined;
+        var message: std.Io.Writer = .fixed(&message_buf);
+        report.writeText(.msg, &message) catch unreachable;
+
+        const c_report: ProgramStatus = .{
+            .size = @sizeOf(ProgramStatus),
+            .state = report.state,
+            .kind = if (report.readOption(.kind)) |kind| switch (kind) {
+                inline else => |tag| @field(ProgramStatusKind, @tagName(tag)),
+            } else .none,
+            .progress = if (report.readOption(.progress)) |value| @intCast(value) else -1,
+            .id = .init(report.readOption(.id) orelse ""),
+            .app = .init(report.readOption(.app) orelse ""),
+            .title = .init(title.buffered()),
+            .message = .init(message.buffered()),
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &c_report);
+    }
+
+    fn semanticPromptTrampoline(
+        handler: *Handler,
+        event: Handler.SemanticPrompt,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.semantic_prompt orelse return;
+        const c_event: SemanticPrompt = .{
+            .size = @sizeOf(SemanticPrompt),
+            .kind = event.kind,
+            .prompt_kind = event.prompt_kind,
+            .has_exit_code = event.exit_code != null,
+            .exit_code = event.exit_code orelse 0,
+            .command = .init(event.command),
+            .@"error" = .init(event.err),
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &c_event);
+    }
+
+    fn resetTrampoline(handler: *Handler) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.reset orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
+    fn resizeWindowTrampoline(
+        handler: *Handler,
+        request: Handler.ResizeWindow,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.resize_window orelse return;
+        const value = ResizeWindow.cval(switch (request) {
+            .grid => |grid| .{ .grid = .{
+                .rows = grid.rows,
+                .columns = grid.columns,
+            } },
+        });
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &value);
+    }
+
+    fn unknownSequenceTrampoline(
+        handler: *Handler,
+        sequence: Handler.UnknownSequence,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.unknown_sequence orelse return;
+        const value = UnknownSequence.cval(switch (sequence) {
+            .apc => |apc_value| .{
+                .apc = .{
+                    .truncated = apc_value.truncated,
+                    .content = .init(apc_value.content),
+                },
+            },
+            .osc => |osc_value| .{ .osc = osc_value.cval() },
+        });
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &value);
+    }
+
     fn sizeTrampoline(handler: *Handler) ?size_report.Size {
-        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
-        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.size_cb orelse return null;
         var s: size_report.Size = undefined;
         if (func(@ptrCast(wrapper), wrapper.effects.userdata, &s)) return s;
@@ -295,12 +845,154 @@ pub fn zigTerminal(terminal_: Terminal) ?*ZigTerminal {
     return (terminal_ orelse return null).terminal;
 }
 
-/// C: GhosttyTerminalOptions
-pub const Options = extern struct {
-    cols: size.CellCountInt,
-    rows: size.CellCountInt,
-    max_scrollback: usize,
+/// Attach the persistent C stream and I/O owner to a heap-stable terminal.
+/// The caller retains ownership of both inputs if wrapper allocation fails.
+fn wrap(
+    alloc: std.mem.Allocator,
+    t: *ZigTerminal,
+    io: Io,
+    continuation_max_bytes: usize,
+) error{OutOfMemory}!Terminal {
+    const wrapper = alloc.create(TerminalWrapper) catch
+        return error.OutOfMemory;
+
+    // Trampolines are always installed so setting C callbacks later takes
+    // effect immediately.
+    var handler: Stream.Handler = t.vtHandler();
+    handler.effects = .{
+        .write_pty = &Effects.writePtyTrampoline,
+        .bell = &Effects.bellTrampoline,
+        .color_scheme = &Effects.colorSchemeTrampoline,
+        .desktop_notification = &Effects.desktopNotificationTrampoline,
+        .drag_and_drop = null,
+        .device_attributes = &Effects.deviceAttributesTrampoline,
+        .enquiry = &Effects.enquiryTrampoline,
+        .xtversion = &Effects.xtversionTrampoline,
+        .title_changed = &Effects.titleChangedTrampoline,
+        .pwd_changed = &Effects.pwdChangedTrampoline,
+        .progress_report = &Effects.progressReportTrampoline,
+        .semantic_prompt = &Effects.semanticPromptTrampoline,
+        .reset = &Effects.resetTrampoline,
+        .size = &Effects.sizeTrampoline,
+        .render_hold = &Effects.renderHoldTrampoline,
+        .resize_window = &Effects.resizeWindowTrampoline,
+
+        // Installed dynamically when the callback is set; see Effects.
+        .clipboard_write = null,
+        .clipboard_read = null,
+        .program_status = null,
+    };
+
+    wrapper.* = .{
+        .terminal = t,
+        .io = io,
+        .terminfo_name_buf = undefined,
+        .stream = Stream.init(.{
+            .allocator = alloc,
+            .handler = handler,
+            .continuation_max_bytes = continuation_max_bytes,
+        }),
+    };
+    return wrapper;
+}
+
+pub const RestoreContinuationError = error{
+    OutOfMemory,
+    ContinuationDisabled,
+    ContinuationUnavailable,
+    InvalidContinuation,
 };
+
+/// Replay a decoded continuation exactly once into a newly created C terminal
+/// and verify that the persistent stream exports the identical canonical
+/// bytes. The terminal remains valid on error and may be freed normally.
+pub fn restoreContinuation(
+    terminal_: Terminal,
+    continuation: []const u8,
+) RestoreContinuationError!void {
+    const wrapper = terminal_ orelse return error.InvalidContinuation;
+    if (continuation.len > 0) wrapper.stream.nextSlice(continuation);
+
+    var exported: std.Io.Writer.Allocating = .init(wrapper.terminal.gpa());
+    defer exported.deinit();
+    wrapper.stream.writeContinuation(&exported.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        error.ContinuationDisabled => return error.ContinuationDisabled,
+        error.ContinuationUnavailable => return error.ContinuationUnavailable,
+    };
+    if (!std.mem.eql(u8, continuation, exported.written())) {
+        return error.InvalidContinuation;
+    }
+}
+
+pub const FromDecodedError = error{
+    OutOfMemory,
+    InvalidContinuation,
+};
+
+/// Transfer a core snapshot result into a caller-owned C terminal.
+///
+/// `io` is the owner the decoded terminal was built with and is retained
+/// by the returned wrapper. The decoded terminal is transferred only
+/// after its final heap address has been allocated; its
+/// continuation remains in `decoded` and is replayed before returning.
+/// `continuation_max_bytes` selects the returned terminal's tracking policy:
+/// zero uses a temporary exact-size tracker and restores the ordinary C
+/// default before returning, while a nonzero value leaves tracking enabled
+/// with that limit.
+pub fn fromDecoded(
+    alloc: std.mem.Allocator,
+    io: Io,
+    decoded: *snapshot_core.Decoded,
+    continuation_max_bytes: usize,
+) FromDecodedError!Terminal {
+    const native = alloc.create(ZigTerminal) catch
+        return error.OutOfMemory;
+    native.* = decoded.toOwned();
+
+    const continuation = switch (decoded.continuation) {
+        .ground => "",
+        .bytes => |bytes| bytes,
+    };
+    assert(continuation_max_bytes == 0 or
+        continuation.len <= continuation_max_bytes);
+
+    // Without opt-in retention, non-ground state needs tracking only long
+    // enough to verify that replay reconstructed the exact canonical
+    // continuation. With retention, even ground state needs a tracker so its
+    // continuation can be exported successfully as an empty slice.
+    const tracker_max_bytes = if (continuation_max_bytes > 0)
+        continuation_max_bytes
+    else
+        continuation.len;
+    const terminal = wrap(alloc, native, io, tracker_max_bytes) catch |err| {
+        native.deinit(alloc);
+        alloc.destroy(native);
+        return err;
+    };
+    errdefer free(terminal);
+
+    if (continuation.len > 0) {
+        restoreContinuation(terminal, continuation) catch |err| return switch (err) {
+            // The decoded bytes fit this fresh tracker's cap, so losing them
+            // while replaying can only be an allocation failure.
+            error.OutOfMemory,
+            error.ContinuationUnavailable,
+            => error.OutOfMemory,
+            error.ContinuationDisabled,
+            error.InvalidContinuation,
+            => error.InvalidContinuation,
+        };
+    }
+
+    // Unless the decoder opted into retention, restore the same disabled
+    // tracking default used by newly created C terminals. Disabling tracking
+    // does not alter the parser or UTF-8 state reconstructed above.
+    if (continuation_max_bytes == 0) {
+        setContinuationMaxBytes(terminal.?, default_continuation_max_bytes);
+    }
+    return terminal;
+}
 
 const NewError = error{
     InvalidValue,
@@ -310,9 +1002,10 @@ const NewError = error{
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Terminal,
-    opts: Options,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
 ) callconv(lib.calling_conv) Result {
-    result.* = new_(alloc_, opts) catch |err| {
+    result.* = new_(alloc_, cols, rows) catch |err| {
         result.* = null;
         return switch (err) {
             error.InvalidValue => .invalid_value,
@@ -325,25 +1018,27 @@ pub fn new(
 
 fn new_(
     alloc_: ?*const CAllocator,
-    opts: Options,
-) NewError!*TerminalWrapper {
-    if (opts.cols == 0 or opts.rows == 0) return error.InvalidValue;
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+) NewError!Terminal {
+    if (cols == 0 or rows == 0) return error.InvalidValue;
 
     const alloc = lib.alloc.default(alloc_);
     const t = alloc.create(ZigTerminal) catch
         return error.OutOfMemory;
     errdefer alloc.destroy(t);
 
-    const wrapper = alloc.create(TerminalWrapper) catch
-        return error.OutOfMemory;
-    errdefer alloc.destroy(wrapper);
+    const io: Io = .init;
 
     // Setup our terminal
-    t.* = try .init(alloc, .{
-        .cols = opts.cols,
-        .rows = opts.rows,
-        .max_scrollback = opts.max_scrollback,
-    });
+    t.* = try .init(
+        io.io(),
+        alloc,
+        .{
+            .cols = cols,
+            .rows = rows,
+        },
+    );
     errdefer t.deinit(alloc);
 
     // libghostty-vt embedders don't necessarily install Ghostty's shell
@@ -351,28 +1046,12 @@ fn new_(
     // Shells can still opt in with OSC 133;A;redraw=1.
     t.flags.shell_redraws_prompt = .false;
 
-    // Setup our stream with trampolines always installed so that
-    // setting C callbacks at any time takes effect immediately.
-    var handler: Stream.Handler = t.vtHandler();
-    handler.effects = .{
-        .write_pty = &Effects.writePtyTrampoline,
-        .bell = &Effects.bellTrampoline,
-        .color_scheme = &Effects.colorSchemeTrampoline,
-        .device_attributes = &Effects.deviceAttributesTrampoline,
-        .enquiry = &Effects.enquiryTrampoline,
-        .xtversion = &Effects.xtversionTrampoline,
-        .title_changed = &Effects.titleChangedTrampoline,
-        .pwd_changed = &Effects.pwdChangedTrampoline,
-        .size = &Effects.sizeTrampoline,
-        .clipboard_write = &Effects.clipboardWriteTrampoline,
-    };
-
-    wrapper.* = .{
-        .terminal = t,
-        .stream = .initAlloc(alloc, handler),
-    };
-
-    return wrapper;
+    return try wrap(
+        alloc,
+        t,
+        io,
+        default_continuation_max_bytes,
+    );
 }
 
 pub fn vt_write(
@@ -382,6 +1061,356 @@ pub fn vt_write(
 ) callconv(lib.calling_conv) void {
     const wrapper = terminal_ orelse return;
     wrapper.stream.nextSlice(ptr[0..len]);
+}
+
+/// A boundary as a C bit flag. The C API takes and reports boundaries as a
+/// bitmask, so each value is the bit for the stream boundary of the same
+/// name.
+///
+/// C: GhosttyTerminalBoundary
+pub const Boundary = enum(c_int) {
+    ground = 1 << 0,
+    apc_start = 1 << 1,
+    apc_end = 1 << 2,
+    dcs_start = 1 << 3,
+    dcs_end = 1 << 4,
+    osc_start = 1 << 5,
+    osc_end = 1 << 6,
+    _,
+
+    comptime {
+        // Each bit must match the stream boundary's position in the enum,
+        // so the conversions below can shift instead of switching.
+        for (@typeInfo(StreamBoundary).@"enum".field_names) |name| {
+            const zig = @field(StreamBoundary, name);
+            assert(@backingInt(@field(Boundary, name)) == 1 << @backingInt(zig));
+        }
+    }
+
+    const all: u32 = (1 << @typeInfo(StreamBoundary).@"enum".field_names.len) - 1;
+
+    /// Convert a bitmask from C to a set. Returns null if the mask is
+    /// empty or has bits that aren't boundaries.
+    fn setFromBits(bits: u32) ?StreamBoundary.Set {
+        if (bits == 0 or bits & ~all != 0) return null;
+        var result: StreamBoundary.Set = .empty;
+        for (std.enums.values(StreamBoundary)) |b| {
+            if (bits & bit(b) != 0) result.insert(b);
+        }
+        return result;
+    }
+
+    /// Convert a set to a bitmask for C.
+    fn bitsFromSet(set_: StreamBoundary.Set) u32 {
+        var bits: u32 = 0;
+        var it = set_.iterator();
+        while (it.next()) |b| bits |= bit(b);
+        return bits;
+    }
+
+    fn bit(b: StreamBoundary) u32 {
+        return @as(u32, 1) << @intCast(@backingInt(b));
+    }
+};
+
+/// C: GhosttyTerminalStringKind
+pub const StringKind = StreamBoundary.StringKind;
+
+/// C: GhosttyTerminalStringIntroducer
+pub const StringIntroducer = StreamBoundary.Introducer;
+
+/// C: GhosttyTerminalStringEnd
+pub const StringEnd = StreamBoundary.EndReason;
+
+/// Where `vt_write_until` stopped. This flattens `StreamBoundary.Stop`
+/// for C. Fields that don't apply to a stop are zero, and `reached` tells
+/// the caller which fields apply.
+///
+/// A stop can be both a string end and a string start, when an 8-bit
+/// introducer of another kind arrives inside an APC or a DCS header. The
+/// Zig stop carries a kind for each. This struct has one `kind` field, so
+/// it holds the kind of the string that ended, and the start flag in
+/// `reached` names the kind that started.
+///
+/// C: GhosttyTerminalWriteStop
+pub const WriteStop = extern struct {
+    size: usize = @sizeOf(WriteStop),
+    consumed: usize = 0,
+    reached: u32 = 0,
+    kind: StringKind = .apc,
+    introducer: StringIntroducer = .esc,
+    end: StringEnd = .st_esc,
+    byte: u8 = 0,
+};
+
+pub fn vt_write_until(
+    terminal_: Terminal,
+    ptr_: ?[*]const u8,
+    len: usize,
+    boundaries: u32,
+    out_: ?*WriteStop,
+) callconv(lib.calling_conv) Result {
+    const out = out_ orelse return .invalid_value;
+    if (out.size < @sizeOf(WriteStop)) return .invalid_value;
+
+    // Reset every field so a reused struct never carries a previous stop.
+    out.* = .{};
+
+    const wrapper = terminal_ orelse return .invalid_value;
+    const input: []const u8 = if (ptr_) |ptr|
+        ptr[0..len]
+    else if (len == 0)
+        ""
+    else
+        return .invalid_value;
+    const requested = Boundary.setFromBits(boundaries) orelse
+        return .invalid_value;
+
+    const stop = wrapper.stream.nextSliceUntil(input, requested) orelse {
+        out.consumed = len;
+        return .no_value;
+    };
+
+    out.consumed = stop.consumed;
+    out.reached = Boundary.bitsFromSet(stop.reached);
+    if (stop.start) |start| {
+        out.kind = start.kind;
+        out.introducer = start.introducer;
+        out.byte = start.byte;
+    }
+    // When a byte both ends and starts a string, the end's kind wins;
+    // see WriteStop.
+    if (stop.end) |end| {
+        out.kind = end.kind;
+        out.end = end.reason;
+        out.byte = end.byte;
+    }
+
+    return .success;
+}
+
+pub const ContinuationWriteError = error{
+    InvalidValue,
+    WriteFailed,
+    ContinuationDisabled,
+    ContinuationUnavailable,
+};
+
+/// Write the exact replay-safe continuation for a C terminal to a Zig writer.
+/// Snapshot encoding uses this helper so it can preflight continuation state
+/// without converting its allocator or writer through the C ABI.
+pub fn continuationWriteIo(
+    terminal_: Terminal,
+    writer: *std.Io.Writer,
+) ContinuationWriteError!void {
+    // Keep handle validation here so the three public output forms and the
+    // snapshot encoder all use exactly the same continuation preflight.
+    const wrapper = terminal_ orelse return error.InvalidValue;
+
+    // Stream owns the tracker and distinguishes disabled tracking from a
+    // tracker that lost bytes after allocation failure or limit overflow.
+    try wrapper.stream.writeContinuation(writer);
+}
+
+pub const ContinuationAllocError = error{
+    InvalidValue,
+    OutOfMemory,
+    ContinuationDisabled,
+    ContinuationUnavailable,
+};
+
+/// Return an allocator-owned copy of the terminal's replay-safe continuation.
+/// The caller owns the returned slice and must free it with `alloc`.
+///
+/// If `allow_untracked_ground` is true, disabled tracking is accepted only
+/// when the stream is provably at ground and an owned empty slice is returned.
+pub fn continuationAllocIo(
+    terminal_: Terminal,
+    alloc: std.mem.Allocator,
+    allow_untracked_ground: bool,
+) ContinuationAllocError![]u8 {
+    const wrapper = terminal_ orelse return error.InvalidValue;
+    if (allow_untracked_ground and
+        wrapper.stream.continuation == null and
+        wrapper.stream.ground())
+    {
+        return alloc.dupe(u8, "") catch error.OutOfMemory;
+    }
+
+    // The allocating writer gives snapshot encoding and the public allocation
+    // API one common way to obtain an exact owned continuation.
+    var aw: std.Io.Writer.Allocating = .init(alloc);
+    defer aw.deinit();
+
+    // A write failure from an Allocating writer can only be allocation failure;
+    // no external callback participates in this path.
+    continuationWriteIo(terminal_, &aw.writer) catch |err| switch (err) {
+        error.InvalidValue => return error.InvalidValue,
+        error.WriteFailed => return error.OutOfMemory,
+        error.ContinuationDisabled => return error.ContinuationDisabled,
+        error.ContinuationUnavailable => return error.ContinuationUnavailable,
+    };
+
+    // Transfer the buffer out before the deferred writer cleanup runs.
+    return aw.toOwnedSlice() catch error.OutOfMemory;
+}
+
+/// Map errors that are intrinsic to continuation export. Public callback
+/// failures receive finer classification in `continuation_write` below.
+fn continuationErrorResult(err: ContinuationWriteError) Result {
+    return switch (err) {
+        error.InvalidValue => .invalid_value,
+        error.WriteFailed => .io_error,
+        error.ContinuationDisabled => .invalid_value,
+        error.ContinuationUnavailable => .invalid_value,
+    };
+}
+
+pub fn continuation_write(
+    terminal_: Terminal,
+    writer: c_io.Writer,
+) callconv(lib.calling_conv) Result {
+    // Reject the missing callback before invoking the common helper so this is
+    // classified as a bad argument rather than a write failure.
+    if (writer.write == null) return .invalid_value;
+
+    // The callback was validated above, so invalid_write can only mean output
+    // accounting overflow. Keep that distinct from callback rejection.
+    var buffer: [c_io.WriterAdapter.recommended_buffer_len]u8 = undefined;
+    var adapter: c_io.WriterAdapter = .initBuffered(writer, &buffer);
+    write: {
+        continuationWriteIo(terminal_, &adapter.interface) catch |err| switch (err) {
+            error.WriteFailed => break :write,
+            else => return continuationErrorResult(err),
+        };
+        adapter.interface.flush() catch break :write;
+        return .success;
+    }
+
+    if (adapter.invalid_write) return .limit_exceeded;
+    if (adapter.callback_failed) return .io_error;
+    return continuationErrorResult(error.WriteFailed);
+}
+
+pub fn continuation_buf(
+    terminal_: Terminal,
+    out_: ?[*]u8,
+    out_len: usize,
+    out_written_: ?*usize,
+) callconv(lib.calling_conv) Result {
+    const out_written = out_written_ orelse return .invalid_value;
+    // All failure paths leave deterministic output metadata.
+    out_written.* = 0;
+    if (out_ == null and out_len != 0) return .invalid_value;
+
+    if (out_ == null) {
+        // A null/zero destination is the explicit size-query form. Discarding
+        // runs the real exporter, so disabled or unavailable tracking is still
+        // detected before a required length is reported.
+        var discarding: std.Io.Writer.Discarding = .init(&.{});
+        continuationWriteIo(terminal_, &discarding.writer) catch |err|
+            return continuationErrorResult(err);
+        out_written.* = @intCast(discarding.count);
+        return .out_of_space;
+    }
+
+    // Fixed writers report WriteFailed when capacity is exhausted. The stream
+    // exporter itself remains all-or-nothing from the API's perspective.
+    var writer: std.Io.Writer = .fixed(out_.?[0..out_len]);
+    continuationWriteIo(terminal_, &writer) catch |err| switch (err) {
+        error.WriteFailed => {
+            // Re-run against a counter to return the full required capacity,
+            // not merely the prefix that fit in the caller's buffer.
+            var discarding: std.Io.Writer.Discarding = .init(&.{});
+            continuationWriteIo(terminal_, &discarding.writer) catch |count_err|
+                return continuationErrorResult(count_err);
+            out_written.* = @intCast(discarding.count);
+            return .out_of_space;
+        },
+        else => return continuationErrorResult(err),
+    };
+
+    // `end` is the initialized prefix of the fixed destination.
+    out_written.* = writer.end;
+    return .success;
+}
+
+pub fn continuation_alloc(
+    terminal_: Terminal,
+    alloc_: ?*const CAllocator,
+    out_ptr_: ?*?[*]u8,
+    out_len_: ?*usize,
+) callconv(lib.calling_conv) Result {
+    const out_ptr = out_ptr_ orelse return .invalid_value;
+    const out_len = out_len_ orelse return .invalid_value;
+    // Make ownership unambiguous even if validation or allocation fails.
+    out_ptr.* = null;
+    out_len.* = 0;
+
+    // Resolve NULL to libghostty-vt's default allocator before entering the
+    // shared Zig allocation path.
+    const bytes = continuationAllocIo(
+        terminal_,
+        lib.alloc.default(alloc_),
+        false,
+    ) catch |err| return switch (err) {
+        error.InvalidValue => .invalid_value,
+        error.OutOfMemory => .out_of_memory,
+        error.ContinuationDisabled => .invalid_value,
+        error.ContinuationUnavailable => .invalid_value,
+    };
+
+    // Ownership crosses the ABI here; callers release this exact pointer and
+    // length with ghostty_free and the same allocator selection.
+    // An idle parser has no continuation. Never export the empty Zig slice's
+    // sentinel pointer to a foreign runtime.
+    out_ptr.* = if (bytes.len == 0) null else bytes.ptr;
+    out_len.* = bytes.len;
+    return .success;
+}
+
+fn continuationMaxBytes(wrapper: *const TerminalWrapper) usize {
+    // Absence of a tracker is the public representation of disabled tracking.
+    return if (wrapper.stream.continuation) |tracker|
+        tracker.max_bytes
+    else
+        0;
+}
+
+/// Change continuation tracking policy without disturbing normal VT parser
+/// state. Bytes which were not retained while disabled or after exceeding an
+/// earlier cap cannot be reconstructed: export remains unavailable until a
+/// later feed reaches ground or contains a new replay start.
+fn setContinuationMaxBytes(wrapper: *TerminalWrapper, max_bytes: usize) void {
+    if (max_bytes == 0) {
+        // Disabling releases retained bytes immediately. Parser and UTF-8 state
+        // continue normally; only future replay/export information is lost.
+        if (wrapper.stream.continuation) |*tracker| tracker.deinit();
+        wrapper.stream.continuation = null;
+        return;
+    }
+
+    if (wrapper.stream.continuation) |*tracker| {
+        // Changing a live cap preserves retained bytes when they still fit.
+        tracker.max_bytes = max_bytes;
+        if (tracker.bytes.items.len > max_bytes) {
+            // Once a retained prefix is discarded it cannot be reconstructed
+            // from parser state alone. Mark it broken until Stream observes a
+            // ground state or a new replay-safe sequence start.
+            tracker.bytes.clearRetainingCapacity();
+            tracker.broken = true;
+        }
+        return;
+    }
+
+    // Enabling from zero starts an empty tracker owned by the terminal's
+    // allocator. It can immediately track only if no earlier bytes are needed.
+    wrapper.stream.continuation = .init(wrapper.terminal.gpa(), max_bytes);
+    if (!wrapper.stream.ground()) {
+        // The parser was already mid-sequence while tracking was disabled, so
+        // exporting now would omit an unknown prefix.
+        wrapper.stream.continuation.?.broken = true;
+    }
 }
 
 pub fn compression_activity(
@@ -401,9 +1430,7 @@ pub fn compress(
 ) callconv(lib.calling_conv) Result {
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     const out_result = out_result_ orelse return .invalid_value;
-    const mode = std.meta.intToEnum(CompressionMode, mode_) catch
-        return .invalid_value;
-
+    const mode = std.enums.fromInt(CompressionMode, mode_) orelse return .invalid_value;
     out_result.* = t.compress(mode);
     return .success;
 }
@@ -437,6 +1464,27 @@ pub const Option = enum(c_int) {
     glyph_protocol = 24,
     pwd_changed = 25,
     clipboard_write = 26,
+    scrollback_max_bytes = 27,
+    scrollback_max_lines = 28,
+    desktop_notification = 29,
+    progress_report = 30,
+    continuation_max_bytes = 31,
+    title_report = 32,
+    mode_default = 33,
+    mode = 34,
+    unknown_sequence = 35,
+    unknown_max_bytes = 36,
+    terminfo_name = 37,
+    clipboard_read = 38,
+    clipboard_write_max_bytes = 39,
+    resize_pull_scrollback = 40,
+    render_hold = 41,
+    semantic_prompt = 42,
+    reset = 43,
+    xt_checksum_report = 44,
+    xt_checksum_extension = 45,
+    program_status = 46,
+    resize_window = 47,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -445,26 +1493,47 @@ pub const Option = enum(c_int) {
             .write_pty => ?Effects.WritePtyFn,
             .bell => ?Effects.BellFn,
             .color_scheme => ?Effects.ColorSchemeFn,
+            .desktop_notification => ?Effects.DesktopNotificationFn,
             .device_attributes => ?Effects.DeviceAttributesFn,
             .enquiry => ?Effects.EnquiryFn,
             .xtversion => ?Effects.XtversionFn,
             .title_changed => ?Effects.TitleChangedFn,
             .pwd_changed => ?Effects.PwdChangedFn,
+            .progress_report => ?Effects.ProgressReportFn,
+            .program_status => ?Effects.ProgramStatusFn,
             .size_cb => ?Effects.SizeFn,
             .clipboard_write => ?Effects.ClipboardWriteFn,
-            .title, .pwd => ?*const lib.String,
+            .clipboard_read => ?Effects.ClipboardReadFn,
+            .unknown_sequence => ?Effects.UnknownSequenceFn,
+            .render_hold => ?Effects.RenderHoldFn,
+            .semantic_prompt => ?Effects.SemanticPromptFn,
+            .reset => ?Effects.ResetFn,
+            .resize_window => ?Effects.ResizeWindowFn,
+            .title, .pwd, .terminfo_name => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
             .kitty_image_storage_limit => ?*const u64,
+            .xt_checksum_extension => ?*const u8,
             .kitty_image_medium_file,
-            .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
             .glyph_protocol,
+            .title_report,
+            .xt_checksum_report,
+            .resize_pull_scrollback,
             => ?*const bool,
-            .apc_max_bytes, .apc_max_bytes_kitty => ?*const usize,
+            .kitty_image_medium_temp_file => ?*const lib.String,
+            .apc_max_bytes,
+            .apc_max_bytes_kitty,
+            .scrollback_max_bytes,
+            .scrollback_max_lines,
+            .continuation_max_bytes,
+            .unknown_max_bytes,
+            .clipboard_write_max_bytes,
+            => ?*const usize,
             .selection => ?*const selection_c.CSelection,
             .default_cursor_style => ?*const TerminalCursorStyle,
             .default_cursor_blink => ?*const bool,
+            .mode, .mode_default => ?*const ModeConfig,
         };
     }
 };
@@ -475,8 +1544,8 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
-            log.warn("terminal_set invalid option value={d}", .{@intFromEnum(option)});
+        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
+            log.warn("terminal_set invalid option value={d}", .{@backingInt(option)});
             return .invalid_value;
         };
     }
@@ -502,13 +1571,56 @@ fn setTyped(
         .write_pty => wrapper.effects.write_pty = value,
         .bell => wrapper.effects.bell = value,
         .color_scheme => wrapper.effects.color_scheme = value,
+        .desktop_notification => wrapper.effects.desktop_notification = value,
         .device_attributes => wrapper.effects.device_attributes_cb = value,
         .enquiry => wrapper.effects.enquiry = value,
         .xtversion => wrapper.effects.xtversion = value,
         .title_changed => wrapper.effects.title_changed = value,
         .pwd_changed => wrapper.effects.pwd_changed = value,
+        .progress_report => wrapper.effects.progress_report = value,
+        .resize_window => wrapper.effects.resize_window = value,
         .size_cb => wrapper.effects.size_cb = value,
-        .clipboard_write => wrapper.effects.clipboard_write = value,
+        .render_hold => wrapper.effects.render_hold = value,
+        .semantic_prompt => wrapper.effects.semantic_prompt = value,
+        .reset => wrapper.effects.reset = value,
+        .clipboard_write => {
+            wrapper.effects.clipboard_write = value;
+            wrapper.stream.handler.effects.clipboard_write = if (value != null)
+                &Effects.clipboardWriteTrampoline
+            else
+                null;
+        },
+        .clipboard_read => {
+            wrapper.effects.clipboard_read = value;
+            wrapper.stream.handler.effects.clipboard_read = if (value != null)
+                &Effects.clipboardReadTrampoline
+            else
+                null;
+        },
+        .program_status => {
+            // Installed dynamically because the terminal only answers the
+            // OSC 7501 support query when something consumes reports.
+            wrapper.effects.program_status = value;
+            wrapper.stream.handler.effects.program_status = if (value != null)
+                &Effects.programStatusTrampoline
+            else
+                null;
+        },
+        .unknown_sequence => {
+            wrapper.effects.unknown_sequence = value;
+            wrapper.stream.handler.unknown_sequence = if (value != null)
+                &Effects.unknownSequenceTrampoline
+            else
+                null;
+        },
+        .title_report => wrapper.stream.handler.title_report = if (value) |ptr|
+            ptr.*
+        else
+            false,
+        .xt_checksum_report => wrapper.stream.handler.xt_checksum_report = if (value) |ptr|
+            ptr.*
+        else
+            false,
         .title => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
             wrapper.terminal.setTitle(str) catch return .out_of_memory;
@@ -516,6 +1628,15 @@ fn setTyped(
         .pwd => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
             wrapper.terminal.setPwd(str) catch return .out_of_memory;
+        },
+        .terminfo_name => {
+            const str = if (value) |v| v.ptr[0..v.len] else "";
+            if (str.len > wrapper.terminfo_name_buf.len) return .invalid_value;
+            @memcpy(wrapper.terminfo_name_buf[0..str.len], str);
+            wrapper.stream.handler.terminfo_name = if (str.len > 0)
+                wrapper.terminfo_name_buf[0..str.len]
+            else
+                null;
         },
         .color_foreground => {
             wrapper.terminal.colors.foreground.default = if (value) |v| .fromC(v.*) else null;
@@ -531,8 +1652,9 @@ fn setTyped(
         },
         .color_palette => {
             wrapper.terminal.colors.palette.changeDefault(
+                wrapper.terminal.gpa(),
                 if (value) |v| color.paletteZval(v) else color.default,
-            );
+            ) catch return .out_of_memory;
             wrapper.terminal.flags.dirty.palette = true;
         },
         .kitty_image_storage_limit => {
@@ -541,11 +1663,10 @@ fn setTyped(
             var it = wrapper.terminal.screens.all.iterator();
             while (it.next()) |entry| {
                 const screen = entry.value.*;
-                screen.kitty_images.setLimit(screen.alloc, screen, limit) catch return .out_of_memory;
+                screen.kitty_images.setLimit(screen.io, screen.alloc, screen, limit);
             }
         },
         .kitty_image_medium_file,
-        .kitty_image_medium_temp_file,
         .kitty_image_medium_shared_mem,
         => {
             if (comptime !build_options.kitty_graphics) return .success;
@@ -555,10 +1676,38 @@ fn setTyped(
                 const screen = entry.value.*;
                 switch (option) {
                     .kitty_image_medium_file => screen.kitty_images.image_limits.file = val,
-                    .kitty_image_medium_temp_file => screen.kitty_images.image_limits.temporary_file = val,
                     .kitty_image_medium_shared_mem => screen.kitty_images.image_limits.shared_memory = val,
                     else => unreachable,
                 }
+            }
+        },
+        .kitty_image_medium_temp_file => {
+            if (comptime !build_options.kitty_graphics) return .success;
+            const alloc = wrapper.terminal.gpa();
+            if (value) |v| {
+                if (v.len > max_path_bytes) return .out_of_memory;
+                const path = alloc.dupe(u8, v.ptr[0..v.len]) catch
+                    return .out_of_memory;
+                var it = wrapper.terminal.screens.all.iterator();
+                while (it.next()) |entry| {
+                    const screen = entry.value.*;
+                    screen.kitty_images.image_limits.temporary_file = .{
+                        .enabled = .{ .directory = path },
+                    };
+                }
+
+                // Every screen points at the new copy now so the previous
+                // one can be released.
+                if (wrapper.tmp_dir_path) |old| alloc.free(old);
+                wrapper.tmp_dir_path = path;
+            } else {
+                var it = wrapper.terminal.screens.all.iterator();
+                while (it.next()) |entry| {
+                    const screen = entry.value.*;
+                    screen.kitty_images.image_limits.temporary_file = .disabled;
+                }
+                if (wrapper.tmp_dir_path) |old| alloc.free(old);
+                wrapper.tmp_dir_path = null;
             }
         },
         .apc_max_bytes => {
@@ -589,16 +1738,47 @@ fn setTyped(
         },
         .default_cursor_style => {
             const style = (if (value) |ptr| ptr.* else TerminalCursorStyle.block).toZig() orelse return .invalid_value;
-            wrapper.stream.handler.default_cursor_style = style;
-            if (wrapper.stream.handler.default_cursor) {
-                wrapper.terminal.screens.active.cursor.cursor_style = style;
-            }
+            wrapper.terminal.setDefaultCursorStyle(style);
         },
         .default_cursor_blink => {
             const blink = if (value) |ptr| ptr.* else false;
-            wrapper.stream.handler.default_cursor_blink = blink;
-            if (wrapper.stream.handler.default_cursor) {
-                wrapper.terminal.modes.set(.cursor_blinking, blink);
+            wrapper.terminal.setDefaultCursorBlink(blink);
+        },
+        .scrollback_max_bytes => wrapper.terminal.setScrollbackMaxBytes(
+            if (value) |ptr| ptr.* else null,
+        ),
+        .scrollback_max_lines => wrapper.terminal.setScrollbackMaxLines(
+            if (value) |ptr| ptr.* else null,
+        ),
+        .continuation_max_bytes => setContinuationMaxBytes(
+            wrapper,
+            if (value) |ptr| ptr.* else default_continuation_max_bytes,
+        ),
+        .unknown_max_bytes => {
+            // One limit applies to every unknown sequence type.
+            const max_bytes = if (value) |ptr| ptr.* else 0;
+            wrapper.stream.handler.apc_handler.unknown_max_bytes = max_bytes;
+            wrapper.stream.parser.osc_parser.unknown_max_bytes = max_bytes;
+        },
+        .clipboard_write_max_bytes => wrapper.stream.handler.kitty_clipboard_write_max_bytes =
+            if (value) |ptr| ptr.* else kitty_clipboard.max_write_size,
+        .resize_pull_scrollback => wrapper.terminal.flags.resize_pull_scrollback =
+            if (value) |ptr| ptr.* else true,
+        .xt_checksum_extension => {
+            const bits = if (value) |ptr| ptr.* else 0;
+            const flags = std.math.cast(u5, bits) orelse return .invalid_value;
+            wrapper.terminal.setDefaultXtChecksum(@bitCast(flags));
+        },
+        .mode, .mode_default => {
+            const config = (value orelse return .invalid_value).*;
+            const mode = config.toMode() orelse return .invalid_value;
+            switch (option) {
+                .mode => wrapper.terminal.modes.set(mode, config.value),
+                .mode_default => {
+                    if (!modes.defaultConfigurable(mode)) return .invalid_value;
+                    wrapper.terminal.modes.setDefault(mode, config.value);
+                },
+                else => unreachable,
             }
         },
     }
@@ -640,6 +1820,7 @@ pub fn scroll_viewport(
         .bottom => .bottom,
         .delta => .{ .delta = behavior.value.delta },
         .row => .{ .row = behavior.value.row },
+        .delta_prompt => .{ .delta_prompt = behavior.value.delta_prompt },
     });
 }
 
@@ -651,65 +1832,29 @@ pub fn resize(
     cell_height_px: u32,
 ) callconv(lib.calling_conv) Result {
     const wrapper = terminal_ orelse return .invalid_value;
-    const t = wrapper.terminal;
-    if (cols == 0 or rows == 0) return .invalid_value;
-    t.resize(t.gpa(), cols, rows) catch return .out_of_memory;
-
-    // Update pixel sizes
-    t.width_px = std.math.mul(u32, cols, cell_width_px) catch std.math.maxInt(u32);
-    t.height_px = std.math.mul(u32, rows, cell_height_px) catch std.math.maxInt(u32);
-
-    // Disable synchronized output mode so that we show changes
-    // immediately for a resize. This is allowed by the spec.
-    t.modes.set(.synchronized_output, false);
-
-    // If we have in-band size reporting enabled, send a report.
-    if (t.modes.get(.in_band_size_reports)) in_band: {
-        const func = wrapper.effects.write_pty orelse break :in_band;
-
-        var buf: [1024]u8 = undefined;
-        var writer: std.Io.Writer = .fixed(&buf);
-        size_report.encode(&writer, .mode_2048, .{
-            .rows = rows,
-            .columns = cols,
-            .cell_width = cell_width_px,
-            .cell_height = cell_height_px,
-        }) catch break :in_band;
-
-        const data = writer.buffered();
-        func(@ptrCast(wrapper), wrapper.effects.userdata, data.ptr, data.len);
-    }
+    wrapper.stream.handler.resize(.{
+        .cols = cols,
+        .rows = rows,
+        .cell_size_px = .{
+            .width = cell_width_px,
+            .height = cell_height_px,
+        },
+    }) catch |err| return switch (err) {
+        error.InvalidValue => .invalid_value,
+        error.OutOfMemory => .out_of_memory,
+    };
 
     return .success;
 }
 
 pub fn reset(terminal_: Terminal) callconv(lib.calling_conv) void {
-    const t: *ZigTerminal = (terminal_ orelse return).terminal;
+    const wrapper = terminal_ orelse return;
+    const t: *ZigTerminal = wrapper.terminal;
+
+    // A reset always turns off synchronized output, ending its hold.
+    const sync = t.modes.get(.synchronized_output);
     t.fullReset();
-}
-
-pub fn mode_get(
-    terminal_: Terminal,
-    tag: modes.ModeTag.Backing,
-    out_value: *bool,
-) callconv(lib.calling_conv) Result {
-    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const mode_tag: modes.ModeTag = @bitCast(tag);
-    const mode = modes.modeFromInt(mode_tag.value, mode_tag.ansi) orelse return .invalid_value;
-    out_value.* = t.modes.get(mode);
-    return .success;
-}
-
-pub fn mode_set(
-    terminal_: Terminal,
-    tag: modes.ModeTag.Backing,
-    value: bool,
-) callconv(lib.calling_conv) Result {
-    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const mode_tag: modes.ModeTag = @bitCast(tag);
-    const mode = modes.modeFromInt(mode_tag.value, mode_tag.ansi) orelse return .invalid_value;
-    t.modes.set(mode, value);
-    return .success;
+    if (sync) Effects.renderHoldTrampoline(&wrapper.stream.handler, false);
 }
 
 /// C: GhosttyKittyGraphics
@@ -720,6 +1865,61 @@ pub const TerminalScreen = ScreenSet.Key;
 
 /// C: GhosttyTerminalScrollbar
 pub const TerminalScrollbar = PageList.Scrollbar.C;
+
+/// C: GhosttyTerminalMemoryUsage
+///
+/// This is a sized struct, so new fields may only be added to the end.
+/// The figures for each screen are separate fields rather than a nested
+/// struct per screen, because only the outermost struct can grow. Add a
+/// new per-screen field as a primary and alternate pair.
+pub const TerminalMemoryUsage = extern struct {
+    size: usize = @sizeOf(TerminalMemoryUsage),
+    compression_supported: bool = false,
+    primary_pages: u64 = 0,
+    primary_virtual_bytes: u64 = 0,
+    primary_resident_bytes: u64 = 0,
+    primary_compressed_pages: u64 = 0,
+    primary_compressed_bytes: u64 = 0,
+    primary_image_bytes: u64 = 0,
+    alternate_pages: u64 = 0,
+    alternate_virtual_bytes: u64 = 0,
+    alternate_resident_bytes: u64 = 0,
+    alternate_compressed_pages: u64 = 0,
+    alternate_compressed_bytes: u64 = 0,
+    alternate_image_bytes: u64 = 0,
+
+    /// Gather the memory usage of `t`. The size field is set to
+    /// `caller_size` instead of our own size, so that copying the result
+    /// into the caller's struct keeps the size they passed in.
+    fn init(t: *const ZigTerminal, caller_size: usize) TerminalMemoryUsage {
+        var result: TerminalMemoryUsage = .{
+            .size = caller_size,
+            .compression_supported = terminal_mem.canReclaim(.strict),
+        };
+
+        const primary = t.screens.get(.primary).?.memoryUsage();
+        result.primary_pages = primary.pages.pages;
+        result.primary_virtual_bytes = primary.pages.virtual_bytes;
+        result.primary_resident_bytes = primary.pages.resident_bytes;
+        result.primary_compressed_pages = primary.pages.compressed_pages;
+        result.primary_compressed_bytes = primary.pages.compressed_bytes;
+        result.primary_image_bytes = primary.image_bytes;
+
+        // The alternate screen is created on first use. Until then its
+        // fields stay zero.
+        if (t.screens.get(.alternate)) |screen| {
+            const alternate = screen.memoryUsage();
+            result.alternate_pages = alternate.pages.pages;
+            result.alternate_virtual_bytes = alternate.pages.virtual_bytes;
+            result.alternate_resident_bytes = alternate.pages.resident_bytes;
+            result.alternate_compressed_pages = alternate.pages.compressed_pages;
+            result.alternate_compressed_bytes = alternate.pages.compressed_bytes;
+            result.alternate_image_bytes = alternate.image_bytes;
+        }
+
+        return result;
+    }
+};
 
 /// C: GhosttyTerminalData
 pub const TerminalData = enum(c_int) {
@@ -756,19 +1956,43 @@ pub const TerminalData = enum(c_int) {
     kitty_graphics = 30,
     selection = 31,
     viewport_active = 32,
+    vt_processing_error = 33,
+    scrollback_max_bytes = 34,
+    scrollback_max_lines = 35,
+    continuation_max_bytes = 36,
+    mode = 37,
+    vt_ground = 38,
+    cursor_at_prompt = 39,
+    clipboard_write_max_bytes = 40,
+    mouse_shape = 41,
+    memory_usage = 42,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
         return switch (self) {
             .invalid => void,
             .cols, .rows, .cursor_x, .cursor_y => size.CellCountInt,
-            .cursor_pending_wrap, .cursor_visible, .mouse_tracking, .viewport_active => bool,
+            .cursor_pending_wrap,
+            .cursor_visible,
+            .mouse_tracking,
+            .viewport_active,
+            .vt_processing_error,
+            .vt_ground,
+            .cursor_at_prompt,
+            => bool,
+            .mouse_shape => mouse.Shape,
             .active_screen => TerminalScreen,
             .kitty_keyboard_flags => u8,
             .scrollbar => TerminalScrollbar,
             .cursor_style => style_c.Style,
             .title, .pwd => lib.String,
-            .total_rows, .scrollback_rows => usize,
+            .total_rows,
+            .scrollback_rows,
+            .scrollback_max_bytes,
+            .scrollback_max_lines,
+            .continuation_max_bytes,
+            .clipboard_write_max_bytes,
+            => usize,
             .width_px, .height_px => u32,
             .color_foreground,
             .color_background,
@@ -780,11 +2004,13 @@ pub const TerminalData = enum(c_int) {
             .color_palette, .color_palette_default => color.PaletteC,
             .kitty_image_storage_limit => u64,
             .kitty_image_medium_file,
-            .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
             => bool,
+            .kitty_image_medium_temp_file => lib.String,
             .kitty_graphics => KittyGraphics,
             .selection => selection_c.CSelection,
+            .mode => ModeConfig,
+            .memory_usage => TerminalMemoryUsage,
         };
     }
 };
@@ -795,18 +2021,20 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(TerminalData, @intFromEnum(data)) catch {
-            log.warn("terminal_get invalid data value={d}", .{@intFromEnum(data)});
+        _ = std.enums.fromInt(TerminalData, @backingInt(data)) orelse {
+            log.warn("terminal_get invalid data value={d}", .{@backingInt(data)});
             return .invalid_value;
         };
     }
+
+    const out_ptr = out orelse return .invalid_value;
 
     return switch (data) {
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             terminal_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out_ptr)),
         ),
     };
 }
@@ -837,7 +2065,8 @@ fn getTyped(
     comptime data: TerminalData,
     out: *data.OutType(),
 ) Result {
-    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    const wrapper = terminal_ orelse return .invalid_value;
+    const t: *ZigTerminal = wrapper.terminal;
     switch (data) {
         .invalid => return .invalid_value,
         .cols => out.* = t.cols,
@@ -854,6 +2083,7 @@ fn getTyped(
             t.modes.get(.mouse_event_normal) or
             t.modes.get(.mouse_event_button) or
             t.modes.get(.mouse_event_any),
+        .mouse_shape => out.* = t.mouse_shape,
         .title => {
             const title = t.getTitle() orelse "";
             out.* = .{ .ptr = title.ptr, .len = title.len };
@@ -873,7 +2103,7 @@ fn getTyped(
         .color_background_default => out.* = (t.colors.background.default orelse return .no_value).cval(),
         .color_cursor_default => out.* = (t.colors.cursor.default orelse return .no_value).cval(),
         .color_palette => out.* = color.paletteCval(&t.colors.palette.current),
-        .color_palette_default => out.* = color.paletteCval(&t.colors.palette.original),
+        .color_palette_default => out.* = color.paletteCval(t.colors.palette.original),
         .kitty_image_storage_limit => {
             if (comptime !build_options.kitty_graphics) return .no_value;
             out.* = @intCast(t.screens.active.kitty_images.total_limit);
@@ -884,7 +2114,11 @@ fn getTyped(
         },
         .kitty_image_medium_temp_file => {
             if (comptime !build_options.kitty_graphics) return .no_value;
-            out.* = t.screens.active.kitty_images.image_limits.temporary_file;
+            const dir = switch (t.screens.active.kitty_images.image_limits.temporary_file) {
+                .enabled => |d| d.directory,
+                .disabled => "",
+            };
+            out.* = .init(dir);
         },
         .kitty_image_medium_shared_mem => {
             if (comptime !build_options.kitty_graphics) return .no_value;
@@ -898,6 +2132,38 @@ fn getTyped(
             t.screens.active.selection orelse return .no_value,
         ),
         .viewport_active => out.* = t.screens.active.pages.viewport == .active,
+        .vt_processing_error => out.* = wrapper.stream.handler.semantic_failure,
+        .vt_ground => out.* = wrapper.stream.ground(),
+        .scrollback_max_bytes => {
+            const max = t.screens.get(.primary).?.pages.limits.bytes.explicit;
+            if (max == std.math.maxInt(usize)) return .no_value;
+            out.* = max;
+        },
+        .scrollback_max_lines => {
+            const max = t.screens.get(.primary).?.pages.limits.lines.explicit;
+            if (max == std.math.maxInt(usize)) return .no_value;
+            out.* = max;
+        },
+        .continuation_max_bytes => out.* = continuationMaxBytes(wrapper),
+        .clipboard_write_max_bytes => out.* = wrapper.stream.handler.kitty_clipboard_write_max_bytes,
+        .mode => {
+            const mode = out.toMode() orelse return .invalid_value;
+            out.value = t.modes.get(mode);
+        },
+        .cursor_at_prompt => out.* = t.cursorIsAtPrompt(),
+        .memory_usage => {
+            // A smaller size means the caller doesn't have every field of
+            // the first version of this struct, so reject it. A larger size
+            // means the caller was built against a newer version with more
+            // fields. We write only the fields we know and leave the rest
+            // alone.
+            //
+            // When fields are added later, compare against the size of the
+            // first version here, and copy only min(out.size, current size)
+            // bytes.
+            if (out.size < @sizeOf(TerminalMemoryUsage)) return .invalid_value;
+            out.* = .init(t, out.size);
+        },
     }
 
     return .success;
@@ -980,10 +2246,21 @@ pub fn free(terminal_: Terminal) callconv(lib.calling_conv) void {
 
     for (wrapper.tracked_grid_refs.keys()) |ref| ref.terminal = null;
     wrapper.tracked_grid_refs.deinit(alloc);
+    for (wrapper.searches.keys()) |search| search.terminal = null;
+    wrapper.searches.deinit(alloc);
     wrapper.stream.deinit();
     t.deinit(alloc);
+    if (wrapper.tmp_dir_path) |path| alloc.free(path);
     alloc.destroy(t);
     alloc.destroy(wrapper);
+}
+
+fn testEnableContinuation(terminal: Terminal) !void {
+    const limit: usize = 1024;
+    try testing.expectEqual(
+        Result.success,
+        set(terminal, .continuation_max_bytes, &limit),
+    );
 }
 
 test "new/free" {
@@ -991,11 +2268,8 @@ test "new/free" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
 
     try testing.expect(t != null);
@@ -1008,24 +2282,390 @@ test "new invalid value" {
     try testing.expectEqual(Result.invalid_value, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 0,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        0,
+        24,
     ));
     try testing.expect(t == null);
 
     try testing.expectEqual(Result.invalid_value, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 0,
-            .max_scrollback = 10_000,
-        },
+        80,
+        0,
     ));
     try testing.expect(t == null);
+}
+
+test "continuation option and data" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var value: usize = 0;
+    try testing.expectEqual(
+        Result.success,
+        get(t, .continuation_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(default_continuation_max_bytes, value);
+
+    const custom: usize = 1234;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &custom),
+    );
+    try testing.expectEqual(
+        Result.success,
+        get(t, .continuation_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(custom, value);
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, null),
+    );
+    try testing.expectEqual(
+        Result.success,
+        get(t, .continuation_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(default_continuation_max_bytes, value);
+
+    const disabled: usize = 0;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &disabled),
+    );
+    try testing.expectEqual(
+        Result.success,
+        get(t, .continuation_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(@as(usize, 0), value);
+
+    var written: usize = 99;
+    try testing.expectEqual(
+        Result.invalid_value,
+        continuation_buf(t, null, 0, &written),
+    );
+    try testing.expectEqual(@as(usize, 0), written);
+}
+
+test "continuation buffer and allocator export exact suffix" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+    try testEnableContinuation(t);
+
+    vt_write(t, "A\x1b[31", 5);
+
+    var required: usize = 0;
+    try testing.expectEqual(
+        Result.out_of_space,
+        continuation_buf(t, null, 0, &required),
+    );
+    try testing.expectEqual(@as(usize, 4), required);
+
+    var short: [2]u8 = undefined;
+    try testing.expectEqual(
+        Result.out_of_space,
+        continuation_buf(t, &short, short.len, &required),
+    );
+    try testing.expectEqual(@as(usize, 4), required);
+
+    var buf: [8]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, &buf, buf.len, &written),
+    );
+    try testing.expectEqualStrings("\x1b[31", buf[0..written]);
+
+    var out_ptr: ?[*]u8 = null;
+    var out_len: usize = 0;
+    try testing.expectEqual(Result.success, continuation_alloc(
+        t,
+        &lib.alloc.test_allocator,
+        &out_ptr,
+        &out_len,
+    ));
+    const allocated = (out_ptr orelse return error.TestExpectedEqual)[0..out_len];
+    defer lib.alloc.default(&lib.alloc.test_allocator).free(allocated);
+    try testing.expectEqualStrings("\x1b[31", allocated);
+
+    vt_write(t, "m", 1);
+    try testing.expectEqual(
+        Result.out_of_space,
+        continuation_buf(t, null, 0, &required),
+    );
+    try testing.expectEqual(@as(usize, 0), required);
+
+    // Completing the sequence must return an empty, allocation-free result.
+    const failing: CAllocator = .fromZig(&std.mem.Allocator.failing);
+    try testing.expectEqual(Result.success, continuation_alloc(t, &failing, &out_ptr, &out_len));
+    defer @import("allocator.zig").free(&failing, out_ptr, out_len);
+    try testing.expectEqual(null, out_ptr);
+    try testing.expectEqual(@as(usize, 0), out_len);
+}
+
+test "continuation export tracks split UTF-8" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+    try testEnableContinuation(t);
+
+    const prefix = [_]u8{ 0xF0, 0x9F };
+    vt_write(t, &prefix, prefix.len);
+
+    var buf: [4]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, &buf, buf.len, &written),
+    );
+    try testing.expectEqualSlices(u8, &prefix, buf[0..written]);
+
+    const suffix = [_]u8{ 0x98, 0x80 };
+    vt_write(t, &suffix, suffix.len);
+    try testing.expectEqual(
+        Result.out_of_space,
+        continuation_buf(t, null, 0, &written),
+    );
+    try testing.expectEqual(@as(usize, 0), written);
+}
+
+test "continuation callback writer reports success and failure" {
+    const Sink = struct {
+        bytes: [8]u8 = undefined,
+        len: usize = 0,
+
+        fn write(
+            userdata: ?*anyopaque,
+            data: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) bool {
+            const self: *@This() = @ptrCast(@alignCast(userdata.?));
+            if (len > self.bytes.len - self.len) return false;
+            @memcpy(self.bytes[self.len..][0..len], data[0..len]);
+            self.len += len;
+            return true;
+        }
+
+        fn fail(
+            _: ?*anyopaque,
+            _: [*]const u8,
+            _: usize,
+        ) callconv(lib.calling_conv) bool {
+            return false;
+        }
+    };
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+    try testEnableContinuation(t);
+    vt_write(t, "\x1b[31", 4);
+
+    var sink: Sink = .{};
+    try testing.expectEqual(Result.success, continuation_write(t, .{
+        .write = &Sink.write,
+        .userdata = &sink,
+    }));
+    try testing.expectEqualStrings("\x1b[31", sink.bytes[0..sink.len]);
+
+    try testing.expectEqual(Result.io_error, continuation_write(t, .{
+        .write = &Sink.fail,
+    }));
+    try testing.expectEqual(
+        Result.invalid_value,
+        continuation_write(t, .{}),
+    );
+    try testing.expectEqual(Result.invalid_value, continuation_write(null, .{
+        .write = &Sink.fail,
+    }));
+}
+
+test "continuation runtime reconfiguration recovers safely" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const enough: usize = 8;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &enough),
+    );
+    vt_write(t, "\x1b[123", 5);
+    const too_small: usize = 2;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &too_small),
+    );
+
+    var written: usize = 99;
+    try testing.expectEqual(
+        Result.invalid_value,
+        continuation_buf(t, null, 0, &written),
+    );
+    try testing.expectEqual(@as(usize, 0), written);
+
+    // Raising the limit cannot reconstruct discarded bytes, but a new ESC is
+    // a complete replay start and repairs tracking without first grounding.
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &enough),
+    );
+    vt_write(t, "\x1b[", 2);
+    var buf: [8]u8 = undefined;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, &buf, buf.len, &written),
+    );
+    try testing.expectEqualStrings("\x1b[", buf[0..written]);
+
+    const disabled: usize = 0;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &disabled),
+    );
+    try testing.expectEqual(
+        Result.success,
+        set(t, .continuation_max_bytes, &enough),
+    );
+    try testing.expectEqual(
+        Result.invalid_value,
+        continuation_buf(t, null, 0, &written),
+    );
+
+    // Completing the sequence reaches ground and resets the broken marker.
+    vt_write(t, "m", 1);
+    try testing.expectEqual(
+        Result.out_of_space,
+        continuation_buf(t, null, 0, &written),
+    );
+    try testing.expectEqual(@as(usize, 0), written);
+}
+
+test "continuation internal allocation and restoration" {
+    var source: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &source,
+        80,
+        24,
+    ));
+    defer free(source);
+    try testEnableContinuation(source);
+    vt_write(source, "\x1b[31", 4);
+
+    const alloc = lib.alloc.default(&lib.alloc.test_allocator);
+    const bytes = try continuationAllocIo(source, alloc, false);
+    defer alloc.free(bytes);
+    try testing.expectEqualStrings("\x1b[31", bytes);
+
+    var restored: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &restored,
+        80,
+        24,
+    ));
+    defer free(restored);
+    try testEnableContinuation(restored);
+    try restoreContinuation(restored, bytes);
+
+    const reexported = try continuationAllocIo(restored, alloc, false);
+    defer alloc.free(reexported);
+    try testing.expectEqualStrings(bytes, reexported);
+
+    var invalid: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &invalid,
+        80,
+        24,
+    ));
+    defer free(invalid);
+    try testEnableContinuation(invalid);
+    try testing.expectError(
+        error.InvalidContinuation,
+        restoreContinuation(invalid, "A"),
+    );
+}
+
+test "set scrollback limits" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        3,
+    ));
+    defer free(t);
+
+    const primary = t.?.terminal.screens.get(.primary).?;
+
+    const max_bytes: usize = 0;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_bytes, &max_bytes),
+    );
+    try testing.expectEqual(
+        @as(usize, 0),
+        primary.pages.limits.bytes.explicit,
+    );
+    try testing.expect(primary.no_scrollback);
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_bytes, null),
+    );
+    try testing.expectEqual(
+        std.math.maxInt(usize),
+        primary.pages.limits.bytes.explicit,
+    );
+    try testing.expect(!primary.no_scrollback);
+
+    const max_lines: usize = 12;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_lines, &max_lines),
+    );
+    try testing.expectEqual(
+        max_lines,
+        primary.pages.limits.lines.explicit,
+    );
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_lines, null),
+    );
+    try testing.expectEqual(
+        std.math.maxInt(usize),
+        primary.pages.limits.lines.explicit,
+    );
 }
 
 test "free null" {
@@ -1037,11 +2677,8 @@ test "scroll_viewport" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 5,
-            .rows = 2,
-            .max_scrollback = 10_000,
-        },
+        5,
+        2,
     ));
     defer free(t);
 
@@ -1099,11 +2736,8 @@ test "scroll_viewport row" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 5,
-            .rows = 2,
-            .max_scrollback = 10_000,
-        },
+        5,
+        2,
     ));
     defer free(t);
 
@@ -1159,11 +2793,8 @@ test "scroll_viewport row alt screen" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 5,
-            .rows = 2,
-            .max_scrollback = 10_000,
-        },
+        5,
+        2,
     ));
     defer free(t);
 
@@ -1190,6 +2821,274 @@ test "scroll_viewport row alt screen" {
     try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
 }
 
+test "scroll_viewport delta_prompt" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        2,
+    ));
+    defer free(t);
+
+    const transcript =
+        "\x1b]133;P;k=i\x07p1\r\n" ++
+        "\x1b]133;B\x07cmd1\r\n" ++
+        "\x1b]133;C\x07out1\r\n" ++
+        "\x1b]133;P;k=i\x07p2\r\n" ++
+        "\x1b]133;B\x07cmd2\r\n" ++
+        "\x1b]133;C\x07out2\r\n" ++
+        "\x1b]133;P;k=i\x07p3\r\n" ++
+        "\x1b]133;B\x07cmd3\r\n" ++
+        "\x1b]133;C\x07out3\r\n" ++
+        "\x1b]133;P;k=i\x07p4";
+    vt_write(t, transcript, transcript.len);
+
+    var scrollbar_data: TerminalScrollbar = undefined;
+
+    // A negative count goes to the previous prompt, and a positive count
+    // returns to the next prompt relative to the current viewport top.
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 6), scrollbar_data.offset);
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 3), scrollbar_data.offset);
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 6), scrollbar_data.offset);
+
+    // Counts beyond the retained prompt history clamp to the oldest or
+    // newest matching prompt, including the signed minimum boundary.
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = std.math.minInt(isize) } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = std.math.maxInt(isize) } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 8), scrollbar_data.offset);
+
+    // A zero count leaves the selected prompt unchanged.
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 0 } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 8), scrollbar_data.offset);
+}
+
+test "scroll_viewport delta_prompt continuation" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        2,
+    ));
+    defer free(t);
+
+    const transcript =
+        "\x1b]133;P;k=i\x07p1\r\n" ++
+        "\x1b]133;P;k=c\x07p1-continued\r\n" ++
+        "\x1b]133;B\x07cmd1\r\n" ++
+        "\x1b]133;C\x07out1\r\n" ++
+        "\x1b]133;P;k=i\x07p2\r\n" ++
+        "\x1b]133;B\x07cmd2\r\n" ++
+        "\x1b]133;C\x07out2";
+    vt_write(t, transcript, transcript.len);
+
+    // The continuation row belongs to the first prompt group. Moving
+    // forward from that group lands on the second prompt.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 4), scrollbar_data.offset);
+}
+
+test "scroll_viewport delta_prompt final continuation snaps to active" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        3,
+    ));
+    defer free(t);
+
+    const transcript =
+        "\x1b]133;P;k=i\x07prompt\r\n" ++
+        "\x1b]133;P;k=c\x07continued\r\n" ++
+        "continued\r\ncontinued\r\ncontinued\r\ncontinued\r\ncontinued";
+    vt_write(t, transcript, transcript.len);
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } });
+
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 1), scrollbar_data.offset);
+
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 4), scrollbar_data.offset);
+}
+
+test "scroll_viewport delta_prompt no markers and alternate screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        2,
+    ));
+    defer free(t);
+
+    const history = "one\r\ntwo\r\nthree\r\nfour";
+    vt_write(t, history, history.len);
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+
+    // Without OSC 133 prompt markers, a request leaves the viewport alone.
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
+
+    const alternate_screen = "\x1b[?1049h";
+    vt_write(t, alternate_screen, alternate_screen.len);
+    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } });
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.total);
+}
+
+test "get memory_usage" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var fresh: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&fresh)));
+    try testing.expectEqual(@sizeOf(TerminalMemoryUsage), fresh.size);
+    try testing.expectEqual(terminal_mem.canReclaim(.strict), fresh.compression_supported);
+    try testing.expect(fresh.primary_pages > 0);
+    try testing.expect(fresh.primary_virtual_bytes > 0);
+    try testing.expect(fresh.primary_resident_bytes <= fresh.primary_virtual_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.primary_compressed_pages);
+    try testing.expectEqual(@as(u64, 0), fresh.primary_compressed_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.primary_image_bytes);
+
+    // The alternate screen doesn't exist yet.
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_pages);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_virtual_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_resident_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_compressed_pages);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_compressed_bytes);
+    try testing.expectEqual(@as(u64, 0), fresh.alternate_image_bytes);
+
+    // Write compressible history.
+    const line = "repeated and compressible terminal history\r\n";
+    const repeat = 4_000;
+    const input = try testing.allocator.alloc(u8, line.len * repeat);
+    defer testing.allocator.free(input);
+    for (0..repeat) |i|
+        @memcpy(input[i * line.len ..][0..line.len], line);
+    vt_write(t, input.ptr, input.len);
+
+    var history: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&history)));
+    try testing.expect(history.primary_pages > fresh.primary_pages);
+    try testing.expect(history.primary_resident_bytes > fresh.primary_resident_bytes);
+
+    var compression_result: CompressionResult = undefined;
+    try testing.expectEqual(
+        Result.success,
+        compress(t, @backingInt(CompressionMode.full), &compression_result),
+    );
+    try testing.expectEqual(
+        history.compression_supported,
+        compression_result == .complete,
+    );
+
+    var compressed: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&compressed)));
+    try testing.expectEqual(history.primary_pages, compressed.primary_pages);
+    try testing.expectEqual(history.primary_virtual_bytes, compressed.primary_virtual_bytes);
+    if (compressed.compression_supported) {
+        try testing.expect(compressed.primary_compressed_pages > 0);
+        try testing.expect(compressed.primary_compressed_bytes > 0);
+        try testing.expect(compressed.primary_resident_bytes < history.primary_resident_bytes);
+    } else {
+        try testing.expectEqual(@as(u64, 0), compressed.primary_compressed_pages);
+    }
+
+    // The query never restores a compressed page.
+    var again: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&again)));
+    try testing.expectEqual(compressed, again);
+
+    // Kitty images are counted separately from pages.
+    if (comptime build_options.kitty_graphics) {
+        // 1x2 RGB image, 6 bytes of pixel data.
+        const transmit = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\";
+        vt_write(t, transmit.ptr, transmit.len);
+        var images: TerminalMemoryUsage = .{};
+        try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&images)));
+        try testing.expect(images.primary_image_bytes > 0);
+
+        const delete = "\x1b_Ga=d,d=I,i=1\x1b\\";
+        vt_write(t, delete.ptr, delete.len);
+        try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&images)));
+        try testing.expectEqual(@as(u64, 0), images.primary_image_bytes);
+    }
+
+    // Entering the alternate screen creates it.
+    vt_write(t, "\x1b[?1049h", 8);
+    var alternate: TerminalMemoryUsage = .{};
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&alternate)));
+    try testing.expect(alternate.alternate_pages > 0);
+    try testing.expect(alternate.alternate_virtual_bytes > 0);
+    try testing.expect(alternate.alternate_resident_bytes > 0);
+    try testing.expect(alternate.alternate_resident_bytes <= alternate.alternate_virtual_bytes);
+    try testing.expectEqual(compressed.primary_pages, alternate.primary_pages);
+}
+
+test "get memory_usage size rule" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // A size smaller than the first layout is rejected and nothing is
+    // written.
+    var small: TerminalMemoryUsage = .{
+        .size = @sizeOf(TerminalMemoryUsage) - 1,
+        .primary_pages = 1234,
+    };
+    try testing.expectEqual(Result.invalid_value, get(t, .memory_usage, @ptrCast(&small)));
+    try testing.expectEqual(@sizeOf(TerminalMemoryUsage) - 1, small.size);
+    try testing.expectEqual(@as(u64, 1234), small.primary_pages);
+
+    // A size larger than ours, from a caller built against a newer
+    // layout, gets the known prefix and the rest is left untouched.
+    const Larger = extern struct {
+        usage: TerminalMemoryUsage,
+        extra: u64,
+    };
+    var large: Larger = .{
+        .usage = .{ .size = @sizeOf(Larger) },
+        .extra = 0xDEADBEEF,
+    };
+    try testing.expectEqual(Result.success, get(t, .memory_usage, @ptrCast(&large)));
+    try testing.expectEqual(@sizeOf(Larger), large.usage.size);
+    try testing.expect(large.usage.primary_pages > 0);
+    try testing.expectEqual(@as(u64, 0xDEADBEEF), large.extra);
+}
+
 test "scroll_viewport null" {
     scroll_viewport(null, .{ .tag = .top, .value = undefined });
     scroll_viewport(null, .{ .tag = .row, .value = .{ .row = 1 } });
@@ -1205,18 +3104,15 @@ test "compression invalid arguments" {
     );
     try testing.expectEqual(
         Result.invalid_value,
-        compress(null, @intFromEnum(CompressionMode.incremental), &compression_result),
+        compress(null, @backingInt(CompressionMode.incremental), &compression_result),
     );
 
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1226,7 +3122,7 @@ test "compression invalid arguments" {
     );
     try testing.expectEqual(
         Result.invalid_value,
-        compress(t, @intFromEnum(CompressionMode.incremental), null),
+        compress(t, @backingInt(CompressionMode.incremental), null),
     );
     try testing.expectEqual(
         Result.invalid_value,
@@ -1239,11 +3135,8 @@ test "compression activity and incremental scheduling" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1274,7 +3167,7 @@ test "compression activity and incremental scheduling" {
             Result.success,
             compress(
                 t,
-                @intFromEnum(CompressionMode.incremental),
+                @backingInt(CompressionMode.incremental),
                 &compression_result,
             ),
         );
@@ -1296,7 +3189,7 @@ test "compression activity and incremental scheduling" {
 
     try testing.expectEqual(
         Result.success,
-        compress(t, @intFromEnum(CompressionMode.full), &compression_result),
+        compress(t, @backingInt(CompressionMode.full), &compression_result),
     );
     try testing.expectEqual(CompressionResult.complete, compression_result);
 }
@@ -1306,11 +3199,8 @@ test "reset" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1331,11 +3221,8 @@ test "resize" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1353,11 +3240,8 @@ test "resize invalid value" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1370,11 +3254,8 @@ test "resize shrinks both axes with cursor at bottom" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1389,85 +3270,152 @@ test "resize shrinks both axes with cursor at bottom" {
     try testing.expectEqual(23, t.?.terminal.rows);
 }
 
-test "mode_get and mode_set" {
+test "set and get mode" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
-
-    var value: bool = undefined;
 
     // DEC mode 25 (cursor_visible) defaults to true
     const cursor_visible: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.success, mode_get(t, cursor_visible, &value));
-    try testing.expect(value);
+    var config: ModeConfig = .{ .mode = cursor_visible, .value = undefined };
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(config.value);
 
     // Set it to false
-    try testing.expectEqual(Result.success, mode_set(t, cursor_visible, false));
-    try testing.expectEqual(Result.success, mode_get(t, cursor_visible, &value));
-    try testing.expect(!value);
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(!config.value);
 
     // ANSI mode 4 (insert) defaults to false
     const insert: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 4, .ansi = true });
-    try testing.expectEqual(Result.success, mode_get(t, insert, &value));
-    try testing.expect(!value);
+    config.mode = insert;
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(!config.value);
 
-    try testing.expectEqual(Result.success, mode_set(t, insert, true));
-    try testing.expectEqual(Result.success, mode_get(t, insert, &value));
-    try testing.expect(value);
+    config.value = true;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.success, get(t, .mode, @ptrCast(&config)));
+    try testing.expect(config.value);
 }
 
-test "mode_get null" {
-    var value: bool = undefined;
-    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_get(null, tag, &value));
-}
-
-test "mode_set null" {
-    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_set(null, tag, true));
-}
-
-test "mode_get unknown mode" {
+test "set mode default updates current and reset value" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
-    var value: bool = undefined;
-    const unknown: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_get(t, unknown, &value));
+    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{
+        .value = 2027,
+        .ansi = false,
+    });
+    var config: ModeConfig = .{ .mode = tag, .value = true };
+    try testing.expectEqual(Result.success, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+    try testing.expect(t.?.terminal.modes.get(.grapheme_cluster));
+    try testing.expect(t.?.terminal.modes.default.grapheme_cluster);
+
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    try testing.expect(!t.?.terminal.modes.get(.grapheme_cluster));
+    try testing.expect(t.?.terminal.modes.default.grapheme_cluster);
+
+    // Setting the default also unconditionally replaces the current value.
+    config.value = true;
+    try testing.expectEqual(Result.success, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+    try testing.expect(t.?.terminal.modes.get(.grapheme_cluster));
+
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    vt_write(t, "\x1bc", 2);
+    try testing.expect(t.?.terminal.modes.get(.grapheme_cluster));
+
+    config.value = false;
+    try testing.expectEqual(Result.success, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+    try testing.expect(!t.?.terminal.modes.get(.grapheme_cluster));
+    try testing.expect(!t.?.terminal.modes.default.grapheme_cluster);
 }
 
-test "mode_set unknown mode" {
+test "set mode default validates configuration" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
-    const unknown: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false });
-    try testing.expectEqual(Result.invalid_value, mode_set(t, unknown, true));
+    try testing.expectEqual(Result.invalid_value, set(
+        t,
+        .mode_default,
+        null,
+    ));
+
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.invalid_value, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+
+    config.mode = @bitCast(modes.ModeTag{ .value = 1047, .ansi = false });
+    try testing.expectEqual(Result.invalid_value, set(
+        t,
+        .mode_default,
+        @ptrCast(&config),
+    ));
+}
+
+test "set and get mode null" {
+    const tag: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
+    var config: ModeConfig = .{ .mode = tag, .value = true };
+    try testing.expectEqual(Result.invalid_value, set(null, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.invalid_value, get(null, .mode, @ptrCast(&config)));
+}
+
+test "set and get mode validate configuration" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    try testing.expectEqual(Result.invalid_value, set(t, .mode, null));
+    try testing.expectEqual(Result.invalid_value, get(t, .mode, null));
+
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 9999, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.invalid_value, set(t, .mode, @ptrCast(&config)));
+    try testing.expectEqual(Result.invalid_value, get(t, .mode, @ptrCast(&config)));
 }
 
 test "vt_write" {
@@ -1475,11 +3423,8 @@ test "vt_write" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1490,16 +3435,582 @@ test "vt_write" {
     try testing.expectEqualStrings("Hello", str);
 }
 
+test "vt_write_until ground stops at the first ground byte" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const ground: u32 = @backingInt(Boundary.ground);
+
+    // Input remains untouched when the stream is already at ground.
+    var stop: WriteStop = .{};
+    const untouched = "unprocessed";
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, untouched, untouched.len, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 0), stop.consumed);
+
+    // Complete a split CSI and stop before inspecting the printable suffix.
+    vt_write(t, "\x1b[31", 4);
+    const input = "mABC\x1b[";
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input, input.len, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 1), stop.consumed);
+    try testing.expect(t.?.stream.ground());
+
+    var str = try t.?.terminal.plainString(testing.allocator);
+    try testing.expectEqualStrings("", str);
+    testing.allocator.free(str);
+
+    // The untouched suffix can be processed after work at the boundary.
+    vt_write(t, input.ptr + stop.consumed, input.len - stop.consumed);
+    str = try t.?.terminal.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("ABC", str);
+    try testing.expect(!t.?.stream.ground());
+
+    // Exhausting input while unfinished is distinct from reaching ground on
+    // the final byte, even though both consume the entire input.
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until(t, "123", 3, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 3), stop.consumed);
+    try testing.expect(!t.?.stream.ground());
+
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, "m", 1, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 1), stop.consumed);
+    try testing.expect(t.?.stream.ground());
+}
+
+test "vt_write_until ground handles UTF-8 and abort boundaries" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const ground: u32 = @backingInt(Boundary.ground);
+
+    var at_ground: bool = false;
+    try testing.expectEqual(
+        Result.success,
+        get(t, .vt_ground, @ptrCast(&at_ground)),
+    );
+    try testing.expect(at_ground);
+
+    vt_write(t, &.{0xF0}, 1);
+    try testing.expectEqual(
+        Result.success,
+        get(t, .vt_ground, @ptrCast(&at_ground)),
+    );
+    try testing.expect(!at_ground);
+
+    const utf8_suffix = [_]u8{ 0x9F, 0x98, 0x84 };
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, &utf8_suffix, utf8_suffix.len, ground, &stop),
+    );
+    try testing.expectEqual(utf8_suffix.len, stop.consumed);
+    try testing.expect(t.?.stream.ground());
+
+    // A malformed continuation resets the decoder and reaches ground after
+    // processing the retry byte.
+    vt_write(t, &.{ 0xE0, 0xA0 }, 2);
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, "A", 1, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 1), stop.consumed);
+    try testing.expect(t.?.stream.ground());
+
+    vt_write(t, "\x1b[123", 5);
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, &.{0x18}, 1, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 1), stop.consumed);
+    try testing.expect(t.?.stream.ground());
+}
+
+test "vt_write_until invokes effects only for consumed input" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const ground: u32 = @backingInt(Boundary.ground);
+
+    const S = struct {
+        var bell_count: usize = 0;
+
+        fn bell(_: Terminal, _: ?*anyopaque) callconv(lib.calling_conv) void {
+            bell_count += 1;
+        }
+    };
+    S.bell_count = 0;
+    try testing.expectEqual(Result.success, set(t, .bell, @ptrCast(&S.bell)));
+
+    vt_write(t, "\x1b[31", 4);
+    const input = "m\x07";
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input, input.len, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 1), stop.consumed);
+    try testing.expectEqual(@as(usize, 0), S.bell_count);
+
+    vt_write(t, input.ptr + stop.consumed, input.len - stop.consumed);
+    try testing.expectEqual(@as(usize, 1), S.bell_count);
+}
+
+test "vt_write_until result contract" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const ground: u32 = @backingInt(Boundary.ground);
+    const apc_start: u32 = @backingInt(Boundary.apc_start);
+    const apc_end: u32 = @backingInt(Boundary.apc_end);
+
+    // Fill every field so each invalid call below must reset them.
+    const stale: WriteStop = .{
+        .consumed = 99,
+        .reached = 99,
+        .kind = .osc,
+        .introducer = .c1,
+        .end = .aborted,
+        .byte = 99,
+    };
+
+    var stop: WriteStop = stale;
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until(null, "x", 1, ground, &stop),
+    );
+    try testing.expectEqual(WriteStop{}, stop);
+
+    stop = stale;
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until(t, null, 1, ground, &stop),
+    );
+    try testing.expectEqual(WriteStop{}, stop);
+
+    for ([_]u32{ 0, 1 << 7, 1 << 31, ground | 1 << 7 }) |bits| {
+        stop = stale;
+        try testing.expectEqual(
+            Result.invalid_value,
+            vt_write_until(t, "x", 1, bits, &stop),
+        );
+        try testing.expectEqual(WriteStop{}, stop);
+    }
+
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until(t, "x", 1, ground, null),
+    );
+
+    // A struct one byte short is rejected and left untouched.
+    stop = stale;
+    stop.size = @sizeOf(WriteStop) - 1;
+    try testing.expectEqual(
+        Result.invalid_value,
+        vt_write_until(t, "x", 1, ground, &stop),
+    );
+    try testing.expectEqual(@as(usize, 99), stop.consumed);
+
+    // Already at ground with ground requested consumes nothing.
+    stop = stale;
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, "x", 1, ground | apc_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{ .reached = ground }, stop);
+
+    // No boundary in the whole slice fills consumed and zeroes reached.
+    stop = stale;
+    const text = "hello";
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until(t, text, text.len, apc_start | apc_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{ .consumed = text.len }, stop);
+
+    // NULL with len 0 is an empty slice.
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until(t, null, 0, apc_start, &stop),
+    );
+    try testing.expectEqual(WriteStop{}, stop);
+}
+
+test "vt_write_until kitty apc start and end" {
+    const apc_start: u32 = @backingInt(Boundary.apc_start);
+    const apc_end: u32 = @backingInt(Boundary.apc_end);
+    const ground: u32 = @backingInt(Boundary.ground);
+    const input = "\x1b_Gf=100,s=1,v=1;AAAA\x1b\\";
+    const content = "Gf=100,s=1,v=1;AAAA";
+
+    for ([_]bool{ false, true }) |with_ground| {
+        var t: Terminal = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &t,
+            80,
+            24,
+        ));
+        defer free(t);
+
+        // The start stop covers ESC and '_'.
+        var stop: WriteStop = .{};
+        try testing.expectEqual(
+            Result.success,
+            vt_write_until(t, input, input.len, apc_start | apc_end, &stop),
+        );
+        try testing.expectEqual(WriteStop{
+            .consumed = 2,
+            .reached = apc_start,
+            .kind = .apc,
+            .introducer = .esc,
+            .byte = '_',
+        }, stop);
+        var off: usize = stop.consumed;
+        try testing.expectEqual(@as(u8, 'G'), input[off]);
+
+        // The end stop consumes the ESC of ESC \ but not the backslash.
+        try testing.expectEqual(
+            Result.success,
+            vt_write_until(t, input[off..].ptr, input.len - off, apc_start | apc_end, &stop),
+        );
+        try testing.expectEqual(WriteStop{
+            .consumed = content.len + 1,
+            .reached = apc_end,
+            .kind = .apc,
+            .end = .st_esc,
+            .byte = 0x1B,
+        }, stop);
+        try testing.expectEqualStrings(content, input[off..][0..content.len]);
+        off += stop.consumed;
+        try testing.expectEqual(@as(usize, input.len - 1), off);
+
+        // The backslash completes the escape, reaching ground only.
+        if (with_ground) {
+            try testing.expectEqual(
+                Result.success,
+                vt_write_until(t, "\\", 1, ground | apc_start | apc_end, &stop),
+            );
+            try testing.expectEqual(WriteStop{ .consumed = 1, .reached = ground }, stop);
+        } else {
+            try testing.expectEqual(
+                Result.no_value,
+                vt_write_until(t, "\\", 1, apc_start | apc_end, &stop),
+            );
+            try testing.expectEqual(WriteStop{ .consumed = 1 }, stop);
+        }
+        try testing.expect(t.?.stream.ground());
+    }
+}
+
+test "vt_write_until split introducer" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const apc_start: u32 = @backingInt(Boundary.apc_start);
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until(t, "\x1b", 1, apc_start, &stop),
+    );
+    try testing.expectEqual(WriteStop{ .consumed = 1 }, stop);
+
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, "_G", 2, apc_start, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = 1,
+        .reached = apc_start,
+        .kind = .apc,
+        .introducer = .esc,
+        .byte = '_',
+    }, stop);
+}
+
+test "vt_write_until c1 introducer" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // At ground a raw C1 byte goes through the UTF-8 decoder, so the
+    // introducer is only recognized from inside another sequence.
+    vt_write(t, "\x1b[1", 3);
+
+    const apc_start: u32 = @backingInt(Boundary.apc_start);
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, &.{ 0x9F, 'G' }, 2, apc_start, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = 1,
+        .reached = apc_start,
+        .kind = .apc,
+        .introducer = .c1,
+        .byte = 0x9F,
+    }, stop);
+}
+
+test "vt_write_until string end that reaches ground" {
+    const ground: u32 = @backingInt(Boundary.ground);
+    const apc_end: u32 = @backingInt(Boundary.apc_end);
+
+    for ([_]struct { byte: u8, end: StringEnd }{
+        .{ .byte = 0x18, .end = .cancelled },
+        .{ .byte = 0x9C, .end = .st_c1 },
+    }) |case| {
+        var t: Terminal = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &t,
+            80,
+            24,
+        ));
+        defer free(t);
+
+        vt_write(t, "\x1b_Gab", 5);
+        const input = [_]u8{ case.byte, 'x' };
+        var stop: WriteStop = .{};
+        try testing.expectEqual(
+            Result.success,
+            vt_write_until(t, &input, input.len, ground | apc_end, &stop),
+        );
+        try testing.expectEqual(WriteStop{
+            .consumed = 1,
+            .reached = ground | apc_end,
+            .kind = .apc,
+            .end = case.end,
+            .byte = case.byte,
+        }, stop);
+    }
+}
+
+test "vt_write_until sos and pm report as apc" {
+    const apc_start: u32 = @backingInt(Boundary.apc_start);
+
+    for ("X^") |final| {
+        var t: Terminal = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &t,
+            80,
+            24,
+        ));
+        defer free(t);
+
+        const input = [_]u8{ 0x1B, final, 'a' };
+        var stop: WriteStop = .{};
+        try testing.expectEqual(
+            Result.success,
+            vt_write_until(t, &input, input.len, apc_start, &stop),
+        );
+        try testing.expectEqual(WriteStop{
+            .consumed = 2,
+            .reached = apc_start,
+            .kind = .apc,
+            .introducer = .esc,
+            .byte = final,
+        }, stop);
+    }
+}
+
+test "vt_write_until osc start and bel end" {
+    const osc_start: u32 = @backingInt(Boundary.osc_start);
+    const osc_end: u32 = @backingInt(Boundary.osc_end);
+    const ground: u32 = @backingInt(Boundary.ground);
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // The start stop covers ESC and ']'.
+    const input = "\x1b]2;title\x07x";
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input, input.len, osc_start | osc_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = 2,
+        .reached = osc_start,
+        .kind = .osc,
+        .introducer = .esc,
+        .byte = ']',
+    }, stop);
+    var off: usize = stop.consumed;
+
+    // BEL ends the string and reaches ground on the same byte.
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input[off..].ptr, input.len - off, ground | osc_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = "2;title".len + 1,
+        .reached = ground | osc_end,
+        .kind = .osc,
+        .end = .bel,
+        .byte = 0x07,
+    }, stop);
+    off += stop.consumed;
+    try testing.expectEqual(@as(usize, input.len - 1), off);
+    try testing.expect(t.?.stream.ground());
+}
+
+test "vt_write_until dcs start and end" {
+    const dcs_start: u32 = @backingInt(Boundary.dcs_start);
+    const dcs_end: u32 = @backingInt(Boundary.dcs_end);
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // The start stop covers ESC and 'P', before the header.
+    const input = "\x1bP1;2|data\x1b\\";
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input, input.len, dcs_start | dcs_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = 2,
+        .reached = dcs_start,
+        .kind = .dcs,
+        .introducer = .esc,
+        .byte = 'P',
+    }, stop);
+    var off: usize = stop.consumed;
+    try testing.expectEqual(@as(u8, '1'), input[off]);
+
+    // The end stop consumes the ESC of ESC \ but not the backslash.
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input[off..].ptr, input.len - off, dcs_start | dcs_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = "1;2|data".len + 1,
+        .reached = dcs_end,
+        .kind = .dcs,
+        .end = .st_esc,
+        .byte = 0x1B,
+    }, stop);
+    off += stop.consumed;
+    try testing.expectEqual(@as(usize, input.len - 1), off);
+
+    try testing.expectEqual(
+        Result.no_value,
+        vt_write_until(t, "\\", 1, dcs_start | dcs_end, &stop),
+    );
+    try testing.expect(t.?.stream.ground());
+}
+
+test "vt_write_until string end that is also a string start" {
+    const apc_end: u32 = @backingInt(Boundary.apc_end);
+    const osc_start: u32 = @backingInt(Boundary.osc_start);
+    const osc_end: u32 = @backingInt(Boundary.osc_end);
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // 0x9D inside an APC ends it and starts an OSC on the same byte.
+    // The end's kind is reported; the OSC_START flag names the start.
+    vt_write(t, "\x1b_a", 3);
+    const input = "\x9d0;x\x07";
+    var stop: WriteStop = .{};
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input, input.len, apc_end | osc_start | osc_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = 1,
+        .reached = apc_end | osc_start,
+        .kind = .apc,
+        .introducer = .c1,
+        .end = .aborted,
+        .byte = 0x9D,
+    }, stop);
+
+    try testing.expectEqual(
+        Result.success,
+        vt_write_until(t, input[1..].ptr, input.len - 1, apc_end | osc_start | osc_end, &stop),
+    );
+    try testing.expectEqual(WriteStop{
+        .consumed = 4,
+        .reached = osc_end,
+        .kind = .osc,
+        .end = .bel,
+        .byte = 0x07,
+    }, stop);
+}
+
 test "vt_write split escape sequence" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1520,11 +4031,8 @@ test "vt_write split combining mark after base at right edge" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 2,
-            .rows = 2,
-            .max_scrollback = 0,
-        },
+        2,
+        2,
     ));
     defer free(t);
 
@@ -1543,11 +4051,8 @@ test "get cols and rows" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1564,11 +4069,8 @@ test "get cursor position" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1582,6 +4084,51 @@ test "get cursor position" {
     try testing.expectEqual(0, y);
 }
 
+test "get vt_processing_error" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var processing_error: bool = true;
+    try testing.expectEqual(Result.success, get(
+        t,
+        .vt_processing_error,
+        @ptrCast(&processing_error),
+    ));
+    try testing.expect(!processing_error);
+
+    // Force a non-graceful terminal-owned update failure through the public
+    // VT write path.
+    {
+        const alloc = t.?.terminal.screens.active.alloc;
+        t.?.terminal.screens.active.alloc = testing.failing_allocator;
+        defer t.?.terminal.screens.active.alloc = alloc;
+
+        const input = "\x1B]2;unavailable\x1B\\";
+        vt_write(t, input, input.len);
+    }
+
+    try testing.expectEqual(Result.success, get(
+        t,
+        .vt_processing_error,
+        @ptrCast(&processing_error),
+    ));
+    try testing.expect(processing_error);
+
+    reset(t);
+    try testing.expectEqual(Result.success, get(
+        t,
+        .vt_processing_error,
+        @ptrCast(&processing_error),
+    ));
+    try testing.expect(processing_error);
+}
+
 test "get null" {
     var cols: size.CellCountInt = undefined;
     try testing.expectEqual(Result.invalid_value, get(null, .cols, @ptrCast(&cols)));
@@ -1592,11 +4139,8 @@ test "get cursor_visible" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1605,10 +4149,38 @@ test "get cursor_visible" {
     try testing.expect(visible);
 
     // DEC mode 25 controls cursor visibility
-    const cursor_visible_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 25, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, cursor_visible_mode, false));
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 25, .ansi = false }),
+        .value = false,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .cursor_visible, @ptrCast(&visible)));
     try testing.expect(!visible);
+}
+
+test "get cursor_at_prompt" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var at_prompt: bool = undefined;
+    try testing.expectEqual(Result.success, get(t, .cursor_at_prompt, @ptrCast(&at_prompt)));
+    try testing.expect(!at_prompt);
+
+    const prompt_start = "\x1b]133;A\x07";
+    vt_write(t, prompt_start, prompt_start.len);
+    try testing.expectEqual(Result.success, get(t, .cursor_at_prompt, @ptrCast(&at_prompt)));
+    try testing.expect(at_prompt);
+
+    const alternate_screen = "\x1b[?1049h";
+    vt_write(t, alternate_screen, alternate_screen.len);
+    try testing.expectEqual(Result.success, get(t, .cursor_at_prompt, @ptrCast(&at_prompt)));
+    try testing.expect(!at_prompt);
 }
 
 test "get active_screen" {
@@ -1616,11 +4188,8 @@ test "get active_screen" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1634,11 +4203,8 @@ test "get kitty_keyboard_flags" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1658,11 +4224,8 @@ test "get mouse_tracking" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1671,34 +4234,50 @@ test "get mouse_tracking" {
     try testing.expect(!tracking);
 
     // Enable X10 mouse (DEC mode 9)
-    const x10_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 9, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, x10_mode, true));
+    var config: ModeConfig = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 9, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable X10, enable normal mouse (DEC mode 1000)
-    try testing.expectEqual(Result.success, mode_set(t, x10_mode, false));
-    const normal_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 1000, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, normal_mode, true));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    config = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1000, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable normal, enable button mouse (DEC mode 1002)
-    try testing.expectEqual(Result.success, mode_set(t, normal_mode, false));
-    const button_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 1002, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, button_mode, true));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    config = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1002, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable button, enable any mouse (DEC mode 1003)
-    try testing.expectEqual(Result.success, mode_set(t, button_mode, false));
-    const any_mode: modes.ModeTag.Backing = @bitCast(modes.ModeTag{ .value = 1003, .ansi = false });
-    try testing.expectEqual(Result.success, mode_set(t, any_mode, true));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
+    config = .{
+        .mode = @bitCast(modes.ModeTag{ .value = 1003, .ansi = false }),
+        .value = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(tracking);
 
     // Disable all - should be false again
-    try testing.expectEqual(Result.success, mode_set(t, any_mode, false));
+    config.value = false;
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&config)));
     try testing.expectEqual(Result.success, get(t, .mouse_tracking, @ptrCast(&tracking)));
     try testing.expect(!tracking);
 }
@@ -1708,11 +4287,8 @@ test "get total_rows" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1726,11 +4302,8 @@ test "get scrollback_rows" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 3,
-            .max_scrollback = 10_000,
-        },
+        80,
+        3,
     ));
     defer free(t);
 
@@ -1745,16 +4318,87 @@ test "get scrollback_rows" {
     try testing.expectEqual(@as(usize, 2), scrollback);
 }
 
+test "get configured scrollback limits" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        3,
+    ));
+    defer free(t);
+
+    var value: usize = undefined;
+    try testing.expectEqual(
+        Result.success,
+        get(t, .scrollback_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(@as(usize, 10_000), value);
+    try testing.expectEqual(
+        Result.no_value,
+        get(t, .scrollback_max_lines, @ptrCast(&value)),
+    );
+
+    const max_bytes: usize = 0;
+    const max_lines: usize = 12;
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_bytes, &max_bytes),
+    );
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_lines, &max_lines),
+    );
+    try testing.expectEqual(
+        Result.success,
+        get(t, .scrollback_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(max_bytes, value);
+    try testing.expectEqual(
+        Result.success,
+        get(t, .scrollback_max_lines, @ptrCast(&value)),
+    );
+    try testing.expectEqual(max_lines, value);
+
+    // The configured limits belong to the primary screen and remain
+    // readable while an alternate screen is active.
+    vt_write(t, "\x1b[?1049h", 8);
+    try testing.expectEqual(
+        Result.success,
+        get(t, .scrollback_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(max_bytes, value);
+    try testing.expectEqual(
+        Result.success,
+        get(t, .scrollback_max_lines, @ptrCast(&value)),
+    );
+    try testing.expectEqual(max_lines, value);
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_bytes, null),
+    );
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_lines, null),
+    );
+    try testing.expectEqual(
+        Result.no_value,
+        get(t, .scrollback_max_bytes, @ptrCast(&value)),
+    );
+    try testing.expectEqual(
+        Result.no_value,
+        get(t, .scrollback_max_lines, @ptrCast(&value)),
+    );
+}
+
 test "get invalid" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1766,11 +4410,8 @@ test "set default cursor style and blink" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1798,6 +4439,32 @@ test "set default cursor style and blink" {
     vt_write(t, "\x1b[0 q", 5);
     try testing.expectEqual(Screen.CursorStyle.underline, t.?.terminal.screens.active.cursor.cursor_style);
     try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
+
+    // RIS also restores cursor defaults from Terminal-owned state.
+    vt_write(t, "\x1b[2 q", 5);
+    reset(t);
+    try testing.expectEqual(Screen.CursorStyle.underline, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
+}
+
+test "set resize pull scrollback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+    try testing.expect(t.?.terminal.flags.resize_pull_scrollback);
+
+    const disabled = false;
+    try testing.expectEqual(Result.success, set(t, .resize_pull_scrollback, &disabled));
+    try testing.expect(!t.?.terminal.flags.resize_pull_scrollback);
+
+    // NULL restores the default.
+    try testing.expectEqual(Result.success, set(t, .resize_pull_scrollback, null));
+    try testing.expect(t.?.terminal.flags.resize_pull_scrollback);
 }
 
 test "set and get selection" {
@@ -1805,11 +4472,8 @@ test "set and get selection" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1853,11 +4517,8 @@ test "selection derivation helpers" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1943,11 +4604,8 @@ test "selection_adjust mutates snapshot end" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -1991,11 +4649,8 @@ test "selection_order and selection_ordered" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2044,11 +4699,8 @@ test "selection_contains" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2102,11 +4754,8 @@ test "selection_equal" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2114,11 +4763,8 @@ test "selection_equal" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &other_t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(other_t);
 
@@ -2191,11 +4837,8 @@ test "selection_order invalid values" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2209,11 +4852,8 @@ test "grid_ref" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2247,7 +4887,8 @@ test "point_from_grid_ref roundtrip active" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2272,7 +4913,8 @@ test "point_from_grid_ref roundtrip viewport" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2295,7 +4937,8 @@ test "point_from_grid_ref history ref to active returns no_value" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 4, .max_scrollback = 10_000 },
+        80,
+        4,
     ));
     defer free(t);
 
@@ -2330,7 +4973,8 @@ test "point_from_grid_ref null node" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2338,33 +4982,33 @@ test "point_from_grid_ref null node" {
     try testing.expectEqual(Result.invalid_value, point_from_grid_ref(t, &ref, .active, null));
 }
 
-test "set write_pty callback" {
+test "set write_pty callback DECRQM" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
     const S = struct {
         var last_data: ?[]u8 = null;
         var last_userdata: ?*anyopaque = null;
+        var calls: usize = 0;
 
         fn deinit() void {
             if (last_data) |d| testing.allocator.free(d);
             last_data = null;
             last_userdata = null;
+            calls = 0;
         }
 
         fn writePty(_: Terminal, ud: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
             if (last_data) |d| testing.allocator.free(d);
             last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
             last_userdata = ud;
+            calls += 1;
         }
     };
     defer S.deinit();
@@ -2379,6 +5023,45 @@ test "set write_pty callback" {
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1B[?7;1$y", S.last_data.?);
     try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(1, S.calls);
+
+    const query = "\x1B[4h\x1B[4$p";
+    vt_write(t, query, query.len);
+    try testing.expectEqual(2, S.calls);
+    try testing.expectEqualStrings("\x1B[4;1$y", S.last_data.?);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+}
+
+test "write_pty receives DECRQSS response" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    const query = "\x1B[1m\x1BP$qm\x1B\\";
+    vt_write(t, query, query.len);
+    try testing.expectEqualStrings("\x1BP1$r0;1m\x1B\\", S.last_data.?);
 }
 
 test "write_pty receives OSC color query response" {
@@ -2386,11 +5069,8 @@ test "write_pty receives OSC color query response" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2426,16 +5106,14 @@ test "set write_pty without callback ignores queries" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
     // Without setting a callback, DECRQM should be silently ignored (no crash)
     vt_write(t, "\x1B[?7$p", 6);
+    vt_write(t, "\x1B[4$p", 5);
 }
 
 test "set write_pty null clears callback" {
@@ -2443,11 +5121,8 @@ test "set write_pty null clears callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2472,11 +5147,8 @@ test "set bell callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2512,11 +5184,8 @@ test "bell without callback is silent" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2529,11 +5198,8 @@ test "set enquiry callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2571,11 +5237,8 @@ test "enquiry without callback is silent" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2588,11 +5251,8 @@ test "set xtversion callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2631,11 +5291,8 @@ test "xtversion without callback reports default" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2662,16 +5319,80 @@ test "xtversion without callback reports default" {
     try testing.expectEqualStrings("\x1BP>|libghostty\x1B\\", S.last_data.?);
 }
 
+test "set terminfo_name option" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    // While no name is set the query goes unanswered; other capabilities
+    // are still served from the static map.
+    const query = "\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\";
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data == null);
+    const co_query = "\x1BP+q" ++ std.fmt.bytesToHex("Co", .upper) ++ "\x1B\\";
+    vt_write(t, co_query, co_query.len);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("Co", .upper) ++ "=" ++
+            std.fmt.bytesToHex("256", .upper) ++ "\x1B\\",
+        S.last_data.?,
+    );
+    S.deinit();
+
+    // The name is copied, so the caller's buffer can go away afterwards.
+    var name: [14]u8 = "xterm-256color".*;
+    const value: lib.String = .{ .ptr = &name, .len = name.len };
+    try testing.expectEqual(Result.success, set(t, .terminfo_name, @ptrCast(&value)));
+    @memset(&name, 'z');
+
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data != null);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("TN", .upper) ++ "=" ++
+            std.fmt.bytesToHex("xterm-256color", .upper) ++ "\x1B\\",
+        S.last_data.?,
+    );
+
+    // Clearing with NULL leaves the query unanswered again.
+    S.deinit();
+    try testing.expectEqual(Result.success, set(t, .terminfo_name, null));
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data == null);
+
+    // Names beyond the maximum are rejected rather than truncated.
+    const long: [Handler.max_terminfo_name_bytes + 1]u8 = @splat('a');
+    const long_value: lib.String = .{ .ptr = &long, .len = long.len };
+    try testing.expectEqual(Result.invalid_value, set(t, .terminfo_name, @ptrCast(&long_value)));
+}
+
 test "set title_changed callback" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2701,16 +5422,72 @@ test "set title_changed callback" {
     try testing.expectEqual(@as(usize, 2), S.title_count);
 }
 
+test "set render_hold callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var events: [8]bool = undefined;
+        var len: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn hold(_: Terminal, ud: ?*anyopaque, held: bool) callconv(lib.calling_conv) void {
+            events[len] = held;
+            len += 1;
+            last_userdata = ud;
+        }
+    };
+    S.len = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 0;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .render_hold, @ptrCast(&S.hold)));
+
+    // A set during a hold and a reset without a hold are ignored.
+    const frame = "\x1b[?2026h\x1b[?2026hA\x1b[?2026l\x1b[?2026l";
+    vt_write(t, frame, frame.len);
+    try testing.expectEqualSlices(bool, &.{ true, false }, S.events[0..S.len]);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+
+    // Resize and reset turn the mode off and end the hold.
+    const begin = "\x1b[?2026h";
+    S.len = 0;
+    vt_write(t, begin, begin.len);
+    try testing.expectEqual(Result.success, resize(t, 80, 24, 9, 18));
+    vt_write(t, begin, begin.len);
+    reset(t);
+    reset(t);
+    try testing.expectEqualSlices(bool, &.{ true, false, true, false }, S.events[0..S.len]);
+
+    // Changing the mode ourselves (e.g. for a timeout) isn't reported.
+    S.len = 0;
+    vt_write(t, begin, begin.len);
+    const off: ModeConfig = .{ .mode = 2026, .value = false };
+    try testing.expectEqual(Result.success, set(t, .mode, @ptrCast(&off)));
+    try testing.expect(!t.?.terminal.modes.get(.synchronized_output));
+    try testing.expectEqualSlices(bool, &.{true}, S.events[0..S.len]);
+
+    // Clearing the callback silences it.
+    S.len = 0;
+    try testing.expectEqual(Result.success, set(t, .render_hold, null));
+    vt_write(t, frame, frame.len);
+    try testing.expectEqual(0, S.len);
+}
+
 test "title_changed without callback is silent" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2718,16 +5495,630 @@ test "title_changed without callback is silent" {
     vt_write(t, "\x1B]2;Hello\x1B\\", 10);
 }
 
+test "kitty_image_medium_temp_file empty output" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 80, 24));
+    defer free(t);
+
+    const empty: lib.String = .{ .ptr = "", .len = 0 };
+    try testing.expectEqual(Result.success, set(t, .kitty_image_medium_temp_file, &empty));
+    var result: lib.String = undefined;
+    try testing.expectEqual(Result.success, get(t, .kitty_image_medium_temp_file, &result));
+    try testing.expectEqual(@as(usize, 0), result.len);
+    try testing.expectEqual(@as([*]const u8, ""), result.ptr);
+}
+
+test "set desktop_notification callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var title: [64]u8 = undefined;
+        var title_len: usize = 0;
+        var body: [64]u8 = undefined;
+        var body_len: usize = 0;
+
+        fn desktopNotification(
+            _: Terminal,
+            ud: ?*anyopaque,
+            notification: *const DesktopNotification,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = notification.size;
+            title_len = notification.title.len;
+            body_len = notification.body.len;
+            @memcpy(title[0..title_len], notification.title.ptr[0..title_len]);
+            @memcpy(body[0..body_len], notification.body.ptr[0..body_len]);
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+    S.last_size = 0;
+    S.title_len = 0;
+    S.body_len = 0;
+
+    var sentinel: u8 = 99;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .desktop_notification,
+        @ptrCast(&S.desktopNotification),
+    ));
+
+    // Split OSC 777 across writes to exercise the persistent VT parser.
+    const seq_a = "\x1B]777;notify;Codex;";
+    const seq_b = "Needs attention\x1B\\";
+    vt_write(t, seq_a, seq_a.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+    vt_write(t, seq_b, seq_b.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(@sizeOf(DesktopNotification), S.last_size);
+    try testing.expectEqualStrings("Codex", S.title[0..S.title_len]);
+    try testing.expectEqualStrings("Needs attention", S.body[0..S.body_len]);
+
+    // OSC 9 has no title and preserves its body.
+    const seq_c = "\x1B]9;Build complete\x07";
+    vt_write(t, seq_c, seq_c.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqualStrings("", S.title[0..S.title_len]);
+    try testing.expectEqualStrings("Build complete", S.body[0..S.body_len]);
+
+    // Removing the callback takes effect immediately.
+    try testing.expectEqual(Result.success, set(t, .desktop_notification, null));
+    vt_write(t, seq_c, seq_c.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+}
+
+test "set resize_window callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_tag: ResizeWindow.Tag = .grid;
+        var last: ResizeWindowGrid = .{ .rows = 0, .columns = 0 };
+
+        fn resizeWindow(
+            _: Terminal,
+            ud: ?*anyopaque,
+            request: *const ResizeWindow.C,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_tag = request.tag;
+            last = request.value.grid;
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 44;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .resize_window,
+        @ptrCast(&S.resizeWindow),
+    ));
+
+    const seq = "\x1B[8;30;100t";
+    vt_write(t, seq, seq.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(ResizeWindow.Tag.grid, S.last_tag);
+    try testing.expectEqual(@as(u16, 30), S.last.rows);
+    try testing.expectEqual(@as(u16, 100), S.last.columns);
+
+    // Removing the callback takes effect immediately.
+    try testing.expectEqual(Result.success, set(t, .resize_window, null));
+    vt_write(t, seq, seq.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+}
+
+test "set progress_report callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var last_state: ProgressState = .remove;
+        var last_progress: i8 = -1;
+
+        fn progressReport(
+            _: Terminal,
+            ud: ?*anyopaque,
+            report: *const ProgressReport,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = report.size;
+            last_state = report.state;
+            last_progress = report.progress;
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+    S.last_size = 0;
+    S.last_state = .remove;
+    S.last_progress = -1;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .progress_report,
+        @ptrCast(&S.progressReport),
+    ));
+
+    const cases = [_]struct {
+        sequence: []const u8,
+        state: ProgressState,
+        progress: i8,
+    }{
+        .{ .sequence = "\x1B]9;4;0;\x1B\\", .state = .remove, .progress = -1 },
+        .{ .sequence = "\x1B]9;4;1;42\x07", .state = .set, .progress = 42 },
+        .{ .sequence = "\x1B]9;4;2;7\x1B\\", .state = .@"error", .progress = 7 },
+        .{ .sequence = "\x1B]9;4;3\x1B\\", .state = .indeterminate, .progress = -1 },
+        .{ .sequence = "\x1B]9;4;4;75\x1B\\", .state = .pause, .progress = 75 },
+    };
+
+    for (cases, 1..) |case, expected_count| {
+        const midpoint = case.sequence.len / 2;
+        vt_write(t, case.sequence.ptr, midpoint);
+        try testing.expectEqual(expected_count - 1, S.count);
+        vt_write(t, case.sequence.ptr + midpoint, case.sequence.len - midpoint);
+        try testing.expectEqual(expected_count, S.count);
+        try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+        try testing.expectEqual(@sizeOf(ProgressReport), S.last_size);
+        try testing.expectEqual(case.state, S.last_state);
+        try testing.expectEqual(case.progress, S.last_progress);
+    }
+
+    try testing.expectEqual(Result.success, set(t, .progress_report, null));
+    const ignored = "\x1B]9;4;1;90\x1B\\";
+    vt_write(t, ignored, ignored.len);
+    try testing.expectEqual(@as(usize, cases.len), S.count);
+}
+
+test "set program_status callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var last_state: ProgramStatusState = .idle;
+        var last_kind: ProgramStatusKind = .none;
+        var last_progress: i8 = -1;
+        var last_id: [64]u8 = undefined;
+        var last_id_len: usize = 0;
+        var last_app: [64]u8 = undefined;
+        var last_app_len: usize = 0;
+        var last_title: [64]u8 = undefined;
+        var last_title_len: usize = 0;
+        var last_message: [64]u8 = undefined;
+        var last_message_len: usize = 0;
+        var written: [128]u8 = undefined;
+        var written_len: usize = 0;
+
+        fn programStatus(
+            _: Terminal,
+            ud: ?*anyopaque,
+            report: *const ProgramStatus,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = report.size;
+            last_state = report.state;
+            last_kind = report.kind;
+            last_progress = report.progress;
+            last_id_len = copy(&last_id, report.id);
+            last_app_len = copy(&last_app, report.app);
+            last_title_len = copy(&last_title, report.title);
+            last_message_len = copy(&last_message, report.message);
+        }
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            @memcpy(written[written_len..][0..len], ptr[0..len]);
+            written_len += len;
+        }
+
+        fn copy(dst: []u8, src: lib.String) usize {
+            if (src.len > 0) @memcpy(dst[0..src.len], src.ptr[0..src.len]);
+            return src.len;
+        }
+    };
+    S.count = 0;
+    S.written_len = 0;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    // Without the callback, the support query is not answered.
+    const query = "\x1B]7501;?\x1B\\";
+    vt_write(t, query, query.len);
+    try testing.expectEqual(@as(usize, 0), S.written_len);
+
+    try testing.expectEqual(Result.success, set(
+        t,
+        .program_status,
+        @ptrCast(&S.programStatus),
+    ));
+
+    // With the callback, it is answered with the states and kinds we
+    // accept and the same terminator.
+    vt_write(t, query, query.len);
+    try testing.expectEqualStrings(
+        "\x1B]7501;?:states=idle,working,done,blocked,error" ++
+            ":kinds=permission,question,auth\x1B\\",
+        S.written[0..S.written_len],
+    );
+    try testing.expectEqual(@as(usize, 0), S.count);
+
+    // "Plan" and "Apply?"
+    const report = "\x1B]7501;state=blocked:kind=permission:progress=40:id=a/b" ++
+        ":app=terraform:title=UGxhbg==:msg=QXBwbHk/\x07";
+    vt_write(t, report, report.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(@sizeOf(ProgramStatus), S.last_size);
+    try testing.expectEqual(ProgramStatusState.blocked, S.last_state);
+    try testing.expectEqual(ProgramStatusKind.permission, S.last_kind);
+    try testing.expectEqual(@as(i8, 40), S.last_progress);
+    try testing.expectEqualStrings("a/b", S.last_id[0..S.last_id_len]);
+    try testing.expectEqualStrings("terraform", S.last_app[0..S.last_app_len]);
+    try testing.expectEqualStrings("Plan", S.last_title[0..S.last_title_len]);
+    try testing.expectEqualStrings("Apply?", S.last_message[0..S.last_message_len]);
+
+    // Absent values are empty, none, or -1.
+    const minimal = "\x1B]7501;state=done\x1B\\";
+    vt_write(t, minimal, minimal.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqual(ProgramStatusState.done, S.last_state);
+    try testing.expectEqual(ProgramStatusKind.none, S.last_kind);
+    try testing.expectEqual(@as(i8, -1), S.last_progress);
+    try testing.expectEqual(@as(usize, 0), S.last_id_len);
+    try testing.expectEqual(@as(usize, 0), S.last_app_len);
+    try testing.expectEqual(@as(usize, 0), S.last_title_len);
+    try testing.expectEqual(@as(usize, 0), S.last_message_len);
+
+    // Unsetting the callback ignores reports and the query again.
+    try testing.expectEqual(Result.success, set(t, .program_status, null));
+    S.written_len = 0;
+    vt_write(t, query, query.len);
+    vt_write(t, minimal, minimal.len);
+    try testing.expectEqual(@as(usize, 0), S.written_len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+}
+
+test "set semantic_prompt callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var last_kind: SemanticPromptKind = .invalid;
+        var last_prompt_kind: SemanticPromptPromptKind = .primary;
+        var last_has_exit_code: bool = false;
+        var last_exit_code: i32 = 0;
+        var command_buf: [64]u8 = undefined;
+        var command_len: usize = 0;
+        var error_buf: [64]u8 = undefined;
+        var error_len: usize = 0;
+
+        fn semanticPrompt(
+            _: Terminal,
+            ud: ?*anyopaque,
+            event: *const SemanticPrompt,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = event.size;
+            last_kind = event.kind;
+            last_prompt_kind = event.prompt_kind;
+            last_has_exit_code = event.has_exit_code;
+            last_exit_code = event.exit_code;
+            command_len = event.command.len;
+            @memcpy(command_buf[0..command_len], event.command.ptr[0..command_len]);
+            error_len = event.@"error".len;
+            @memcpy(error_buf[0..error_len], event.@"error".ptr[0..error_len]);
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+    S.last_size = 0;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .semantic_prompt,
+        @ptrCast(&S.semanticPrompt),
+    ));
+
+    const prompt = "\x1B]133;P;k=r\x07";
+    vt_write(t, prompt, prompt.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(@sizeOf(SemanticPrompt), S.last_size);
+    try testing.expectEqual(SemanticPromptKind.prompt_start, S.last_kind);
+    try testing.expectEqual(SemanticPromptPromptKind.right, S.last_prompt_kind);
+    try testing.expect(!S.last_has_exit_code);
+
+    const input = "\x1B]133;B\x07";
+    vt_write(t, input, input.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqual(SemanticPromptKind.input_start, S.last_kind);
+    try testing.expectEqual(SemanticPromptPromptKind.primary, S.last_prompt_kind);
+
+    const output = "\x1B]133;C;cmdline_url=ls%20-la\x07";
+    vt_write(t, output, output.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqual(SemanticPromptKind.output_start, S.last_kind);
+    try testing.expectEqualStrings("ls -la", S.command_buf[0..S.command_len]);
+
+    const end = "\x1B]133;D;-1;err=boom\x07";
+    vt_write(t, end, end.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqual(SemanticPromptKind.command_end, S.last_kind);
+    try testing.expect(S.last_has_exit_code);
+    try testing.expectEqual(@as(i32, -1), S.last_exit_code);
+    try testing.expectEqualStrings("boom", S.error_buf[0..S.error_len]);
+    try testing.expectEqual(@as(usize, 0), S.command_len);
+
+    const end_no_code = "\x1B]133;D\x07";
+    vt_write(t, end_no_code, end_no_code.len);
+    try testing.expectEqual(@as(usize, 5), S.count);
+    try testing.expect(!S.last_has_exit_code);
+    try testing.expectEqual(@as(i32, 0), S.last_exit_code);
+    try testing.expectEqual(@as(usize, 0), S.error_len);
+
+    try testing.expectEqual(Result.success, set(t, .semantic_prompt, null));
+    vt_write(t, prompt, prompt.len);
+    try testing.expectEqual(@as(usize, 5), S.count);
+}
+
+test "set reset callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn reset(_: Terminal, ud: ?*anyopaque) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .reset, @ptrCast(&S.reset)));
+
+    // A soft reset (DECSTR) doesn't report a reset.
+    const soft = "\x1B[!p";
+    vt_write(t, soft, soft.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+
+    const full = "\x1Bc";
+    vt_write(t, full, full.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+
+    try testing.expectEqual(Result.success, set(t, .reset, null));
+    vt_write(t, full, full.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+}
+
+test "set unknown_sequence callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_terminal: Terminal = null;
+        var last_userdata: ?*anyopaque = null;
+        var last_tag: UnknownSequence.Tag = .apc;
+        var last_truncated: bool = false;
+        var last_terminator: osc.Terminator.C = .st;
+        var content: [64]u8 = undefined;
+        var content_len: usize = 0;
+
+        fn unknownSequence(
+            terminal_: Terminal,
+            ud: ?*anyopaque,
+            sequence: *const UnknownSequence.C,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_terminal = terminal_;
+            last_userdata = ud;
+            last_tag = sequence.tag;
+            const str: lib.String = switch (sequence.tag) {
+                .apc => str: {
+                    const apc_value = sequence.value.apc;
+                    last_truncated = apc_value.truncated;
+                    break :str apc_value.content;
+                },
+                .osc => str: {
+                    const osc_value = sequence.value.osc;
+                    last_truncated = osc_value.truncated;
+                    last_terminator = osc_value.terminator;
+                    break :str osc_value.content;
+                },
+            };
+            content_len = @min(str.len, content.len);
+            @memcpy(content[0..content_len], str.ptr[0..content_len]);
+        }
+    };
+    S.count = 0;
+    S.last_terminal = null;
+    S.last_userdata = null;
+    S.last_tag = .apc;
+    S.last_truncated = false;
+    S.content_len = 0;
+
+    var sentinel: u8 = 101;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+
+    const max_bytes: usize = 8;
+    try testing.expectEqual(Result.success, set(
+        t,
+        .unknown_max_bytes,
+        @ptrCast(&max_bytes),
+    ));
+    try testing.expectEqual(max_bytes, t.?.stream.handler.apc_handler.unknown_max_bytes);
+    try testing.expectEqual(max_bytes, t.?.stream.parser.osc_parser.unknown_max_bytes);
+
+    // A byte limit without a callback performs no external effect.
+    const before_callback = "\x1B_abc;xy\x1B\\";
+    vt_write(t, before_callback, before_callback.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+    try testing.expect(t.?.stream.handler.unknown_sequence == null);
+
+    try testing.expectEqual(Result.success, set(
+        t,
+        .unknown_sequence,
+        @ptrCast(&S.unknownSequence),
+    ));
+    try testing.expect(t.?.stream.handler.unknown_sequence != null);
+
+    // Split a complete APC across writes to exercise persistent parser state.
+    const seq_a = "\x1B_abc;";
+    const seq_b = "xy\x1B\\";
+    vt_write(t, seq_a, seq_a.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+    vt_write(t, seq_b, seq_b.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(t, S.last_terminal);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(UnknownSequence.Tag.apc, S.last_tag);
+    try testing.expect(!S.last_truncated);
+    try testing.expectEqualStrings("abc;xy", S.content[0..S.content_len]);
+
+    // Content beyond the generic limit is omitted and marked truncated.
+    const truncated = "\x1B_abcdefghijkl\x1B\\";
+    vt_write(t, truncated, truncated.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expect(S.last_truncated);
+    try testing.expectEqualStrings("abcdefgh", S.content[0..S.content_len]);
+
+    // CAN aborts the APC and must not invoke the callback.
+    const aborted = "\x1B_abcdef\x18";
+    vt_write(t, aborted, aborted.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+
+    // Unknown OSCs share the callback and the byte limit.
+    const osc_st = "\x1B]7400;x\x1B\\";
+    vt_write(t, osc_st, osc_st.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqual(UnknownSequence.Tag.osc, S.last_tag);
+    try testing.expect(!S.last_truncated);
+    try testing.expectEqual(osc.Terminator.C.st, S.last_terminator);
+    try testing.expectEqualStrings("7400;x", S.content[0..S.content_len]);
+
+    const osc_bel = "\x1B]7400;abcdef\x07";
+    vt_write(t, osc_bel, osc_bel.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+    try testing.expectEqual(UnknownSequence.Tag.osc, S.last_tag);
+    try testing.expect(S.last_truncated);
+    try testing.expectEqual(osc.Terminator.C.bel, S.last_terminator);
+    try testing.expectEqualStrings("7400;abc", S.content[0..S.content_len]);
+
+    // Aborted unknown OSCs and supported OSCs are not reported.
+    const osc_aborted = "\x1B]7400;x\x18\x1B]2;title\x07";
+    vt_write(t, osc_aborted, osc_aborted.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+
+    // Clearing the callback restores the null fast path immediately.
+    try testing.expectEqual(Result.success, set(t, .unknown_sequence, null));
+    try testing.expect(t.?.stream.handler.unknown_sequence == null);
+    vt_write(t, before_callback, before_callback.len);
+    vt_write(t, osc_st, osc_st.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+
+    // A NULL limit disables capture even after reinstalling the callback.
+    try testing.expectEqual(Result.success, set(
+        t,
+        .unknown_sequence,
+        @ptrCast(&S.unknownSequence),
+    ));
+    try testing.expectEqual(Result.success, set(t, .unknown_max_bytes, null));
+    try testing.expectEqual(@as(usize, 0), t.?.stream.handler.apc_handler.unknown_max_bytes);
+    try testing.expectEqual(@as(usize, 0), t.?.stream.parser.osc_parser.unknown_max_bytes);
+    vt_write(t, before_callback, before_callback.len);
+    vt_write(t, osc_st, osc_st.len);
+    try testing.expectEqual(@as(usize, 4), S.count);
+}
+
 test "set pwd_changed callback" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2766,11 +6157,8 @@ test "set clipboard_write callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2786,13 +6174,16 @@ test "set clipboard_write callback" {
         var last_mime_lens: [8]usize = @splat(0);
         var last_data: [8][64]u8 = undefined;
         var last_data_lens: [8]usize = @splat(0);
-        var next_result: clipboard.WriteResult = .success;
+        var last_name_len: usize = 0;
+        var last_granted: bool = true;
+        var last_can_remember: bool = true;
+        var next_result: clipboard.Write.Status = .success;
 
         fn clipboardWrite(
             terminal_: Terminal,
             ud: ?*anyopaque,
             request: *const ClipboardWrite,
-        ) callconv(lib.calling_conv) clipboard.WriteResult {
+        ) callconv(lib.calling_conv) void {
             count += 1;
             last_terminal = terminal_;
             last_userdata = ud;
@@ -2800,6 +6191,9 @@ test "set clipboard_write callback" {
             last_location = request.location;
             last_contents_null = request.contents == null;
             last_contents_len = request.contents_len;
+            last_name_len = request.name.len;
+            last_granted = request.granted;
+            last_can_remember = request.can_remember;
 
             if (request.contents) |ptr| {
                 for (ptr[0..@min(request.contents_len, last_mimes.len)], 0..) |content, i| {
@@ -2817,7 +6211,11 @@ test "set clipboard_write callback" {
                 }
             }
 
-            return next_result;
+            request.reply(request, &.{
+                .size = @sizeOf(ClipboardWriteReply),
+                .result = next_result,
+                .remember = false,
+            });
         }
     };
     S.count = 0;
@@ -2843,6 +6241,11 @@ test "set clipboard_write callback" {
     try testing.expectEqual(@as(usize, 1), S.last_contents_len);
     try testing.expectEqualStrings("text/plain", S.last_mimes[0][0..S.last_mime_lens[0]]);
     try testing.expectEqualSlices(u8, "hello\x00world", S.last_data[0][0..S.last_data_lens[0]]);
+
+    // OSC 52 carries no program identity or password grant state.
+    try testing.expectEqual(@as(usize, 0), S.last_name_len);
+    try testing.expect(!S.last_granted);
+    try testing.expect(!S.last_can_remember);
 
     // OSC 52 destinations are normalized rather than exposed as wire bytes.
     const location_cases = [_]struct {
@@ -2883,8 +6286,9 @@ test "set clipboard_write callback" {
     try testing.expectEqualStrings("text/plain", S.last_mimes[0][0..S.last_mime_lens[0]]);
     try testing.expectEqualStrings("iTerm", S.last_data[0][0..S.last_data_lens[0]]);
 
-    // Every representation is converted, and callback results propagate
-    // through the C trampoline for protocols that can acknowledge writes.
+    // Every representation is converted, and callback replies propagate
+    // back through the C trampoline for protocols that can acknowledge
+    // writes.
     const internal_contents = [_]clipboard.Content{
         .{ .mime = "text/plain", .data = "plain" },
         .{ .mime = "application/octet-stream", .data = "a\x00b" },
@@ -2892,13 +6296,27 @@ test "set clipboard_write callback" {
         .{ .mime = "text/rtf", .data = "{\\rtf1 plain}" },
         .{ .mime = "image/png", .data = "\x89PNG" },
     };
+    const Reply = struct {
+        var last: ?clipboard.Write.Result = null;
+        fn reply(_: *anyopaque, result: clipboard.Write.Result) void {
+            last = result;
+        }
+    };
     S.next_result = .busy;
     const handler = &t.?.stream.handler;
-    const write_result = handler.effects.clipboard_write.?(handler, .{
+    handler.effects.clipboard_write.?(handler, .{
         .location = .primary,
         .contents = &internal_contents,
+        .name = "app",
+        .granted = true,
+        .can_remember = true,
+        .reply_ctx = handler,
+        .reply_fn = &Reply.reply,
     });
-    try testing.expectEqual(clipboard.WriteResult.busy, write_result);
+    try testing.expect(Reply.last.? == .busy);
+    try testing.expectEqual(@as(usize, 3), S.last_name_len);
+    try testing.expect(S.last_granted);
+    try testing.expect(S.last_can_remember);
     try testing.expectEqual(@as(usize, 7), S.count);
     try testing.expectEqual(@as(usize, 5), S.last_contents_len);
     try testing.expectEqualStrings(
@@ -2909,8 +6327,10 @@ test "set clipboard_write callback" {
     try testing.expectEqualStrings("image/png", S.last_mimes[4][0..S.last_mime_lens[4]]);
     try testing.expectEqualSlices(u8, "\x89PNG", S.last_data[4][0..S.last_data_lens[4]]);
 
-    // Removing the callback takes effect immediately.
+    // Removing the callback takes effect immediately and uninstalls
+    // the trampoline.
     try testing.expectEqual(Result.success, set(t, .clipboard_write, null));
+    try testing.expect(t.?.stream.handler.effects.clipboard_write == null);
     const after_remove = "\x1B]52;c;eA==\x1B\\";
     vt_write(t, after_remove, after_remove.len);
     try testing.expectEqual(@as(usize, 7), S.count);
@@ -2921,11 +6341,8 @@ test "clipboard_write without callback is unsupported and silent" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2933,12 +6350,400 @@ test "clipboard_write without callback is unsupported and silent" {
     const seq = "\x1B]52;c;aGVsbG8=\x1B\\";
     vt_write(t, seq, seq.len);
 
-    const handler = &t.?.stream.handler;
-    const result = handler.effects.clipboard_write.?(handler, .{
-        .location = .standard,
-        .contents = &.{.{ .mime = "text/plain", .data = "hello" }},
-    });
-    try testing.expectEqual(clipboard.WriteResult.unsupported, result);
+    // No trampoline is installed until a callback is set, so the
+    // stream skips clipboard work (and never spools a Kitty clipboard
+    // transaction it can't deliver).
+    try testing.expect(t.?.stream.handler.effects.clipboard_write == null);
+}
+
+test "kitty clipboard write via C effects" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var responses: [512]u8 = undefined;
+        var responses_len: usize = 0;
+        var write_count: usize = 0;
+        var last_location: clipboard.Location = .standard;
+        var last_contents_len: usize = 0;
+        var last_mimes: [4][64]u8 = undefined;
+        var last_mime_lens: [4]usize = @splat(0);
+        var last_data: [4][64]u8 = undefined;
+        var last_data_lens: [4]usize = @splat(0);
+        var last_granted: bool = true;
+        var last_can_remember: bool = true;
+        var next_remember: bool = false;
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            @memcpy(responses[responses_len..][0..len], ptr[0..len]);
+            responses_len += len;
+        }
+
+        fn clipboardWrite(
+            _: Terminal,
+            _: ?*anyopaque,
+            request: *const ClipboardWrite,
+        ) callconv(lib.calling_conv) void {
+            write_count += 1;
+            last_location = request.location;
+            last_contents_len = request.contents_len;
+            if (request.contents) |ptr| {
+                for (ptr[0..@min(request.contents_len, last_mimes.len)], 0..) |content, i| {
+                    last_mime_lens[i] = @min(content.mime.len, last_mimes[i].len);
+                    @memcpy(
+                        last_mimes[i][0..last_mime_lens[i]],
+                        content.mime.ptr[0..last_mime_lens[i]],
+                    );
+                    last_data_lens[i] = @min(content.data.len, last_data[i].len);
+                    @memcpy(
+                        last_data[i][0..last_data_lens[i]],
+                        content.data.ptr[0..last_data_lens[i]],
+                    );
+                }
+            }
+            last_granted = request.granted;
+            last_can_remember = request.can_remember;
+            request.reply(request, &.{
+                .size = @sizeOf(ClipboardWriteReply),
+                .result = .success,
+                .remember = next_remember,
+            });
+        }
+    };
+    S.responses_len = 0;
+    S.write_count = 0;
+    S.last_mime_lens = @splat(0);
+    S.last_data_lens = @splat(0);
+    S.last_granted = true;
+    S.last_can_remember = true;
+    S.next_remember = false;
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+    try testing.expectEqual(Result.success, set(t, .clipboard_write, @ptrCast(&S.clipboardWrite)));
+
+    // A full OSC 5522 write transaction: begin, chunked data for two
+    // representations, commit. Only the commit invokes the callback,
+    // and its result maps to the DONE response.
+    const seqs = [_][]const u8{
+        "\x1B]5522;type=write:id=c1\x1B\\",
+        "\x1B]5522;type=wdata:mime=dGV4dC9wbGFpbg==;R2hvc3Q=\x1B\\", // "Ghost"
+        "\x1B]5522;type=wdata:mime=dGV4dC9wbGFpbg==;dHk=\x1B\\", // "ty"
+        "\x1B]5522;type=wdata:mime=dGV4dC9odG1s;PGI+aGk8L2I+\x1B\\", // "<b>hi</b>"
+        "\x1B]5522;type=wdata\x1B\\",
+    };
+    for (seqs) |seq| vt_write(t, seq.ptr, seq.len);
+
+    try testing.expectEqual(@as(usize, 1), S.write_count);
+    try testing.expectEqual(clipboard.Location.standard, S.last_location);
+    try testing.expectEqual(@as(usize, 2), S.last_contents_len);
+    try testing.expectEqualStrings("text/plain", S.last_mimes[0][0..S.last_mime_lens[0]]);
+    try testing.expectEqualStrings("Ghostty", S.last_data[0][0..S.last_data_lens[0]]);
+    try testing.expectEqualStrings("text/html", S.last_mimes[1][0..S.last_mime_lens[1]]);
+    try testing.expectEqualStrings("<b>hi</b>", S.last_data[1][0..S.last_data_lens[1]]);
+    try testing.expectEqualStrings(
+        "\x1B]5522;type=write:status=DONE:id=c1\x1B\\",
+        S.responses[0..S.responses_len],
+    );
+    try testing.expect(!S.last_granted);
+    try testing.expect(!S.last_can_remember);
+
+    // Password grants round-trip through the C reply: the first pw'd
+    // commit isn't granted and asks to remember, so the next one
+    // arrives granted.
+    S.responses_len = 0;
+    S.next_remember = true;
+    const grant_seqs = [_][]const u8{
+        "\x1B]5522;type=write:id=g1:pw=c2VjcmV0:name=YXBw\x1B\\",
+        "\x1B]5522;type=wdata\x1B\\",
+        "\x1B]5522;type=write:id=g2:pw=c2VjcmV0:name=YXBw\x1B\\",
+        "\x1B]5522;type=wdata\x1B\\",
+    };
+    for (grant_seqs) |seq| vt_write(t, seq.ptr, seq.len);
+    try testing.expectEqual(@as(usize, 3), S.write_count);
+    try testing.expect(S.last_granted);
+    try testing.expect(S.last_can_remember);
+    try testing.expectEqualStrings(
+        "\x1B]5522;type=write:status=DONE:id=g1\x1B\\" ++
+            "\x1B]5522;type=write:status=DONE:id=g2\x1B\\",
+        S.responses[0..S.responses_len],
+    );
+    S.next_remember = false;
+
+    // Without a read callback reads are denied.
+    S.responses_len = 0;
+    const read = "\x1B]5522;type=read:id=r1;dGV4dC9wbGFpbg==\x1B\\";
+    vt_write(t, read, read.len);
+    try testing.expectEqual(@as(usize, 3), S.write_count);
+    try testing.expectEqualStrings(
+        "\x1B]5522;type=read:status=EPERM:id=r1\x1B\\",
+        S.responses[0..S.responses_len],
+    );
+
+    // With a read callback the request is served through it.
+    const R = struct {
+        var count: usize = 0;
+        var last_mimes_len: usize = 0;
+        var last_mime_is_text: bool = false;
+        var last_list: bool = true;
+        var last_name_len: usize = 0;
+        var last_granted: bool = true;
+        var last_can_remember: bool = true;
+
+        fn clipboardRead(
+            _: Terminal,
+            _: ?*anyopaque,
+            request: *const ClipboardRead,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_mimes_len = request.mimes_len;
+            last_mime_is_text = request.mimes_len > 0 and std.mem.eql(
+                u8,
+                request.mimes.?[0].ptr[0..request.mimes.?[0].len],
+                "text/plain",
+            );
+            last_list = request.list;
+            last_name_len = request.name.len;
+            last_granted = request.granted;
+            last_can_remember = request.can_remember;
+
+            const mime: []const u8 = "text/plain";
+            const data: []const u8 = "hello";
+            const contents = [_]ClipboardContent{.{
+                .mime = .init(mime),
+                .data = .init(data),
+            }};
+            request.reply(request, &.{
+                .size = @sizeOf(ClipboardReadReply),
+                .result = .success,
+                .contents = &contents,
+                .contents_len = contents.len,
+                .available = null,
+                .available_len = 0,
+                .remember = false,
+            });
+        }
+    };
+    try testing.expectEqual(Result.success, set(t, .clipboard_read, @ptrCast(&R.clipboardRead)));
+    S.responses_len = 0;
+    // name="app" without a password: forwarded for prompts, not
+    // rememberable.
+    const read2 = "\x1B]5522;type=read:id=r2:name=YXBw;dGV4dC9wbGFpbg==\x1B\\";
+    vt_write(t, read2, read2.len);
+    try testing.expectEqual(@as(usize, 1), R.count);
+    try testing.expectEqual(@as(usize, 1), R.last_mimes_len);
+    try testing.expect(R.last_mime_is_text);
+    try testing.expect(!R.last_list);
+    try testing.expectEqual(@as(usize, 3), R.last_name_len);
+    try testing.expect(!R.last_granted);
+    try testing.expect(!R.last_can_remember);
+    try testing.expectEqualStrings(
+        "\x1B]5522;type=read:status=OK:id=r2\x1B\\" ++
+            "\x1B]5522;type=read:status=DATA:id=r2:mime=dGV4dC9wbGFpbg==;aGVsbG8=\x1B\\" ++
+            "\x1B]5522;type=read:status=DONE:id=r2\x1B\\",
+        S.responses[0..S.responses_len],
+    );
+
+    // Without a clipboard callback the transaction fails up front.
+    try testing.expectEqual(Result.success, set(t, .clipboard_write, null));
+    S.responses_len = 0;
+    const begin = "\x1B]5522;type=write:id=c2\x1B\\";
+    vt_write(t, begin, begin.len);
+    try testing.expectEqualStrings(
+        "\x1B]5522;type=write:status=ENOSYS:id=c2\x1B\\",
+        S.responses[0..S.responses_len],
+    );
+}
+
+test "set clipboard write max bytes" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var responses: [512]u8 = undefined;
+        var responses_len: usize = 0;
+        var write_count: usize = 0;
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            @memcpy(responses[responses_len..][0..len], ptr[0..len]);
+            responses_len += len;
+        }
+
+        fn clipboardWrite(
+            _: Terminal,
+            _: ?*anyopaque,
+            request: *const ClipboardWrite,
+        ) callconv(lib.calling_conv) void {
+            write_count += 1;
+            request.reply(request, &.{
+                .size = @sizeOf(ClipboardWriteReply),
+                .result = .success,
+                .remember = false,
+            });
+        }
+    };
+    S.responses_len = 0;
+    S.write_count = 0;
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+    try testing.expectEqual(Result.success, set(t, .clipboard_write, @ptrCast(&S.clipboardWrite)));
+
+    // The built-in default reads back.
+    var max: usize = 0;
+    try testing.expectEqual(Result.success, get(t, .clipboard_write_max_bytes, @ptrCast(&max)));
+    try testing.expectEqual(@as(usize, kitty_clipboard.max_write_size), max);
+
+    // Set a tiny limit; an oversized text write fails with EFBIG and
+    // never reaches the callback.
+    const limit: usize = 4;
+    try testing.expectEqual(Result.success, set(t, .clipboard_write_max_bytes, @ptrCast(&limit)));
+    try testing.expectEqual(Result.success, get(t, .clipboard_write_max_bytes, @ptrCast(&max)));
+    try testing.expectEqual(limit, max);
+
+    const seqs = [_][]const u8{
+        "\x1B]5522;type=write:id=c1\x1B\\",
+        "\x1B]5522;type=wdata:mime=dGV4dC9wbGFpbg==;SGVsbA==\x1B\\", // "Hell"
+        "\x1B]5522;type=wdata:mime=dGV4dC9wbGFpbg==;bw==\x1B\\", // "o"
+        "\x1B]5522;type=wdata\x1B\\",
+    };
+    for (seqs) |seq| vt_write(t, seq.ptr, seq.len);
+    try testing.expectEqual(@as(usize, 0), S.write_count);
+    try testing.expectEqualStrings(
+        "\x1B]5522;type=write:status=EFBIG:id=c1\x1B\\",
+        S.responses[0..S.responses_len],
+    );
+
+    // A NULL value reverts to the built-in default.
+    try testing.expectEqual(Result.success, set(t, .clipboard_write_max_bytes, null));
+    try testing.expectEqual(Result.success, get(t, .clipboard_write_max_bytes, @ptrCast(&max)));
+    try testing.expectEqual(@as(usize, kitty_clipboard.max_write_size), max);
+}
+
+test "set clipboard_read callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+        var count: usize = 0;
+        var last_size: usize = 0;
+        var last_location: clipboard.Location = .standard;
+        var last_mimes_len: usize = 0;
+        var last_mime_is_text: bool = false;
+        var last_list: bool = true;
+        var last_name_len: usize = 1;
+        var last_granted: bool = true;
+        var last_can_remember: bool = true;
+        var result: clipboard.Read.Status = .success;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+
+        fn clipboardRead(
+            _: Terminal,
+            _: ?*anyopaque,
+            request: *const ClipboardRead,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_size = request.size;
+            last_location = request.location;
+            last_mimes_len = request.mimes_len;
+            last_mime_is_text = request.mimes_len > 0 and std.mem.eql(
+                u8,
+                request.mimes.?[0].ptr[0..request.mimes.?[0].len],
+                "text/plain",
+            );
+            last_list = request.list;
+            last_name_len = request.name.len;
+            last_granted = request.granted;
+            last_can_remember = request.can_remember;
+
+            const mime: []const u8 = "text/plain";
+            const data: []const u8 = "hello";
+            const contents = [_]ClipboardContent{.{
+                .mime = .init(mime),
+                .data = .init(data),
+            }};
+            request.reply(request, &.{
+                .size = @sizeOf(ClipboardReadReply),
+                .result = result,
+                .contents = &contents,
+                .contents_len = contents.len,
+                .available = null,
+                .available_len = 0,
+                .remember = false,
+            });
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    // Without a callback the handler effect is unset and reads are silent.
+    try testing.expect(t.?.stream.handler.effects.clipboard_read == null);
+    const read_st = "\x1B]52;c;?\x1B\\";
+    vt_write(t, read_st, read_st.len);
+    try testing.expect(S.last_data == null);
+
+    try testing.expectEqual(Result.success, set(t, .clipboard_read, @ptrCast(&S.clipboardRead)));
+    try testing.expect(t.?.stream.handler.effects.clipboard_read != null);
+
+    const read_bel = "\x1B]52;p;?\x07";
+    vt_write(t, read_bel, read_bel.len);
+    try testing.expectEqual(1, S.count);
+    try testing.expectEqual(@sizeOf(ClipboardRead), S.last_size);
+    try testing.expectEqual(clipboard.Location.primary, S.last_location);
+    try testing.expectEqual(1, S.last_mimes_len);
+    try testing.expect(S.last_mime_is_text);
+    try testing.expect(!S.last_list);
+    try testing.expectEqual(0, S.last_name_len);
+    try testing.expect(!S.last_granted);
+    try testing.expect(!S.last_can_remember);
+    try testing.expectEqualStrings("\x1B]52;p;aGVsbG8=\x07", S.last_data.?);
+
+    // Denied replies with an empty clipboard.
+    S.result = .denied;
+    vt_write(t, read_st, read_st.len);
+    try testing.expectEqual(2, S.count);
+    try testing.expectEqualStrings("\x1B]52;c;\x1B\\", S.last_data.?);
+
+    // Clearing the callback uninstalls the handler effect.
+    try testing.expectEqual(Result.success, set(t, .clipboard_read, null));
+    try testing.expect(t.?.stream.handler.effects.clipboard_read == null);
 }
 
 test "pwd_changed without callback is silent" {
@@ -2946,11 +6751,8 @@ test "pwd_changed without callback is silent" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -2965,11 +6767,8 @@ test "set size callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3012,11 +6811,8 @@ test "size without callback is silent" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3024,16 +6820,116 @@ test "size without callback is silent" {
     vt_write(t, "\x1B[18t", 5);
 }
 
+test "mode 2048 enable and disable use C callbacks" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var data: [128]u8 = undefined;
+        var len: usize = 0;
+        var calls: usize = 0;
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, length: usize) callconv(lib.calling_conv) void {
+            @memcpy(data[0..length], ptr[0..length]);
+            len = length;
+            calls += 1;
+        }
+
+        fn sizeCb(_: Terminal, _: ?*anyopaque, out_size: *size_report.Size) callconv(lib.calling_conv) bool {
+            out_size.* = .{
+                .rows = 24,
+                .columns = 80,
+                .cell_width = 8,
+                .cell_height = 16,
+            };
+            return true;
+        }
+    };
+    S.len = 0;
+    S.calls = 0;
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+    try testing.expectEqual(Result.success, set(t, .size_cb, @ptrCast(&S.sizeCb)));
+
+    const enable = "\x1B[?2048h";
+    const disable = "\x1B[?2048l";
+    vt_write(t, enable, enable.len);
+    vt_write(t, enable, enable.len);
+
+    try testing.expectEqual(@as(usize, 2), S.calls);
+    try testing.expectEqualStrings("\x1B[48;24;80;384;640t", S.data[0..S.len]);
+    vt_write(t, disable, disable.len);
+
+    try testing.expectEqual(@as(usize, 2), S.calls);
+    try testing.expect(!t.?.terminal.modes.get(.in_band_size_reports));
+}
+
+test "mode 2048 enable tolerates missing C callbacks" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var writes: usize = 0;
+        var sizes: usize = 0;
+
+        fn writePty(_: Terminal, _: ?*anyopaque, _: [*]const u8, _: usize) callconv(lib.calling_conv) void {
+            writes += 1;
+        }
+
+        fn sizeCb(_: Terminal, _: ?*anyopaque, out_size: *size_report.Size) callconv(lib.calling_conv) bool {
+            sizes += 1;
+            out_size.* = .{
+                .rows = 24,
+                .columns = 80,
+                .cell_width = 8,
+                .cell_height = 16,
+            };
+            return true;
+        }
+    };
+    S.writes = 0;
+    S.sizes = 0;
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    const sequence = "\x1B[?2048h";
+    vt_write(t, sequence, sequence.len);
+
+    try testing.expectEqual(@as(usize, 0), S.writes);
+    try testing.expect(t.?.terminal.modes.get(.in_band_size_reports));
+    var no_write: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &no_write,
+        80,
+        24,
+    ));
+    defer free(no_write);
+    try testing.expectEqual(Result.success, set(no_write, .size_cb, @ptrCast(&S.sizeCb)));
+    vt_write(no_write, sequence, sequence.len);
+    try testing.expectEqual(@as(usize, 1), S.sizes);
+    try testing.expect(no_write.?.terminal.modes.get(.in_band_size_reports));
+}
+
 test "set device_attributes callback primary" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3051,10 +6947,14 @@ test "set device_attributes callback primary" {
         }
 
         fn da(_: Terminal, _: ?*anyopaque, out: *Effects.CDeviceAttributes) callconv(lib.calling_conv) bool {
+            var features: [64]u16 = @splat(0);
+            features[0] = 22;
+            features[1] = 52;
+
             out.* = .{
                 .primary = .{
                     .conformance_level = 64,
-                    .features = .{ 22, 52 } ++ .{0} ** 62,
+                    .features = features,
                     .num_features = 2,
                 },
                 .secondary = .{
@@ -3083,11 +6983,8 @@ test "set device_attributes callback secondary" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3105,10 +7002,13 @@ test "set device_attributes callback secondary" {
         }
 
         fn da(_: Terminal, _: ?*anyopaque, out: *Effects.CDeviceAttributes) callconv(lib.calling_conv) bool {
+            var features: [64]u16 = @splat(0);
+            features[0] = 22;
+
             out.* = .{
                 .primary = .{
                     .conformance_level = 62,
-                    .features = .{22} ++ .{0} ** 63,
+                    .features = features,
                     .num_features = 1,
                 },
                 .secondary = .{
@@ -3137,11 +7037,8 @@ test "set device_attributes callback tertiary" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3162,7 +7059,7 @@ test "set device_attributes callback tertiary" {
             out.* = .{
                 .primary = .{
                     .conformance_level = 62,
-                    .features = .{0} ** 64,
+                    .features = @splat(0),
                     .num_features = 0,
                 },
                 .secondary = .{
@@ -3191,11 +7088,8 @@ test "device_attributes without callback uses default" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3227,11 +7121,8 @@ test "device_attributes callback returns false uses default" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3268,11 +7159,8 @@ test "set and get title" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3307,11 +7195,8 @@ test "set and get pwd" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3339,11 +7224,8 @@ test "get title set via vt_write" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3355,24 +7237,200 @@ test "get title set via vt_write" {
     try testing.expectEqualStrings("VT Title", title.ptr[0..title.len]);
 }
 
+test "title report requires explicit opt in" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = null;
+        }
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    S.last_data = null;
+    defer S.deinit();
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .write_pty, @ptrCast(&S.writePty)),
+    );
+
+    const set_title = "\x1B]2;echo vulnerable\x1B\\";
+    const query_title = "\x1B[21t";
+    vt_write(t, set_title, set_title.len);
+
+    // WRITE_PTY alone must not enable the security-sensitive response.
+    vt_write(t, query_title, query_title.len);
+    try testing.expect(S.last_data == null);
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .title_report, &enabled));
+    vt_write(t, query_title, query_title.len);
+    try testing.expectEqualStrings(
+        "\x1b]lecho vulnerable\x1b\\",
+        S.last_data.?,
+    );
+
+    // NULL restores the secure default.
+    S.deinit();
+    try testing.expectEqual(Result.success, set(t, .title_report, null));
+    vt_write(t, query_title, query_title.len);
+    try testing.expect(S.last_data == null);
+}
+
+test "checksum report requires explicit opt in" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = null;
+        }
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    S.last_data = null;
+    defer S.deinit();
+
+    try testing.expectEqual(
+        Result.success,
+        set(t, .write_pty, @ptrCast(&S.writePty)),
+    );
+
+    const text = "hello";
+    const query = "\x1B[1;1;1;1;1;5*y";
+    vt_write(t, text, text.len);
+
+    // WRITE_PTY alone must not enable the security-sensitive response.
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data == null);
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .xt_checksum_report, &enabled));
+    vt_write(t, query, query.len);
+    try testing.expectEqualStrings("\x1bP1!~FDEC\x1b\\", S.last_data.?);
+
+    // NULL restores the secure default.
+    S.deinit();
+    try testing.expectEqual(Result.success, set(t, .xt_checksum_report, null));
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data == null);
+}
+
+test "checksum extension survives resets" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = null;
+        }
+
+        fn writePty(
+            _: Terminal,
+            _: ?*anyopaque,
+            ptr: [*]const u8,
+            len: usize,
+        ) callconv(lib.calling_conv) void {
+            if (last_data) |data| testing.allocator.free(data);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    S.last_data = null;
+    defer S.deinit();
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+    try testing.expectEqual(Result.success, set(t, .xt_checksum_report, &enabled));
+
+    // Don't negate the result.
+    const positive: u8 = 1;
+    try testing.expectEqual(Result.success, set(t, .xt_checksum_extension, &positive));
+
+    const text = "hello";
+    const query = "\x1B[1;1;1;1;1;5*y";
+    vt_write(t, text, text.len);
+    vt_write(t, query, query.len);
+    try testing.expectEqualStrings("\x1bP1!~0214\x1b\\", S.last_data.?);
+
+    // A reset restores the configured calculation, not the DEC one.
+    const negate = "\x1B[0#y";
+    const ris = "\x1Bc";
+    vt_write(t, negate, negate.len);
+    vt_write(t, ris, ris.len);
+    vt_write(t, text, text.len);
+    vt_write(t, query, query.len);
+    try testing.expectEqualStrings("\x1bP1!~0214\x1b\\", S.last_data.?);
+
+    // NULL restores the DEC calculation.
+    try testing.expectEqual(Result.success, set(t, .xt_checksum_extension, null));
+    vt_write(t, query, query.len);
+    try testing.expectEqualStrings("\x1bP1!~FDEC\x1b\\", S.last_data.?);
+
+    const invalid: u8 = 32;
+    try testing.expectEqual(Result.invalid_value, set(t, .xt_checksum_extension, &invalid));
+}
+
 test "resize updates pixel dimensions" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
-    try testing.expectEqual(Result.success, resize(t, 100, 40, 9, 18));
+    // Pixel geometry must still be applied when the cell dimensions match.
+    try testing.expectEqual(Result.success, resize(t, 80, 24, 9, 18));
 
     const zt = t.?.terminal;
-    try testing.expectEqual(@as(u32, 100 * 9), zt.width_px);
-    try testing.expectEqual(@as(u32, 40 * 18), zt.height_px);
+    try testing.expectEqual(@as(u32, 80 * 9), zt.width_px);
+    try testing.expectEqual(@as(u32, 24 * 18), zt.height_px);
 }
 
 test "resize pixel overflow saturates" {
@@ -3380,11 +7438,8 @@ test "resize pixel overflow saturates" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3400,18 +7455,16 @@ test "resize disables synchronized output" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
     const zt = t.?.terminal;
     zt.modes.set(.synchronized_output, true);
 
-    try testing.expectEqual(Result.success, resize(t, 100, 40, 9, 18));
+    // The terminal-level reset must run even if grid work is unnecessary.
+    try testing.expectEqual(Result.success, resize(t, 80, 24, 9, 18));
     try testing.expect(!zt.modes.get(.synchronized_output));
 }
 
@@ -3420,11 +7473,8 @@ test "resize sends in-band size report" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3461,11 +7511,8 @@ test "resize no size report without mode 2048" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3489,11 +7536,8 @@ test "resize in-band report without write_pty callback" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3511,11 +7555,8 @@ test "resize zero cols" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3527,11 +7568,8 @@ test "resize zero rows" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3543,11 +7581,8 @@ test "grid_ref out of bounds" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3563,11 +7598,8 @@ test "set and get color_foreground" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3591,11 +7623,8 @@ test "set and get color_background" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3616,11 +7645,8 @@ test "set and get color_cursor" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3641,11 +7667,8 @@ test "set and get color_palette" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3672,11 +7695,8 @@ test "get color default vs effective with override" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3719,11 +7739,8 @@ test "get color default returns no_value when unset" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3738,11 +7755,8 @@ test "get color_palette_default vs current" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3771,11 +7785,8 @@ test "set color sets dirty flag" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 0,
-        },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3788,11 +7799,14 @@ test "set color sets dirty flag" {
 }
 
 test "set glyph protocol disables APC handling and clears glossary" {
+    if (comptime !build_options.glyph_protocol) return error.SkipZigTest;
+
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3819,7 +7833,8 @@ test "get_multi success" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3840,7 +7855,8 @@ test "get_multi error sets out_written" {
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+        80,
+        24,
     ));
     defer free(t);
 
@@ -3858,4 +7874,40 @@ test "get_multi null keys returns invalid_value" {
     var cols: u16 = 0;
     var values = [_]?*anyopaque{@ptrCast(&cols)};
     try testing.expectEqual(Result.invalid_value, get_multi(null, 1, null, &values, null));
+}
+
+test "get mouse_shape" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 80, 24));
+    defer free(t);
+
+    var shape: mouse.Shape = undefined;
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.text, shape);
+
+    const cases = .{
+        .{ "\x1b]22;pointer\x07", mouse.Shape.pointer },
+        .{ "\x1b]22;crosshair\x1b\\", mouse.Shape.crosshair },
+        // Invalid names leave the last accepted shape unchanged.
+        .{ "\x1b]22;not-a-pointer-shape\x07", mouse.Shape.crosshair },
+        // Hyperlinks don't override the application's requested shape.
+        .{ "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", mouse.Shape.crosshair },
+        .{ "\x1b]22;\x1b\\", mouse.Shape.text },
+        .{ "\x1b]22;default\x07", mouse.Shape.default },
+        .{ "\x1b]22;text\x07", mouse.Shape.text },
+    };
+    inline for (cases) |case| {
+        vt_write(t, case[0], case[0].len);
+        try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+        try testing.expectEqual(case[1], shape);
+    }
+
+    // An incomplete OSC must not update the shape before its terminator.
+    const prefix = "\x1b]22;wait";
+    vt_write(t, prefix, prefix.len);
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.text, shape);
+    vt_write(t, "\x07", 1);
+    try testing.expectEqual(Result.success, get(t, .mouse_shape, @ptrCast(&shape)));
+    try testing.expectEqual(mouse.Shape.wait, shape);
 }

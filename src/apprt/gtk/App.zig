@@ -13,14 +13,10 @@ const CoreApp = @import("../../App.zig");
 const Application = @import("class/application.zig").Application;
 const Surface = @import("Surface.zig");
 const ipcNewWindow = @import("ipc/new_window.zig").newWindow;
+const ipcNewTab = @import("ipc/new_tab.zig").newTab;
 const ipcToggleQuickTerminal = @import("ipc/toggle_quick_terminal.zig").toggleQuickTerminal;
 
 const log = std.log.scoped(.gtk);
-
-/// This is detected by the Renderer, in which case it sends a `redraw_surface`
-/// message so that we can call `drawFrame` ourselves from the app thread,
-/// because GTK's `GLArea` does not support drawing from a different thread.
-pub const must_draw_from_app_thread = true;
 
 /// GTK application ID
 pub const application_id = @import("build/info.zig").application_id;
@@ -85,6 +81,7 @@ pub fn performIpc(
 ) !bool {
     switch (action) {
         .new_window => return try ipcNewWindow(alloc, target, value),
+        .new_tab => return try ipcNewTab(alloc, target, value),
         .toggle_quick_terminal => return try ipcToggleQuickTerminal(alloc, target),
     }
 }

@@ -84,15 +84,15 @@ pub const Property = enum {
 
     pub fn cval(self: Property) [:0]const u8 {
         @setEvalBranchQuota(10_000);
-        inline for (@typeInfo(Property).@"enum".fields) |field| {
-            if (self == @field(Property, field.name)) {
+        inline for (@typeInfo(Property).@"enum".field_names) |field| {
+            if (self == @field(Property, field)) {
                 // Build our string in a comptime context so it is a binary
                 // constant and not stack allocated.
                 return comptime name: {
                     // Replace _ with ""
-                    var buf: [field.name.len]u8 = undefined;
-                    const count = std.mem.replace(u8, field.name, "_", "", &buf);
-                    const replaced = buf[0 .. field.name.len - count];
+                    var buf: [field.len]u8 = undefined;
+                    const count = std.mem.replace(u8, field, "_", "", &buf);
+                    const replaced = buf[0 .. field.len - count];
 
                     // Build our string
                     var name: [replaced.len:0]u8 = undefined;

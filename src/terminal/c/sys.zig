@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 const terminal_sys = @import("../sys.zig");
+const stderr = @import("../../os/stderr.zig");
 const Result = @import("result.zig").Result;
 
 /// C: GhosttySysImage
@@ -20,6 +21,13 @@ pub const DecodePngFn = *const fn (
     [*]const u8,
     usize,
     *Image,
+) callconv(lib.calling_conv) bool;
+
+/// C: GhosttySysRandomSecureFn
+pub const RandomSecureFn = *const fn (
+    ?*anyopaque,
+    [*]u8,
+    usize,
 ) callconv(lib.calling_conv) bool;
 
 /// C: GhosttySysLogLevel
@@ -54,12 +62,14 @@ pub const Option = enum(c_int) {
     userdata = 0,
     decode_png = 1,
     log = 2,
+    random_secure = 3,
 
     pub fn InType(comptime self: Option) type {
         return switch (self) {
             .userdata => ?*const anyopaque,
             .decode_png => ?DecodePngFn,
             .log => ?LogFn,
+            .random_secure => ?RandomSecureFn,
         };
     }
 };
@@ -70,6 +80,7 @@ const Global = struct {
     userdata: ?*anyopaque = null,
     decode_png: ?DecodePngFn = null,
     log: ?LogFn = null,
+    random_secure: ?RandomSecureFn = null,
 };
 
 /// Global state for the C sys interface.
@@ -78,6 +89,9 @@ var global: Global = .{};
 /// Zig-compatible wrapper that calls through to the stored C callback.
 /// The C callback allocates the pixel data through the provided allocator,
 /// so we can take ownership directly.
+///
+/// Returns `error.InvalidData` if no callback is installed, if the callback
+/// returns false, or if it returns true without setting `data`.
 fn decodePngWrapper(
     alloc: std.mem.Allocator,
     data: []const u8,
@@ -85,8 +99,14 @@ fn decodePngWrapper(
     const func = global.decode_png orelse return error.InvalidData;
 
     const c_alloc = CAllocator.fromZig(&alloc);
-    var out: Image = undefined;
-    if (!func(global.userdata, &c_alloc, data.ptr, data.len, &out)) return error.InvalidData;
+
+    // Hand the callback a zeroed struct instead of an undefined one. The
+    // callback stores a pointer into it, and runtimes that track pointers
+    // (Go, for example) require the memory to be initialized first. It
+    // also means a callback that returns true without setting `data` is
+    // caught by the null check below. The header documents this guarantee.
+    var out: Image = std.mem.zeroes(Image);
+    if (!func(global.userdata, &c_alloc, lib.String.init(data).ptr, data.len, &out)) return error.InvalidData;
 
     const result_data = out.data orelse return error.InvalidData;
 
@@ -97,12 +117,18 @@ fn decodePngWrapper(
     };
 }
 
+/// Zig-compatible wrapper that calls through to the stored C callback.
+fn randomSecureWrapper(buffer: []u8) terminal_sys.RandomSecureError!void {
+    const func = global.random_secure orelse return error.EntropyUnavailable;
+    if (!func(global.userdata, buffer.ptr, buffer.len)) return error.EntropyUnavailable;
+}
+
 pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
             return .invalid_value;
         };
     }
@@ -126,6 +152,10 @@ fn setTyped(
             terminal_sys.decode_png = if (value != null) &decodePngWrapper else null;
         },
         .log => global.log = value,
+        .random_secure => {
+            global.random_secure = value;
+            terminal_sys.random_secure = if (value != null) &randomSecureWrapper else null;
+        },
     }
     return .success;
 }
@@ -146,37 +176,30 @@ fn emitLog(level: LogLevel, scope: []const u8, message: []const u8) void {
 /// Emits logs in chunks. Almost all logs will be less than the chunk size
 /// but this allows emitting larger logs without heap allocation.
 const LogEmitter = struct {
+    const buffer_size = 2048;
+
     c_level: LogLevel,
     scope_text: []const u8,
-    buf: [2048]u8 = undefined,
-    pos: usize = 0,
+    writer: std.Io.Writer,
 
-    fn write(self: *@This(), bytes: []const u8) error{}!usize {
-        var remaining = bytes;
-        while (remaining.len > 0) {
-            const space = self.buf.len - self.pos;
-            if (space == 0) {
-                self.flush();
-                continue;
-            }
-
-            const n = @min(remaining.len, space);
-            @memcpy(self.buf[self.pos..][0..n], remaining[0..n]);
-            self.pos += n;
-            remaining = remaining[n..];
+    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        switch (data.len) {
+            0 => unreachable,
+            1 => if (splat == 0) return 0,
+            else => {},
         }
-
-        return bytes.len;
-    }
-
-    fn flush(self: *@This()) void {
-        if (self.pos == 0) return;
-        emitLog(
-            self.c_level,
-            self.scope_text,
-            self.buf[0..self.pos],
-        );
-        self.pos = 0;
+        const self: *@This() = @fieldParentPtr("writer", w);
+        if (w.end > 0) {
+            emitLog(
+                self.c_level,
+                self.scope_text,
+                w.buffer[0..w.end],
+            );
+        }
+        const len: usize = @min(data[0].len, w.buffer.len);
+        @memcpy(w.buffer[0..len], data[0][0..len]);
+        w.end = len;
+        return len;
     }
 };
 
@@ -197,18 +220,20 @@ pub fn logFn(
     const scope_text: []const u8 = if (scope == .default) "" else @tagName(scope);
     const c_level = LogLevel.fromStd(level);
 
-    var ctx: LogEmitter = .{
+    var log_emitter_buffer: [LogEmitter.buffer_size]u8 = undefined;
+    var log_emitter: LogEmitter = .{
         .c_level = c_level,
         .scope_text = scope_text,
+        .writer = .{
+            .buffer = &log_emitter_buffer,
+            .vtable = &.{
+                .drain = LogEmitter.drain,
+            },
+        },
     };
-    const writer: std.io.GenericWriter(
-        *LogEmitter,
-        error{},
-        LogEmitter.write,
-    ) = .{ .context = &ctx };
 
-    nosuspend writer.print(format, args) catch {};
-    ctx.flush();
+    nosuspend log_emitter.writer.print(format, args) catch {};
+    log_emitter.writer.flush() catch {};
 }
 
 /// Built-in log callback that writes to stderr.
@@ -216,8 +241,12 @@ pub fn logFn(
 /// Formats each message as "[level](scope): message\n". Can be passed
 /// directly to ghostty_sys_set(GHOSTTY_SYS_OPT_LOG, &ghostty_sys_log_stderr).
 ///
-/// Uses std.debug.lockStderrWriter for thread-safe, mutex-protected output.
-/// On freestanding/wasm targets this is a no-op (no stderr available).
+/// Each log line is emitted with a single raw write to stderr, which keeps
+/// concurrent log lines from interleaving. We intentionally avoid
+/// `std.debug.lockStderr` because it routes through `std.Options.debug_io`
+/// and would keep the entire `std.Io.Threaded` vtable alive in the binary
+/// (see `os/stderr.zig`). On freestanding/wasm targets this is a no-op
+/// (no stderr available).
 pub fn logStderr(
     _: ?*anyopaque,
     level: LogLevel,
@@ -238,16 +267,32 @@ pub fn logStderr(
         .debug => "debug",
     };
 
-    var buffer: [64]u8 = undefined;
-    const writer = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    nosuspend {
-        if (scope.len > 0) {
-            writer.print("[{s}]({s}): {s}\n", .{ level_text, scope, message }) catch {};
-        } else {
-            writer.print("[{s}]: {s}\n", .{ level_text, message }) catch {};
-        }
+    // Large enough for a full logFn chunk plus the level/scope prefix.
+    var buffer: [LogEmitter.buffer_size + 128]u8 = undefined;
+    const line: ?[]const u8 = if (scope.len > 0)
+        std.mem.print(&buffer, "[{s}]({s}): {s}\n", .{ level_text, scope, message }) catch null
+    else
+        std.mem.print(&buffer, "[{s}]: {s}\n", .{ level_text, message }) catch null;
+    if (line) |v| {
+        stderr.write(v);
+        return;
     }
+
+    // The line didn't fit in our buffer (an embedder called us directly
+    // with a very large message). Fall back to writing the pieces
+    // separately; interleaving with other threads is possible here but
+    // this is a best-effort diagnostic path.
+    stderr.write("[");
+    stderr.write(level_text);
+    stderr.write("]");
+    if (scope.len > 0) {
+        stderr.write("(");
+        stderr.write(scope);
+        stderr.write(")");
+    }
+    stderr.write(": ");
+    stderr.write(message);
+    stderr.write("\n");
 }
 
 test "set decode_png with null clears" {
@@ -276,6 +321,33 @@ test "set decode_png installs wrapper" {
     // Clear it again.
     try std.testing.expectEqual(Result.success, set(.decode_png, null));
     try std.testing.expect(terminal_sys.decode_png == null);
+}
+
+test "decode_png output is zeroed before the callback" {
+    const S = struct {
+        var seen: ?Image = null;
+        fn decode(_: ?*anyopaque, _: *const CAllocator, _: [*]const u8, _: usize, out: *Image) callconv(lib.calling_conv) bool {
+            // Record what we were given, then report success without
+            // filling anything in.
+            seen = out.*;
+            return true;
+        }
+    };
+
+    try std.testing.expectEqual(Result.success, set(
+        .decode_png,
+        @ptrCast(&S.decode),
+    ));
+    defer _ = set(.decode_png, null);
+
+    // Success with no data is rejected rather than read as garbage.
+    try std.testing.expectError(
+        error.InvalidData,
+        decodePngWrapper(std.testing.allocator, "png"),
+    );
+
+    // The callback saw an all-zero struct.
+    try std.testing.expectEqual(std.mem.zeroes(Image), S.seen.?);
 }
 
 test "set log with null clears" {
@@ -356,7 +428,7 @@ test "logFn message exceeding chunk size is split" {
 
     // Format a message larger than the 2048-byte buffer.
     // 'A' repeated 3000 times via a fill format.
-    const fill: [3000]u8 = .{0x41} ** 3000;
+    const fill: [3000]u8 = @splat(0x41);
     logFn(.info, .default, "{s}", .{@as([]const u8, &fill)});
 
     try std.testing.expect(S.call_count >= 2);
@@ -384,7 +456,7 @@ test "logFn message exactly at chunk boundary" {
     }
 
     // Exactly 2048 bytes — should emit one full chunk, no remainder.
-    const fill: [2048]u8 = .{0x42} ** 2048;
+    const fill: [2048]u8 = @splat(0x42);
     logFn(.info, .default, "{s}", .{@as([]const u8, &fill)});
 
     try std.testing.expectEqual(@as(usize, 1), S.call_count);
@@ -412,7 +484,7 @@ test "logFn message exactly double chunk size" {
     }
 
     // Exactly 4096 bytes — should emit exactly two full chunks.
-    const fill: [4096]u8 = .{0x43} ** 4096;
+    const fill: [4096]u8 = @splat(0x43);
     logFn(.info, .default, "{s}", .{@as([]const u8, &fill)});
 
     try std.testing.expectEqual(@as(usize, 2), S.call_count);

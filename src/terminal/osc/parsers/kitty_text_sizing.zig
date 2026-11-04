@@ -47,7 +47,7 @@ pub const OSC = struct {
         InvalidValue,
     }!void {
         // All values are numeric, so we can do a small hack here
-        const v = std.fmt.parseInt(
+        const v = lib.parseInt(
             u4,
             value,
             10,
@@ -77,7 +77,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     };
 
     // Write a NUL byte to ensure that `text` is NUL-terminated
-    cap.writer.writeByte(0) catch {
+    cap.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };
@@ -143,6 +143,16 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     }
 
     return &parser.command;
+}
+
+test "OSC 66: numeric fields reject digit separators" {
+    var p: Parser = .init(null);
+    for ("66;s=0_2;text") |ch| p.next(ch);
+    const cmd = p.end(null).?.*;
+    try std.testing.expectEqualDeep(
+        OSC{ .text = "text" },
+        cmd.kitty_text_sizing,
+    );
 }
 
 test "OSC 66: empty parameters" {
@@ -248,8 +258,8 @@ test "OSC 66: overlong UTF-8" {
 
     var p: Parser = .init(null);
 
-    const input = "66;;" ++ "bobr" ** 1025;
-    for (input) |ch| p.next(ch);
+    for ("66;;") |ch| p.next(ch);
+    for (0..1025) |_| for ("bobr") |ch| p.next(ch);
 
     try testing.expect(p.end('\x1b') == null);
 }

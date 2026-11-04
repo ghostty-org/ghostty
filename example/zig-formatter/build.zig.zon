@@ -2,6 +2,7 @@
     .name = .zig_formatter,
     .version = "0.0.0",
     .fingerprint = 0x578de530797eafe6,
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .ghostty = .{ .path = "../../" },
     },

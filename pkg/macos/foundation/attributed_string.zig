@@ -54,7 +54,7 @@ pub const MutableAttributedString = opaque {
     ) void {
         c.CFAttributedStringReplaceString(
             @ptrCast(self),
-            @bitCast(range),
+            range.cval(),
             @ptrCast(replacement),
         );
     }
@@ -75,7 +75,7 @@ pub const MutableAttributedString = opaque {
 
         c.CFAttributedStringSetAttribute(
             @ptrCast(self),
-            @bitCast(range),
+            range.cval(),
             @ptrCast(key_arg),
             value,
         );

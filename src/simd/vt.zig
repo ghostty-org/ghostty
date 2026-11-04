@@ -9,13 +9,23 @@ extern "c" fn ghostty_simd_decode_utf8_until_control_seq(
     count: usize,
     output: [*]u32,
     output_count: *usize,
+    ascii: *bool,
 ) usize;
 
 const DecodeResult = struct {
     consumed: usize,
     decoded: usize,
+
+    /// Every consumed byte is ASCII (printable or a C0 control), so the
+    /// decoded codepoints are just those bytes, `decoded == consumed`,
+    /// and output may not have been written: read the input instead.
+    /// When false, output holds the decoded codepoints.
+    ascii: bool,
 };
 
+/// Decode UTF-8 from input into output until an ESC. ASCII needs no
+/// decoding, so for ASCII input the caller reads the input bytes rather
+/// than output (see DecodeResult).
 pub fn utf8DecodeUntilControlSeq(
     input: []const u8,
     output: []u32,
@@ -24,14 +34,16 @@ pub fn utf8DecodeUntilControlSeq(
 
     if (comptime options.simd) {
         var decoded: usize = 0;
+        var ascii: bool = false;
         const consumed = ghostty_simd_decode_utf8_until_control_seq(
             input.ptr,
             input.len,
             output.ptr,
             &decoded,
+            &ascii,
         );
 
-        return .{ .consumed = consumed, .decoded = decoded };
+        return .{ .consumed = consumed, .decoded = decoded, .ascii = ascii };
     }
 
     return utf8DecodeUntilControlSeqScalar(input, output);
@@ -50,16 +62,37 @@ fn utf8DecodeUntilControlSeqScalar(
     // subsequences.
     var decode_offset: usize = 0;
     var decode_count: usize = 0;
+    var ascii = true;
     while (decode_offset < decode.len) {
         const b0 = decode[decode_offset];
 
-        // ASCII fast path
+        // ASCII fast path. Use vectorization if it is available. This
+        // path is only run when simd=false, but that only controls our C++
+        // simd builds. We can still rely on Zig intrinsics for platforms
+        // like wasm32+simd128.
         if (b0 < 0x80) {
-            output[decode_count] = b0;
-            decode_count += 1;
-            decode_offset += 1;
+            if (comptime std.simd.suggestVectorLength(u8)) |vl| {
+                const V = @Vector(vl, u8);
+                while (decode_offset + vl <= decode.len) {
+                    const v: V = decode[decode_offset..][0..vl].*;
+                    if (@reduce(.Or, v >= @as(V, @splat(0x80)))) break;
+                    const w: @Vector(vl, u32) = @intCast(v);
+                    output[decode_count..][0..vl].* = w;
+                    decode_count += vl;
+                    decode_offset += vl;
+                }
+            }
+            while (decode_offset < decode.len) {
+                const b = decode[decode_offset];
+                if (b >= 0x80) break;
+                output[decode_count] = b;
+                decode_count += 1;
+                decode_offset += 1;
+            }
             continue;
         }
+
+        ascii = false;
 
         // Continuation byte (80-BF) or invalid byte (C0-C1, F5-FF)
         // as lead: each is its own maximal subpart → one FFFD per byte.
@@ -70,15 +103,27 @@ fn utf8DecodeUntilControlSeqScalar(
             continue;
         }
 
-        // Multi-byte sequence. Determine expected length and the valid
-        // range for each continuation byte per Unicode Table 3-7.
-        const seq = utf8SeqInfo(b0);
+        // Multi-byte sequence. Only the first continuation byte has a
+        // lead-dependent valid range per Unicode Table 3-7; later
+        // continuation bytes are always 80-BF. Range validity per
+        // Table 3-7 excludes overlong, surrogate, and out-of-range
+        // encodings, so a fully valid sequence can be decoded by
+        // direct bit assembly with no further checks.
+        const seq_len: usize = if (b0 < 0xE0) 2 else if (b0 < 0xF0) 3 else 4;
+        const cb1_lo: u8, const cb1_hi: u8 = switch (b0) {
+            0xE0 => .{ 0xA0, 0xBF },
+            0xED => .{ 0x80, 0x9F },
+            0xF0 => .{ 0x90, 0xBF },
+            0xF4 => .{ 0x80, 0x8F },
+            else => .{ 0x80, 0xBF },
+        };
 
         // Check how many continuation bytes form a valid prefix (the
-        // maximal subpart). We check each byte against its specific
-        // valid range.
+        // maximal subpart), accumulating codepoint bits as we go. The
+        // lead byte contributes its low 7-len bits.
+        var cp: u32 = b0 & (@as(u32, 0x7F) >> @intCast(seq_len));
         var valid: usize = 1; // lead byte is valid
-        for (0..seq.len - 1) |ci| {
+        while (valid < seq_len) {
             if (decode_offset + valid >= decode.len) {
                 // The sequence is cut off by the end of the decode
                 // region. If the region ends at the true end of the
@@ -90,33 +135,22 @@ fn utf8DecodeUntilControlSeqScalar(
                 if (decode.len == input.len) return .{
                     .consumed = decode_offset,
                     .decoded = decode_count,
+                    .ascii = false,
                 };
                 break;
             }
             const cb = decode[decode_offset + valid];
-            if (cb < seq.ranges[ci][0] or cb > seq.ranges[ci][1]) {
-                // Byte doesn't match expected range. The maximal
-                // subpart ends here.
-                break;
-            }
+            const lo: u8 = if (valid == 1) cb1_lo else 0x80;
+            const hi: u8 = if (valid == 1) cb1_hi else 0xBF;
+            if (cb < lo or cb > hi) break;
+            cp = (cp << 6) | (cb & 0x3F);
             valid += 1;
         }
 
-        if (valid == seq.len) {
-            // Full sequence present and structurally valid. Decode it.
-            // (Structural validity per Table 3-7 guarantees decode success.)
-            const cp_bytes = decode[decode_offset..][0..seq.len];
-            if (std.unicode.utf8Decode(cp_bytes)) |cp| {
-                output[decode_count] = @intCast(cp);
-                decode_count += 1;
-                decode_offset += seq.len;
-            } else |_| {
-                // Should not happen given Table 3-7 validation, but
-                // be safe: emit FFFD for the lead byte.
-                output[decode_count] = 0xFFFD;
-                decode_count += 1;
-                decode_offset += 1;
-            }
+        if (valid == seq_len) {
+            output[decode_count] = cp;
+            decode_count += 1;
+            decode_offset += seq_len;
         } else {
             // Incomplete/ill-formed: the maximal subpart (valid bytes)
             // maps to a single FFFD.
@@ -129,27 +163,7 @@ fn utf8DecodeUntilControlSeqScalar(
     return .{
         .consumed = decode_offset,
         .decoded = decode_count,
-    };
-}
-
-const Utf8SeqInfo = struct {
-    len: u3,
-    ranges: [3][2]u8,
-};
-
-/// Returns the expected byte count and valid continuation byte ranges
-/// for a UTF-8 sequence based on its lead byte, per Unicode Table 3-7.
-fn utf8SeqInfo(lead: u8) Utf8SeqInfo {
-    return switch (lead) {
-        0xC2...0xDF => .{ .len = 2, .ranges = .{ .{ 0x80, 0xBF }, .{ 0, 0 }, .{ 0, 0 } } },
-        0xE0 => .{ .len = 3, .ranges = .{ .{ 0xA0, 0xBF }, .{ 0x80, 0xBF }, .{ 0, 0 } } },
-        0xE1...0xEC => .{ .len = 3, .ranges = .{ .{ 0x80, 0xBF }, .{ 0x80, 0xBF }, .{ 0, 0 } } },
-        0xED => .{ .len = 3, .ranges = .{ .{ 0x80, 0x9F }, .{ 0x80, 0xBF }, .{ 0, 0 } } },
-        0xEE...0xEF => .{ .len = 3, .ranges = .{ .{ 0x80, 0xBF }, .{ 0x80, 0xBF }, .{ 0, 0 } } },
-        0xF0 => .{ .len = 4, .ranges = .{ .{ 0x90, 0xBF }, .{ 0x80, 0xBF }, .{ 0x80, 0xBF } } },
-        0xF1...0xF3 => .{ .len = 4, .ranges = .{ .{ 0x80, 0xBF }, .{ 0x80, 0xBF }, .{ 0x80, 0xBF } } },
-        0xF4 => .{ .len = 4, .ranges = .{ .{ 0x80, 0x8F }, .{ 0x80, 0xBF }, .{ 0x80, 0xBF } } },
-        else => unreachable,
+        .ascii = ascii,
     };
 }
 
@@ -197,7 +211,12 @@ test "decode simd matches scalar" {
         errdefer std.debug.print("input={x}\n", .{input[0..len]});
         try testing.expectEqual(res_scalar.consumed, res_simd.consumed);
         try testing.expectEqual(res_scalar.decoded, res_simd.decoded);
-        try testing.expectEqualSlices(
+        try testing.expectEqual(res_scalar.ascii, res_simd.ascii);
+        if (res_simd.ascii) {
+            for (input[0..res_simd.consumed], out_scalar[0..res_scalar.decoded]) |b, cp| {
+                try testing.expectEqual(@as(u32, b), cp);
+            }
+        } else try testing.expectEqualSlices(
             u32,
             out_scalar[0..res_scalar.decoded],
             out_simd[0..res_simd.decoded],
@@ -212,11 +231,12 @@ test "decode no escape" {
 
     // TODO: many more test cases
     {
-        const str = "hello" ** 128;
+        const str: [128 * 5]u8 = comptime std.simd.repeat(128 * 5, "hello".*);
         try testing.expectEqual(DecodeResult{
             .consumed = str.len,
             .decoded = str.len,
-        }, utf8DecodeUntilControlSeq(str, &output));
+            .ascii = true,
+        }, utf8DecodeUntilControlSeq(&str, &output));
     }
 }
 
@@ -227,12 +247,53 @@ test "decode ASCII to escape" {
 
     // TODO: many more test cases
     {
-        const prefix = "hello" ** 64;
-        const str = prefix ++ "\x1b" ++ ("world" ** 64);
+        const prefix: [64 * 5]u8 = comptime std.simd.repeat(64 * 5, "hello".*);
+        const payload: [64 * 5]u8 = comptime std.simd.repeat(64 * 5, "world".*);
+        const str = prefix ++ "\x1b" ++ payload;
         try testing.expectEqual(DecodeResult{
             .consumed = prefix.len,
             .decoded = prefix.len,
+            .ascii = true,
         }, utf8DecodeUntilControlSeq(str, &output));
+    }
+}
+
+test "decode ASCII ends at ESC and non-ASCII" {
+    const testing = std.testing;
+
+    var input: [130]u8 = undefined;
+    var output: [input.len]u32 = undefined;
+
+    // An ESC or a non-ASCII byte at offsets on both sides of the 16-,
+    // 32- and 64-byte chunk boundaries and in the scalar tail, after
+    // ASCII with every C0 control in it.
+    const offsets = [_]usize{ 0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128 };
+    for (offsets) |offset| {
+        for (&input, 0..) |*b, i| b.* = @intCast(i % 0x80);
+        for (input[0..offset]) |*b| if (b.* == 0x1B) {
+            b.* = 'x';
+        };
+
+        input[offset] = 0x1B;
+        try testing.expectEqual(DecodeResult{
+            .consumed = offset,
+            .decoded = offset,
+            .ascii = true,
+        }, utf8DecodeUntilControlSeq(&input, &output));
+
+        // A lone continuation byte decodes to U+FFFD, and the ASCII
+        // before it is widened.
+        input[offset] = 0x80;
+        const end = if (std.mem.indexOfScalarPos(u8, &input, offset, 0x1B)) |e| e else input.len;
+        const res = utf8DecodeUntilControlSeq(&input, &output);
+        try testing.expectEqual(DecodeResult{
+            .consumed = end,
+            .decoded = end,
+            .ascii = false,
+        }, res);
+        for (input[0..end], output[0..end], 0..) |b, cp, i| {
+            try testing.expectEqual(if (i == offset) 0xFFFD else @as(u32, b), cp);
+        }
     }
 }
 
@@ -244,6 +305,7 @@ test "decode immediate esc sequence" {
     try testing.expectEqual(DecodeResult{
         .consumed = 0,
         .decoded = 0,
+        .ascii = true,
     }, utf8DecodeUntilControlSeq(str, &output));
 }
 
@@ -258,6 +320,7 @@ test "decode incomplete UTF-8" {
         try testing.expectEqual(DecodeResult{
             .consumed = 5,
             .decoded = 5,
+            .ascii = false,
         }, utf8DecodeUntilControlSeq(str, &output));
     }
 
@@ -278,6 +341,7 @@ test "decode incomplete UTF-8" {
         try testing.expectEqual(DecodeResult{
             .consumed = 5,
             .decoded = 5,
+            .ascii = false,
         }, utf8DecodeUntilControlSeq(str, &output));
     }
 }
@@ -293,6 +357,7 @@ test "decode invalid UTF-8" {
         try testing.expectEqual(DecodeResult{
             .consumed = 7,
             .decoded = 7,
+            .ascii = false,
         }, utf8DecodeUntilControlSeq(str, &output));
     }
 

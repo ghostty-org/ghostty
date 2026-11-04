@@ -16,8 +16,8 @@ pub const std_options = struct {
     // ReleaseSmall mode where we're optimizing for space, we elevate the
     // log level.
     pub const log_level: std.log.Level = switch (builtin.mode) {
-        .Debug => .debug,
-        .ReleaseSmall => .warn,
+        .debug => .debug,
+        .small => .warn,
         else => .info,
     };
 

@@ -3,6 +3,8 @@ buildsystem: simple
 build-commands:
   - true
 modules:
+  # Keep in sync with minimum_zig_version in build.zig.zon. Checksums are
+  # in https://ziglang.org/download/index.json
   - name: zig
     buildsystem: simple
     cleanup:
@@ -13,12 +15,12 @@ modules:
       - chmod a+x /app/zig/zig
     sources:
       - type: archive
-        sha256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
-        url: https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
+        sha256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+        url: https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
         only-arches: [x86_64]
       - type: archive
-        sha256: 958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f
-        url: https://ziglang.org/download/0.15.2/zig-aarch64-linux-0.15.2.tar.xz
+        sha256: 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
+        url: https://ziglang.org/download/0.17.0/zig-aarch64-linux-0.17.0.tar.xz
         only-arches: [aarch64]
 
   - name: bzip2-redirect

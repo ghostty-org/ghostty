@@ -10,7 +10,11 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 /// a general recommendation is to use an arena allocator for simplicity
 /// in freeing the entire layout at once.
 pub const Layout = struct {
-    /// Width, height of the node
+    /// The width and height of this node, measured in terminal cells.
+    ///
+    /// Parsing guarantees both values are at least 1. They are not
+    /// bounded above, so check that they fit your own size type before
+    /// using them (see `size.CellCountInt` for terminals).
     width: usize,
     height: usize,
 
@@ -28,16 +32,36 @@ pub const Layout = struct {
         vertical: []const Layout,
     };
 
+    /// Errors returned by `parse` and `parseWithChecksum`.
+    ///
+    /// `SyntaxError` means the string is not a valid layout. This includes
+    /// strings that are well formed but describe a node with a width or
+    /// height of zero.
     pub const ParseError = Allocator.Error || error{SyntaxError};
 
-    /// Parse a layout string that includes a 4-character checksum prefix.
+    /// Parse a layout string that starts with a 4-character checksum.
     ///
-    /// The expected format is: `XXXX,layout_string` where XXXX is the
-    /// 4-character hexadecimal checksum and the layout string follows
-    /// after the comma. For example: `f8f9,80x24,0,0{40x24,0,0,1,40x24,40,0,2}`.
+    /// This is the form tmux sends in `%layout-change` notifications and
+    /// in `list-windows` output. The string is the checksum in lowercase
+    /// hexadecimal, a comma, and then the layout itself:
+    ///
+    /// ```zig
+    /// var arena: std.heap.ArenaAllocator = .init(gpa);
+    /// defer arena.deinit();
+    ///
+    /// const layout = try Layout.parseWithChecksum(
+    ///     arena.allocator(),
+    ///     "f8f9,80x24,0,0{40x24,0,0,1,40x24,40,0,2}",
+    /// );
+    /// ```
+    ///
+    /// The checksum only catches accidental corruption. Anyone can compute
+    /// it, so a matching checksum does not mean the layout is trustworthy.
+    /// The layout is validated by `parse` either way.
     ///
     /// Returns `ChecksumMismatch` if the checksum doesn't match the layout.
-    /// Returns `SyntaxError` if the format is invalid.
+    /// Returns `SyntaxError` if the layout is invalid. See `parse` for
+    /// what counts as invalid.
     pub fn parseWithChecksum(
         alloc: Allocator,
         str: []const u8,
@@ -60,19 +84,36 @@ pub const Layout = struct {
         return try parse(alloc, str[5..]);
     }
 
-    /// Parse a layout string into a Layout structure. The given allocator
-    /// will be used for all allocations within the layout. Note that
-    /// individual nodes can't be freed so this allocator must be some
-    /// kind of arena allocator.
+    /// Parse a layout string (without a checksum) into a `Layout` tree.
     ///
-    /// The layout string must be fully provided as a single string.
-    /// Layouts are generally small so this should not be a problem.
+    /// Every node in the tree is allocated with `alloc`. Nodes can't be
+    /// freed one at a time, so use an arena and free the whole tree at
+    /// once. The layout must be passed as one complete string. Layouts
+    /// are small, so this is rarely a problem.
     ///
-    /// Tmux layout strings have the following format:
+    /// Each node starts with its size and position, followed by either a
+    /// pane ID or a list of child nodes:
     ///
-    /// - WxH,X,Y,ID Leaf pane: width×height, x-offset, y-offset, pane ID
-    /// - WxH,X,Y{...} Horizontal split (left-right), children comma-separated
-    /// - WxH,X,Y[...] Vertical split (top-bottom), children comma-separated
+    /// - `WxH,X,Y,ID` is a pane that is W cells wide and H cells tall,
+    ///   placed at column X and row Y, with tmux pane ID `ID`.
+    /// - `WxH,X,Y{...}` splits the area left to right. The children are
+    ///   separated by commas.
+    /// - `WxH,X,Y[...]` splits the area top to bottom. The children are
+    ///   separated by commas.
+    ///
+    /// For example, this is an 80x24 window split into two side-by-side
+    /// panes with IDs 1 and 2:
+    ///
+    /// ```zig
+    /// const layout = try Layout.parse(alloc, "80x24,0,0{40x24,0,0,1,40x24,40,0,2}");
+    /// // layout.width == 80, layout.height == 24
+    /// // layout.content.horizontal[1].content.pane == 2
+    /// ```
+    ///
+    /// Returns `SyntaxError` if the string is malformed, has trailing
+    /// characters, or contains any node with a width or height of zero.
+    /// tmux never produces zero-sized nodes, so such a string can only
+    /// come from a buggy or malicious sender.
     pub fn parse(alloc: Allocator, str: []const u8) ParseError!Layout {
         var offset: usize = 0;
         const root = try parseNext(
@@ -116,6 +157,10 @@ pub const Layout = struct {
                 10,
             ) catch return error.SyntaxError;
         } else return error.SyntaxError;
+
+        // tmux never produces zero-sized nodes, and a terminal can't
+        // have zero rows or columns, so reject them here.
+        if (width == 0 or height == 0) return error.SyntaxError;
 
         // Find X
         const x: usize = if (std.mem.indexOfScalar(
@@ -238,14 +283,14 @@ pub const Checksum = enum(u16) {
             result +%= c;
         }
 
-        return @enumFromInt(result);
+        return @fromBackingInt(result);
     }
 
     /// Convert the checksum to a 4-character hexadecimal string. This
     /// is always zero-padded to match the tmux implementation
     /// (in layout-custom.c).
     pub fn asString(self: Checksum) [4]u8 {
-        const value = @intFromEnum(self);
+        const value = @backingInt(self);
         const charset = "0123456789abcdef";
         return .{
             charset[(value >> 12) & 0xf],
@@ -442,6 +487,39 @@ test "syntax error missing height" {
     try testing.expectError(error.SyntaxError, Layout.parse(arena.allocator(), "80x,0,0,1"));
 }
 
+test "syntax error zero width" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    try testing.expectError(error.SyntaxError, Layout.parse(arena.allocator(), "0x24,0,0,1"));
+}
+
+test "syntax error zero height" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    try testing.expectError(error.SyntaxError, Layout.parse(arena.allocator(), "80x0,0,0,1"));
+}
+
+test "syntax error zero size child in split" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    try testing.expectError(error.SyntaxError, Layout.parse(arena.allocator(), "80x24,0,0{40x24,0,0,1,0x24,40,0,2}"));
+    try testing.expectError(error.SyntaxError, Layout.parse(arena.allocator(), "80x24,0,0[80x12,0,0,1,80x0,0,13,2]"));
+}
+
+test "parseWithChecksum zero size with valid checksum" {
+    var arena: ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    // Sanity check that the checksum is valid so we're testing the
+    // size validation and not the checksum validation.
+    const str = "83x44,0,0[83x22,0,0,0,0x21,0,23,2]";
+    try testing.expectEqualStrings("52aa", &Checksum.calculate(str).asString());
+    try testing.expectError(error.SyntaxError, Layout.parseWithChecksum(arena.allocator(), "52aa," ++ str));
+}
+
 test "syntax error missing x" {
     var arena: ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
@@ -557,14 +635,14 @@ test "parseWithChecksum missing comma" {
 
 test "checksum empty string" {
     const checksum = Checksum.calculate("");
-    try testing.expectEqual(@as(u16, 0), @intFromEnum(checksum));
+    try testing.expectEqual(@as(u16, 0), @backingInt(checksum));
     try testing.expectEqualStrings("0000", &checksum.asString());
 }
 
 test "checksum single character" {
     // 'A' = 65, first iteration: csum = 0 >> 1 | 0 = 0, then 0 + 65 = 65
     const checksum = Checksum.calculate("A");
-    try testing.expectEqual(@as(u16, 65), @intFromEnum(checksum));
+    try testing.expectEqual(@as(u16, 65), @backingInt(checksum));
     try testing.expectEqualStrings("0041", &checksum.asString());
 }
 
@@ -573,7 +651,7 @@ test "checksum two characters" {
     // 'B' (66): csum = 65, rotate => (65 >> 1) | ((65 & 1) << 15) = 32 | 32768 = 32800
     //           add 66 => 32800 + 66 = 32866
     const checksum = Checksum.calculate("AB");
-    try testing.expectEqual(@as(u16, 32866), @intFromEnum(checksum));
+    try testing.expectEqual(@as(u16, 32866), @backingInt(checksum));
     try testing.expectEqualStrings("8062", &checksum.asString());
 }
 
@@ -589,25 +667,25 @@ test "checksum horizontal split layout" {
 
 test "checksum asString zero padding" {
     // Value 0x000f should produce "000f"
-    const checksum: Checksum = @enumFromInt(0x000f);
+    const checksum: Checksum = @fromBackingInt(0x000f);
     try testing.expectEqualStrings("000f", &checksum.asString());
 }
 
 test "checksum asString all digits" {
     // Value 0x1234 should produce "1234"
-    const checksum: Checksum = @enumFromInt(0x1234);
+    const checksum: Checksum = @fromBackingInt(0x1234);
     try testing.expectEqualStrings("1234", &checksum.asString());
 }
 
 test "checksum asString with letters" {
     // Value 0xabcd should produce "abcd"
-    const checksum: Checksum = @enumFromInt(0xabcd);
+    const checksum: Checksum = @fromBackingInt(0xabcd);
     try testing.expectEqualStrings("abcd", &checksum.asString());
 }
 
 test "checksum asString max value" {
     // Value 0xffff should produce "ffff"
-    const checksum: Checksum = @enumFromInt(0xffff);
+    const checksum: Checksum = @fromBackingInt(0xffff);
     try testing.expectEqualStrings("ffff", &checksum.asString());
 }
 
@@ -627,7 +705,7 @@ test "checksum deterministic" {
 test "checksum different inputs different outputs" {
     const checksum1 = Checksum.calculate("80x24,0,0,1");
     const checksum2 = Checksum.calculate("80x24,0,0,2");
-    try testing.expect(@intFromEnum(checksum1) != @intFromEnum(checksum2));
+    try testing.expect(@backingInt(checksum1) != @backingInt(checksum2));
 }
 
 test "checksum known tmux layout bb62" {

@@ -2,10 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const EnvMap = std.process.EnvMap;
+const EnvMap = std.process.Environ.Map;
 const config = @import("../config.zig");
 const homedir = @import("../os/homedir.zig");
 const internal_os = @import("../os/main.zig");
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.shell_integration);
 
@@ -94,10 +95,10 @@ test "force shell" {
     var env = EnvMap.init(alloc);
     defer env.deinit();
 
-    inline for (@typeInfo(Shell).@"enum".fields) |field| {
-        const shell = @field(Shell, field.name);
+    inline for (@typeInfo(Shell).@"enum".field_names) |field| {
+        const shell = @field(Shell, field);
 
-        var res: TmpResourcesDir = try .init(alloc, shell);
+        var res: TmpResourcesDir = try .init(shell);
         defer res.deinit();
 
         const result = try setup(
@@ -190,10 +191,10 @@ pub fn setupFeatures(
     features: config.ShellIntegrationFeatures,
     cursor_blink: bool,
 ) !void {
-    const fields = @typeInfo(@TypeOf(features)).@"struct".fields;
+    const field_names = @typeInfo(@TypeOf(features)).@"struct".field_names;
     const capacity: usize = capacity: {
-        comptime var n: usize = fields.len - 1; // commas
-        inline for (fields) |field| n += field.name.len;
+        comptime var n: usize = field_names.len - 1; // commas
+        inline for (field_names) |name| n += name.len;
         n += ":steady".len; // cursor value
         break :capacity n;
     };
@@ -203,9 +204,8 @@ pub fn setupFeatures(
 
     // Sort the fields so that the output is deterministic. This is
     // done at comptime so it has no runtime cost
-    const fields_sorted: [fields.len][]const u8 = comptime fields: {
-        var fields_sorted: [fields.len][]const u8 = undefined;
-        for (fields, 0..) |field, i| fields_sorted[i] = field.name;
+    const fields_sorted: [field_names.len][]const u8 = comptime fields: {
+        var fields_sorted: [field_names.len][]const u8 = field_names.*;
         std.mem.sortUnstable(
             []const u8,
             &fields_sorted,
@@ -301,8 +301,9 @@ fn setupBash(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !?config.Command {
-    var stack_fallback = std.heap.stackFallback(4096, alloc);
-    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    var stack_fallback_buf: [4096]u8 = undefined;
+    var stack_fallback: std.heap.BufferFirstAllocator = .init(&stack_fallback_buf, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.allocator());
     defer cmd.deinit();
 
     // Iterator that yields each argument in the original command line.
@@ -367,18 +368,18 @@ fn setupBash(
     }
 
     // Set our new ENV to point to our integration script.
-    var script_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const script_path = try std.fmt.bufPrint(
+    var script_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const script_path = try std.mem.print(
         &script_path_buf,
         "{s}/shell-integration/bash/ghostty.bash",
         .{resource_dir},
     );
-    if (std.fs.openFileAbsolute(script_path, .{})) |file| {
-        file.close();
+    if (std.Io.Dir.openFileAbsolute(global.io(), script_path, .{})) |file| {
+        file.close(global.io());
         try env.put("ENV", script_path);
     } else |err| {
         log.warn("unable to open {s}: {}", .{ script_path, err });
-        env.remove("GHOSTTY_BASH_ENV");
+        _ = env.swapRemove("GHOSTTY_BASH_ENV");
         return null;
     }
 
@@ -390,10 +391,12 @@ fn setupBash(
     // In POSIX mode, HISTFILE defaults to ~/.sh_history, so unless we're
     // staying in POSIX mode (--posix), change it back to ~/.bash_history.
     if (env.get("HISTFILE") == null) {
+        var environ_map = try global.environMap();
+        defer environ_map.deinit();
         var home_buf: [1024]u8 = undefined;
-        if (try homedir.home(&home_buf)) |home| {
-            var histfile_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const histfile = try std.fmt.bufPrint(
+        if (try homedir.home(global.io(), &environ_map, &home_buf)) |home| {
+            var histfile_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            const histfile = try std.mem.print(
                 &histfile_buf,
                 "{s}/.bash_history",
                 .{home},
@@ -404,7 +407,7 @@ fn setupBash(
     }
 
     // Return a copy of our modified command line to use as the shell command.
-    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+    return .{ .shell = try alloc.dupeSentinel(u8, cmd.buffer.written(), 0) };
 }
 
 test "bash" {
@@ -413,7 +416,7 @@ test "bash" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -423,9 +426,9 @@ test "bash" {
     try testing.expectEqualStrings("bash --posix", command.?.shell);
     try testing.expectEqualStrings("1", env.get("GHOSTTY_BASH_INJECT").?);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
+        try std.mem.print(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
         env.get("ENV").?,
     );
 }
@@ -436,7 +439,7 @@ test "bash: unsupported options" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     const cmdlines = [_][:0]const u8{
@@ -462,7 +465,7 @@ test "bash: inject flags" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     // bash --norc
@@ -492,7 +495,7 @@ test "bash: rcfile" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -519,7 +522,7 @@ test "bash: HISTFILE" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     // HISTFILE unset
@@ -551,7 +554,7 @@ test "bash: ENV" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -562,9 +565,9 @@ test "bash: ENV" {
     _ = try setupBash(alloc, .{ .shell = "bash" }, res.path, &env);
     try testing.expectEqualStrings("env.sh", env.get("GHOSTTY_BASH_ENV").?);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
+        try std.mem.print(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
         env.get("ENV").?,
     );
 }
@@ -575,7 +578,7 @@ test "bash: additional arguments" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .bash);
+    var res: TmpResourcesDir = try .init(.bash);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -603,7 +606,7 @@ test "bash: missing resources" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    const resources_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(resources_dir);
 
     var env = EnvMap.init(alloc);
@@ -625,19 +628,23 @@ fn setupXdgDataDirs(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !bool {
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
     // Get our path to the shell integration directory.
-    const integ_path = try std.fmt.bufPrint(
+    const integ_path = try std.mem.print(
         &path_buf,
         "{s}/shell-integration",
         .{resource_dir},
     );
-    var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
+    var integ_dir = std.Io.Dir.openDirAbsolute(
+        global.io(),
+        integ_path,
+        .{},
+    ) catch |err| {
         log.warn("unable to open {s}: {}", .{ integ_path, err });
         return false;
     };
-    integ_dir.close();
+    integ_dir.close(global.io());
 
     // Set an env var so we can remove this from XDG_DATA_DIRS later.
     // This happens in the shell integration config itself. We do this
@@ -649,8 +656,9 @@ fn setupXdgDataDirs(
     // 4K is a reasonable size for this for most cases. However, env
     // vars can be significantly larger so if we have to we fall
     // back to a heap allocated value.
-    var stack_alloc_state = std.heap.stackFallback(4096, alloc);
-    const stack_alloc = stack_alloc_state.get();
+    var stack_alloc_state_buf: [4096]u8 = undefined;
+    var stack_alloc_state: std.heap.BufferFirstAllocator = .init(&stack_alloc_state_buf, alloc);
+    const stack_alloc = stack_alloc_state.allocator();
 
     // If no XDG_DATA_DIRS set use the default value as specified.
     // This ensures that the default directories aren't lost by setting
@@ -659,7 +667,7 @@ fn setupXdgDataDirs(
     const xdg_data_dirs_key = "XDG_DATA_DIRS";
     try env.put(
         xdg_data_dirs_key,
-        try internal_os.prependEnv(
+        try prependEnv(
             stack_alloc,
             env.get(xdg_data_dirs_key) orelse "/usr/local/share:/usr/share",
             integ_path,
@@ -669,8 +677,25 @@ fn setupXdgDataDirs(
     return true;
 }
 
+/// Prepend a value to an environment variable such as PATH.
+/// The returned value is always allocated so it must be freed.
+fn prependEnv(
+    alloc: Allocator,
+    current: []const u8,
+    value: []const u8,
+) Allocator.Error![]u8 {
+    // If there is no prior value, we return it as-is
+    if (current.len == 0) return try alloc.dupe(u8, value);
+
+    return try alloc.print("{s}{c}{s}", .{
+        value,
+        std.fs.path.delimiter,
+        current,
+    });
+}
+
 test "xdg: empty XDG_DATA_DIRS" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
 
     const testing = std.testing;
 
@@ -678,7 +703,7 @@ test "xdg: empty XDG_DATA_DIRS" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .fish);
+    var res: TmpResourcesDir = try .init(.fish);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -686,19 +711,19 @@ test "xdg: empty XDG_DATA_DIRS" {
 
     try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration:/usr/local/share:/usr/share", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration:/usr/local/share:/usr/share", .{res.path}),
         env.get("XDG_DATA_DIRS").?,
     );
 }
 
 test "xdg: existing XDG_DATA_DIRS" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest;
 
     const testing = std.testing;
 
@@ -706,7 +731,7 @@ test "xdg: existing XDG_DATA_DIRS" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .fish);
+    var res: TmpResourcesDir = try .init(.fish);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -716,13 +741,13 @@ test "xdg: existing XDG_DATA_DIRS" {
 
     try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration:/opt/share", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration:/opt/share", .{res.path}),
         env.get("XDG_DATA_DIRS").?,
     );
 }
@@ -736,7 +761,7 @@ test "xdg: missing resources" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    const resources_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(resources_dir);
 
     var env = EnvMap.init(alloc);
@@ -763,8 +788,9 @@ fn setupNushell(
     // of the later checks abort the rest of our automatic integration.
     if (!try setupXdgDataDirs(alloc, resource_dir, env)) return null;
 
-    var stack_fallback = std.heap.stackFallback(4096, alloc);
-    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
+    var stack_fallback_buf: [4096]u8 = undefined;
+    var stack_fallback: std.heap.BufferFirstAllocator = .init(&stack_fallback_buf, alloc);
+    var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.allocator());
     defer cmd.deinit();
 
     // Iterator that yields each argument in the original command line.
@@ -815,7 +841,7 @@ fn setupNushell(
     }
 
     // Return a copy of our modified command line to use as the shell command.
-    return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
+    return .{ .shell = try alloc.dupeSentinel(u8, cmd.buffer.written(), 0) };
 }
 
 test "nushell" {
@@ -824,7 +850,7 @@ test "nushell" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .nushell);
+    var res: TmpResourcesDir = try .init(.nushell);
     defer res.deinit();
 
     var env = EnvMap.init(alloc);
@@ -833,14 +859,14 @@ test "nushell" {
     const command = try setupNushell(alloc, .{ .shell = "nu" }, res.path, &env);
     try testing.expectEqualStrings("nu --execute 'use ghostty *'", command.?.shell);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
     );
     try testing.expectStringStartsWith(
         env.get("XDG_DATA_DIRS").?,
-        try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
+        try std.mem.print(&path_buf, "{s}/shell-integration", .{res.path}),
     );
 }
 
@@ -850,7 +876,7 @@ test "nushell: unsupported options" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(alloc, .nushell);
+    var res: TmpResourcesDir = try .init(.nushell);
     defer res.deinit();
 
     const cmdlines = [_][:0]const u8{
@@ -879,7 +905,7 @@ test "nushell: missing resources" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    const resources_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(resources_dir);
 
     var env = EnvMap.init(alloc);
@@ -904,17 +930,21 @@ fn setupZsh(
     }
 
     // Set our new ZDOTDIR to point to our shell resource directory.
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const integ_path = try std.fmt.bufPrint(
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const integ_path = try std.mem.print(
         &path_buf,
         "{s}/shell-integration/zsh",
         .{resource_dir},
     );
-    var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
+    var integ_dir = std.Io.Dir.openDirAbsolute(
+        global.io(),
+        integ_path,
+        .{},
+    ) catch |err| {
         log.warn("unable to open {s}: {}", .{ integ_path, err });
         return null;
     };
-    integ_dir.close();
+    integ_dir.close(global.io());
     try env.put("ZDOTDIR", integ_path);
 
     return try command.clone(alloc);
@@ -927,7 +957,7 @@ test "zsh" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(testing.allocator, .zsh);
+    var res: TmpResourcesDir = try .init(.zsh);
     defer res.deinit();
 
     var env = EnvMap.init(testing.allocator);
@@ -946,7 +976,7 @@ test "zsh: ZDOTDIR" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var res: TmpResourcesDir = try .init(testing.allocator, .zsh);
+    var res: TmpResourcesDir = try .init(.zsh);
     defer res.deinit();
 
     var env = EnvMap.init(testing.allocator);
@@ -969,7 +999,7 @@ test "zsh: missing resources" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    const resources_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(resources_dir);
 
     var env = EnvMap.init(alloc);
@@ -981,35 +1011,33 @@ test "zsh: missing resources" {
 
 /// Test helper that creates a temporary resources directory with shell integration paths.
 const TmpResourcesDir = struct {
-    allocator: Allocator,
     tmp_dir: std.testing.TmpDir,
-    path: []const u8,
+    path: [:0]const u8,
     shell_path: []const u8,
 
-    fn init(allocator: Allocator, shell: Shell) !TmpResourcesDir {
+    fn init(shell: Shell) !TmpResourcesDir {
         var tmp_dir = std.testing.tmpDir(.{});
         errdefer tmp_dir.cleanup();
 
-        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const relative_shell_path = try std.fmt.bufPrint(
+        var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const relative_shell_path = try std.mem.print(
             &path_buf,
             "shell-integration/{s}",
             .{@tagName(shell)},
         );
-        try tmp_dir.dir.makePath(relative_shell_path);
+        try tmp_dir.dir.createDirPath(std.testing.io, relative_shell_path);
 
-        const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-        errdefer allocator.free(path);
+        const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+        errdefer std.testing.allocator.free(path);
 
-        const shell_path = try std.fmt.allocPrint(
-            allocator,
+        const shell_path = try std.testing.allocator.print(
             "{s}/{s}",
             .{ path, relative_shell_path },
         );
-        errdefer allocator.free(shell_path);
+        errdefer std.testing.allocator.free(shell_path);
 
         switch (shell) {
-            .bash => try tmp_dir.dir.writeFile(.{
+            .bash => try tmp_dir.dir.writeFile(std.testing.io, .{
                 .sub_path = "shell-integration/bash/ghostty.bash",
                 .data = "",
             }),
@@ -1017,7 +1045,6 @@ const TmpResourcesDir = struct {
         }
 
         return .{
-            .allocator = allocator,
             .tmp_dir = tmp_dir,
             .path = path,
             .shell_path = shell_path,
@@ -1025,8 +1052,8 @@ const TmpResourcesDir = struct {
     }
 
     fn deinit(self: *TmpResourcesDir) void {
-        self.allocator.free(self.shell_path);
-        self.allocator.free(self.path);
+        std.testing.allocator.free(self.shell_path);
+        std.testing.allocator.free(self.path);
         self.tmp_dir.cleanup();
     }
 };

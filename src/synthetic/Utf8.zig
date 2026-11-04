@@ -65,6 +65,16 @@ ascii_printable_only: bool = false,
 /// This is checked for each emitted sequence while filling a buffer.
 invalid_rate: f64 = 0,
 
+/// Relative weight, alongside `p_length`, of emitting a wide (width 2)
+/// codepoint from the CJK Unified Ideographs block (U+4E00 to U+9FFF,
+/// always 3 bytes). Zero (the default) never emits one and leaves the
+/// output for a given seed unchanged.
+p_wide: f64 = 0,
+
+/// Probability that a space follows each emitted valid sequence, if it
+/// fits. Zero (the default) leaves the output for a given seed unchanged.
+space_rate: f64 = 0,
+
 pub fn generator(self: *Utf8) Generator {
     return .init(self, next);
 }
@@ -84,6 +94,14 @@ pub fn next(self: *Utf8, writer: *std.Io.Writer, max_len: usize) Generator.Error
 
         const written = try self.writeValid(writer, rem);
         rem -= written;
+
+        if (rem > 0 and
+            self.space_rate > 0 and
+            self.rand.float(f64) < self.space_rate)
+        {
+            try writer.writeByte(' ');
+            rem -= 1;
+        }
     }
 }
 
@@ -107,6 +125,22 @@ fn writeValid(
     rem: usize,
 ) Generator.Error!usize {
     while (true) {
+        if (self.p_wide > 0 and rem >= 3 and self.chooseWide()) {
+            const cp = self.rand.intRangeAtMostBiased(u21, 0x4E00, 0x9FFF);
+            var buf: [4]u8 = undefined;
+            const l = std.unicode.utf8Encode(cp, &buf) catch unreachable;
+            assert(l == 3);
+            try writer.writeAll(buf[0..l]);
+            return l;
+        }
+
+        // Only wide codepoints are weighted and they don't fit: pad
+        // with a space rather than pick from all-zero length weights.
+        if (self.lengthWeight() <= 0) {
+            try writer.writeByte(' ');
+            return 1;
+        }
+
         const utf8_len = self.utf8Len(rem);
 
         // Generate a UTF-8 sequence that encodes to this length.
@@ -122,7 +156,7 @@ fn writeValid(
 
         assert(std.unicode.utf8CodepointSequenceLength(
             cp,
-        ) catch unreachable == @intFromEnum(utf8_len));
+        ) catch unreachable == @backingInt(utf8_len));
 
         var buf: [4]u8 = undefined;
         const l = std.unicode.utf8Encode(
@@ -142,15 +176,28 @@ fn writeValid(
     }
 }
 
+/// Whether the next valid sequence is a wide codepoint, chosen with
+/// weight `p_wide` against the total weight of `p_length`.
+fn chooseWide(self: *Utf8) bool {
+    const total = self.p_wide + self.lengthWeight();
+    return self.rand.float(f64) * total < self.p_wide;
+}
+
+fn lengthWeight(self: *const Utf8) f64 {
+    var total: f64 = 0;
+    for (self.p_length.values) |w| total += w;
+    return total;
+}
+
 fn utf8Len(self: *Utf8, rem: usize) Utf8Len {
     const Indexer = @TypeOf(self.p_length).Indexer;
     const idx = self.rand.weightedIndex(f64, &self.p_length.values);
     var utf8_len = Indexer.keyForIndex(idx);
     assert(rem > 0);
-    while (@intFromEnum(utf8_len) > rem) {
+    while (@backingInt(utf8_len) > rem) {
         // If the chosen length can't fit into the remaining buffer,
         // choose a smaller length.
-        utf8_len = @enumFromInt(@intFromEnum(utf8_len) - 1);
+        utf8_len = @fromBackingInt(@backingInt(utf8_len) - 1);
     }
     return utf8_len;
 }
@@ -207,6 +254,44 @@ test "utf8 printable ascii only" {
     try testing.expectEqual(256, result.len);
     try testing.expect(std.unicode.utf8ValidateSlice(result));
     for (result) |c| try testing.expect(std.ascii.isPrint(c));
+}
+
+test "utf8 wide codepoints and spaces" {
+    const testing = std.testing;
+    var prng = std.Random.DefaultPrng.init(0);
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    var v: Utf8 = .{
+        .rand = prng.random(),
+        .p_wide = 1.0,
+        .space_rate = 0.5,
+    };
+    v.min_len = buf.len;
+    v.max_len = buf.len;
+    v.p_length = .initFill(0.0);
+
+    const gen = v.generator();
+    try gen.next(&writer, buf.len);
+    const result = writer.buffered();
+    try testing.expectEqual(buf.len, result.len);
+    try testing.expect(std.unicode.utf8ValidateSlice(result));
+
+    // Every codepoint is a CJK ideograph or a space (spaces also pad
+    // the end when fewer than 3 bytes remain).
+    var wide: usize = 0;
+    var spaces: usize = 0;
+    var it = std.unicode.Utf8View.initUnchecked(result).iterator();
+    while (it.nextCodepoint()) |cp| {
+        if (cp == ' ') {
+            spaces += 1;
+        } else {
+            try testing.expect(cp >= 0x4E00 and cp <= 0x9FFF);
+            wide += 1;
+        }
+    }
+    try testing.expect(wide > 200);
+    try testing.expect(spaces > 50);
+    try testing.expect(spaces < wide);
 }
 
 test "utf8 malformed output" {

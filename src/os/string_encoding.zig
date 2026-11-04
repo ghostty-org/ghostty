@@ -205,7 +205,7 @@ test "singles percent" {
         defer w.deinit();
 
         var buf_: [4]u8 = undefined;
-        const buf = try std.fmt.bufPrintZ(&buf_, "%{x:0>2}", .{c});
+        const buf = try std.mem.printSentinel(&buf_, "%{x:0>2}", .{c}, 0);
 
         try urlPercentDecode(&w.writer, buf);
         const decoded = w.written();
@@ -218,7 +218,7 @@ test "singles percent" {
         defer w.deinit();
 
         var buf_: [4]u8 = undefined;
-        const buf = try std.fmt.bufPrintZ(&buf_, "%{X:0>2}", .{c});
+        const buf = try std.mem.printSentinel(&buf_, "%{X:0>2}", .{c}, 0);
 
         try urlPercentDecode(&w.writer, buf);
         const decoded = w.written();

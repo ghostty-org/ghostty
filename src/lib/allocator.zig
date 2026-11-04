@@ -2,8 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 
-/// Convenience functions
-pub const convenience = @import("allocator/convenience.zig");
+/// Wasm-specific allocation helpers.
+pub const wasm = @import("allocator/wasm.zig");
 
 /// Useful alias since they're required to create Zig allocators
 pub const ZigVTable = std.mem.Allocator.VTable;
@@ -33,6 +33,10 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
 
     // Wasm
     if (comptime builtin.target.cpu.arch.isWasm()) return std.heap.wasm_allocator;
+
+    // Freestanding targets don't have a default heap. Using the failing
+    // allocator makes a missing allocator show up as out-of-memory.
+    if (comptime builtin.target.os.tag == .freestanding) return std.mem.Allocator.failing;
 
     // No libc, use the preferred allocator for releases which is the
     // Zig SMP allocator.
@@ -92,7 +96,7 @@ pub const Allocator = extern struct {
         return self.vtable.alloc(
             self.ctx,
             len,
-            @intFromEnum(alignment),
+            @backingInt(alignment),
             ra,
         );
     }
@@ -109,7 +113,7 @@ pub const Allocator = extern struct {
             self.ctx,
             old_mem.ptr,
             old_mem.len,
-            @intFromEnum(alignment),
+            @backingInt(alignment),
             new_len,
             ra,
         );
@@ -127,7 +131,7 @@ pub const Allocator = extern struct {
             self.ctx,
             old_mem.ptr,
             old_mem.len,
-            @intFromEnum(alignment),
+            @backingInt(alignment),
             new_len,
             ra,
         );
@@ -144,7 +148,7 @@ pub const Allocator = extern struct {
             self.ctx,
             old_mem.ptr,
             old_mem.len,
-            @intFromEnum(alignment),
+            @backingInt(alignment),
             ra,
         );
     }
@@ -170,7 +174,7 @@ const ZigAllocator = struct {
         return zig_alloc.vtable.alloc(
             zig_alloc.ptr,
             len,
-            @enumFromInt(alignment),
+            @fromBackingInt(@truncate(alignment)),
             ra,
         );
     }
@@ -187,7 +191,7 @@ const ZigAllocator = struct {
         return zig_alloc.vtable.resize(
             zig_alloc.ptr,
             memory[0..memory_len],
-            @enumFromInt(alignment),
+            @fromBackingInt(@truncate(alignment)),
             new_len,
             ra,
         );
@@ -205,7 +209,7 @@ const ZigAllocator = struct {
         return zig_alloc.vtable.remap(
             zig_alloc.ptr,
             memory[0..memory_len],
-            @enumFromInt(alignment),
+            @fromBackingInt(@truncate(alignment)),
             new_len,
             ra,
         );
@@ -222,7 +226,7 @@ const ZigAllocator = struct {
         return zig_alloc.vtable.free(
             zig_alloc.ptr,
             memory[0..memory_len],
-            @enumFromInt(alignment),
+            @fromBackingInt(@truncate(alignment)),
             ra,
         );
     }

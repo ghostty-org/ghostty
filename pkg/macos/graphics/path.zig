@@ -13,7 +13,7 @@ pub const Path = opaque {
         return @as(
             ?*Path,
             @ptrFromInt(@intFromPtr(c.CGPathCreateWithRect(
-                @bitCast(rect),
+                rect.cval(),
                 @ptrCast(transform),
             ))),
         ) orelse Allocator.Error.OutOfMemory;
@@ -44,12 +44,12 @@ pub const MutablePath = opaque {
         c.CGPathAddRect(
             @ptrCast(self),
             @ptrCast(transform),
-            @bitCast(rect),
+            rect.cval(),
         );
     }
 
     pub fn getBoundingBox(self: *MutablePath) graphics.Rect {
-        return @bitCast(c.CGPathGetBoundingBox(@ptrCast(self)));
+        return .fromC(c.CGPathGetBoundingBox(@ptrCast(self)));
     }
 };
 

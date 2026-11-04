@@ -38,8 +38,8 @@ pub const Diagnostic = struct {
     pub fn clone(self: *const Diagnostic, alloc: Allocator) Allocator.Error!Diagnostic {
         return .{
             .location = try self.location.clone(alloc),
-            .key = try alloc.dupeZ(u8, self.key),
-            .message = try alloc.dupeZ(u8, self.message),
+            .key = try alloc.dupeSentinel(u8, self.key, 0),
+            .message = try alloc.dupeSentinel(u8, self.message, 0),
         };
     }
 };
@@ -93,7 +93,7 @@ pub const Location = union(enum) {
 /// and potentially in the future structure them differently.
 pub const DiagnosticList = struct {
     /// The list of diagnostics.
-    list: std.ArrayListUnmanaged(Diagnostic) = .{},
+    list: std.ArrayList(Diagnostic) = .empty,
 
     /// Precomputed data for diagnostics. This is used specifically
     /// when we build libghostty so that we can precompute the messages
@@ -111,7 +111,7 @@ pub const DiagnosticList = struct {
     };
 
     const Precompute = if (precompute_enabled) struct {
-        messages: std.ArrayListUnmanaged([:0]const u8) = .{},
+        messages: std.ArrayList([:0]const u8) = .empty,
 
         pub fn clone(
             self: *const Precompute,
@@ -121,7 +121,7 @@ pub const DiagnosticList = struct {
             try result.messages.ensureTotalCapacity(alloc, self.messages.items.len);
             for (self.messages.items) |msg| {
                 result.messages.appendAssumeCapacity(
-                    try alloc.dupeZ(u8, msg),
+                    try alloc.dupeSentinel(u8, msg, 0),
                 );
             }
             return result;

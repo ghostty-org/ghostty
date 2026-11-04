@@ -10,6 +10,7 @@ const vaxis = @import("vaxis");
 const input = @import("../input.zig");
 const tui = @import("tui.zig");
 const Binding = input.Binding;
+const global = @import("../global.zig");
 
 pub const Options = struct {
     /// If `true`, print out the default keybinds instead of the ones configured
@@ -56,7 +57,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -65,11 +66,11 @@ pub fn run(alloc: Allocator) !u8 {
     defer config.deinit();
 
     var buffer: [1024]u8 = undefined;
-    const stdout: std.fs.File = .stdout();
-    var stdout_writer = stdout.writer(&buffer);
+    const stdout: std.Io.File = .stdout();
+    var stdout_writer = stdout.writer(global.io(), &buffer);
     const writer = &stdout_writer.interface;
 
-    if (tui.can_pretty_print and !opts.plain and stdout.isTty()) {
+    if (tui.can_pretty_print and !opts.plain and try stdout.isTty(global.io())) {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         return prettyPrint(arena.allocator(), config.keybind);
@@ -186,14 +187,14 @@ const ChordBinding = struct {
             // We want catch_all to sort last.
             const lhs_key: c_int = blk: {
                 switch (TriggerNode.get(l_trigger.?).data.key) {
-                    .physical => |key| break :blk @intFromEnum(key),
+                    .physical => |key| break :blk @backingInt(key),
                     .unicode => |key| break :blk @intCast(key),
                     .catch_all => break :blk std.math.maxInt(c_int),
                 }
             };
             const rhs_key: c_int = blk: {
                 switch (TriggerNode.get(r_trigger.?).data.key) {
-                    .physical => |key| break :blk @intFromEnum(key),
+                    .physical => |key| break :blk @backingInt(key),
                     .unicode => |key| break :blk @intCast(key),
                     .catch_all => break :blk std.math.maxInt(c_int),
                 }
@@ -218,11 +219,14 @@ const ChordBinding = struct {
 };
 
 fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
+    var env_map = try global.environMap();
+    defer env_map.deinit();
+
     // Set up vaxis
     var buf: [1024]u8 = undefined;
-    var tty = try vaxis.Tty.init(&buf);
+    var tty = try vaxis.Tty.init(global.io(), &buf);
     defer tty.deinit();
-    var vx = try vaxis.init(alloc, .{});
+    var vx = try vaxis.init(global.io(), alloc, &env_map, .{});
     const writer = tty.writer();
     defer vx.deinit(alloc, writer);
 
@@ -232,7 +236,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
     try writer.writeAll(vaxis.ctlseqs.unicode_set);
     defer writer.writeAll(vaxis.ctlseqs.unicode_reset) catch {};
 
-    const winsize: vaxis.Winsize = switch (builtin.os.tag) {
+    const winsize: vaxis.Winsize = switch (builtin.target.os.tag) {
         // We use some default, it doesn't really matter for what
         // we're doing because we don't do any wrapping.
         .windows => .{
@@ -242,7 +246,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
             .y_pixel = 768,
         },
 
-        else => try vaxis.Tty.getWinsize(tty.fd),
+        else => try tty.getWinsize(),
     };
     try vx.resize(alloc, writer, winsize);
 
@@ -316,8 +320,8 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
                 result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
             }
             const key = switch (trigger.data.key) {
-                .physical => |k| try std.fmt.allocPrint(alloc, "{t}", .{k}),
-                .unicode => |c| try std.fmt.allocPrint(alloc, "{u}", .{c}),
+                .physical => |k| try alloc.print("{t}", .{k}),
+                .unicode => |c| try alloc.print("{u}", .{c}),
                 .catch_all => "catch_all",
             };
             result = win.printSegment(.{ .text = key }, .{ .col_offset = result.col });
@@ -338,7 +342,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
                 action_col = chain_result.col;
             }
 
-            const action = try std.fmt.allocPrint(alloc, "{f}", .{act});
+            const action = try alloc.print("{f}", .{act});
             // If our action has an argument, we print the argument in a different color
             if (std.mem.indexOfScalar(u8, action, ':')) |idx| {
                 const print_result = win.print(&.{

@@ -90,14 +90,18 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
             "v1",
         });
 
+        // Every field must be present as a key; Zig 0.17's parser errors
+        // on missing keys regardless of target, and requires `cc_dir` to
+        // be non-empty for Linux targets (Android included).
         const libc_txt = b.fmt(
             \\include_dir={s}
             \\sys_include_dir={s}
+            \\cc_dir={s}
             \\crt_dir={s}
             \\msvc_lib_dir=
             \\kernel32_lib_dir=
-            \\gcc_dir=
-        , .{ include_dir, sys_include_dir, c_runtime_dir });
+            \\darwin_sdk_dir=
+        , .{ include_dir, sys_include_dir, c_runtime_dir, c_runtime_dir });
 
         const wf = b.addWriteFiles();
         const libc_path = wf.add("libc.txt", libc_txt);
@@ -118,16 +122,16 @@ pub fn addPaths(b: *std.Build, step: *std.Build.Step.Compile) !void {
 
 fn findNDKPath(b: *std.Build) ?[]const u8 {
     // Check if user has set the environment variable for the NDK path.
-    if (std.process.getEnvVarOwned(b.allocator, "ANDROID_NDK_HOME") catch null) |value| {
+    if (b.graph.environ_map.get("ANDROID_NDK_HOME")) |value| {
         if (value.len == 0) return null;
-        var dir = std.fs.openDirAbsolute(value, .{}) catch return null;
-        defer dir.close();
+        var dir = std.Io.Dir.openDirAbsolute(b.graph.io, value, .{}) catch return null;
+        defer dir.close(b.graph.io);
         return value;
     }
 
     // Check the common environment variables for the Android SDK path and look for the NDK inside it.
     inline for (.{ "ANDROID_HOME", "ANDROID_SDK_ROOT" }) |env| {
-        if (std.process.getEnvVarOwned(b.allocator, env) catch null) |sdk| {
+        if (b.graph.environ_map.get(env)) |sdk| {
             if (sdk.len > 0) {
                 if (findLatestNDK(b, sdk)) |ndk| return ndk;
             }
@@ -135,18 +139,16 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
     }
 
     // As a fallback, we assume the most common/default SDK path based on the OS.
-    const home = std.process.getEnvVarOwned(
-        b.allocator,
-        if (builtin.os.tag == .windows) "LOCALAPPDATA" else "HOME",
-    ) catch return null;
+    const home = b.graph.environ_map.get(
+        if (builtin.target.os.tag == .windows) "LOCALAPPDATA" else "HOME",
+    ) orelse return null;
 
     const default_sdk_path = b.pathJoin(
         &.{
             home,
-            switch (builtin.os.tag) {
-                .linux => "Android/sdk",
+            switch (builtin.target.os.tag) {
+                .linux, .windows => "Android/Sdk",
                 .macos => "Library/Android/Sdk",
-                .windows => "Android/Sdk",
                 else => return null,
             },
         },
@@ -157,8 +159,8 @@ fn findNDKPath(b: *std.Build) ?[]const u8 {
 
 fn findLatestNDK(b: *std.Build, sdk_path: []const u8) ?[]const u8 {
     const ndk_dir = b.pathJoin(&.{ sdk_path, "ndk" });
-    var dir = std.fs.openDirAbsolute(ndk_dir, .{ .iterate = true }) catch return null;
-    defer dir.close();
+    var dir = std.Io.Dir.openDirAbsolute(b.graph.io, ndk_dir, .{ .iterate = true }) catch return null;
+    defer dir.close(b.graph.io);
 
     var latest_: ?struct {
         name: []const u8,
@@ -166,7 +168,7 @@ fn findLatestNDK(b: *std.Build, sdk_path: []const u8) ?[]const u8 {
     } = null;
     var iterator = dir.iterate();
 
-    while (iterator.next() catch null) |file| {
+    while (iterator.next(b.graph.io) catch null) |file| {
         if (file.kind != .directory) continue;
         const version = std.SemanticVersion.parse(file.name) catch continue;
         if (latest_) |latest| {
@@ -184,7 +186,7 @@ fn findLatestNDK(b: *std.Build, sdk_path: []const u8) ?[]const u8 {
 }
 
 fn hostTag() ?[]const u8 {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         .linux => "linux-x86_64",
         // All darwin hosts use the same prebuilt binaries
         // (https://developer.android.com/ndk/guides/other_build_systems).

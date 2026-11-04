@@ -106,6 +106,7 @@
     <script>
         let wasmInstance = null;
         let wasmMemory = null;
+        let typeLayout = null;
 
         async function loadWasm() {
             try {
@@ -124,6 +125,12 @@
                 
                 wasmInstance = wasmModule.instance;
                 wasmMemory = wasmInstance.exports.memory;
+
+                const jsonPtr = wasmInstance.exports.ghostty_type_json();
+                const jsonStr = new TextDecoder().decode(
+                    new Uint8Array(wasmMemory.buffer, jsonPtr, wasmMemory.buffer.byteLength - jsonPtr)
+                ).split('\0')[0];
+                typeLayout = JSON.parse(jsonStr);
                 
                 return true;
             } catch (e) {
@@ -252,18 +259,22 @@
                     throw new Error(`ghostty_sgr_new failed with result ${result}`);
                 }
                 
-                const parserPtr = new DataView(getBuffer()).getUint32(parserPtrPtr, true);
+                const parserPtr = wasmInstance.exports.ghostty_wasm_take_opaque(parserPtrPtr);
+                wasmInstance.exports.ghostty_wasm_free_opaque(parserPtrPtr);
                 
                 // Allocate and set parameters
-                const paramsPtr = wasmInstance.exports.ghostty_wasm_alloc_u16_array(params.length);
+                const paramsByteLength = params.length * Uint16Array.BYTES_PER_ELEMENT;
+                const paramsPtr = wasmInstance.exports.ghostty_wasm_alloc(paramsByteLength);
                 const paramsView = new Uint16Array(getBuffer(), paramsPtr, params.length);
                 params.forEach((p, i) => paramsView[i] = p);
                 
                 // Allocate and set separators (or use null if empty)
                 let sepsPtr = 0;
+                const sepsByteLength = separators.length > 0 ? params.length : 0;
                 if (separators.length > 0) {
-                    sepsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(separators.length);
-                    const sepsView = new Uint8Array(getBuffer(), sepsPtr, separators.length);
+                    sepsPtr = wasmInstance.exports.ghostty_wasm_alloc(sepsByteLength);
+                    const sepsView = new Uint8Array(getBuffer(), sepsPtr, sepsByteLength);
+                    sepsView.fill(0);
                     separators.forEach((s, i) => sepsView[i] = s.charCodeAt(0));
                 }
                 
@@ -289,7 +300,8 @@
                 output += 'm\n\n';
                 
                 // Iterate through attributes
-                const attrPtr = wasmInstance.exports.ghostty_wasm_alloc_sgr_attribute();
+                const attrSize = typeLayout.types.GhosttySgrAttribute.size;
+                const attrPtr = wasmInstance.exports.ghostty_wasm_alloc(attrSize);
                 let count = 0;
                 
                 while (wasmInstance.exports.ghostty_sgr_next(parserPtr, attrPtr)) {
@@ -313,9 +325,9 @@
                         
                         case SGR_ATTR_TAGS.DIRECT_COLOR_FG: {
                             // Use ghostty_color_rgb_get to extract RGB components
-                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
+                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
+                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
                             
                             wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
                             
@@ -325,17 +337,17 @@
                             
                             output += `Foreground RGB = (${r}, ${g}, ${b})\n`;
                             
-                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            wasmInstance.exports.ghostty_wasm_free(rPtr, 1);
+                            wasmInstance.exports.ghostty_wasm_free(gPtr, 1);
+                            wasmInstance.exports.ghostty_wasm_free(bPtr, 1);
                             break;
                         }
                         
                         case SGR_ATTR_TAGS.DIRECT_COLOR_BG: {
                             // Use ghostty_color_rgb_get to extract RGB components
-                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
+                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
+                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
                             
                             wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
                             
@@ -345,17 +357,17 @@
                             
                             output += `Background RGB = (${r}, ${g}, ${b})\n`;
                             
-                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            wasmInstance.exports.ghostty_wasm_free(rPtr, 1);
+                            wasmInstance.exports.ghostty_wasm_free(gPtr, 1);
+                            wasmInstance.exports.ghostty_wasm_free(bPtr, 1);
                             break;
                         }
                         
                         case SGR_ATTR_TAGS.UNDERLINE_COLOR: {
                             // Use ghostty_color_rgb_get to extract RGB components
-                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
+                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
+                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
                             
                             wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
                             
@@ -365,9 +377,9 @@
                             
                             output += `Underline color RGB = (${r}, ${g}, ${b})\n`;
                             
-                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            wasmInstance.exports.ghostty_wasm_free(rPtr, 1);
+                            wasmInstance.exports.ghostty_wasm_free(gPtr, 1);
+                            wasmInstance.exports.ghostty_wasm_free(bPtr, 1);
                             break;
                         }
                         
@@ -415,7 +427,9 @@
                 outputDiv.textContent = output;
                 
                 // Cleanup
-                wasmInstance.exports.ghostty_wasm_free_sgr_attribute(attrPtr);
+                wasmInstance.exports.ghostty_wasm_free(attrPtr, attrSize);
+                wasmInstance.exports.ghostty_wasm_free(paramsPtr, paramsByteLength);
+                wasmInstance.exports.ghostty_wasm_free(sepsPtr, sepsByteLength);
                 wasmInstance.exports.ghostty_sgr_free(parserPtr);
                 
             } catch (e) {

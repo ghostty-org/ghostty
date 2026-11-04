@@ -348,47 +348,34 @@ pub const RunIterator = struct {
         // we just return whatever index for the cell codepoint.
         if (!cell.hasGrapheme()) return primary;
 
-        // If this is a grapheme, we need to find a font that supports
-        // all of the codepoints in the grapheme.
-        var candidates: std.ArrayList(font.Collection.Index) = try .initCapacity(
-            alloc,
-            graphemes.len + 1,
-        );
-        defer candidates.deinit(alloc);
-        candidates.appendAssumeCapacity(primary);
+        // Try the primary font followed by the font selected for each
+        // additional codepoint until one supports the entire grapheme.
+        candidate: for (0..graphemes.len + 1) |i| {
+            const idx = if (i == 0) primary else idx: {
+                const cp = graphemes[i - 1];
 
-        for (graphemes) |cp| {
-            // Ignore Emoji ZWJs
-            if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
+                // Ignore Emoji ZWJs
+                if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue :candidate;
 
-            // Find a font that supports this codepoint. If none support this
-            // then the whole grapheme can't be rendered so we return null.
-            //
-            // We explicitly do not require the additional grapheme components
-            // to support the base presentation, since it is common for emoji
-            // fonts to support the base emoji with emoji presentation but not
-            // certain ZWJ-combined characters like the male and female signs.
-            const idx = try self.opts.grid.getIndex(
-                alloc,
-                cp,
-                style,
-                null,
-            ) orelse return null;
-            candidates.appendAssumeCapacity(idx);
-        }
+                // We explicitly do not require the additional grapheme components
+                // to support the base presentation, since it is common for emoji
+                // fonts to support the base emoji with emoji presentation but not
+                // certain ZWJ-combined characters like the male and female signs.
+                break :idx try self.opts.grid.getIndex(
+                    alloc,
+                    cp,
+                    style,
+                    null,
+                ) orelse return null;
+            };
 
-        // We need to find a candidate that has ALL of our codepoints
-        for (candidates.items) |idx| {
             if (!self.opts.grid.hasCodepoint(idx, primary_cp, presentation)) continue;
             for (graphemes) |cp| {
                 // Ignore Emoji ZWJs
                 if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
-                if (!self.opts.grid.hasCodepoint(idx, cp, null)) break;
-            } else {
-                // If the while completed, then we have a candidate that
-                // supports all of our codepoints.
-                return idx;
+                if (!self.opts.grid.hasCodepoint(idx, cp, null)) continue :candidate;
             }
+            return idx;
         }
 
         return null;

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 const mem = @import("mem.zig");
@@ -24,12 +25,26 @@ pub export fn zig_fuzz_test(
     const alloc = fuzz_alloc.allocator();
     const input = buf[0..len];
 
+    const argv0 = "ghostty-fuzz";
+    const argv0_windows = argv0_windows: {
+        var argv0_windows_buf: [std.unicode.calcUtf16LeLen(argv0) catch unreachable]u16 = undefined;
+        _ = std.unicode.utf8ToUtf16Le(&argv0_windows_buf, argv0) catch unreachable;
+        break :argv0_windows argv0_windows_buf;
+    };
+    var threaded: std.Io.Threaded = .init(alloc, .{
+        .argv0 = .init(.{ .vector = if (builtin.target.os.tag == .windows)
+            &argv0_windows
+        else
+            &.{argv0} }),
+    });
+    defer threaded.deinit();
+
     // Allocate a terminal; if we run out of fixed-buffer space just
     // skip this input (not a bug, just a very large allocation).
-    var t = Terminal.init(alloc, .{
+    var t = Terminal.init(threaded.io(), alloc, .{
         .cols = 80,
         .rows = 24,
-        .max_scrollback = 100,
+        .max_scrollback_bytes = 100,
     }) catch return;
     defer t.deinit(alloc);
 

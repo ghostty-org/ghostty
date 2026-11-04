@@ -6,6 +6,12 @@ pub const scalar_decoder: Base64Decoder = .init(
     null,
 );
 
+/// Whether c is one of the 64 standard base64 alphabet characters
+/// (padding is not part of the alphabet).
+pub fn isAlphabetChar(c: u8) bool {
+    return scalar_decoder.char_to_index[c] != Base64Decoder.invalid_char;
+}
+
 /// Copied from Zig 0.14.1 stdlib and commented out the invalid padding
 /// scenarios, because Kitty Graphics requires a decoder that doesn't care
 /// about invalid padding scenarios.
@@ -27,12 +33,12 @@ const Base64Decoder = struct {
 
     pub fn init(alphabet_chars: [64]u8, pad_char: ?u8) Base64Decoder {
         var result = Base64Decoder{
-            .char_to_index = [_]u8{invalid_char} ** 256,
-            .fast_char_to_index = .{[_]u32{invalid_char_tst} ** 256} ** 4,
+            .char_to_index = @splat(invalid_char),
+            .fast_char_to_index = @splat(@splat(invalid_char_tst)),
             .pad_char = pad_char,
         };
 
-        var char_in_alphabet = [_]bool{false} ** 256;
+        var char_in_alphabet: [256]bool = @splat(false);
         for (alphabet_chars, 0..) |c, i| {
             assert(!char_in_alphabet[c]);
             assert(pad_char == null or c != pad_char.?);

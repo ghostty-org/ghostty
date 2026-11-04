@@ -1,14 +1,6 @@
 pub const build_options = @import("build_options");
 
-pub const c = @cImport({
-    // This is set during the build so it also has to be set
-    // during import time to get the right types. Without this
-    // you get stack size mismatches on some structs.
-    @cDefine("IMGUI_USE_WCHAR32", "1");
-
-    @cDefine("IMGUI_HAS_DOCK", "1");
-    @cInclude("dcimgui.h");
-});
+pub const c = @import("dcimgui_c");
 
 // OpenGL3 backend
 pub extern fn ImGui_ImplOpenGL3_Init(glsl_version: ?[*:0]const u8) callconv(.c) bool;
@@ -31,9 +23,9 @@ pub extern fn ImGui_ImplOSX_Init(*anyopaque) callconv(.c) bool;
 pub extern fn ImGui_ImplOSX_Shutdown() callconv(.c) void;
 pub extern fn ImGui_ImplOSX_NewFrame(*anyopaque) callconv(.c) void;
 
-// Internal API types and functions from dcimgui_internal.h
-// We declare these manually because the internal header contains bitfields
-// that Zig's cImport cannot translate.
+// Internal API types and functions from dcimgui_internal.h We declare these
+// manually because the internal header contains bitfields that translate-c has
+// trouble with.
 pub const ImGuiDockNodeFlagsPrivate = struct {
     pub const DockSpace: c.ImGuiDockNodeFlags = 1 << 10;
     pub const CentralNode: c.ImGuiDockNodeFlags = 1 << 11;

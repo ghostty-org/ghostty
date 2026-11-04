@@ -24,7 +24,7 @@ pub const IOSurface = opaque {
         defer w.release();
         var h = try foundation.Number.create(.int, &properties.height);
         defer h.release();
-        var pf = try foundation.Number.create(.int, &@as(c_int, @intFromEnum(properties.pixel_format)));
+        var pf = try foundation.Number.create(.int, &@as(c_int, @backingInt(properties.pixel_format)));
         defer pf.release();
         var bpe = try foundation.Number.create(.int, &properties.bytes_per_element);
         defer bpe.release();
@@ -131,6 +131,6 @@ pub const IOSurface = opaque {
     }
 
     pub inline fn getPixelFormat(self: *IOSurface) video.PixelFormat {
-        return @enumFromInt(c.IOSurfaceGetPixelFormat(@ptrCast(self)));
+        return @fromBackingInt(c.IOSurfaceGetPixelFormat(@ptrCast(self)));
     }
 };

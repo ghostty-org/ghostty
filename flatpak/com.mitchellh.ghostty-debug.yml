@@ -41,6 +41,7 @@ modules:
         -Doptimize=Debug
         -Dcpu=baseline
         -Dflatpak=true
+        -Dinstalled-exe-path=/app/bin/ghostty
         -Dstrip=false
         -fno-sys=oniguruma
         --prefix /app

@@ -309,7 +309,7 @@ pub const KeyStateOverlay = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 2,
+                    .minor = 0,
                     .name = "key-state-overlay",
                 }),
             );

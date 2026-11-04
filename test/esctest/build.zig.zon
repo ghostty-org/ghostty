@@ -1,0 +1,20 @@
+.{
+    .name = .esctest_libghostty,
+    .version = "0.0.0",
+    .fingerprint = 0x5c1ec643a905b43b,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .ghostty = .{ .path = "../../" },
+        // The esctest2 commit of 2026-09-13.
+        .esctest2 = .{
+            .url = "https://github.com/ThomasDickey/esctest2/archive/2798f12149a19c3295e9b4853ab2da4b2eff1b2b.tar.gz",
+            .hash = "N-V-__8AAI-LBgCUqCgRq57XEuFQjO0meZpSe-iw8YCZWMPx",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

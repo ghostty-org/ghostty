@@ -189,7 +189,7 @@ pub const InspectorWindow = extern struct {
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
                     .major = 1,
-                    .minor = 5,
+                    .minor = 4,
                     .name = "inspector-window",
                 }),
             );

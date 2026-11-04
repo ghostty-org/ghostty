@@ -6,9 +6,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const global = @import("../../../global.zig");
 
 const App = @import("../App.zig");
 const portal = @import("../portal.zig");
@@ -23,7 +25,7 @@ app: *App,
 dbus: ?*gio.DBusConnection = null,
 
 /// Mutex to protect modification of the entries map or the cleanup timer.
-mutex: std.Thread.Mutex = .{},
+mutex: std.Io.Mutex = .init,
 
 /// Map to store data about any in-flight calls to the portal.
 entries: std.AutoArrayHashMapUnmanaged(usize, *Entry) = .empty,
@@ -49,10 +51,10 @@ const RequestData = struct {
         uri: []const u8,
         request_path: []const u8,
     ) Allocator.Error!*RequestData {
-        const uri_copy = try alloc.dupeZ(u8, uri);
+        const uri_copy = try alloc.dupeSentinel(u8, uri, 0);
         errdefer alloc.free(uri_copy);
 
-        const request_path_copy = try alloc.dupeZ(u8, request_path);
+        const request_path_copy = try alloc.dupeSentinel(u8, request_path, 0);
         errdefer alloc.free(request_path_copy);
 
         const data = try alloc.create(RequestData);
@@ -78,7 +80,7 @@ const RequestData = struct {
 /// Data about any in-flight calls to the portal.
 pub const Entry = struct {
     /// When the request started.
-    start: std.time.Instant,
+    start: std.Io.Timestamp,
     /// A token used by the portal to identify requests and responses. The
     /// actual format of the token does not really matter as long as it can be
     /// used as part of a D-Bus object path. `usize` was chosen since it's easy
@@ -91,12 +93,16 @@ pub const Entry = struct {
     /// method calls are asynchronous and the original may have been freed by
     /// the time we need it.
     uri: [:0]const u8,
+    /// An xdg-activation token for the input that opened the URI, passed to
+    /// the portal so the app it launches can raise its window.
+    activation_token: ?[:0]const u8,
     /// Used to manage a subscription to a D-Bus signal, which is how the XDG
     /// Portal reports results of the method call.
     subscription: ?c_uint = null,
 
     pub fn deinit(self: *const Entry, alloc: Allocator) void {
         alloc.free(self.uri);
+        if (self.activation_token) |token| alloc.free(token);
     }
 };
 
@@ -123,8 +129,8 @@ pub fn setDbusConnection(self: *OpenURI, dbus: ?*gio.DBusConnection) void {
 pub fn deinit(self: *OpenURI) void {
     const alloc = self.app.app.allocator();
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return;
     self.alive = false;
@@ -157,8 +163,12 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
         alloc.destroy(request);
     }
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    // Requested before taking the lock: it waits on a Wayland roundtrip.
+    var activation_token = try activationToken(alloc);
+    errdefer if (activation_token) |t| alloc.free(t);
+
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     // Create an entry that is used to track the results of the D-Bus method
     // call.
@@ -166,11 +176,14 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
         const entry = try alloc.create(Entry);
         errdefer alloc.destroy(entry);
         entry.* = .{
-            .start = std.time.Instant.now() catch return error.TimerUnavailable,
+            .start = std.Io.Timestamp.now(global.io(), .awake),
             .token = token,
             .kind = value.kind,
-            .uri = try alloc.dupeZ(u8, value.url),
+            .uri = try alloc.dupeSentinel(u8, value.url, 0),
+            .activation_token = activation_token,
         };
+        // The entry owns the token now.
+        activation_token = null;
         errdefer entry.deinit(alloc);
         try self.entries.putNoClobber(alloc, token, entry);
         break :entry entry;
@@ -184,6 +197,19 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
     self.startCleanupTimer();
     self.subscribeToResponse(entry, dbus, request_path.ptr);
     self.sendRequest(entry, dbus, request);
+}
+
+/// Ask GDK for an xdg-activation token tied to the most recent input, which is
+/// what opened the URI. Returns null if the platform can't provide one.
+fn activationToken(alloc: Allocator) Allocator.Error!?[:0]const u8 {
+    const display = gdk.Display.getDefault() orelse return null;
+    const context = display.getAppLaunchContext();
+    defer context.unref();
+
+    const token = context.as(gio.AppLaunchContext).getStartupNotifyId(null, null) orelse return null;
+    defer glib.free(token);
+
+    return try alloc.dupeSentinel(u8, std.mem.span(token), 0);
 }
 
 /// Subscribe to the D-Bus signal that will contain the results of our method
@@ -235,8 +261,8 @@ fn destroyEntry(alloc: Allocator, entry: *Entry) void {
 }
 
 fn failRequest(self: *OpenURI, token: usize) ?*Entry {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return null;
 
@@ -323,6 +349,18 @@ fn sendRequest(
 
                 const ask = glib.Variant.newBoolean(@intFromBool(false));
                 builder.add("v", ask);
+            }
+            if (entry.activation_token) |token| {
+                const option = glib.VariantType.new("{sv}");
+                defer option.free();
+
+                builder.open(option);
+                defer builder.close();
+
+                builder.add("s", "activation_token");
+
+                const activation_token = glib.Variant.newString(token.ptr);
+                builder.add("v", activation_token);
             }
         }
 
@@ -422,8 +460,8 @@ fn requestCallback(
         return;
     }
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return;
 
@@ -461,8 +499,8 @@ fn responseReceived(
         return;
     };
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return;
 
@@ -534,22 +572,18 @@ fn cleanup(ud: ?*anyopaque) callconv(.c) c_int {
 
     const alloc = self.app.app.allocator();
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     self.cleanup_timer = null;
     if (!self.alive) return @intFromBool(glib.SOURCE_REMOVE);
 
-    const now = std.time.Instant.now() catch {
-        // `now()` should never fail, but if it does, don't crash, just return.
-        // This might cause a small memory leak in rare circumstances but it
-        // should get cleaned up the next time a URL is clicked.
-        return @intFromBool(glib.SOURCE_REMOVE);
-    };
-
     loop: while (true) {
         for (self.entries.entries.items(.value)) |entry| {
-            if (now.since(entry.start) > cleanup_timeout * std.time.ns_per_s) {
+            if (entry.start.untilNow(
+                global.io(),
+                .awake,
+            ).toSeconds() > cleanup_timeout) {
                 log.warn("open uri request timed out token={x}", .{entry.token});
                 self.unsubscribeFromResponse(entry);
                 _ = self.entries.swapRemove(entry.token);

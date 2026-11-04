@@ -14,7 +14,7 @@ const renderer = @import("../renderer.zig");
 /// members of this state. Note that the state itself is NOT protected
 /// by the mutex and is NOT thread-safe, only the members values of the
 /// state (i.e. the terminal, devmode, etc. values).
-mutex: *std.Thread.Mutex,
+mutex: *std.Io.Mutex,
 
 /// The terminal data.
 terminal: *terminalpkg.Terminal,
@@ -64,19 +64,19 @@ const handoff_timeout_ns = 1 * std.time.ns_per_ms;
 /// scheduled. Under sustained pty output the IO parse thread is
 /// exactly such a loop, so without this signal the renderer can
 /// starve for as long as the output lasts.
-pub fn lockDemand(self: *State) void {
+pub fn lockDemand(self: *State, io: std.Io) void {
     _ = self.demand.fetchAdd(1, .monotonic);
-    self.mutex.lock();
+    self.mutex.lockUncancelable(io);
     const prev = self.demand.fetchSub(1, .monotonic);
     assert(prev > 0);
 }
 
 /// Release `mutex` acquired via `lockDemand` and notify hot loops
 /// parked in `yieldToDemand` that the demanding waiter had its turn.
-pub fn unlockDemand(self: *State) void {
-    self.mutex.unlock();
+pub fn unlockDemand(self: *State, io: std.Io) void {
+    self.mutex.unlock(io);
     _ = self.handoff_gen.fetchAdd(1, .monotonic);
-    std.Thread.Futex.wake(&self.handoff_gen, 1);
+    io.futexWake(u32, &self.handoff_gen.raw, 1);
 }
 
 /// Called by hot lock/unlock loops between critical sections, with
@@ -88,7 +88,7 @@ pub fn unlockDemand(self: *State) void {
 /// scheduling heuristic, not a synchronization boundary: the mutex
 /// itself orders the protected data, and the timeout bounds any
 /// staleness.
-pub fn yieldToDemand(self: *State) void {
+pub fn yieldToDemand(self: *State, io: std.Io) void {
     if (self.demand.load(.monotonic) == 0) return;
 
     // Snapshot the generation before rechecking demand: if the waiter
@@ -96,10 +96,11 @@ pub fn yieldToDemand(self: *State) void {
     // generation no longer matches and timedWait returns immediately.
     const gen = self.handoff_gen.load(.monotonic);
     if (self.demand.load(.monotonic) == 0) return;
-    std.Thread.Futex.timedWait(
-        &self.handoff_gen,
+    io.futexWaitTimeout(
+        u32,
+        &self.handoff_gen.raw,
         gen,
-        handoff_timeout_ns,
+        .{ .duration = .{ .raw = .fromNanoseconds(handoff_timeout_ns), .clock = .awake } },
     ) catch {};
 }
 

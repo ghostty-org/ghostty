@@ -1,0 +1,19 @@
+.{
+    .name = .translate_c,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.17.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+    .fingerprint = 0x1c84f6452d0e8347,
+    .dependencies = .{
+        .apple_sdk = .{
+            .path = "../apple-sdk",
+        },
+        .translate_c = .{
+            .url = "https://deps.files.ghostty.org/translate_c-02ff0c523fb92a38939b04d0145c4a9602a74d56.tar.gz",
+            .hash = "translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5",
+        },
+    },
+}

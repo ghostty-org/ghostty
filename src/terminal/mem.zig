@@ -1,12 +1,44 @@
-//! Virtual-memory operations shared by terminal page owners.
+//! Give the physical memory behind terminal pages back to the operating
+//! system while keeping their addresses.
 //!
-//! Terminal pages use page-aligned, page-multiple mappings. This module can
-//! discard the physical pages behind one of those mappings without releasing
-//! its virtual address range, then prepare the same range for reuse. It does
-//! not allocate memory or decide which terminal pages should be discarded.
+//! Terminal page memory is page-aligned and a whole number of pages long.
+//! When a page's contents are no longer needed in place (for example, after
+//! the page has been compressed), its owner can release the physical memory
+//! behind it but keep the address range. Later, the owner can reuse the same
+//! range without allocating again.
+//!
+//! A page goes through three steps:
+//!
+//! 1. `decommit` releases the physical memory. The range stays mapped, so
+//!    reading it is safe. It reads as zeros, or on some platforms as the old
+//!    contents, until it is written again.
+//! 2. `recommit` prepares the range for use again.
+//! 3. The owner writes new contents into the range.
+//!
+//! For example, a page whose contents were copied somewhere else first:
+//!
+//! ```zig
+//! if (mem.canReclaim(.strict) and mem.decommit(.strict, page, page.len)) {
+//!     // The physical memory is released. `page` is still a valid range.
+//!     // ...
+//!     // Later, before reusing it:
+//!     mem.recommit(page);
+//!     @memcpy(page, saved_contents);
+//! }
+//! ```
+//!
+//! This module does not allocate memory or decide which pages to release.
+//!
+//! After a successful decommit, the range is still mapped and still counted
+//! against the process's memory limits. This is why `recommit` never has to
+//! acquire anything and cannot fail. Most platforms get there by asking the
+//! kernel to drop the pages in place. FreeBSD has no such request, so it maps
+//! fresh memory over the same range instead. That reaches the same state by
+//! the time `decommit` returns.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
+const windows = @import("../os/windows.zig");
 
 const log = std.log.scoped(.terminal_mem);
 
@@ -21,14 +53,20 @@ pub const DecommitMode = enum {
     strict,
 };
 
-/// Return whether this target can reclaim physical memory for `mode` while
-/// retaining the mapping's virtual address range.
+/// Returns whether this build can release physical memory for `mode` while
+/// keeping the address range.
 ///
-/// Test builds support both modes because `decommit` simulates reclamation by
-/// clearing the supplied range. Runtime reclamation is intentionally limited
-/// to 64-bit Linux and Darwin. Other targets must leave strict callers' memory
-/// resident; zero mode still provides its documented memset fallback through
-/// `decommit` even when this function returns false.
+/// Check this before calling `decommit` in strict mode. When it returns
+/// false, strict callers should keep their memory as it is:
+///
+/// ```zig
+/// if (!mem.canReclaim(.strict)) return; // Nothing to gain on this target.
+/// ```
+///
+/// Release builds support 64-bit Linux, Darwin, Windows, and FreeBSD. Test
+/// builds always return true, because there `decommit` imitates a release by
+/// writing zeros. Zero mode works on every target even when this returns
+/// false, because `decommit` falls back to writing zeros itself.
 pub inline fn canReclaim(comptime mode: DecommitMode) bool {
     // Both modes use the same retained-mapping primitives. Keeping the switch
     // exhaustive makes additions to DecommitMode choose target support
@@ -58,6 +96,18 @@ pub inline fn canReclaim(comptime mode: DecommitMode) bool {
             // dependency to libghostty-vt.
             if (builtin.target.os.tag.isDarwin()) break :supported true;
 
+            // Windows provides DiscardVirtualMemory, which releases the
+            // physical pages behind a committed range while keeping it
+            // committed, so nothing has to be committed again before reuse.
+            // Page memory is already a VirtualAlloc region (see page.zig)
+            // and kernel32 is linked by every Windows build.
+            if (builtin.target.os.tag == .windows) break :supported true;
+
+            // FreeBSD maps fresh memory over the range (see decommitFreeBSD).
+            // The old pages are freed right away and the range reads as zeros
+            // afterward. mmap comes from libc, which every FreeBSD build links.
+            if (builtin.target.os.tag == .freebsd) break :supported true;
+
             // Other targets have no retained-mapping reclamation contract in
             // this module. Zero mode can still clear through its memset
             // fallback, but strict callers must leave their mapping resident.
@@ -66,17 +116,34 @@ pub inline fn canReclaim(comptime mode: DecommitMode) bool {
     };
 }
 
-/// Discard physical pages while retaining a mapping's virtual address range.
+/// Release the physical memory behind `memory` while keeping its address
+/// range.
 ///
-/// The complete mapping must be page-aligned and a multiple of the minimum
-/// system page size. `dirty_len` identifies the prefix whose contents may be
-/// nonzero. Strict mode requires the complete mapping to be dirty because a
-/// successful discard invalidates all of its contents.
+/// `memory` must start on a page boundary and be a whole number of pages
+/// long, using the smallest page size the target supports. `dirty_len` is
+/// the length of the prefix that may hold nonzero bytes. Everything after it
+/// must already be zero. Strict mode requires `dirty_len == memory.len`,
+/// because a successful decommit throws away everything in the range.
 ///
-/// The return value reports whether the OS accepted the reclamation request.
-/// Test builds return true after simulating reclamation by zeroing dirty bytes.
-/// In zero mode, the requested bytes are guaranteed to be zero regardless of
-/// the return value.
+/// Returns true when the operating system released the memory. What false
+/// means depends on `mode`:
+///
+/// - `.strict`: nothing was released and the contents are unchanged, so the
+///   caller can keep using the memory as it was.
+/// - `.zero`: the memory may still be in use, but the dirty prefix has been
+///   cleared. The whole range reads as zeros either way.
+///
+/// Zero mode suits memory that is about to be reused and only needs to be
+/// clean. Only the bytes that were actually written have to be cleared:
+///
+/// ```zig
+/// // Only the first `used` bytes of `page` were ever written.
+/// _ = mem.decommit(.zero, page, used);
+/// // `page` now reads as all zeros.
+/// ```
+///
+/// In test builds this never calls into the operating system. It clears the
+/// dirty prefix and returns true, which imitates a successful release.
 pub fn decommit(
     comptime mode: DecommitMode,
     memory: []align(std.heap.page_size_min) u8,
@@ -100,7 +167,7 @@ pub fn decommit(
     // faults them back as zero-filled pages. We deliberately avoid MADV_FREE:
     // it does not reduce RSS until memory pressure and does not guarantee that
     // the next read is zero.
-    if (comptime builtin.os.tag == .linux) {
+    if (comptime builtin.target.os.tag == .linux) {
         if (std.posix.madvise(
             memory.ptr,
             memory.len,
@@ -116,7 +183,7 @@ pub fn decommit(
     // retaining its mapping. Zero mode clears its dirty prefix first because
     // the kernel may preserve the contents. Strict mode avoids that write
     // because its caller will replace the entire mapping after recommit.
-    if (comptime builtin.os.tag.isDarwin()) {
+    if (comptime builtin.target.os.tag.isDarwin()) {
         if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
 
         if (std.posix.madvise(
@@ -144,23 +211,142 @@ pub fn decommit(
         }
     }
 
+    // DiscardVirtualMemory releases the physical pages behind the range but
+    // leaves it committed, so the commit charge stays with the process and a
+    // later access finds a zero page or the old contents instead of faulting.
+    // Zero mode clears its dirty prefix first, as on Darwin: the bytes read
+    // as zero afterward whether or not the discard took. Strict mode skips
+    // that write because its caller replaces the entire mapping after
+    // recommit. The call reports failure through its return value rather
+    // than the thread's last error.
+    if (comptime builtin.target.os.tag == .windows) {
+        if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
+
+        const rc = windows.exp.kernel32.DiscardVirtualMemory(
+            memory.ptr,
+            memory.len,
+        );
+        if (rc == windows.ERROR_SUCCESS) return true;
+
+        // Zero mode has already cleared its bytes and strict callers must
+        // leave the still-resident mapping alone, so there is nothing more
+        // to do for either mode.
+        log.warn("DiscardVirtualMemory failed err={d}", .{rc});
+        return false;
+    }
+
+    // FreeBSD's madvise cannot release pages right away, so map fresh memory
+    // over the range instead. See decommitFreeBSD for the details.
+    if (comptime builtin.target.os.tag == .freebsd) {
+        if (decommitFreeBSD(memory)) return true;
+        if (comptime mode == .strict) return false;
+        // Zero mode falls through to the memset below.
+    }
+
     if (comptime mode == .zero) @memset(memory[0..dirty_len], 0);
     return false;
 }
 
-/// Prepare a mapping previously passed to decommit for reuse.
+/// The FreeBSD implementation of `decommit`. It maps fresh memory over
+/// `memory` at the same address.
 ///
-/// Linux and test builds need no explicit operation. Darwin pairs
-/// FREE_REUSABLE with FREE_REUSE so pages touched by the caller are accounted
-/// to the process again. Failure does not invalidate the retained mapping, so
-/// reuse can continue after logging the accounting failure.
+/// Returns true when the old pages have been released and the range reads
+/// as zeros. Returns false when nothing changed and the original contents
+/// are still in place.
+///
+/// FreeBSD's `madvise` cannot do this job. Both `MADV_DONTNEED` and
+/// `MADV_FREE` only mark pages as unused. The pages stay in memory, so the
+/// process's memory use does not go down, and the old bytes can still be
+/// read until the kernel needs that memory for something else.
+///
+/// Mapping new memory over the range with `MAP_FIXED` does work. The kernel
+/// removes the old mapping and adds the new one while holding the process's
+/// memory map lock, so no other thread sees the range in between. Terminal
+/// pages are private to this process, so removing the old mapping frees
+/// their physical memory immediately. The new mapping starts with no
+/// physical memory at all. The kernel supplies a zero-filled page the first
+/// time each page is touched. The kernel code this relies on
+/// (`vm_map_fixed`) behaves the same from FreeBSD 13.0 through 15.1.
+///
+/// One failure needs extra care. The kernel can remove the old mapping and
+/// then fail to add the new one, which leaves nothing mapped at the address.
+/// With default settings this cannot happen. It can happen when swap
+/// accounting is strict (the `vm.overcommit` sysctl) or a swap limit is set.
+/// The new mapping has to reserve swap space before the old mapping's
+/// reservation is returned, so for a moment the process needs twice as much.
+/// When this happens, we map the range a second time.
+fn decommitFreeBSD(memory: []align(std.heap.page_size_min) u8) bool {
+    if (mapFixedFreeBSD(memory)) |err| {
+        log.warn("mmap(MAP_FIXED) failed err={}", .{err});
+    } else return true;
+
+    // Find out whether the kernel removed the old mapping before it failed.
+    // It removes the whole range or none of it, so checking the first page
+    // is enough. mincore fails with ENOMEM when the address is not mapped.
+    var vec: [1]u8 = undefined;
+    if (std.posix.mincore(memory.ptr, std.heap.page_size_min, &vec)) |_| {
+        return false;
+    } else |err| switch (err) {
+        error.OutOfMemory => {},
+        else => return false,
+    }
+
+    // The old contents are already gone, so if this second mapping works,
+    // the result is the same as a successful decommit. The old mapping's
+    // swap reservation has been returned by now, so this attempt needs no
+    // more swap than the process already had.
+    if (mapFixedFreeBSD(memory)) |err| {
+        // Nothing is mapped at this address, but the caller still owns the
+        // range and will use it again. Stop here with a clear message
+        // instead of crashing later on an unexplained memory fault.
+        std.debug.panic(
+            "mmap(MAP_FIXED) could not restore a discarded page err={}",
+            .{err},
+        );
+    }
+    return true;
+}
+
+/// Map fresh, zero-filled, private memory over `memory` at the same address.
+/// Returns null on success or the error code on failure.
+///
+/// This calls libc's `mmap` directly instead of `std.posix.mmap`. When the
+/// kernel removes the old mapping but cannot add the new one, FreeBSD
+/// reports `EINVAL`. `std.posix.mmap` treats `EINVAL` as impossible
+/// (`unreachable`), which would crash a safe build and is undefined
+/// behavior in a release build.
+fn mapFixedFreeBSD(memory: []align(std.heap.page_size_min) u8) ?std.c.E {
+    const rc = std.c.mmap(
+        memory.ptr,
+        memory.len,
+        .{ .READ = true, .WRITE = true },
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED = true },
+        -1,
+        0,
+    );
+    if (rc == std.c.MAP_FAILED) return std.c.errno(@as(c_int, -1));
+    assert(@intFromPtr(rc) == @intFromPtr(memory.ptr));
+    return null;
+}
+
+/// Prepare memory released by `decommit` for reuse.
+///
+/// Call this before writing new contents into a range that was decommitted.
+/// Only Darwin does any work here. It tells the kernel the pages are in use
+/// again (`MADV_FREE_REUSE`), so they count toward the process's memory
+/// footprint once more. On every other platform, the range is already ready
+/// to use when `decommit` returns, so this does nothing.
+///
+/// This cannot fail in a way the caller needs to handle. If the Darwin call
+/// fails, only the memory accounting is off. The range is still usable, so
+/// the failure is logged and ignored.
 pub fn recommit(memory: []align(std.heap.page_size_min) u8) void {
     assert(memory.len > 0);
     assert(@intFromPtr(memory.ptr) % std.heap.page_size_min == 0);
     assert(memory.len % std.heap.page_size_min == 0);
 
     if (comptime builtin.is_test) return;
-    if (comptime builtin.os.tag.isDarwin()) {
+    if (comptime builtin.target.os.tag.isDarwin()) {
         std.posix.madvise(
             memory.ptr,
             memory.len,
@@ -213,6 +399,34 @@ test "strict decommit retains the mapping for recommit" {
     recommit(memory);
     @memset(memory, 0xBB);
     try testing.expect(std.mem.allEqual(u8, memory, 0xBB));
+}
+
+test "FreeBSD decommit releases pages and reads back zeros" {
+    if (comptime builtin.target.os.tag != .freebsd) return error.SkipZigTest;
+
+    // In test builds, decommit only writes zeros and never calls into the
+    // operating system. Call the FreeBSD implementation directly instead, on
+    // memory this test maps for itself and shares with nothing else.
+    const testing = std.testing;
+    const posix = std.posix;
+    const pages = 4;
+    const memory = try posix.mmap(
+        null,
+        pages * std.heap.page_size_min,
+        .{ .READ = true, .WRITE = true },
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+        -1,
+        0,
+    );
+    defer posix.munmap(memory);
+    @memset(memory, 0xAA);
+
+    try testing.expect(decommitFreeBSD(memory));
+
+    var vec: [pages]u8 = undefined;
+    try posix.mincore(memory.ptr, memory.len, &vec);
+    for (vec) |v| try testing.expectEqual(0, v & 1);
+    try testing.expect(std.mem.allEqual(u8, memory, 0));
 }
 
 test "test builds can reclaim retained mappings" {

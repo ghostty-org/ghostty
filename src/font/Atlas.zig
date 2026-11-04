@@ -32,7 +32,7 @@ data: []u8,
 size: u32 = 0,
 
 /// The nodes (rectangles) of available space.
-nodes: std.ArrayListUnmanaged(Node) = .{},
+nodes: std.ArrayList(Node) = .empty,
 
 /// The format of the texture data being written into the Atlas. This must be
 /// uniform for all textures in the Atlas. If you have some textures with
@@ -104,7 +104,7 @@ pub fn init(alloc: Allocator, size: u32, format: Format) Allocator.Error!Atlas {
     var result = Atlas{
         .data = try alloc.alloc(u8, size * size * format.depth()),
         .size = size,
-        .nodes = .{},
+        .nodes = .empty,
         .format = format,
     };
     errdefer result.deinit(alloc);
@@ -417,7 +417,7 @@ pub const Wasm = struct {
         const atlas = init(
             alloc,
             size,
-            @enumFromInt(format),
+            @fromBackingInt(format),
         ) catch return null;
         const result = alloc.create(Atlas) catch return null;
         result.* = atlas;
@@ -480,7 +480,7 @@ pub const Wasm = struct {
             try canvas.set("width", self.size);
             try canvas.set("height", self.size);
 
-            const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{self.size});
+            const width_str = try alloc.print("{d}px", .{self.size});
             defer alloc.free(width_str);
 
             const style = try canvas.get(js.Object, "style");
@@ -557,12 +557,12 @@ pub const Wasm = struct {
         // Draw it
         try ctx.call(void, "putImageData", .{ image_data, 0, 0 });
 
-        const id = @as(js.Ref, @bitCast(@intFromEnum(canvas.value))).id;
+        const id = @as(js.Ref, @bitCast(@backingInt(canvas.value))).id;
         return id;
     }
 
     test "happy path" {
-        const atlas = atlas_new(512, @intFromEnum(Format.grayscale)).?;
+        const atlas = atlas_new(512, @backingInt(Format.grayscale)).?;
         defer atlas_free(atlas);
 
         const reg = atlas_reserve(atlas, 2, 2).?;

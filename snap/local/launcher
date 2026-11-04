@@ -38,7 +38,7 @@ else
   ARCH="$SNAP_ARCH-linux-gnu"
 fi
 
-export LD_LIBRARY_PATH=${SNAP}/usr/lib/${ARCH}:${SNAP}/usr/lib/${ARCH}/vdpau:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}
+export LD_LIBRARY_PATH="${SNAP}/usr/lib/${ARCH}:${SNAP}/usr/lib/${ARCH}/vdpau${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LIBGL_DRIVERS_PATH=${LIBGL_DRIVERS_PATH:+$LIBGL_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
 export LIBVA_DRIVERS_PATH=${LIBVA_DRIVERS_PATH:+$LIBVA_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
 export __EGL_VENDOR_LIBRARY_DIRS=${__EGL_VENDOR_LIBRARY_DIRS:+$__EGL_VENDOR_LIBRARY_DIRS:}/etc/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d:${SNAP}/usr/share/glvnd/egl_vendor.d
@@ -51,6 +51,10 @@ export GTK_PATH="$SNAP/usr/lib/$ARCH/gtk-4.0"
 export GIO_MODULE_DIR="$SNAP/usr/lib/$ARCH/gio/modules"
 unset GIO_EXTRA_MODULES
 export TERMINFO_DIRS="${SNAP}/share/terminfo${TERMINFO_DIRS:+:$TERMINFO_DIRS}"
+export GST_PLUGIN_SYSTEM_PATH="${SNAP}/usr/lib/${ARCH}/gstreamer-1.0"
+export GST_PLUGIN_SCANNER="${SNAP}/usr/lib/${ARCH}/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner"
+export GST_REGISTRY="${SNAP_USER_COMMON}/.cache/gstreamer-1.0-registry.bin"
+unset GST_PLUGIN_PATH GST_PLUGIN_PATH_1_0 GST_PLUGIN_SYSTEM_PATH_1_0 GST_PLUGIN_SCANNER_1_0 GST_REGISTRY_1_0
 
 # Gdk-pixbuf loaders
 mkdir -p "$SNAP_USER_COMMON/.cache"

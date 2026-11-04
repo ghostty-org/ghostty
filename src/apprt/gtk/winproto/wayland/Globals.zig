@@ -8,6 +8,7 @@ const wl = wayland.client.wl;
 const ext = wayland.client.ext;
 const kde = wayland.client.kde;
 const org = wayland.client.org;
+const vicinae = wayland.client.vicinae;
 const xdg = wayland.client.xdg;
 
 const log = std.log.scoped(.winproto_wayland_globals);
@@ -32,6 +33,7 @@ pub const Tag = enum {
     kde_decoration_manager,
     kde_slide_manager,
     kde_output_order,
+    vicinae_hotkey_manager,
     xdg_activation,
 
     fn Type(comptime self: Tag) type {
@@ -41,6 +43,7 @@ pub const Tag = enum {
             .kde_decoration_manager => org.KdeKwinServerDecorationManager,
             .kde_slide_manager => org.KdeKwinSlideManager,
             .kde_output_order => kde.OutputOrderV1,
+            .vicinae_hotkey_manager => vicinae.HotkeyManagerV1,
             .xdg_activation => xdg.ActivationV1,
         };
     }
@@ -208,7 +211,7 @@ fn decoManagerListener(
 ) void {
     switch (event) {
         .default_mode => |mode| {
-            self.state.default_deco_mode = @enumFromInt(mode.mode);
+            self.state.default_deco_mode = @fromBackingInt(@intCast(mode.mode));
         },
     }
 }
@@ -231,7 +234,7 @@ fn outputOrderListener(
                 self.state.primary_output_name = null;
                 log.warn("ignoring empty primary output name from kde_output_order_v1", .{});
             } else {
-                self.state.primary_output_name = self.alloc.dupeZ(u8, name) catch |err| {
+                self.state.primary_output_name = self.alloc.dupeSentinel(u8, name, 0) catch |err| {
                     self.state.primary_output_name = null;
                     log.warn("failed to allocate primary output name: {}", .{err});
                     return;

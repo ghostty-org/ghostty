@@ -8,6 +8,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const input = @import("../../../input.zig");
+const i18n = @import("../../../os/main.zig").i18n;
 const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -153,7 +154,7 @@ pub const CommandPalette = extern struct {
         priv.source.removeAll();
 
         const alloc = Application.default().allocator();
-        var commands: std.ArrayList(*Command) = .{};
+        var commands: std.ArrayList(*Command) = .empty;
         defer {
             for (commands.items) |cmd| cmd.unref();
             commands.deinit(alloc);
@@ -581,10 +582,8 @@ const Command = extern struct {
 
         const priv = self.private();
         priv.data = .{
-            .jump = .{
-                // TODO: Replace with surface id whenever Ghostty adds one
-                .sort_key = @intFromPtr(surface),
-            },
+            // Surface should be initialized at this point.
+            .jump = .{ .sort_key = surface.core().?.id },
         };
         priv.data.jump.surface.set(surface);
 
@@ -611,7 +610,7 @@ const Command = extern struct {
         switch (priv.data) {
             .regular => {},
             .jump => |*j| {
-                j.surface.set(null);
+                j.surface.deinit();
             },
         }
 
@@ -644,8 +643,7 @@ const Command = extern struct {
 
         if (regular.action_key) |action_key| return action_key;
 
-        regular.action_key = std.fmt.allocPrintSentinel(
-            priv.arena.allocator(),
+        regular.action_key = priv.arena.allocator().printSentinel(
             "{f}",
             .{regular.command.action},
             0,
@@ -673,7 +671,7 @@ const Command = extern struct {
             var buf: [64]u8 = undefined;
             const trigger = keybinds.getTrigger(regular.command.action) orelse break :action null;
             const accel = (key.accelFromTrigger(&buf, trigger) catch break :action null) orelse break :action null;
-            break :action alloc.dupeZ(u8, accel) catch return null;
+            break :action alloc.dupeSentinel(u8, accel, 0) catch return null;
         };
 
         return regular.action;
@@ -691,12 +689,12 @@ const Command = extern struct {
                 defer surface.unref();
 
                 const alloc = priv.arena.allocator();
-                const effective_title = surface.getEffectiveTitle() orelse "Untitled";
+                const effective_title = surface.getEffectiveTitle() orelse
+                    std.mem.span(i18n._("Untitled"));
 
-                j.title = std.fmt.allocPrintSentinel(
-                    alloc,
-                    "Focus: {s}",
-                    .{effective_title},
+                j.title = alloc.printSentinel(
+                    "{s}: {s}",
+                    .{ i18n._("Focus"), effective_title },
                     0,
                 ) catch null;
 
@@ -722,7 +720,7 @@ const Command = extern struct {
 
                 if (pwd) |p| {
                     if (std.mem.indexOf(u8, title, p) == null) {
-                        j.description = alloc.dupeZ(u8, p) catch null;
+                        j.description = alloc.dupeSentinel(u8, p, 0) catch null;
                     }
                 }
 

@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 
+#include <ghostty/vt/types.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

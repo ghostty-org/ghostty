@@ -6,12 +6,7 @@
 int main() {
   // Create a terminal
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 80,
-    .rows = 24,
-    .max_scrollback = 0,
-  };
-  GhosttyResult result = ghostty_terminal_new(nullptr, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(nullptr, &terminal, 80, 24);
   assert(result == GHOSTTY_SUCCESS);
 
   // Feed VT data into the terminal

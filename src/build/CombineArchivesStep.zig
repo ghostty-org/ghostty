@@ -17,7 +17,7 @@ pub fn create(
     sources: []const std.Build.LazyPath,
 ) struct { step: *std.Build.Step, output: std.Build.LazyPath } {
     if (target.result.os.tag.isDarwin() and
-        comptime builtin.os.tag.isDarwin())
+        comptime builtin.target.os.tag.isDarwin())
     {
         const libtool = LibtoolStep.create(b, .{
             .name = name,

@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.variant.runner }}
     steps:
       - name: Download Source Tarball Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           run-id: ${{ inputs.source-run-id }}
           artifact-ids: ${{ inputs.source-artifact-id }}
@@ -41,7 +41,7 @@ jobs:
           mkdir dist
           tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
 
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@401fe28a8384095fc1531b9d320b292f0ee45adb # v6.7
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
           bundle: com.mitchellh.ghostty
           manifest-path: dist/flatpak/com.mitchellh.ghostty.yml

@@ -38,6 +38,18 @@ pub const CSelection = extern struct {
     }
 };
 
+/// C: GhosttySelectionBuffer
+///
+/// A caller-provided buffer of selections. This follows the same
+/// conventions as GhosttyBuffer: ptr may be NULL with cap 0 to query
+/// the required capacity, and len is set to the entries written on
+/// success or to the required capacity on GHOSTTY_OUT_OF_SPACE.
+pub const CSelectionBuffer = extern struct {
+    ptr: ?[*]CSelection = null,
+    cap: usize = 0,
+    len: usize = 0,
+};
+
 /// C: GhosttyTerminalSelectWordOptions
 pub const SelectWordOptions = extern struct {
     size: usize = @sizeOf(SelectWordOptions),
@@ -234,7 +246,8 @@ pub fn format_alloc(
     };
 
     const buf = aw.toOwnedSlice() catch return .out_of_memory;
-    out_ptr.* = buf.ptr;
+    // Do not expose Zig's empty slice sentinel through the C ABI.
+    out_ptr.* = if (buf.len == 0) null else buf.ptr;
     out_len.* = buf.len;
     return .success;
 }
@@ -253,7 +266,7 @@ fn selectionFormatter(
     opts: FormatOptions,
 ) error{ InvalidValue, NoValue }!formatterpkg.TerminalFormatter {
     if (opts.size < @sizeOf(FormatOptions)) return error.InvalidValue;
-    _ = std.meta.intToEnum(Format, @intFromEnum(opts.emit)) catch
+    _ = std.enums.fromInt(Format, @backingInt(opts.emit)) orelse
         return error.InvalidValue;
 
     const sel = if (opts.selection) |sel|
@@ -308,8 +321,8 @@ pub fn adjust(
     adjustment: Selection.Adjustment,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Selection.Adjustment, @intFromEnum(adjustment)) catch {
-            log.warn("terminal_selection_adjust invalid adjustment value={d}", .{@intFromEnum(adjustment)});
+        _ = std.enums.fromInt(Selection.Adjustment, @backingInt(adjustment)) orelse {
+            log.warn("terminal_selection_adjust invalid adjustment value={d}", .{@backingInt(adjustment)});
             return .invalid_value;
         };
     }
@@ -343,8 +356,8 @@ pub fn ordered(
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Selection.Order, @intFromEnum(desired)) catch {
-            log.warn("terminal_selection_ordered invalid desired value={d}", .{@intFromEnum(desired)});
+        _ = std.enums.fromInt(Selection.Order, @backingInt(desired)) orelse {
+            log.warn("terminal_selection_ordered invalid desired value={d}", .{@backingInt(desired)});
             return .invalid_value;
         };
     }
@@ -392,12 +405,44 @@ pub fn equal(
     return .success;
 }
 
+test "selection_format_alloc empty output" {
+    const failing: CAllocator = .fromZig(&std.mem.Allocator.failing);
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    var ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &ref));
+    const sel: CSelection = .{ .start = ref, .end = ref };
+    try testing.expectEqual(Result.success, terminal_c.set(t, .selection, &sel));
+
+    var ptr: ?[*]u8 = null;
+    var len: usize = 123;
+    try testing.expectEqual(Result.success, format_alloc(t, &failing, .{
+        .emit = .plain,
+        .unwrap = true,
+        .trim = true,
+    }, &ptr, &len));
+    defer @import("allocator.zig").free(&failing, ptr, len);
+    try testing.expectEqual(@as(usize, 0), len);
+    try testing.expectEqual(null, ptr);
+}
+
 test "selection_format_alloc uses active selection" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer terminal_c.free(t);
 
@@ -457,7 +502,8 @@ test "selection_format_buf uses provided selection" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer terminal_c.free(t);
 
@@ -513,7 +559,8 @@ test "selection_format_alloc returns no_value without active selection" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &t,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer terminal_c.free(t);
 

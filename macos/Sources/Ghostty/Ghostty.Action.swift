@@ -42,10 +42,14 @@ extension Ghostty.Action {
     }
 
     struct OpenURL {
+        /// Where the URL came from. `unknown` and `osc8` may come from
+        /// terminal output and must be opened through ``UntrustedURL``.
         enum Kind {
+            /// May be a plain path, such as `~/notes.txt`, instead of a URL.
             case unknown
             case text
             case html
+            case osc8
 
             init(_ c: ghostty_action_open_url_kind_e) {
                 switch c {
@@ -53,6 +57,8 @@ extension Ghostty.Action {
                     self = .text
                 case GHOSTTY_ACTION_OPEN_URL_KIND_HTML:
                     self = .html
+                case GHOSTTY_ACTION_OPEN_URL_KIND_OSC8:
+                    self = .osc8
                 default:
                     self = .unknown
                 }
@@ -64,13 +70,8 @@ extension Ghostty.Action {
 
         init(c: ghostty_action_open_url_s) {
             self.kind = Kind(c.kind)
-
-            if let urlCString = c.url {
-                let data = Data(bytes: urlCString, count: Int(c.len))
-                self.url = String(data: data, encoding: .utf8) ?? ""
-            } else {
-                self.url = ""
-            }
+            let data = Data(bytes: c.url, count: Int(c.len))
+            self.url = String(data: data, encoding: .utf8) ?? ""
         }
     }
 
@@ -117,14 +118,10 @@ extension Ghostty.Action {
     }
 
     struct StartSearch {
-        let needle: String?
+        let needle: String
 
         init(c: ghostty_action_start_search_s) {
-            if let needleCString = c.needle {
-                self.needle = String(cString: needleCString)
-            } else {
-                self.needle = nil
-            }
+            self.needle = String(cString: c.needle)
         }
     }
 

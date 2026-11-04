@@ -1,11 +1,7 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 const version = @import("build.zig.zon").version;
-
-const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-    .preferred_link_mode = .dynamic,
-    .search_strategy = .mode_first,
-};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -17,20 +13,27 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    // Needs the gtk.h header
-    module.linkSystemLibrary("gtk4", dynamic_link_opts);
 
-    if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-        module.linkSystemLibrary("gtk4-layer-shell-0", dynamic_link_opts);
-    } else {
-        _ = try buildLib(b, module, .{
-            .target = target,
-            .optimize = optimize,
-        });
-    }
+    const lib: union(enum) {
+        system,
+        static: *std.Build.Step.Compile,
+    } = if (b.systemIntegrationOption("gtk4-layer-shell", .{}))
+        .system
+    else
+        .{ .static = try buildLib(b, .{ .target = target, .optimize = optimize }) };
+
+    try translate_c.addImportToModule(b, "gtk4_layer_shell_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{.{ .path = "gtk4-layer-shell.h" }},
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = if (lib == .system) &.{ "gtk4", "gtk4-layer-shell-0" } else &.{"gtk4"},
+        .link_libs = if (lib == .static) &.{lib.static} else &.{},
+    });
 }
 
-fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     const lib_version = try std.SemanticVersion.parse(version);
     const target = options.target;
     const optimize = options.optimize;
@@ -42,63 +45,28 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     b.installArtifact(lib);
 
-    // We need to call both lazy dependencies to tell Zig we need both
-    const upstream_ = b.lazyDependency("gtk4_layer_shell", .{});
-    const wayland_protocols_ = b.lazyDependency("wayland_protocols", .{});
-    const upstream = upstream_ orelse return lib;
-    const wayland_protocols = wayland_protocols_ orelse return lib;
-
-    lib.linkLibC();
-    lib.addIncludePath(upstream.path("include"));
-    lib.addIncludePath(upstream.path("src"));
-    module.addIncludePath(upstream.path("include"));
-
     // GTK
-    lib.linkSystemLibrary2("gtk4", dynamic_link_opts);
+    lib.root_module.linkSystemLibrary("gtk4", .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    });
 
-    // Wayland headers and source files
-    {
-        const protocols = [_]struct { []const u8, std.Build.LazyPath }{
-            .{
-                "wlr-layer-shell-unstable-v1",
-                upstream.path("protocol/wlr-layer-shell-unstable-v1.xml"),
-            },
-            .{
-                "xdg-shell",
-                wayland_protocols.path("stable/xdg-shell/xdg-shell.xml"),
-            },
-            // Even though we don't use session lock, we still need its headers
-            .{
-                "ext-session-lock-v1",
-                wayland_protocols.path("staging/ext-session-lock/ext-session-lock-v1.xml"),
-            },
-        };
-
-        const wf = b.addWriteFiles();
-        for (protocols) |protocol| {
-            const name, const xml = protocol;
-
-            const header_scanner = b.addSystemCommand(&.{ "wayland-scanner", "client-header" });
-            header_scanner.addFileArg(xml);
-            _ = wf.addCopyFile(
-                header_scanner.addOutputFileArg(name),
-                b.fmt("{s}-client.h", .{name}),
-            );
-
-            const source_scanner = b.addSystemCommand(&.{ "wayland-scanner", "private-code" });
-            source_scanner.addFileArg(xml);
-            const source = source_scanner.addOutputFileArg(b.fmt("{s}.c", .{name}));
-            lib.addCSourceFile(.{ .file = source });
-        }
-        lib.addIncludePath(wf.getDirectory());
+    // local deps (non-system layer-shell/wayland)
+    const deps = try LocalDeps.get(b) orelse return lib;
+    lib.root_module.addIncludePath(deps.upstream.path("include"));
+    lib.root_module.addIncludePath(deps.upstream.path("src"));
+    lib.root_module.addIncludePath(deps.client_header_directory);
+    for (deps.private_code_files) |source| {
+        lib.root_module.addCSourceFile(.{ .file = source });
     }
 
     lib.installHeadersDirectory(
-        upstream.path("include"),
+        deps.upstream.path("include"),
         "",
         .{ .include_extensions = &.{".h"} },
     );
@@ -113,8 +81,8 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         "stubbed-surface.c",
         "xdg-surface-server.c",
     };
-    lib.addCSourceFiles(.{
-        .root = upstream.path("src"),
+    lib.root_module.addCSourceFiles(.{
+        .root = deps.upstream.path("src"),
         .files = srcs,
         .flags = &.{
             b.fmt("-DGTK_LAYER_SHELL_MAJOR={}", .{lib_version.major}),
@@ -125,3 +93,68 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     return lib;
 }
+
+const LocalDeps = struct {
+    var cached: ?LocalDeps = null;
+
+    upstream: *std.Build.Dependency,
+    wayland_protocols: *std.Build.Dependency,
+    client_header_directory: std.Build.LazyPath,
+    private_code_files: []std.Build.LazyPath,
+
+    fn init(b: *std.Build) !?LocalDeps {
+        var result: LocalDeps = .{
+            .upstream = b.lazyDependency("gtk4_layer_shell", .{}) orelse return null,
+            .wayland_protocols = b.lazyDependency("wayland_protocols", .{}) orelse return null,
+            .client_header_directory = undefined,
+            .private_code_files = &.{},
+        };
+
+        // Wayland headers and source files
+        {
+            const protocols = [_]struct { []const u8, std.Build.LazyPath }{
+                .{
+                    "wlr-layer-shell-unstable-v1",
+                    result.upstream.path("protocol/wlr-layer-shell-unstable-v1.xml"),
+                },
+                .{
+                    "xdg-shell",
+                    result.wayland_protocols.path("stable/xdg-shell/xdg-shell.xml"),
+                },
+                // Even though we don't use session lock, we still need its headers
+                .{
+                    "ext-session-lock-v1",
+                    result.wayland_protocols.path("staging/ext-session-lock/ext-session-lock-v1.xml"),
+                },
+            };
+
+            const wf = b.addWriteFiles();
+            const private_code_files = try b.allocator.alloc(std.Build.LazyPath, protocols.len);
+            for (protocols, 0..) |protocol, idx| {
+                const name, const xml = protocol;
+
+                const header_scanner = b.addSystemCommand(&.{ "wayland-scanner", "client-header" });
+                header_scanner.addFileArg(xml);
+                _ = wf.addCopyFile(
+                    header_scanner.addOutputFileArg(name),
+                    b.fmt("{s}-client.h", .{name}),
+                );
+
+                const source_scanner = b.addSystemCommand(&.{ "wayland-scanner", "private-code" });
+                source_scanner.addFileArg(xml);
+                const source = source_scanner.addOutputFileArg(b.fmt("{s}.c", .{name}));
+                private_code_files[idx] = source;
+            }
+            result.private_code_files = private_code_files;
+            result.client_header_directory = wf.getDirectory();
+        }
+
+        cached = result;
+        return result;
+    }
+
+    fn get(b: *std.Build) !?LocalDeps {
+        if (cached) |c| return c;
+        return init(b);
+    }
+};

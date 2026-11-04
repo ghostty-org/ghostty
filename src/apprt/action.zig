@@ -8,6 +8,7 @@ const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const CoreSurface = @import("../Surface.zig");
 const lib = @import("../lib/main.zig");
+const compat_testing = @import("../lib/compat/testing.zig");
 
 /// The target for an action. This is generally the thing that had focus
 /// while the action was made but the concept of "focus" is not guaranteed
@@ -195,6 +196,9 @@ pub const Action = union(Key) {
     /// rendered at the next opportunity.
     render_inspector,
 
+    /// Export the Terminal IO inspector event log.
+    export_terminal_io: ExportTerminalIO,
+
     /// Show a desktop notification.
     desktop_notification: DesktopNotification,
 
@@ -203,6 +207,9 @@ pub const Action = union(Key) {
 
     /// Set the tab title override for the target's tab.
     set_tab_title: SetTitle,
+
+    /// Set the window title override for the target's tab.
+    set_window_title: SetTitle,
 
     /// Set the title of the target to a prompted value. It is up to
     /// the apprt to prompt. The value specifies whether to prompt for the
@@ -227,7 +234,7 @@ pub const Action = union(Key) {
     /// Open the Ghostty configuration. This is platform-specific about
     /// what it means; it can mean opening a dedicated UI or just opening
     /// a file in a text editor.
-    open_config,
+    open_config: OpenConfig,
 
     /// Called when there are no more surfaces and the app should quit
     /// after the configured delay.
@@ -347,6 +354,16 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Move a tab to a new window.
+    move_tab_to_new_window,
+
+    /// Resize the window containing the target surface so that the
+    /// surface is the given size in points. A zero dimension should be
+    /// kept as is. This is requested by the running program (CSI 8 t)
+    /// and apprts may ignore it, for example if the surface is in a
+    /// split or the window is fullscreen.
+    resize_window: ResizeWindow,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -380,9 +397,11 @@ pub const Action = union(Key) {
         inspector,
         show_gtk_inspector,
         render_inspector,
+        export_terminal_io,
         desktop_notification,
         set_title,
         set_tab_title,
+        set_window_title,
         prompt_title,
         pwd,
         mouse_shape,
@@ -415,6 +434,8 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        move_tab_to_new_window,
+        resize_window,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -423,30 +444,26 @@ pub const Action = union(Key) {
 
     /// Sync with: ghostty_action_u
     pub const CValue = cvalue: {
-        const key_fields = @typeInfo(Key).@"enum".fields;
-        var union_fields: [key_fields.len]std.builtin.Type.UnionField = undefined;
-        for (key_fields, 0..) |field, i| {
-            const action = @unionInit(Action, field.name, undefined);
+        const key_fields = @typeInfo(Key).@"enum".field_names;
+        var names: [key_fields.len][]const u8 = undefined;
+        var types: [key_fields.len]type = undefined;
+        var attrs: [key_fields.len]std.lang.Type.Union.FieldAttributes = undefined;
+
+        for (key_fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
+            const action = @unionInit(Action, field, undefined);
             const Type = t: {
-                const Type = @TypeOf(@field(action, field.name));
+                const Type = @TypeOf(@field(action, field));
                 // Types can provide custom types for their CValue.
                 if (Type != void and @hasDecl(Type, "C")) break :t Type.C;
                 break :t Type;
             };
 
-            union_fields[i] = .{
-                .name = field.name,
-                .type = Type,
-                .alignment = @alignOf(Type),
-            };
+            name.* = field;
+            ty.* = Type;
+            attr.* = .{ .@"align" = @alignOf(Type) };
         }
 
-        break :cvalue @Type(.{ .@"union" = .{
-            .layout = .@"extern",
-            .tag_type = null,
-            .fields = &union_fields,
-            .decls = &.{},
-        } });
+        break :cvalue @Union(.@"extern", null, &names, &types, &attrs);
     };
 
     /// Sync with: ghostty_action_s
@@ -460,7 +477,7 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 16,
+            4 => 24,
             8 => 24,
             else => unreachable,
         });
@@ -468,9 +485,9 @@ pub const Action = union(Key) {
 
     /// Returns the value type for the given key.
     pub fn Value(comptime key: Key) type {
-        inline for (@typeInfo(Action).@"union".fields) |field| {
-            const field_key = @field(Key, field.name);
-            if (field_key == key) return field.type;
+        inline for (@typeInfo(Action).@"union".field_names, @typeInfo(Action).@"union".field_types) |field_name, field_type| {
+            const field_key = @field(Key, field_name);
+            if (field_key == key) return field_type;
         }
 
         unreachable;
@@ -615,6 +632,37 @@ pub const Inspector = enum(c_int) {
     }
 };
 
+/// Terminal IO inspector contents to export. The contents are only valid for
+/// the duration of the action callback.
+pub const ExportTerminalIO = struct {
+    contents: []const u8,
+
+    // Sync with: ghostty_action_export_terminal_io_s
+    pub const C = extern struct {
+        contents: [*]const u8,
+        len: usize,
+    };
+
+    pub fn cval(self: ExportTerminalIO) C {
+        return .{
+            .contents = self.contents.ptr,
+            .len = self.contents.len,
+        };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.Options,
+        writer: *std.Io.Writer,
+    ) !void {
+        try writer.print(
+            "{s}{{ contents: {d} bytes }}",
+            .{ @typeName(@This()), value.contents.len },
+        );
+    }
+};
+
 pub const QuitTimer = enum(c_int) {
     start,
     stop,
@@ -642,10 +690,11 @@ pub const MouseVisibility = enum(c_int) {
     }
 };
 
-/// Whether to prompt for the surface title or tab title.
+/// Whether to prompt for the surface, tab, or window title.
 pub const PromptTitle = enum(c_int) {
     surface,
     tab,
+    window,
 
     test "ghostty.h PromptTitle" {
         try lib.checkGhosttyHEnum(PromptTitle, "GHOSTTY_PROMPT_TITLE_");
@@ -691,6 +740,11 @@ pub const InitialSize = extern struct {
     };
 };
 
+pub const ResizeWindow = extern struct {
+    width: u32,
+    height: u32,
+};
+
 pub const CellSize = extern struct {
     width: u32,
     height: u32,
@@ -713,7 +767,7 @@ pub const SetTitle = struct {
     pub fn format(
         value: @This(),
         comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        _: std.fmt.Options,
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.title });
@@ -737,7 +791,7 @@ pub const Pwd = struct {
     pub fn format(
         value: @This(),
         comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        _: std.fmt.Options,
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.pwd });
@@ -765,7 +819,7 @@ pub const DesktopNotification = struct {
     pub fn format(
         value: @This(),
         comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        _: std.fmt.Options,
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ title: {s}, body: {s} }}", .{
@@ -882,32 +936,42 @@ pub const ConfigChange = struct {
     }
 };
 
-/// Open a URL
+/// Open a URL or file path.
 pub const OpenUrl = struct {
-    /// The type of data that the URL refers to.
+    /// Where the URL came from and what it likely points to.
     kind: Kind,
 
-    /// The URL.
+    /// The URL to open. Depending on `kind`, this may be a plain file
+    /// path or arbitrary text rather than a well-formed URL.
     url: []const u8,
 
-    /// The type of the data at the URL to open. This is used as a hint to
-    /// potentially open the URL in a different way.
+    /// Where the URL came from, used to decide how to open it.
+    ///
+    /// `text` and `html` come from Ghostty itself and can be opened
+    /// directly. `unknown` and `osc8` may come from terminal output, which
+    /// any program can control, so apprts must check them before opening.
     ///
     /// Sync with: ghostty_action_open_url_kind_e
     pub const Kind = enum(c_int) {
-        /// The type is unknown. This is the default and apprts should
-        /// open the URL in the most generic way possible. For example,
-        /// on macOS this would be the equivalent of `open` or on Linux
-        /// this would be `xdg-open`.
+        /// Untrusted. The source is unknown, such as text that a `link`
+        /// config entry matched in terminal output. It may be a plain path
+        /// instead of a URL, for example:
+        ///
+        ///     https://example.com
+        ///     ~/notes.txt
+        ///     src/main.zig
         unknown,
 
-        /// The URL is known to be a text file. In this case, the apprt
-        /// should try to open the URL in a text editor or viewer or
-        /// some equivalent, if possible.
+        /// The URL is known to be a text file. Open it in a text editor
+        /// or viewer if possible.
         text,
 
         /// The URL is known to contain HTML content.
         html,
+
+        /// Untrusted. The target of an OSC 8 hyperlink, exactly as the
+        /// program sent it. The visible link text may not match it.
+        osc8,
 
         test "ghostty.h OpenUrl.Kind" {
             try lib.checkGhosttyHEnum(Kind, "GHOSTTY_ACTION_OPEN_URL_KIND_");
@@ -1007,6 +1071,19 @@ pub const SearchSelected = struct {
     }
 };
 
+/// sync with ghostty_action_close_tab_mode_e in ghostty.h
+pub const OpenConfig = enum(c_int) {
+    /// Open the config in the OS default editor.
+    os_open,
+
+    /// Open the config in a new window using $EDITOR or $VISUAL
+    new_window,
+
+    test "ghostty.h OpenConfig" {
+        try lib.checkGhosttyHEnum(OpenConfig, "GHOSTTY_ACTION_OPEN_CONFIG_");
+    }
+};
+
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    _ = compat_testing.refAllDeclsRecursive(@This());
 }

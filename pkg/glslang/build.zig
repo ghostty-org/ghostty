@@ -1,4 +1,5 @@
 const std = @import("std");
+const translate_c = @import("translate_c");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -10,23 +11,27 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const upstream = b.lazyDependency("glslang", .{});
-    const lib = try buildGlslang(b, upstream, target, optimize);
+    const lib = try buildGlslang(b, target, optimize);
     b.installArtifact(lib);
 
-    if (upstream) |v| module.addIncludePath(v.path(""));
-    module.addIncludePath(b.path("override"));
+    try translate_c.addImportToModule(b, "glslang_c", module, .{
+        .source = .{ .includes = .{
+            .files = &.{
+                .{ .path = "glslang/Include/glslang_c_interface.h" },
+                .{ .path = "glslang/Public/resource_limits_c.h" },
+            },
+        } },
+        .target = target,
+        .optimize = optimize,
+        .link_libs = &.{lib},
+        .default_init = true,
+    });
 
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
+            .root_module = module,
         });
-        test_exe.linkLibrary(lib);
         const tests_run = b.addRunArtifact(test_exe);
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&tests_run.step);
@@ -38,29 +43,27 @@ pub fn build(b: *std.Build) !void {
 
 fn buildGlslang(
     b: *std.Build,
-    upstream_: ?*std.Build.Dependency,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) !*std.Build.Step.Compile {
+    const upstream_ = b.lazyDependency("glslang", .{});
     const lib = b.addLibrary(.{
         .name = "glslang",
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
+            // On MSVC, we must not use linkLibCpp because Zig unconditionally
+            // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+            // include paths, which conflict with MSVC's own C++ runtime
+            // headers. The MSVC SDK include directories (added via linkLibC)
+            // contain both C and C++ headers, so linkLibCpp is not needed.
+            .link_libcpp = target.result.abi != .msvc,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
-    // On MSVC, we must not use linkLibCpp because Zig unconditionally
-    // passes -nostdinc++ and then adds its bundled libc++/libc++abi
-    // include paths, which conflict with MSVC's own C++ runtime headers.
-    // The MSVC SDK include directories (added via linkLibC) contain
-    // both C and C++ headers, so linkLibCpp is not needed.
-    if (target.result.abi != .msvc) {
-        lib.linkLibCpp();
-    }
-    if (upstream_) |upstream| lib.addIncludePath(upstream.path(""));
-    lib.addIncludePath(b.path("override"));
+    if (upstream_) |upstream| lib.root_module.addIncludePath(upstream.path(""));
+    lib.root_module.addIncludePath(b.path("override"));
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, lib);
@@ -82,7 +85,7 @@ fn buildGlslang(
     }
 
     if (upstream_) |upstream| {
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .flags = flags.items,
             .files = &.{
@@ -141,7 +144,7 @@ fn buildGlslang(
         });
 
         if (target.result.os.tag != .windows) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .flags = flags.items,
                 .files = &.{
@@ -149,7 +152,7 @@ fn buildGlslang(
                 },
             });
         } else {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .flags = flags.items,
                 .files = &.{

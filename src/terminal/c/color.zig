@@ -8,9 +8,9 @@ const Result = @import("result.zig").Result;
 pub const PaletteMask = extern struct {
     bits: [4]u64,
 
-    /// Convert to the Zig PaletteMask (std.StaticBitSet(256)).
+    /// Convert to the Zig PaletteMask (std.bit_set.Static(256)).
     pub fn toZig(self: *const PaletteMask) color.PaletteMask {
-        var result = color.PaletteMask.initEmpty();
+        var result = color.PaletteMask.empty;
         for (0..256) |i| {
             if (((self.bits[i >> 6] >> @as(u6, @intCast(i & 63))) & 1) != 0) {
                 result.set(i);
@@ -93,7 +93,7 @@ pub fn palette_generate(
     const skip: color.PaletteMask = if (skip_) |skip|
         skip.toZig()
     else
-        .initEmpty();
+        .empty;
     const result = color.generate256Color(
         base,
         skip,

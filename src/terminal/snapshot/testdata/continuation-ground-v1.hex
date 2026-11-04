@@ -1,0 +1,8 @@
+# Ghostty snapshot fixture
+# Kaitai type: continuation_record
+# Kaitai params:
+# Kaitai offset: 0
+# Wire version: 1
+
+# Empty payload is the explicit ground-state assertion.
+07 00 00 00 00 00 27 80 63 d1

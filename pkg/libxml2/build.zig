@@ -11,18 +11,25 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
 
-    if (upstream_) |upstream| lib.addIncludePath(upstream.path("include"));
-    lib.addIncludePath(b.path("override/include"));
+    if (upstream_) |upstream| lib.root_module.addIncludePath(upstream.path("include"));
+    lib.root_module.addIncludePath(b.path("override/include"));
     if (target.result.os.tag == .windows) {
-        lib.addIncludePath(b.path("override/config/win32"));
-        lib.linkSystemLibrary("ws2_32");
+        lib.root_module.addIncludePath(b.path("override/config/win32"));
+        // For dynamic linking, we prefer dynamic linking and to search by
+        // mode first. Mode first will search all paths for a dynamic library
+        // before falling back to static.
+        const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+            .preferred_link_mode = .dynamic,
+            .search_strategy = .mode_first,
+        };
+        lib.root_module.linkSystemLibrary("ws2_32", dynamic_link_opts);
     } else {
-        lib.addIncludePath(b.path("override/config/posix"));
+        lib.root_module.addIncludePath(b.path("override/config/posix"));
     }
 
     var flags: std.ArrayList([]const u8) = .empty;
@@ -67,38 +74,38 @@ pub fn build(b: *std.Build) !void {
 
     // Enable our `./configure` options. For bool-type fields we translate
     // it to the `LIBXML_{field}_ENABLED` C define where field is uppercased.
-    inline for (std.meta.fields(Options)) |field| {
-        const opt = b.option(bool, field.name, "Configure flag") orelse
-            @as(*const bool, @ptrCast(field.default_value_ptr.?)).*;
+    inline for (@typeInfo(Options).@"struct".field_names, @typeInfo(Options).@"struct".field_attrs) |field, field_attr| {
+        const opt = b.option(bool, field, "Configure flag") orelse
+            field_attr.defaultValue(bool).?;
         if (opt) {
             var nameBuf: [32]u8 = undefined;
-            const name = std.ascii.upperString(&nameBuf, field.name);
-            const define = try std.fmt.allocPrint(b.allocator, "-DLIBXML_{s}_ENABLED=1", .{name});
+            const name = std.ascii.upperString(&nameBuf, field);
+            const define = try b.allocator.print("-DLIBXML_{s}_ENABLED=1", .{name});
             try flags.append(b.allocator, define);
 
-            if (std.mem.eql(u8, field.name, "history")) {
+            if (std.mem.eql(u8, field, "history")) {
                 try flags.appendSlice(b.allocator, &.{
                     "-DHAVE_LIBHISTORY=1",
                     "-DHAVE_LIBREADLINE=1",
                 });
             }
-            if (std.mem.eql(u8, field.name, "mem_debug")) {
+            if (std.mem.eql(u8, field, "mem_debug")) {
                 try flags.append(b.allocator, "-DDEBUG_MEMORY_LOCATION=1");
             }
-            if (std.mem.eql(u8, field.name, "regexp")) {
+            if (std.mem.eql(u8, field, "regexp")) {
                 try flags.append(b.allocator, "-DLIBXML_UNICODE_ENABLED=1");
             }
-            if (std.mem.eql(u8, field.name, "run_debug")) {
+            if (std.mem.eql(u8, field, "run_debug")) {
                 try flags.append(b.allocator, "-DLIBXML_DEBUG_RUNTIME=1");
             }
-            if (std.mem.eql(u8, field.name, "thread")) {
+            if (std.mem.eql(u8, field, "thread")) {
                 try flags.append(b.allocator, "-DHAVE_LIBPTHREAD=1");
             }
         }
     }
 
     if (upstream_) |upstream| {
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
             .flags = flags.items,

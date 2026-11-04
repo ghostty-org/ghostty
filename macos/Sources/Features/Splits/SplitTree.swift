@@ -10,6 +10,17 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
     /// size of the view area where the splits are shown.
     let zoomed: Node?
 
+    init(root: Node?, zoomed: Node?) {
+        self.root = root
+        // A tree can only have a zoomed node if it actually contains splits
+        // and the zoomed node exists within root.
+        if let root, case .split = root, let zoomed, root.path(to: zoomed) != nil {
+            self.zoomed = zoomed
+        } else {
+            self.zoomed = nil
+        }
+    }
+
     /// A single node in the tree is either a leaf node (a view) or a split (has a
     /// left/right or top/bottom).
     indirect enum Node: Codable {
@@ -98,6 +109,11 @@ extension SplitTree {
     /// Returns true if this tree is split.
     var isSplit: Bool {
         if case .split = root { true } else { false }
+    }
+
+    /// Returns true if this tree has splits and has a zoomed node.
+    var isZoomed: Bool {
+        isSplit && zoomed != nil
     }
 
     init() {
@@ -372,7 +388,7 @@ extension SplitTree: Codable {
 
         // Zoomed is encoded as its path. Get the path and then find it.
         if let zoomedPath = try container.decodeIfPresent(Path.self, forKey: .zoomed),
-           let root = self.root {
+           let root = self.root, case .split = root {
             self.zoomed = root.node(at: zoomedPath)
         } else {
             self.zoomed = nil

@@ -9,7 +9,6 @@ const gresource = @import("../build/gresource.zig");
 const i18n = @import("../../../os/main.zig").i18n;
 const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
-const Dialog = @import("dialog.zig").Dialog;
 
 const log = std.log.scoped(.gtk_ghostty_title_dialog);
 
@@ -115,7 +114,7 @@ pub const TitleDialog = extern struct {
         }
 
         // Set the title for the dialog
-        self.as(Dialog.Parent).setHeading(priv.target.title());
+        self.as(adw.AlertDialog).setHeading(priv.target.title());
 
         // Show it. We could also just use virtual methods to bind to
         // response but this is pretty simple.
@@ -220,10 +219,13 @@ pub const TitleDialog = extern struct {
 pub const Target = enum(c_int) {
     surface,
     tab,
+    window,
+
     pub fn title(self: Target) [*:0]const u8 {
         return switch (self) {
             .surface => i18n._("Change Terminal Title"),
             .tab => i18n._("Change Tab Title"),
+            .window => i18n._("Change Window Title"),
         };
     }
 

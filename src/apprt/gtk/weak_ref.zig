@@ -22,6 +22,23 @@ pub fn WeakRef(comptime T: type) type {
             }
         }
 
+        /// Release this weak reference.
+        ///
+        /// You MUST call this before the memory holding this struct is freed,
+        /// which in practice means from the owner's `dispose`. The target keeps
+        /// a pointer to this `GWeakRef` so that it can clear it when the target
+        /// is finalized; if this memory is gone by then, the target walks into
+        /// whatever now occupies it. That is an invalid read at best, and can
+        /// hang: the target takes a lock inside each registered weak ref, and
+        /// reused memory with the low bit set is a lock nothing will release.
+        ///
+        /// `set(null)` also unregisters and remains valid. This exists so the
+        /// requirement has a name at the use site rather than looking like an
+        /// ordinary assignment.
+        pub fn deinit(self: *Self) void {
+            self.ref.clear();
+        }
+
         /// Get a strong reference to the object, or null if the object
         /// has been finalized. This increases the reference count by one.
         pub fn get(self: *Self) ?*T {

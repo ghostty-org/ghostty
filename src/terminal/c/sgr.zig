@@ -63,7 +63,7 @@ pub fn setParams(
     parser.params = params_slice;
 
     // If we have separators, set that state too.
-    parser.params_sep = .initEmpty();
+    parser.params_sep = .empty;
     if (seps_) |seps| {
         if (len > @TypeOf(parser.params_sep).bit_length) {
             log.warn("ghostty_sgr_set_params: separators length {} exceeds max supported length {}", .{
@@ -124,17 +124,6 @@ pub fn attribute_value(
     attr: *sgr.Attribute.C,
 ) callconv(lib.calling_conv) *sgr.Attribute.CValue {
     return &attr.value;
-}
-
-pub fn wasm_alloc_attribute() callconv(lib.calling_conv) *sgr.Attribute.C {
-    const alloc = std.heap.wasm_allocator;
-    const ptr = alloc.create(sgr.Attribute.C) catch @panic("out of memory");
-    return ptr;
-}
-
-pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(lib.calling_conv) void {
-    const alloc = std.heap.wasm_allocator;
-    alloc.destroy(attr);
 }
 
 test "alloc" {

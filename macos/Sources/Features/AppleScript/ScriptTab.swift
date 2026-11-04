@@ -38,13 +38,29 @@ final class ScriptTab: NSObject {
         return stableID
     }
 
-    /// Exposed as the AppleScript `title` property.
+    /// Exposed as the AppleScript `name` property.
     ///
     /// Returns the title of the tab's window.
     @objc(title)
     var title: String {
         guard NSApp.isAppleScriptEnabled else { return "" }
         return controller?.window?.title ?? ""
+    }
+
+    /// Exposed as the AppleScript `name override` property.
+    ///
+    /// Gets or sets the title override on this tab's controller.
+    /// Setting an empty string clears the override.
+    @objc(titleOverride)
+    var titleOverride: String {
+        get {
+            guard NSApp.isAppleScriptEnabled else { return "" }
+            return controller?.titleOverride ?? ""
+        }
+        set {
+            guard NSApp.isAppleScriptEnabled else { return }
+            controller?.titleOverride = newValue.isEmpty ? nil : newValue
+        }
     }
 
     /// Exposed as the AppleScript `index` property.

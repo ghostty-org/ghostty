@@ -133,9 +133,7 @@ pub fn encode(
 
         .utf8 => {
             try writer.writeAll("\x1B[M");
-
-            // The button code always fits in a single byte.
-            try writer.writeByte(32 + button_code);
+            try writer.printUnicodeCodepoint(32 + @as(u21, button_code));
 
             var buf: [4]u8 = undefined;
             const x_cp: u21 = @intCast(@as(u32, cell.x) + 33);
@@ -544,6 +542,22 @@ test "utf8 encodes large coordinates" {
     try testing.expectEqual(@as(?u21, null), it.nextCodepoint());
 }
 
+test "utf8 encodes extended mouse buttons" {
+    var data: [32]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&data);
+    try encode(&writer, .{
+        .button = .eight,
+        .action = .press,
+        .pos = .{ .x = 2, .y = 3 },
+    }, .{
+        .event = .any,
+        .format = .utf8,
+        .size = testSize(),
+    });
+
+    try testing.expectEqualStrings("\x1B[M\u{A0}#$", writer.buffered());
+}
+
 test "x10 coordinate limit" {
     var data: [32]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&data);
@@ -589,7 +603,7 @@ test "sgr wheel button mappings" {
         });
 
         var expected: [32]u8 = undefined;
-        const want = try std.fmt.bufPrint(&expected, "\x1B[<{d};1;1M", .{c.code});
+        const want = try std.mem.print(&expected, "\x1B[<{d};1;1M", .{c.code});
         try testing.expectEqualStrings(want, writer.buffered());
     }
 }

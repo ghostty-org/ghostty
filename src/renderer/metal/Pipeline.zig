@@ -104,7 +104,7 @@ pub fn init(comptime VertexAttributes: ?type, opts: Options) !Self {
                 .{@as(c_ulong, 0)},
             );
 
-            layout.setProperty("stepFunction", @intFromEnum(opts.step_fn));
+            layout.setProperty("stepFunction", @backingInt(opts.step_fn));
             layout.setProperty("stride", @as(c_ulong, @sizeOf(V)));
         }
 
@@ -120,17 +120,17 @@ pub fn init(comptime VertexAttributes: ?type, opts: Options) !Self {
             .{@as(c_ulong, i)},
         );
 
-        attachment.setProperty("pixelFormat", @intFromEnum(at.pixel_format));
+        attachment.setProperty("pixelFormat", @backingInt(at.pixel_format));
 
         attachment.setProperty("blendingEnabled", at.blending_enabled);
         // We always use premultiplied alpha blending for now.
         if (at.blending_enabled) {
-            attachment.setProperty("rgbBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
-            attachment.setProperty("alphaBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
-            attachment.setProperty("sourceRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
-            attachment.setProperty("sourceAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
-            attachment.setProperty("destinationRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
-            attachment.setProperty("destinationAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
+            attachment.setProperty("rgbBlendOperation", @backingInt(mtl.MTLBlendOperation.add));
+            attachment.setProperty("alphaBlendOperation", @backingInt(mtl.MTLBlendOperation.add));
+            attachment.setProperty("sourceRGBBlendFactor", @backingInt(mtl.MTLBlendFactor.one));
+            attachment.setProperty("sourceAlphaBlendFactor", @backingInt(mtl.MTLBlendFactor.one));
+            attachment.setProperty("destinationRGBBlendFactor", @backingInt(mtl.MTLBlendFactor.one_minus_source_alpha));
+            attachment.setProperty("destinationAlphaBlendFactor", @backingInt(mtl.MTLBlendFactor.one_minus_source_alpha));
         }
     }
 
@@ -152,13 +152,13 @@ pub fn deinit(self: *const Self) void {
 }
 
 fn autoAttribute(T: type, attrs: objc.Object) void {
-    inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
-        const offset = @offsetOf(T, field.name);
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types, 0..) |field_name, field_type, i| {
+        const offset = @offsetOf(T, field_name);
 
-        const FT = switch (@typeInfo(field.type)) {
+        const FT = switch (@typeInfo(field_type)) {
             .@"struct" => |e| e.backing_integer.?,
             .@"enum" => |e| e.tag_type,
-            else => field.type,
+            else => field_type,
         };
 
         // Very incomplete list, expand as necessary.
@@ -186,7 +186,7 @@ fn autoAttribute(T: type, attrs: objc.Object) void {
             .{@as(c_ulong, i)},
         );
 
-        attr.setProperty("format", @intFromEnum(format));
+        attr.setProperty("format", @backingInt(format));
         attr.setProperty("offset", @as(c_ulong, offset));
         attr.setProperty("bufferIndex", @as(c_ulong, 0));
     }
