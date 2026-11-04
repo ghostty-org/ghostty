@@ -89,6 +89,8 @@ pub const CellData = enum(c_int) {
     /// Output type: GhosttyColorRgb *
     color_rgb = 11,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: CellData) type {
         return switch (self) {
@@ -101,6 +103,7 @@ pub const CellData = enum(c_int) {
             .semantic_content => SemanticContent,
             .color_palette => u8,
             .color_rgb => color.RGB.C,
+            _ => void,
         };
     }
 };
@@ -110,14 +113,9 @@ pub fn get(
     data: CellData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(CellData, @backingInt(data)) orelse {
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
         .invalid => .invalid_value,
+        _ => .unsupported,
         inline else => |comptime_data| getTyped(
             cell_,
             comptime_data,
@@ -169,6 +167,7 @@ fn getTyped(
             const rgb = cell.content.color_rgb;
             out.* = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
         },
+        _ => comptime unreachable,
     }
 
     return .success;

@@ -49,30 +49,28 @@ pub fn free(event_: Event) callconv(lib.calling_conv) void {
     alloc.destroy(wrapper);
 }
 
-pub fn set_action(event_: Event, action: Action) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Action, @backingInt(action)) orelse {
-            log.warn("set_action invalid action value={d}", .{@backingInt(action)});
-            return;
-        };
-    }
-
-    event_.?.event.action = action;
+pub fn set_action(
+    event_: Event,
+    action: lib.CEnum(Action),
+) callconv(lib.calling_conv) Result {
+    const wrapper = event_ orelse return .invalid_value;
+    wrapper.event.action = lib.enumFromC(Action, action) orelse
+        return .invalid_value;
+    return .success;
 }
 
 pub fn get_action(event_: Event) callconv(lib.calling_conv) Action {
     return event_.?.event.action;
 }
 
-pub fn set_button(event_: Event, button: Button) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Button, @backingInt(button)) orelse {
-            log.warn("set_button invalid button value={d}", .{@backingInt(button)});
-            return;
-        };
-    }
-
-    event_.?.event.button = button;
+pub fn set_button(
+    event_: Event,
+    button: lib.CEnum(Button),
+) callconv(lib.calling_conv) Result {
+    const wrapper = event_ orelse return .invalid_value;
+    wrapper.event.button = lib.enumFromC(Button, button) orelse
+        return .invalid_value;
+    return .success;
 }
 
 pub fn clear_button(event_: Event) callconv(lib.calling_conv) void {
@@ -126,11 +124,11 @@ test "set/get" {
     defer free(e);
 
     // Action
-    set_action(e, .motion);
+    try testing.expectEqual(Result.success, set_action(e, .motion));
     try testing.expectEqual(Action.motion, get_action(e));
 
     // Button
-    set_button(e, .left);
+    try testing.expectEqual(Result.success, set_button(e, .left));
     var button: Button = .unknown;
     try testing.expect(get_button(e, &button));
     try testing.expectEqual(Button.left, button);

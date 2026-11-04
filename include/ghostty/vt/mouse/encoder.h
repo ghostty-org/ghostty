@@ -108,19 +108,24 @@ typedef struct {
  * @ingroup mouse
  */
 typedef enum GHOSTTY_ENUM_TYPED {
-  /** Mouse tracking mode (value: GhosttyMouseTrackingMode). */
+  /** Mouse tracking mode (value: GhosttyMouseTrackingMode,
+   *  default: GHOSTTY_MOUSE_TRACKING_NONE). */
   GHOSTTY_MOUSE_ENCODER_OPT_EVENT = 0,
 
-  /** Mouse output format (value: GhosttyMouseFormat). */
+  /** Mouse output format (value: GhosttyMouseFormat,
+   *  default: GHOSTTY_MOUSE_FORMAT_X10). */
   GHOSTTY_MOUSE_ENCODER_OPT_FORMAT = 1,
 
-  /** Renderer size context (value: GhosttyMouseEncoderSize). */
+  /** Renderer size context (value: GhosttyMouseEncoderSize, default: a
+   *  1x1 pixel screen with 1x1 pixel cells and no padding). */
   GHOSTTY_MOUSE_ENCODER_OPT_SIZE = 2,
 
-  /** Whether any mouse button is currently pressed (value: bool). */
+  /** Whether any mouse button is currently pressed (value: bool,
+   *  default: false). */
   GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED = 3,
 
-  /** Whether to enable motion deduplication by last cell (value: bool). */
+  /** Whether to enable motion deduplication by last cell (value: bool,
+   *  default: false). */
   GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL = 4,
   GHOSTTY_MOUSE_ENCODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyMouseEncoderOption;
@@ -149,15 +154,29 @@ GHOSTTY_API void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
 /**
  * Set an option on the mouse encoder.
  *
- * A null pointer value does nothing. It does not reset to defaults.
+ * Passing NULL for `value` resets the option to its default, the same
+ * value a new encoder starts with. Each option's default is listed on
+ * GhosttyMouseEncoderOption.
+ *
+ * @code{.c}
+ * GhosttyMouseFormat format = GHOSTTY_MOUSE_FORMAT_SGR;
+ * GhosttyResult result = ghostty_mouse_encoder_setopt(
+ *     encoder, GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, &format);
+ * @endcode
  *
  * @param encoder The encoder handle, must not be NULL
  * @param option The option to set
- * @param value Pointer to option value (type depends on option)
+ * @param value Pointer to option value (type depends on option), or NULL to
+ *              reset the option to its default
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `encoder` is
+ *         NULL or the value is not valid (an unknown tracking mode or
+ *         format, or a size that is too small or has a zero cell
+ *         dimension), or GHOSTTY_UNSUPPORTED if `option` is not known to
+ *         this version of the library
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encoder,
+GHOSTTY_API GhosttyResult ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encoder,
                                   GhosttyMouseEncoderOption option,
                                   const void *value);
 

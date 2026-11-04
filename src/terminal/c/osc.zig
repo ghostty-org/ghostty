@@ -53,6 +53,7 @@ pub fn end(parser_: Parser, terminator: u8) callconv(lib.calling_conv) Command {
 /// C: GhosttyOscOption
 pub const Option = enum(c_int) {
     unknown_max_bytes = 0,
+    _,
 };
 
 pub fn set(
@@ -60,19 +61,13 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("osc_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
-    const parser = parser_ orelse return .invalid_value;
     switch (option) {
         .unknown_max_bytes => {
+            const parser = parser_ orelse return .invalid_value;
             const ptr: ?*const usize = @ptrCast(@alignCast(value));
             parser.unknown_max_bytes = if (ptr) |v| v.* else 0;
         },
+        _ => return .unsupported,
     }
 
     return .success;
@@ -91,6 +86,8 @@ pub const CommandData = enum(c_int) {
     unknown_truncated = 3,
     unknown_terminator = 4,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: CommandData) type {
         return switch (self) {
@@ -99,6 +96,7 @@ pub const CommandData = enum(c_int) {
             .unknown_content => lib.String,
             .unknown_truncated => bool,
             .unknown_terminator => Terminator,
+            _ => void,
         };
     }
 };
@@ -108,15 +106,9 @@ pub fn commandData(
     data: CommandData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) bool {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(CommandData, @backingInt(data)) orelse {
-            log.warn("commandData invalid data value={d}", .{@backingInt(data)});
-            return false;
-        };
-    }
-
     return switch (data) {
         .invalid => false,
+        _ => false,
         inline else => |comptime_data| commandDataTyped(
             command_,
             comptime_data,
@@ -149,6 +141,7 @@ fn commandDataTyped(
             .unknown => |v| out.* = v.terminator.cval(),
             else => return false,
         },
+        _ => comptime unreachable,
     }
 
     return true;

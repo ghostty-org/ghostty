@@ -58,6 +58,8 @@ pub const Option = enum(c_int) {
     /// If `true`, `backspace` emits 0x08
     backarrow_key_mode = 7,
 
+    _,
+
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
         return switch (self) {
@@ -70,6 +72,7 @@ pub const Option = enum(c_int) {
             => bool,
             .kitty_flags => u8,
             .macos_option_as_alt => OptionAsAlt,
+            _ => void,
         };
     }
 };
@@ -78,29 +81,32 @@ pub fn setopt(
     encoder_: Encoder,
     option: Option,
     value: ?*const anyopaque,
-) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("setopt invalid option value={d}", .{@backingInt(option)});
-            return;
-        };
-    }
-
+) callconv(lib.calling_conv) Result {
     return switch (option) {
-        inline else => |comptime_option| setoptTyped(
-            encoder_,
-            comptime_option,
-            @ptrCast(@alignCast(value orelse return)),
-        ),
+        _ => .unsupported,
+        inline else => |comptime_option| {
+            const encoder = encoder_ orelse return .invalid_value;
+            const ptr = value orelse return resetTyped(encoder, comptime_option);
+            return setoptTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
+        },
     };
 }
 
+/// Reset an option to the default from `key_encode.Options`. This is what a
+/// NULL value to `setopt` does.
+fn resetTyped(encoder: *KeyEncoderWrapper, comptime option: Option) Result {
+    const defaults: key_encode.Options = .{};
+    const name = @tagName(option);
+    @field(encoder.opts, name) = @field(defaults, name);
+    return .success;
+}
+
 fn setoptTyped(
-    encoder_: Encoder,
+    encoder: *KeyEncoderWrapper,
     comptime option: Option,
     value: *const option.InType(),
-) void {
-    const opts = &encoder_.?.opts;
+) Result {
+    const opts = &encoder.opts;
     switch (option) {
         .cursor_key_application => opts.cursor_key_application = value.*,
         .keypad_key_application => opts.keypad_key_application = value.*,
@@ -111,17 +117,13 @@ fn setoptTyped(
             const bits: u5 = @truncate(value.*);
             break :flags @bitCast(bits);
         },
-        .macos_option_as_alt => {
-            if (comptime std.debug.runtime_safety) {
-                _ = std.enums.fromInt(OptionAsAlt, @backingInt(value.*)) orelse {
-                    log.warn("setopt invalid OptionAsAlt value={d}", .{@backingInt(value.*)});
-                    return;
-                };
-            }
-            opts.macos_option_as_alt = value.*;
-        },
+        .macos_option_as_alt => opts.macos_option_as_alt =
+            lib.enumFromPtr(OptionAsAlt, value) orelse return .invalid_value,
         .backarrow_key_mode => opts.backarrow_key_mode = value.*,
+        _ => comptime unreachable,
     }
+
+    return .success;
 }
 
 pub fn setopt_from_terminal(
@@ -189,14 +191,14 @@ test "setopt bool" {
 
     // Test setting bool options
     const val_true: bool = true;
-    setopt(e, .cursor_key_application, &val_true);
+    try testing.expectEqual(Result.success, setopt(e, .cursor_key_application, &val_true));
     try testing.expect(e.?.opts.cursor_key_application);
 
     const val_false: bool = false;
-    setopt(e, .cursor_key_application, &val_false);
+    try testing.expectEqual(Result.success, setopt(e, .cursor_key_application, &val_false));
     try testing.expect(!e.?.opts.cursor_key_application);
 
-    setopt(e, .keypad_key_application, &val_true);
+    try testing.expectEqual(Result.success, setopt(e, .keypad_key_application, &val_true));
     try testing.expect(e.?.opts.keypad_key_application);
 }
 
@@ -215,7 +217,7 @@ test "setopt kitty flags" {
         .report_events = true,
     };
     const flags_int: u8 = @intCast(flags.int());
-    setopt(e, .kitty_flags, &flags_int);
+    try testing.expectEqual(Result.success, setopt(e, .kitty_flags, &flags_int));
     try testing.expect(e.?.opts.kitty_flags.disambiguate);
     try testing.expect(e.?.opts.kitty_flags.report_events);
     try testing.expect(!e.?.opts.kitty_flags.report_alternates);
@@ -232,11 +234,11 @@ test "setopt macos option as alt" {
 
     // Test setting option as alt
     const opt_left: OptionAsAlt = .left;
-    setopt(e, .macos_option_as_alt, &opt_left);
+    try testing.expectEqual(Result.success, setopt(e, .macos_option_as_alt, &opt_left));
     try testing.expectEqual(OptionAsAlt.left, e.?.opts.macos_option_as_alt);
 
     const opt_true: OptionAsAlt = .true;
-    setopt(e, .macos_option_as_alt, &opt_true);
+    try testing.expectEqual(Result.success, setopt(e, .macos_option_as_alt, &opt_true));
     try testing.expectEqual(OptionAsAlt.true, e.?.opts.macos_option_as_alt);
 }
 
@@ -321,7 +323,7 @@ test "encode: kitty ctrl release with ctrl mod set" {
             .report_associated = true,
         };
         const flags_int: u8 = @intCast(flags.int());
-        setopt(encoder, .kitty_flags, &flags_int);
+        try testing.expectEqual(Result.success, setopt(encoder, .kitty_flags, &flags_int));
     }
 
     // Create key event
@@ -333,8 +335,8 @@ test "encode: kitty ctrl release with ctrl mod set" {
     defer key_event.free(event);
 
     // Set event properties: release action, ctrl key, ctrl modifier
-    key_event.set_action(event, .release);
-    key_event.set_key(event, .control_left);
+    try testing.expectEqual(Result.success, key_event.set_action(event, .release));
+    try testing.expectEqual(Result.success, key_event.set_key(event, .control_left));
     key_event.set_mods(event, .{ .ctrl = true });
 
     // Encode null should give us the length required

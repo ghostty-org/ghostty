@@ -421,11 +421,12 @@ GHOSTTY_API GhosttyResult ghostty_search_run(GhosttySearch search);
  * @param option Option to write
  * @param value Pointer to the input value for the option. The meaning
  *              of NULL is documented per option.
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a select
- *         option found no matches, GHOSTTY_OUT_OF_MEMORY if
- *         allocation fails, or GHOSTTY_INVALID_VALUE if search,
- *         option, or value is invalid or the option needs a terminal
- *         that was already freed
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a select option
+ *         found no matches, GHOSTTY_OUT_OF_MEMORY if allocation fails,
+ *         GHOSTTY_INVALID_VALUE if `search` or `value` is invalid or the
+ *         option needs a terminal that was already freed, or
+ *         GHOSTTY_UNSUPPORTED if `option` is not known to this version of the
+ *         library
  *
  * @ingroup search
  */
@@ -446,12 +447,13 @@ GHOSTTY_API GhosttyResult ghostty_search_set(
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data Data field to read
  * @param value Output pointer whose type depends on data
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the
- *         requested data has no value, GHOSTTY_OUT_OF_SPACE if a
- *         provided GhosttySelectionBuffer is too small (required
- *         capacity in its len), GHOSTTY_OUT_OF_MEMORY if collecting
- *         viewport matches fails, or GHOSTTY_INVALID_VALUE if search,
- *         data, or value is invalid
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the requested data
+ *         has no value, GHOSTTY_OUT_OF_SPACE if a provided
+ *         GhosttySelectionBuffer is too small (required capacity in its len),
+ *         GHOSTTY_OUT_OF_MEMORY if collecting viewport matches fails,
+ *         GHOSTTY_INVALID_VALUE if `search` or `value` is invalid, or
+ *         GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
+ *         library
  *
  * @ingroup search
  */
@@ -481,8 +483,9 @@ GHOSTTY_API GhosttyResult ghostty_search_get(
  * @param values Output pointers corresponding to keys (must not be NULL)
  * @param out_written Optional number of fields read, or failing index
  *                    on error
- * @return GHOSTTY_SUCCESS on success, or the first failing read's
- *         result
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup search
  */

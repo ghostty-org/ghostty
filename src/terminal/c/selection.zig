@@ -266,7 +266,7 @@ fn selectionFormatter(
     opts: FormatOptions,
 ) error{ InvalidValue, NoValue }!formatterpkg.TerminalFormatter {
     if (opts.size < @sizeOf(FormatOptions)) return error.InvalidValue;
-    _ = std.enums.fromInt(Format, @backingInt(opts.emit)) orelse
+    _ = lib.enumFromPtr(Format, &opts.emit) orelse
         return error.InvalidValue;
 
     const sel = if (opts.selection) |sel|
@@ -318,14 +318,10 @@ fn codepointSlice(
 pub fn adjust(
     terminal: terminal_c.Terminal,
     selection: ?*CSelection,
-    adjustment: Selection.Adjustment,
+    adjustment_: lib.CEnum(Selection.Adjustment),
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Selection.Adjustment, @backingInt(adjustment)) orelse {
-            log.warn("terminal_selection_adjust invalid adjustment value={d}", .{@backingInt(adjustment)});
-            return .invalid_value;
-        };
-    }
+    const adjustment = lib.enumFromC(Selection.Adjustment, adjustment_) orelse
+        return .invalid_value;
 
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel_ptr = selection orelse return .invalid_value;
@@ -352,15 +348,11 @@ pub fn order(
 pub fn ordered(
     terminal: terminal_c.Terminal,
     selection: ?*const CSelection,
-    desired: Selection.Order,
+    desired_: lib.CEnum(Selection.Order),
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Selection.Order, @backingInt(desired)) orelse {
-            log.warn("terminal_selection_ordered invalid desired value={d}", .{@backingInt(desired)});
-            return .invalid_value;
-        };
-    }
+    const desired = lib.enumFromC(Selection.Order, desired_) orelse
+        return .invalid_value;
 
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel = (selection orelse return .invalid_value).toZig() orelse
@@ -383,7 +375,8 @@ pub fn contains(
     const out = out_contains orelse return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = screen.pages.pin(.fromC(pt)) orelse return .invalid_value;
+    const pin = screen.pages.pin(point.Point.fromC(pt) orelse return .invalid_value) orelse
+        return .invalid_value;
     out.* = sel.contains(screen, pin);
     return .success;
 }

@@ -1,5 +1,8 @@
+const std = @import("std");
+const build_options = @import("terminal_options");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
+const Result = @import("result.zig").Result;
 
 const buildpkg = @import("build_info.zig");
 pub const allocator = @import("allocator.zig");
@@ -301,4 +304,224 @@ test {
 
     // We want to make sure we run the tests for the C allocator interface.
     _ = @import("../../lib/allocator.zig");
+}
+
+test "unknown keys return unsupported in every family" {
+    const testing = std.testing;
+
+    // One below the _MAX_VALUE sentinel (INT_MAX). No real key will ever
+    // use it. Most handles are null because the key is checked before the
+    // handle.
+    const unknown = std.math.maxInt(c_int) - 1;
+    var out: [256]u8 align(16) = undefined;
+    var values: [1]?*anyopaque = .{&out};
+    var written: usize = 99;
+
+    // Kitty graphics getters report no_value when the feature is compiled
+    // out, before looking at the key.
+    const kitty: Result = if (build_options.kitty_graphics) .unsupported else .no_value;
+
+    // The render getters check the handle and row/cell position before the
+    // key, so they need real handles.
+    const alloc = &lib.alloc.test_allocator;
+    var term: terminal.Terminal = null;
+    try testing.expectEqual(Result.success, terminal.new(alloc, &term, 10, 3));
+    defer terminal.free(term);
+    var state: render.RenderState = null;
+    try testing.expectEqual(Result.success, render.new(alloc, &state));
+    defer render.free(state);
+    try testing.expectEqual(Result.success, render.update(state, term));
+    var rows: render.RowIterator = null;
+    try testing.expectEqual(Result.success, render.row_iterator_new(alloc, &rows));
+    defer render.row_iterator_free(rows);
+    var cells: render.RowCells = null;
+    try testing.expectEqual(Result.success, render.row_cells_new(alloc, &cells));
+    defer render.row_cells_free(cells);
+    try testing.expectEqual(Result.success, render.get(state, .row_iterator, @ptrCast(&rows)));
+    try testing.expect(render.row_iterator_next(rows));
+    try testing.expectEqual(Result.success, render.row_get(rows, .cells, @ptrCast(&cells)));
+    try testing.expectEqual(Result.success, render.row_cells_select(cells, 0));
+
+    const cases = .{
+        .{ "build_info", Result.unsupported, buildpkg.get(@fromBackingInt(@intCast(unknown)), &out) },
+        .{ "cell_get", Result.unsupported, cell.get(0, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "cell_get_multi", Result.unsupported, cell.get_multi(0, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "row_get", Result.unsupported, row.get(0, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "row_get_multi", Result.unsupported, row.get_multi(0, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "kitty_graphics_get", kitty, kitty_graphics.get(undefined, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "kitty_graphics_image_get", kitty, kitty_graphics.image_get(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "kitty_graphics_image_get_multi", kitty, kitty_graphics.image_get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "kitty_graphics_placement_iterator_set", kitty, kitty_graphics.placement_iterator_set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "kitty_graphics_placement_get", kitty, kitty_graphics.placement_get(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "kitty_graphics_placement_get_multi", kitty, kitty_graphics.placement_get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "key_encoder_setopt", Result.unsupported, key_encode.setopt(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "mouse_encoder_setopt", Result.unsupported, mouse_encode.setopt(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "osc_set", Result.unsupported, osc.set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_get", Result.unsupported, render.get(state, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_get_multi", Result.unsupported, render.get_multi(state, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "render_state_set", Result.unsupported, render.set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_row_get", Result.unsupported, render.row_get(rows, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_row_get_multi", Result.unsupported, render.row_get_multi(rows, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "render_state_row_set", Result.unsupported, render.row_set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_row_cells_get", Result.unsupported, render.row_cells_get(cells, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_row_cells_get_multi", Result.unsupported, render.row_cells_get_multi(cells, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "render_state_image_get", Result.unsupported, render.image_get(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "render_state_image_get_multi", Result.unsupported, render.image_get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "search_set", Result.unsupported, search.set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "search_get", Result.unsupported, search.get(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "search_get_multi", Result.unsupported, search.get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "selection_gesture_event_set", Result.unsupported, selection_gesture.event_set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "selection_gesture_get", Result.unsupported, selection_gesture.get(null, null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "selection_gesture_get_multi", Result.unsupported, selection_gesture.get_multi(null, null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "snapshot_decoder_get", Result.unsupported, snapshot.decoder_get(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "snapshot_decoder_get_multi", Result.unsupported, snapshot.decoder_get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "sys_set", Result.unsupported, sys.set(@fromBackingInt(@intCast(unknown)), &out) },
+        .{ "terminal_set", Result.unsupported, terminal.set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "terminal_get", Result.unsupported, terminal.get(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "terminal_get_multi", Result.unsupported, terminal.get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+    };
+
+    var failed = false;
+    inline for (cases) |case| {
+        if (case[1] != case[2]) {
+            std.log.err("family={s} got={t}", .{ case[0], case[2] });
+            failed = true;
+        }
+    }
+    try testing.expect(!failed);
+
+    // An unknown first key in a _get_multi call writes nothing.
+    try testing.expectEqual(@as(usize, 0), written);
+
+    // osc_command_data reports failure as false rather than a Result.
+    try testing.expect(!osc.commandData(null, @fromBackingInt(@intCast(unknown)), &out));
+}
+
+test "out-of-range enum values passed as data return invalid_value" {
+    const testing = std.testing;
+    const bad = std.math.maxInt(c_int) - 1;
+    const alloc = &lib.alloc.test_allocator;
+
+    var key_ev: key_event.Event = undefined;
+    try testing.expectEqual(Result.success, key_event.new(alloc, &key_ev));
+    defer key_event.free(key_ev);
+    var mouse_ev: mouse_event.Event = undefined;
+    try testing.expectEqual(Result.success, mouse_event.new(alloc, &mouse_ev));
+    defer mouse_event.free(mouse_ev);
+    var key_enc: key_encode.Encoder = undefined;
+    try testing.expectEqual(Result.success, key_encode.new(alloc, &key_enc));
+    defer key_encode.free(key_enc);
+    var mouse_enc: mouse_encode.Encoder = undefined;
+    try testing.expectEqual(Result.success, mouse_encode.new(alloc, &mouse_enc));
+    defer mouse_encode.free(mouse_enc);
+
+    var gesture_ev: selection_gesture.Event = null;
+    var buf: [64]u8 = undefined;
+    var written: usize = 0;
+    const bad_int: c_int = bad;
+
+    const cases = .{
+        .{ "key_event_set_action", key_event.set_action(key_ev, @fromBackingInt(@intCast(bad))) },
+        .{ "key_event_set_key", key_event.set_key(key_ev, @fromBackingInt(@intCast(bad))) },
+        .{ "mouse_event_set_action", mouse_event.set_action(mouse_ev, @fromBackingInt(@intCast(bad))) },
+        .{ "mouse_event_set_button", mouse_event.set_button(mouse_ev, @fromBackingInt(@intCast(bad))) },
+        .{ "key_encoder_setopt option_as_alt", key_encode.setopt(key_enc, .macos_option_as_alt, &bad_int) },
+        .{ "mouse_encoder_setopt event", mouse_encode.setopt(mouse_enc, .event, &bad_int) },
+        .{ "mouse_encoder_setopt format", mouse_encode.setopt(mouse_enc, .format, &bad_int) },
+        .{ "selection_gesture_event_new", selection_gesture.event_new(alloc, &gesture_ev, @fromBackingInt(@intCast(bad))) },
+        .{ "size_report_encode", size_report.encode(@fromBackingInt(@intCast(bad)), .{ .rows = 1, .columns = 1, .cell_width = 1, .cell_height = 1 }, &buf, buf.len, &written) },
+        .{ "color_scheme_report_encode", color_scheme.report_encode(@fromBackingInt(@intCast(bad)), &buf, buf.len, &written) },
+    };
+
+    inline for (cases) |case| {
+        testing.expectEqual(Result.invalid_value, case[1]) catch |err| {
+            std.log.err("function={s}", .{case[0]});
+            return err;
+        };
+    }
+
+    // The rejected values left the previous state in place.
+    try testing.expectEqual(key_event.get_action(key_ev), .press);
+}
+
+test "null value resets encoder options to their defaults" {
+    const testing = std.testing;
+    const alloc = &lib.alloc.test_allocator;
+    const yes = true;
+
+    // Key encoder: one non-default value per option.
+    {
+        var enc: key_encode.Encoder = undefined;
+        try testing.expectEqual(Result.success, key_encode.new(alloc, &enc));
+        defer key_encode.free(enc);
+        const defaults = enc.?.opts;
+
+        const flags: u8 = 0b11111;
+        const option_as_alt: c_int = 2; // GHOSTTY_OPTION_AS_ALT_LEFT
+        const cases = .{
+            .{ key_encode.Option.cursor_key_application, &yes },
+            .{ key_encode.Option.keypad_key_application, &yes },
+            .{ key_encode.Option.ignore_keypad_with_numlock, &yes },
+            .{ key_encode.Option.alt_esc_prefix, &yes },
+            .{ key_encode.Option.modify_other_keys_state_2, &yes },
+            .{ key_encode.Option.kitty_flags, &flags },
+            .{ key_encode.Option.macos_option_as_alt, &option_as_alt },
+            .{ key_encode.Option.backarrow_key_mode, &yes },
+        };
+        comptime std.debug.assert(cases.len ==
+            @typeInfo(key_encode.Option).@"enum".field_names.len);
+
+        inline for (cases) |case| {
+            try testing.expectEqual(Result.success, key_encode.setopt(enc, case[0], case[1]));
+            try testing.expect(!std.meta.eql(defaults, enc.?.opts));
+            try testing.expectEqual(Result.success, key_encode.setopt(enc, case[0], null));
+            testing.expect(std.meta.eql(defaults, enc.?.opts)) catch |err| {
+                std.log.err("key option={t}", .{case[0]});
+                return err;
+            };
+        }
+    }
+
+    // Mouse encoder: one non-default value per option.
+    {
+        var enc: mouse_encode.Encoder = undefined;
+        try testing.expectEqual(Result.success, mouse_encode.new(alloc, &enc));
+        defer mouse_encode.free(enc);
+        const defaults = enc.?.opts;
+        const default_track_last_cell = enc.?.track_last_cell;
+
+        const tracking: c_int = 4; // GHOSTTY_MOUSE_TRACKING_ANY
+        const format: c_int = 2; // GHOSTTY_MOUSE_FORMAT_SGR
+        const size: mouse_encode.Size = .{
+            .screen_width = 800,
+            .screen_height = 600,
+            .cell_width = 10,
+            .cell_height = 20,
+            .padding_top = 1,
+            .padding_bottom = 1,
+            .padding_right = 1,
+            .padding_left = 1,
+        };
+        const cases = .{
+            .{ mouse_encode.Option.event, &tracking },
+            .{ mouse_encode.Option.format, &format },
+            .{ mouse_encode.Option.size, &size },
+            .{ mouse_encode.Option.any_button_pressed, &yes },
+            .{ mouse_encode.Option.track_last_cell, &yes },
+        };
+        comptime std.debug.assert(cases.len ==
+            @typeInfo(mouse_encode.Option).@"enum".field_names.len);
+
+        inline for (cases) |case| {
+            try testing.expectEqual(Result.success, mouse_encode.setopt(enc, case[0], case[1]));
+            try testing.expect(!std.meta.eql(defaults, enc.?.opts) or
+                enc.?.track_last_cell != default_track_last_cell);
+            try testing.expectEqual(Result.success, mouse_encode.setopt(enc, case[0], null));
+            testing.expect(std.meta.eql(defaults, enc.?.opts) and
+                enc.?.track_last_cell == default_track_last_cell) catch |err| {
+                std.log.err("mouse option={t}", .{case[0]});
+                return err;
+            };
+        }
+    }
 }

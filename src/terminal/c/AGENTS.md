@@ -30,3 +30,28 @@
   test in `src/terminal/c/abi_test.zig` fails if a header type is not
   registered, or if it does not match its Zig type. Run it with
   `zig build test-lib-vt -Dtest-filter="C header"`.
+
+## Enums From C
+
+C can pass any integer where a header declares an enum. Reading an
+out-of-range integer as an exhaustive Zig enum is undefined behavior, so
+every enum value that comes from C must be checked in every build mode.
+Never guard the check with `std.debug.runtime_safety`.
+
+- Get/set keys: declare the C-facing key enum non-exhaustive (`_,` as the
+  last field) and give the dispatch switch a `_ => .unsupported` prong
+  ahead of `inline else`. Inner switches on a comptime key use
+  `_ => comptime unreachable`. Check the key before dereferencing the
+  handle where the code allows it, so callers can check for a key
+  without a handle.
+- Enum values passed as arguments: take `lib.CEnum(E)` and convert with
+  `lib.enumFromC(E, value) orelse return .invalid_value`.
+- Enum values inside option values or input structs: use
+  `lib.enumFromPtr(E, ptr) orelse return .invalid_value`.
+- Keep shared Zig enums from the core exhaustive. Convert at the C API
+  instead of adding `_` to them.
+- `_get`, `_set` and `_setopt` functions return `Result`, even when every
+  current option always succeeds, so new options can report errors.
+- A NULL value to a `_set` or `_setopt` resets that option to its
+  documented default and returns `.success`. Document each option's
+  default in the header.

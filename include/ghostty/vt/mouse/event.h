@@ -96,10 +96,13 @@ GHOSTTY_API void ghostty_mouse_event_free(GhosttyMouseEvent event);
  *
  * @param event The event handle, must not be NULL
  * @param action The action to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
+ *         NULL or `action` is not a GhosttyMouseAction value this version of the
+ *         library knows. On error the event is not changed.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_event_set_action(GhosttyMouseEvent event,
+GHOSTTY_API GhosttyResult ghostty_mouse_event_set_action(GhosttyMouseEvent event,
                                     GhosttyMouseAction action);
 
 /**
@@ -121,10 +124,13 @@ GHOSTTY_API GhosttyMouseAction ghostty_mouse_event_get_action(GhosttyMouseEvent 
  *
  * @param event The event handle, must not be NULL
  * @param button The button to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
+ *         NULL or `button` is not a GhosttyMouseButton value this version of the
+ *         library knows. On error the event is not changed.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_event_set_button(GhosttyMouseEvent event,
+GHOSTTY_API GhosttyResult ghostty_mouse_event_set_button(GhosttyMouseEvent event,
                                     GhosttyMouseButton button);
 
 /**

@@ -322,8 +322,9 @@ GHOSTTY_API void ghostty_osc_reset(GhosttyOscParser parser);
  * @param parser The parser handle
  * @param option The option to set
  * @param value Pointer to the new value, or NULL to restore the default
- * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if the parser
- *         is NULL
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the parser is
+ *         NULL, or GHOSTTY_UNSUPPORTED if `option` is not known to this
+ *         version of the library
  *
  * @ingroup osc
  */
@@ -407,7 +408,9 @@ GHOSTTY_API GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand com
  * @param command The OSC command handle to query (may be NULL)
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
- * @return true if data extraction was successful, false otherwise
+ * @return true if data extraction was successful, or false if the command
+ *         is NULL, the command has no data of that kind, or `data` is not
+ *         known to this version of the library
  * 
  * @ingroup osc
  */

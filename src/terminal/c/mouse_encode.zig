@@ -73,6 +73,8 @@ pub const Option = enum(c_int) {
     any_button_pressed = 3,
     track_last_cell = 4,
 
+    _,
+
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
         return switch (self) {
@@ -82,6 +84,7 @@ pub const Option = enum(c_int) {
             .any_button_pressed,
             .track_last_cell,
             => bool,
+            _ => void,
         };
     }
 };
@@ -111,52 +114,68 @@ pub fn setopt(
     encoder_: Encoder,
     option: Option,
     value: ?*const anyopaque,
-) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("setopt invalid option value={d}", .{@backingInt(option)});
-            return;
-        };
-    }
-
+) callconv(lib.calling_conv) Result {
     return switch (option) {
-        inline else => |comptime_option| setoptTyped(
-            encoder_,
-            comptime_option,
-            @ptrCast(@alignCast(value orelse return)),
-        ),
+        _ => .unsupported,
+        inline else => |comptime_option| {
+            const encoder = encoder_ orelse return .invalid_value;
+            const ptr = value orelse return resetTyped(encoder, comptime_option);
+            return setoptTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
+        },
     };
 }
 
-fn setoptTyped(
-    encoder_: Encoder,
-    comptime option: Option,
-    value: *const option.InType(),
-) void {
-    const wrapper = encoder_.?;
+/// Reset an option to its default, the same state a new encoder starts in.
+/// This is what a NULL value to `setopt` does.
+fn resetTyped(wrapper: *MouseEncoderWrapper, comptime option: Option) Result {
+    const defaults: input_mouse_encode.Options = .{ .size = defaultSize() };
     switch (option) {
         .event => {
-            if (comptime std.debug.runtime_safety) {
-                _ = std.enums.fromInt(TrackingMode, @backingInt(value.*)) orelse {
-                    log.warn("setopt invalid TrackingMode value={d}", .{@backingInt(value.*)});
-                    return;
-                };
-            }
-
-            if (wrapper.opts.event != value.*) wrapper.last_cell = null;
-            wrapper.opts.event = value.*;
+            if (wrapper.opts.event != defaults.event) wrapper.last_cell = null;
+            wrapper.opts.event = defaults.event;
         },
 
         .format => {
-            if (comptime std.debug.runtime_safety) {
-                _ = std.enums.fromInt(Format, @backingInt(value.*)) orelse {
-                    log.warn("setopt invalid Format value={d}", .{@backingInt(value.*)});
-                    return;
-                };
-            }
+            if (wrapper.opts.format != defaults.format) wrapper.last_cell = null;
+            wrapper.opts.format = defaults.format;
+        },
 
-            if (wrapper.opts.format != value.*) wrapper.last_cell = null;
-            wrapper.opts.format = value.*;
+        .size => {
+            wrapper.opts.size = defaults.size;
+            wrapper.last_cell = null;
+        },
+
+        .any_button_pressed => wrapper.opts.any_button_pressed = defaults.any_button_pressed,
+
+        .track_last_cell => {
+            wrapper.track_last_cell = false;
+            wrapper.last_cell = null;
+        },
+
+        _ => comptime unreachable,
+    }
+
+    return .success;
+}
+
+fn setoptTyped(
+    wrapper: *MouseEncoderWrapper,
+    comptime option: Option,
+    value: *const option.InType(),
+) Result {
+    switch (option) {
+        .event => {
+            const event = lib.enumFromPtr(TrackingMode, value) orelse
+                return .invalid_value;
+            if (wrapper.opts.event != event) wrapper.last_cell = null;
+            wrapper.opts.event = event;
+        },
+
+        .format => {
+            const format = lib.enumFromPtr(Format, value) orelse
+                return .invalid_value;
+            if (wrapper.opts.format != format) wrapper.last_cell = null;
+            wrapper.opts.format = format;
         },
 
         .size => {
@@ -165,12 +184,12 @@ fn setoptTyped(
                     value.size,
                     @sizeOf(Size),
                 });
-                return;
+                return .invalid_value;
             }
 
             wrapper.opts.size = value.toRenderer() orelse {
                 log.warn("setopt invalid size values (cell width and height must be non-zero)", .{});
-                return;
+                return .invalid_value;
             };
             wrapper.last_cell = null;
         },
@@ -181,7 +200,11 @@ fn setoptTyped(
             wrapper.track_last_cell = value.*;
             if (!value.*) wrapper.last_cell = null;
         },
+
+        _ => comptime unreachable,
     }
+
+    return .success;
 }
 
 pub fn setopt_from_terminal(
@@ -289,24 +312,24 @@ test "setopt" {
     defer free(e);
 
     const event_mode: TrackingMode = .any;
-    setopt(e, .event, &event_mode);
+    try testing.expectEqual(Result.success, setopt(e, .event, &event_mode));
     try testing.expectEqual(TrackingMode.any, e.?.opts.event);
 
     const format_mode: Format = .sgr;
-    setopt(e, .format, &format_mode);
+    try testing.expectEqual(Result.success, setopt(e, .format, &format_mode));
     try testing.expectEqual(Format.sgr, e.?.opts.format);
 
     const size = testSize();
-    setopt(e, .size, &size);
+    try testing.expectEqual(Result.success, setopt(e, .size, &size));
     try testing.expectEqual(size.screen_width, e.?.opts.size.screen.width);
     try testing.expectEqual(size.screen_height, e.?.opts.size.screen.height);
 
     const any_button_pressed = true;
-    setopt(e, .any_button_pressed, &any_button_pressed);
+    try testing.expectEqual(Result.success, setopt(e, .any_button_pressed, &any_button_pressed));
     try testing.expect(e.?.opts.any_button_pressed);
 
     const track_last_cell = true;
-    setopt(e, .track_last_cell, &track_last_cell);
+    try testing.expectEqual(Result.success, setopt(e, .track_last_cell, &track_last_cell));
     try testing.expect(e.?.track_last_cell);
 }
 
@@ -330,9 +353,9 @@ test "setopt_from_terminal" {
     defer terminal_c.free(t);
 
     const event_mode: TrackingMode = .any;
-    setopt(e, .event, &event_mode);
+    try testing.expectEqual(Result.success, setopt(e, .event, &event_mode));
     const format_mode: Format = .sgr;
-    setopt(e, .format, &format_mode);
+    try testing.expectEqual(Result.success, setopt(e, .format, &format_mode));
 
     setopt_from_terminal(e, t);
     try testing.expectEqual(TrackingMode.none, e.?.opts.event);
@@ -371,11 +394,11 @@ test "encode: sgr press left" {
     defer free(encoder);
 
     const event_mode: TrackingMode = .any;
-    setopt(encoder, .event, &event_mode);
+    try testing.expectEqual(Result.success, setopt(encoder, .event, &event_mode));
     const format_mode: Format = .sgr;
-    setopt(encoder, .format, &format_mode);
+    try testing.expectEqual(Result.success, setopt(encoder, .format, &format_mode));
     const size = testSize();
-    setopt(encoder, .size, &size);
+    try testing.expectEqual(Result.success, setopt(encoder, .size, &size));
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
@@ -384,8 +407,8 @@ test "encode: sgr press left" {
     ));
     defer mouse_event.free(event);
 
-    mouse_event.set_action(event, .press);
-    mouse_event.set_button(event, .left);
+    try testing.expectEqual(Result.success, mouse_event.set_action(event, .press));
+    try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
     mouse_event.set_position(event, .{ .x = 0, .y = 0 });
 
     var required: usize = 0;
@@ -420,13 +443,13 @@ test "encode: motion dedupe and reset" {
     defer free(encoder);
 
     const event_mode: TrackingMode = .any;
-    setopt(encoder, .event, &event_mode);
+    try testing.expectEqual(Result.success, setopt(encoder, .event, &event_mode));
     const format_mode: Format = .sgr;
-    setopt(encoder, .format, &format_mode);
+    try testing.expectEqual(Result.success, setopt(encoder, .format, &format_mode));
     const size = testSize();
-    setopt(encoder, .size, &size);
+    try testing.expectEqual(Result.success, setopt(encoder, .size, &size));
     const track_last_cell = true;
-    setopt(encoder, .track_last_cell, &track_last_cell);
+    try testing.expectEqual(Result.success, setopt(encoder, .track_last_cell, &track_last_cell));
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
@@ -435,8 +458,8 @@ test "encode: motion dedupe and reset" {
     ));
     defer mouse_event.free(event);
 
-    mouse_event.set_action(event, .motion);
-    mouse_event.set_button(event, .left);
+    try testing.expectEqual(Result.success, mouse_event.set_action(event, .motion));
+    try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
     mouse_event.set_position(event, .{ .x = 5, .y = 6 });
 
     {
@@ -490,13 +513,13 @@ test "encode: querying required size doesn't update dedupe state" {
     defer free(encoder);
 
     const event_mode: TrackingMode = .any;
-    setopt(encoder, .event, &event_mode);
+    try testing.expectEqual(Result.success, setopt(encoder, .event, &event_mode));
     const format_mode: Format = .sgr;
-    setopt(encoder, .format, &format_mode);
+    try testing.expectEqual(Result.success, setopt(encoder, .format, &format_mode));
     const size = testSize();
-    setopt(encoder, .size, &size);
+    try testing.expectEqual(Result.success, setopt(encoder, .size, &size));
     const track_last_cell = true;
-    setopt(encoder, .track_last_cell, &track_last_cell);
+    try testing.expectEqual(Result.success, setopt(encoder, .track_last_cell, &track_last_cell));
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
@@ -505,8 +528,8 @@ test "encode: querying required size doesn't update dedupe state" {
     ));
     defer mouse_event.free(event);
 
-    mouse_event.set_action(event, .motion);
-    mouse_event.set_button(event, .left);
+    try testing.expectEqual(Result.success, mouse_event.set_action(event, .motion));
+    try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
     mouse_event.set_position(event, .{ .x = 5, .y = 6 });
 
     var required: usize = 0;

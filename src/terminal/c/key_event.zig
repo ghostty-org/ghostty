@@ -36,16 +36,14 @@ pub fn free(event_: Event) callconv(lib.calling_conv) void {
     alloc.destroy(wrapper);
 }
 
-pub fn set_action(event_: Event, action: key.Action) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(key.Action, @backingInt(action)) orelse {
-            log.warn("set_action invalid action value={d}", .{@backingInt(action)});
-            return;
-        };
-    }
-
-    const event: *key.KeyEvent = &event_.?.event;
-    event.action = action;
+pub fn set_action(
+    event_: Event,
+    action: lib.CEnum(key.Action),
+) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
+    event.action = lib.enumFromC(key.Action, action) orelse
+        return .invalid_value;
+    return .success;
 }
 
 pub fn get_action(event_: Event) callconv(lib.calling_conv) key.Action {
@@ -53,16 +51,13 @@ pub fn get_action(event_: Event) callconv(lib.calling_conv) key.Action {
     return event.action;
 }
 
-pub fn set_key(event_: Event, k: key.Key) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(key.Key, @backingInt(k)) orelse {
-            log.warn("set_key invalid key value={d}", .{@backingInt(k)});
-            return;
-        };
-    }
-
-    const event: *key.KeyEvent = &event_.?.event;
-    event.key = k;
+pub fn set_key(
+    event_: Event,
+    k: lib.CEnum(key.Key),
+) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
+    event.key = lib.enumFromC(key.Key, k) orelse return .invalid_value;
+    return .success;
 }
 
 pub fn get_key(event_: Event) callconv(lib.calling_conv) key.Key {
@@ -141,11 +136,11 @@ test "set" {
     defer free(e);
 
     // Test action
-    set_action(e, .press);
+    try testing.expectEqual(Result.success, set_action(e, .press));
     try testing.expectEqual(key.Action.press, e.?.event.action);
 
     // Test key
-    set_key(e, .key_a);
+    try testing.expectEqual(Result.success, set_key(e, .key_a));
     try testing.expectEqual(key.Key.key_a, e.?.event.key);
 
     // Test mods
@@ -188,8 +183,8 @@ test "get" {
     defer free(e);
 
     // Set some values
-    set_action(e, .repeat);
-    set_key(e, .key_z);
+    try testing.expectEqual(Result.success, set_action(e, .repeat));
+    try testing.expectEqual(Result.success, set_key(e, .key_z));
 
     const mods: key.Mods = .{ .alt = true, .super = true };
     set_mods(e, mods);
@@ -237,8 +232,8 @@ test "complete key event" {
     defer free(e);
 
     // Build a complete key event for shift+a
-    set_action(e, .press);
-    set_key(e, .key_a);
+    try testing.expectEqual(Result.success, set_action(e, .press));
+    try testing.expectEqual(Result.success, set_key(e, .key_a));
 
     const mods: key.Mods = .{ .shift = true };
     set_mods(e, mods);

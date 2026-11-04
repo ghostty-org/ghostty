@@ -331,10 +331,13 @@ GHOSTTY_API void ghostty_key_event_free(GhosttyKeyEvent event);
  *
  * @param event The key event handle, must not be NULL
  * @param action The action to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
+ *         NULL or `action` is not a GhosttyKeyAction value this version of the
+ *         library knows. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_action(GhosttyKeyEvent event, GhosttyKeyAction action);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_action(GhosttyKeyEvent event, GhosttyKeyAction action);
 
 /**
  * Get the key action (press, release, repeat).
@@ -351,10 +354,13 @@ GHOSTTY_API GhosttyKeyAction ghostty_key_event_get_action(GhosttyKeyEvent event)
  *
  * @param event The key event handle, must not be NULL
  * @param key The physical key code to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
+ *         NULL or `key` is not a GhosttyKey value this version of the
+ *         library knows. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_key(GhosttyKeyEvent event, GhosttyKey key);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_key(GhosttyKeyEvent event, GhosttyKey key);
 
 /**
  * Get the physical key code.
