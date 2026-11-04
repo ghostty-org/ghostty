@@ -2762,7 +2762,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let presentation = TerminalWorkspacePresentationTransaction([])
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
-            tabGroup.removeWindow(movedWindow)
+            // insertWindow already removes the window from its old position.
+            // An explicit removal first can leave AppKit's hidden native tab
+            // bar out of sync with its window stack during a real drag.
             tabGroup.insertWindow(movedWindow, at: physicalDestination)
         }
         if let selectedWindow, tabGroup.windows.contains(selectedWindow) {

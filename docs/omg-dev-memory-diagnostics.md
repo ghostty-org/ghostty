@@ -129,3 +129,7 @@ not proof that the original mouse-up completed the drag. Confirm an ordinary
 drag/drop, a cancelled drag and subsequent tab selection without adding an
 extra release event. Check that the desktop is unlocked before interpreting
 failed UI automation.
+If AppKit starts CoreDrag after the matching mouse-up was already delivered,
+the outline posts that same release once for the new drag loop. The diagnostic
+phase is `release-replayed`; this does not synthesize a click or terminate a
+drag that has not actually received its release.

@@ -4,6 +4,35 @@ import Testing
 
 @MainActor
 struct VerticalNativeTabOutlineTests {
+    @Test func releaseDeliveredBeforeCoreDragStartsIsReplayedExactlyOnce() throws {
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let outline = NativeTabOutline()
+        window.contentView = outline
+        func event(_ type: NSEvent.EventType, time: TimeInterval) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: .init(x: 60, y: 40), modifierFlags: [],
+                timestamp: time, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+        }
+        let down = try event(.leftMouseDown, time: 10)
+        let up = try event(.leftMouseUp, time: 11)
+        outline.observeDragRelease(up)
+        #expect(outline.takeEarlyDragRelease() == nil, "Unrelated clicks are never replayed")
+        outline.beginMouseGesture(down)
+        outline.observeDragRelease(try event(.leftMouseUp, time: 9))
+        #expect(outline.takeEarlyDragRelease() == nil)
+        outline.observeDragRelease(up)
+        #expect(outline.takeEarlyDragRelease() === up)
+        #expect(outline.takeEarlyDragRelease() == nil)
+        outline.beginMouseGesture(down)
+        outline.dragBegan()
+        outline.observeDragRelease(up)
+        #expect(outline.takeEarlyDragRelease() == nil, "Active CoreDrag owns normal releases")
+        outline.dragEnded()
+    }
+
     private final class DragInfo: NSObject, NSDraggingInfo {
         let source: NSOutlineView
         let draggingPasteboard = NSPasteboard.withUniqueName()

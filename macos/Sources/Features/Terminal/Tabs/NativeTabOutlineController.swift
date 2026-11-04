@@ -522,16 +522,19 @@ final class NativeTabOutline: NSOutlineView {
     private weak var mouseDownResponder: NSResponder?
     private var dragDiagnosticMonitor: Any?
     private var completedDragActions: [() -> Void] = []
+    private var mouseGestureTimestamp: TimeInterval?
+    private var earlyMouseUp: NSEvent?
     var contextMenu: ((Int) -> NSMenu?)?
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         hover.update()
-        guard NativeTabDragDiagnostics.enabled, dragDiagnosticMonitor == nil else { return }
+        guard dragDiagnosticMonitor == nil else { return }
         dragDiagnosticMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .keyDown],
             handler: WeakLocalEventMonitor.handler(for: self) { outline, event in
+                outline.observeDragRelease(event)
                 if outline.isDraggingTab || (event.type != .keyDown && event.window === outline.window) {
                     NativeTabDragDiagnostics.record("delivered", outline: outline, event: event)
                 }
@@ -544,6 +547,7 @@ final class NativeTabOutline: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         NativeTabDragDiagnostics.record("mouseDown-enter", outline: self, event: event)
+        beginMouseGesture(event)
         mouseDownResponder = window?.firstResponder
         didBeginMouseTracking?()
         super.mouseDown(with: event)
@@ -554,11 +558,20 @@ final class NativeTabOutline: NSOutlineView {
         isDraggingTab = true
         NativeTabDragDiagnostics.record("drag-began", outline: self)
         didBeginDrag?()
+        // AppKit starts CoreDrag from a run-loop observer. A short gesture can
+        // deliver its mouse-up before that observer runs. Return that exact
+        // release to CoreDrag once; never synthesize or wait for another click.
+        if let release = takeEarlyDragRelease() {
+            NativeTabDragDiagnostics.record("release-replayed", outline: self, event: release)
+            NSApp.postEvent(release, atStart: false)
+        }
     }
 
     func dragEnded() {
         NativeTabDragDiagnostics.record("drag-ended", outline: self)
         isDraggingTab = false
+        mouseGestureTimestamp = nil
+        earlyMouseUp = nil
         if let previous = mouseDownResponder as? NSView, previous.window === window {
             window?.makeFirstResponder(previous)
         }
@@ -566,6 +579,22 @@ final class NativeTabOutline: NSOutlineView {
         let actions = completedDragActions
         completedDragActions.removeAll()
         for action in actions { RunLoop.main.perform(inModes: [.default], block: action) }
+    }
+
+    func observeDragRelease(_ event: NSEvent) {
+        guard event.window === window, event.type == .leftMouseUp, !isDraggingTab,
+              let began = mouseGestureTimestamp, event.timestamp >= began else { return }
+        earlyMouseUp = event
+    }
+
+    func beginMouseGesture(_ event: NSEvent) {
+        mouseGestureTimestamp = event.timestamp
+        earlyMouseUp = nil
+    }
+
+    func takeEarlyDragRelease() -> NSEvent? {
+        defer { earlyMouseUp = nil }
+        return earlyMouseUp
     }
 
     func afterDragEnds(_ action: @escaping () -> Void) {
