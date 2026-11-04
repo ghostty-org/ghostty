@@ -74,7 +74,6 @@ pub const ImageStorage = struct {
     const ImageMap = std.AutoHashMapUnmanaged(u32, KittyImage);
     const PlacementMap = std.AutoHashMapUnmanaged(PlacementKey, Placement);
 
-
     /// A change counter for anything that can affect how images are
     /// drawn. It changes when images or placements are added, removed,
     /// or modified, and also when placements move on screen without
@@ -236,7 +235,7 @@ pub const ImageStorage = struct {
             };
             if (data.len != expected_len) return false;
 
-            const image = ArcImage.init(alloc, .{
+            const shared = ArcImage.init(alloc, .{
                 .width = img.width,
                 .height = img.height,
                 .format = switch (img.format) {
@@ -248,7 +247,7 @@ pub const ImageStorage = struct {
                 },
                 .data = data,
             }) catch return false;
-            img.data = .{ .ready = image };
+            img.data = .{ .ready = shared };
             storage.markMutated(io);
             return true;
         }
@@ -295,7 +294,7 @@ pub const ImageStorage = struct {
 
         /// The image this ticket was issued for, or null if it is no
         /// longer in storage.
-        fn image(self: PendingImage, storage: *ImageStorage) ?*Image {
+        fn image(self: PendingImage, storage: *ImageStorage) ?*KittyImage {
             const img = storage.images.getPtr(self.id) orelse return null;
             if (img.transmission != self.transmission) return null;
             return img;
@@ -3810,7 +3809,7 @@ test "storage: evicts images in priority order" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
         .metadata = .{ .transient = false },
     });
@@ -3820,7 +3819,7 @@ test "storage: evicts images in priority order" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
         .metadata = .{ .transient = true },
     });
@@ -3830,7 +3829,7 @@ test "storage: evicts images in priority order" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
         .metadata = .{ .transient = true },
     });
@@ -3872,7 +3871,7 @@ test "storage: eviction releases placement pins" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
@@ -3884,7 +3883,7 @@ test "storage: eviction releases placement pins" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
     });
     try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
@@ -3900,7 +3899,7 @@ test "storage: eviction releases placement pins" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
     });
     try testing.expect(!s.images.contains(1));
@@ -4165,7 +4164,7 @@ test "storage: pending animation frames" {
     try testing.expectEqual(@as(usize, 12), s.imageById(1).?.storageSize());
 
     // Nothing is displayable or playable until every frame arrives.
-    try testing.expect(pending.complete(&s, io, try alloc.dupe(u8, "base")));
+    try testing.expect(pending.complete(&s, io, alloc, try alloc.dupe(u8, "base")));
     var img = s.imageById(1).?;
     try testing.expect(img.renderData().isPending());
     try testing.expect(img.frameData(3) == null);
@@ -4225,7 +4224,7 @@ test "storage: pending images share exact eviction ordering" {
             .width = 0,
             .height = 0,
             .format = .rgb,
-            .data = try alloc.dupe(u8, "*" ** 64),
+            .data = try alloc.dupe(u8, &@as([64]u8, @splat('*'))),
         }) },
         .metadata = .{ .transient = true },
     });
@@ -4937,12 +4936,7 @@ test "storage: animation tick advances and schedules" {
     anim.* = .{ .state = .running };
     img.animation = anim;
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
         .gap_ms = 40,
     });
 
@@ -5006,12 +5000,7 @@ test "storage: animation tick loading state parks on last frame" {
     anim.* = .{ .state = .loading };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -5029,12 +5018,7 @@ test "storage: animation tick loading state parks on last frame" {
     // A new frame arriving resumes playback. The real frame command
     // calls markMutated, so we do the same by hand.
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 255, 0, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 255, 0, 255 }),
         .gap_ms = 25,
     });
     s.markMutated(io);
@@ -5076,12 +5060,7 @@ test "storage: animation tick exhausts loop budget" {
     };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -5129,12 +5108,7 @@ test "storage: animation tick ignores ineligible animations" {
     anim.* = .{};
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{
@@ -5237,12 +5211,7 @@ test "storage: animation tick re-anchors a restarted clock" {
     };
     s.images.getPtr(1).?.animation = anim;
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
         .gap_ms = 40,
     });
     try s.addPlacement(io, alloc, t.screens.active, 1, 0, .{

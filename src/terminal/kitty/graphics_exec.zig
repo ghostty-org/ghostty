@@ -944,6 +944,15 @@ fn composeAnimation(
     // The frame data is owned by this storage, so the const cast is
     // safe. The rectangles were validated disjoint above, so in-place
     // composition within one frame is well-defined.
+    if (img.data == .ready) {
+        const shared = img.data.ready;
+        const data = alloc.dupe(u8, shared.value.data) catch {
+            result.message = "ENOMEM: out of memory";
+            return result;
+        };
+        shared.release(alloc);
+        img.data = .{ .complete = data };
+    }
     const src = img.frameData(c.source_frame).?;
     const dst = @constCast(img.frameData(c.dest_frame).?);
     pixel.composeCanvasRect(
@@ -976,9 +985,6 @@ fn ensureAnimation(
     alloc: Allocator,
     img: *KittyImage,
 ) Allocator.Error!*animation.Animation {
-    if (img.animation) |anim| return anim;
-    const anim = try alloc.create(animation.Animation);
-    errdefer alloc.destroy(anim);
     switch (img.data) {
         .ready => |shared| {
             const data = try alloc.dupe(u8, shared.value.data);
@@ -987,6 +993,8 @@ fn ensureAnimation(
         },
         .complete, .pending => {},
     }
+    if (img.animation) |anim| return anim;
+    const anim = try alloc.create(animation.Animation);
     anim.* = .{};
     img.animation = anim;
     return anim;
@@ -3821,4 +3829,24 @@ test "kittygfx eviction and reset clear storage while retained pixels survive" {
     try testing.expect(tracked.allocated_bytes > tracked.freed_bytes);
     retained.release(alloc);
     try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
+}
+
+test "kittygfx animation edits preserve previously retained base pixels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t = try Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+    const transmission = try command.Parser.parseString(alloc, "a=t,f=32,s=1,v=1,i=1;/wAA/w==");
+    defer transmission.deinit(alloc);
+    try testing.expect(execute(io, alloc, &t, &transmission).?.ok());
+    const retained = storage.imageById(1).?.renderImage().?.clone();
+    defer retained.release(alloc);
+    const edit = try command.Parser.parseString(alloc, "a=f,i=1,r=1,f=32,s=1,v=1;AAD//w==");
+    defer edit.deinit(alloc);
+    try testing.expect(execute(io, alloc, &t, &edit).?.ok());
+    try testing.expectEqual(1, retained.refs.load(.monotonic));
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, retained.value.data);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, storage.imageById(1).?.renderData().bytes().?);
 }

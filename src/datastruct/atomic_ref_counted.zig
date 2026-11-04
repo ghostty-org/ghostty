@@ -58,7 +58,7 @@ pub fn AtomicRefCounted(comptime T: type) type {
         /// Return an owned value safe for mutation, replacing this handle with
         /// a clone of the value if other owners exist. Failure leaves the
         /// handle unchanged.
-        pub fn makeMut(handle: **const Self, alloc: Allocator) Allocator.Error!*T {
+        pub fn makeMut(handle: *(*const Self), alloc: Allocator) Allocator.Error!*T {
             comptime {
                 if (!std.meta.hasFn(T, "dupe"))
                     @compileError("AtomicRefCounted(" ++ @typeName(T) ++ ").makeMut requires pub fn dupe(*const T, Allocator) Allocator.Error!T");

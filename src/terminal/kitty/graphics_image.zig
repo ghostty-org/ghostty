@@ -2203,8 +2203,8 @@ test "image load: png, zlib compressed, direct" {
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
 
-    try testing.expectEqual(command.Transmission.Compression.none, img.compression);
-    try testing.expectEqual(command.Transmission.Format.rgba, img.format);
+    try testing.expectEqual(command.Transmission.Compression.none, loading.image.compression);
+    try testing.expectEqual(Image.Format.rgba, img.format);
     try testing.expectEqual(@as(u32, 50), img.width);
     try testing.expectEqual(@as(u32, 76), img.height);
 }
@@ -2445,44 +2445,4 @@ test "limits: temporary file medium allowed by limits" {
         },
     );
     defer loading.deinit(alloc);
-}
-
-test "kitty image frame editing reuses unique pixels and preserves retained pixels" {
-    const testing = std.testing;
-    var failing = testing.FailingAllocator.init(testing.allocator, .{});
-    const alloc = failing.allocator();
-    const Edit = struct {
-        fn compose(dst: *KittyImage, index: usize) void {
-            dst.data[index] = std.ascii.toUpper(dst.data[index]);
-        }
-    };
-    var img = try KittyImage.init(alloc, .{}, .{
-        .width = 1,
-        .height = 1,
-        .format = .rgba,
-        .data = try alloc.dupe(u8, "rgba"),
-    });
-    defer img.deinit(alloc);
-    const original = img.data.ready.value.data.ptr;
-    failing.fail_index = failing.alloc_index;
-    const original_arc = img.data.ready;
-    try img.editFrame(alloc, 1, @as(usize, 0), Edit.compose);
-    try testing.expect(!failing.has_induced_failure);
-    try testing.expectEqual(original_arc, img.data.ready);
-    try testing.expectEqual(original, img.data.ready.value.data.ptr);
-
-    const retained = img.data.ready.clone();
-    defer retained.release(alloc);
-    // Both the replacement wrapper and copied pixels can fail to allocate.
-    for (0..2) |fail_index| {
-        failing.fail_index = failing.alloc_index + fail_index;
-        try testing.expectError(error.OutOfMemory, img.editFrame(alloc, 1, @as(usize, 1), Edit.compose));
-        try testing.expectEqual(retained, img.data.ready);
-        try testing.expectEqualSlices(u8, "Rgba", retained.value.data);
-    }
-    failing.fail_index = std.math.maxInt(usize);
-    try img.editFrame(alloc, 1, @as(usize, 1), Edit.compose);
-    try testing.expect(original != img.data.ready.value.data.ptr);
-    try testing.expectEqualSlices(u8, "Rgba", retained.value.data);
-    try testing.expectEqualSlices(u8, "RGba", img.data.ready.value.data);
 }

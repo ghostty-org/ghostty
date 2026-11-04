@@ -445,21 +445,30 @@ pub const State = struct {
         alloc: Allocator,
         image: *const terminal.kitty.graphics.KittyImage,
     ) PrepImageError!void {
+        const data = image.renderData().bytes() orelse return;
         const gop = try self.images.getOrPut(alloc, .{ .kitty = image.id });
         if (gop.found_existing and gop.value_ptr.generation == image.generation) {
             gop.value_ptr.image.cancelUnload();
             return;
         }
+        errdefer {
+            if (!gop.found_existing) _ = self.images.remove(.{ .kitty = image.id });
+        }
         const pixels = if (image.renderImage()) |shared|
             shared.clone()
         else pixels: {
-            const data = image.renderData().bytes() orelse return;
             const copy = try alloc.dupe(u8, data);
             errdefer alloc.free(copy);
             break :pixels try ArcImage.init(alloc, .{
                 .width = image.width,
                 .height = image.height,
-                .format = .rgba,
+                .format = switch (image.format) {
+                    .gray => .gray,
+                    .gray_alpha => .gray_alpha,
+                    .rgb => .rgb,
+                    .rgba => .rgba,
+                    .png => unreachable,
+                },
                 .data = copy,
             });
         };
@@ -1141,7 +1150,7 @@ test "kitty renderer skips updates for rows without placeholder cells" {
     t.height_px = 50;
     t.modes.set(.grapheme_cluster, true);
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
     var render_state: terminal.RenderState = .empty;
     defer render_state.deinit(alloc);
@@ -1199,7 +1208,7 @@ test "kitty renderer skips updates for rows without placeholder cells with fixed
     t.height_px = 50;
     t.modes.set(.grapheme_cluster, true);
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
     var render_state: terminal.RenderState = .empty;
     defer render_state.deinit(alloc);
@@ -1257,7 +1266,7 @@ test "kitty renderer unloads the texture of a deleted image without placements" 
     t.width_px = 30;
     t.height_px = 30;
 
-    var state: State = .empty;
+    var state: State = .init(alloc);
     defer state.deinit(alloc);
     var render_state: terminal.RenderState = .empty;
     defer render_state.deinit(alloc);
@@ -1359,12 +1368,7 @@ test "kitty renderer uploads the current animation frame" {
     anim.* = .{};
     img.animation = anim;
     try anim.frames.append(alloc, .{
-        .image = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
-        }),
+        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
         .gap_ms = 40,
     });
     anim.current_index = 1;
@@ -1376,6 +1380,7 @@ test "kitty renderer uploads the current animation frame" {
     state.kittyUpdate(alloc, &t, &render_state);
     const entry = state.images.get(.{ .kitty = 1 }).?;
     try testing.expect(entry.generation > gen1);
+    try testing.expect(anim.frames.items[0].data.ptr != entry.image.pending.value.data.ptr);
     try testing.expectEqualSlices(
         u8,
         &.{ 0, 0, 255, 255 },
