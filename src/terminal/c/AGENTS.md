@@ -25,3 +25,8 @@
     `size: usize = @sizeOf(Self)` as the first field. In the C header,
     callers use `GHOSTTY_INIT_SIZED` from `types.h` to zero-initialize and
     set the size.
+- Every new public C struct, union, enum, and opaque handle must be
+  registered in `type_decls` in `src/terminal/c/types.zig`. The parity
+  test in `src/terminal/c/abi_test.zig` fails if a header type is not
+  registered, or if it does not match its Zig type. Run it with
+  `zig build test-lib-vt -Dtest-filter="C header"`.

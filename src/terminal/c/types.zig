@@ -62,7 +62,7 @@ pub const Codepoints = extern struct {
     len: usize = 0,
 };
 
-const TypeDecl = struct {
+pub const TypeDecl = struct {
     name: []const u8,
     T: type,
     kind: Kind,
@@ -72,7 +72,7 @@ const TypeDecl = struct {
     tagged_union: ?TaggedUnion = null,
     union_field_names_T: ?type = null,
 
-    const Kind = enum {
+    pub const Kind = enum {
         @"struct",
         @"union",
         @"enum",
@@ -166,11 +166,135 @@ const TypeDecl = struct {
     fn initOpaque(comptime name: []const u8) TypeDecl {
         return .{ .name = name, .T = *anyopaque, .kind = .@"opaque" };
     }
+
+    /// A struct or union field as the C header declares it.
+    pub const Field = struct {
+        /// The C field name.
+        name: []const u8,
+
+        /// The Zig type of the field.
+        T: type,
+
+        /// The byte offset from the start of the type. Always 0 for unions.
+        offset: usize,
+    };
+
+    /// The fields of a struct or union, in the order the C header declares
+    /// them. Only valid for `.struct` and `.union`.
+    ///
+    /// Most fields keep their Zig names. The exception is unions built by
+    /// `lib.TaggedUnion`, whose fields take their C names from
+    /// `union_field_names_T`. For example, the Zig field `@"8_fg"` of
+    /// `GhosttySgrAttributeValue` is `fg_8` in C, since a C name cannot start
+    /// with a digit.
+    pub fn fields(comptime self: TypeDecl) []const Field {
+        comptime {
+            if (self.union_field_names_T) |FieldNames| {
+                const Tag = @FieldType(FieldNames, "tag");
+                const tag_fields = @typeInfo(Tag).@"enum".field_names;
+                var out: []const Field = &.{};
+                for (tag_fields, 0..) |field, i| {
+                    const name = FieldNames.cFieldRename(@field(Tag, field)) orelse continue;
+                    if (mappedUnionFieldIsDuplicate(self, i, name)) continue;
+                    out = out ++ [_]Field{.{
+                        .name = name,
+                        .T = @FieldType(self.T, field),
+                        .offset = 0,
+                    }};
+                }
+                if (@hasField(self.T, "_padding")) out = out ++ [_]Field{.{
+                    .name = "_padding",
+                    .T = @FieldType(self.T, "_padding"),
+                    .offset = 0,
+                }};
+                return out;
+            }
+
+            const info = switch (self.kind) {
+                .@"struct" => @typeInfo(self.T).@"struct",
+                .@"union" => @typeInfo(self.T).@"union",
+                else => unreachable,
+            };
+            var out: [info.field_names.len]Field = undefined;
+            for (&out, info.field_names, info.field_types) |*field, name, ty| field.* = .{
+                .name = name,
+                .T = ty,
+                .offset = if (self.kind == .@"union") 0 else @offsetOf(self.T, name),
+            };
+            const final = out;
+            return &final;
+        }
+    }
+
+    fn mappedUnionFieldIsDuplicate(
+        comptime decl: TypeDecl,
+        comptime index: usize,
+        comptime name: []const u8,
+    ) bool {
+        const FieldNames = decl.union_field_names_T.?;
+        const Tag = @FieldType(FieldNames, "tag");
+        const tag_fields = @typeInfo(Tag).@"enum".field_names;
+        const T = @FieldType(decl.T, tag_fields[index]);
+
+        inline for (tag_fields[0..index]) |previous| {
+            const previous_name = FieldNames.cFieldRename(@field(Tag, previous)) orelse continue;
+            if (std.mem.eql(u8, previous_name, name)) {
+                if (@FieldType(decl.T, previous) != T)
+                    @compileError("tagged union metadata maps different field types to " ++ name);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// The C name of a Zig enum value, without the enum's prefix.
+    ///
+    /// Most values are the Zig name in upper case. A few are renamed because
+    /// the plain upper case name would be awkward or invalid in C:
+    ///
+    /// | Enum                     | Zig value                 | Result                  |
+    /// | ------------------------ | ------------------------- | ----------------------- |
+    /// | `GhosttyCellWide`        | `.spacer_tail`            | `"SPACER_TAIL"`         |
+    /// | `GhosttyKey`             | `.key_a`                  | `"A"`                   |
+    /// | `GhosttySgrAttributeTag` | `.@"256_underline_color"` | `"UNDERLINE_COLOR_256"` |
+    /// | `GhosttyTerminalOption`  | `.size_cb`                | `"SIZE"`                |
+    ///
+    /// Add the prefix to get the full C enumerator, such as
+    /// `GHOSTTY_CELL_WIDE_SPACER_TAIL`.
+    pub fn enumValueName(
+        comptime enum_name: []const u8,
+        comptime zig_name: []const u8,
+    ) []const u8 {
+        if (std.mem.eql(u8, enum_name, "GhosttyKey") and std.mem.startsWith(u8, zig_name, "key_"))
+            return upper(zig_name["key_".len..]);
+        if (std.mem.eql(u8, enum_name, "GhosttySgrAttributeTag")) {
+            if (std.mem.eql(u8, zig_name, "256_underline_color")) return "UNDERLINE_COLOR_256";
+            if (std.mem.eql(u8, zig_name, "8_bg")) return "BG_8";
+            if (std.mem.eql(u8, zig_name, "8_fg")) return "FG_8";
+            if (std.mem.eql(u8, zig_name, "8_bright_bg")) return "BRIGHT_BG_8";
+            if (std.mem.eql(u8, zig_name, "8_bright_fg")) return "BRIGHT_FG_8";
+            if (std.mem.eql(u8, zig_name, "256_bg")) return "BG_256";
+            if (std.mem.eql(u8, zig_name, "256_fg")) return "FG_256";
+        }
+        if (std.mem.eql(u8, enum_name, "GhosttyTerminalOption") and std.mem.eql(u8, zig_name, "size_cb"))
+            return "SIZE";
+        return upper(zig_name);
+    }
+
+    fn upper(comptime name: []const u8) []const u8 {
+        comptime {
+            var buf: [name.len]u8 = undefined;
+            for (&buf, name) |*d, c| d.* = std.ascii.toUpper(c);
+            const final = buf;
+            return &final;
+        }
+    }
 };
 
 /// Public C types. Names and enum prefixes are intentionally explicit because
 /// Zig identifiers are not the C API contract.
-const type_decls = [_]TypeDecl{
+pub const type_decls = [_]TypeDecl{
     .initStruct("GhosttyAllocator", lib.alloc.Allocator),
     .initStruct("GhosttyAllocatorVtable", lib.alloc.VTable),
     .initStruct("GhosttyBuffer", lib.Buffer),
@@ -458,24 +582,8 @@ const Json = struct {
                 try writeSizeAlign(decl.T, jws);
                 try jws.objectField("fields");
                 try jws.beginObject();
-                if (decl.union_field_names_T != null) {
-                    try writeMappedUnionFields(decl, jws);
-                } else {
-                    const info = switch (decl.kind) {
-                        .@"struct" => @typeInfo(decl.T).@"struct",
-                        .@"union" => @typeInfo(decl.T).@"union",
-                        else => unreachable,
-                    };
-                    inline for (info.field_names, info.field_types) |name, ty| {
-                        try writeField(
-                            decl,
-                            name,
-                            ty,
-                            if (decl.kind == .@"union") 0 else @offsetOf(decl.T, name),
-                            jws,
-                        );
-                    }
-                }
+                inline for (comptime decl.fields()) |field|
+                    try writeField(decl, field.name, field.T, field.offset, jws);
                 try jws.endObject();
             },
             .@"enum" => {
@@ -620,46 +728,6 @@ const Json = struct {
             }
         }
         try jws.endObject();
-    }
-
-    fn writeMappedUnionFields(
-        comptime decl: TypeDecl,
-        jws: *std.json.Stringify,
-    ) std.Io.Writer.Error!void {
-        const FieldNames = decl.union_field_names_T.?;
-        const Tag = @FieldType(FieldNames, "tag");
-        const tag_fields = @typeInfo(Tag).@"enum".field_names;
-
-        inline for (tag_fields, 0..) |field, i| {
-            const name = comptime FieldNames.cFieldRename(@field(Tag, field)) orelse continue;
-            if (comptime mappedUnionFieldIsDuplicate(decl, i, name)) continue;
-            try writeField(decl, name, @FieldType(decl.T, field), 0, jws);
-        }
-
-        if (@hasField(decl.T, "_padding"))
-            try writeField(decl, "_padding", @FieldType(decl.T, "_padding"), 0, jws);
-    }
-
-    fn mappedUnionFieldIsDuplicate(
-        comptime decl: TypeDecl,
-        comptime index: usize,
-        comptime name: []const u8,
-    ) bool {
-        const FieldNames = decl.union_field_names_T.?;
-        const Tag = @FieldType(FieldNames, "tag");
-        const tag_fields = @typeInfo(Tag).@"enum".field_names;
-        const T = @FieldType(decl.T, tag_fields[index]);
-
-        inline for (tag_fields[0..index]) |previous| {
-            const previous_name = FieldNames.cFieldRename(@field(Tag, previous)) orelse continue;
-            if (std.mem.eql(u8, previous_name, name)) {
-                if (@FieldType(decl.T, previous) != T)
-                    @compileError("tagged union metadata maps different field types to " ++ name);
-                return true;
-            }
-        }
-
-        return false;
     }
 
     fn writeSizeAlign(comptime T: type, jws: *std.json.Stringify) std.Io.Writer.Error!void {
@@ -844,31 +912,12 @@ const Json = struct {
         };
     }
 
-    fn writeUpperObjectField(comptime name: []const u8, jws: *std.json.Stringify) std.Io.Writer.Error!void {
-        var upper: [name.len]u8 = undefined;
-        for (name, 0..) |c, i| upper[i] = std.ascii.toUpper(c);
-        try jws.objectField(&upper);
-    }
-
     fn writeEnumObjectField(
         comptime enum_name: []const u8,
         comptime zig_name: []const u8,
         jws: *std.json.Stringify,
     ) std.Io.Writer.Error!void {
-        if (std.mem.eql(u8, enum_name, "GhosttyKey") and std.mem.startsWith(u8, zig_name, "key_"))
-            return writeUpperObjectField(zig_name["key_".len..], jws);
-        if (std.mem.eql(u8, enum_name, "GhosttySgrAttributeTag")) {
-            if (std.mem.eql(u8, zig_name, "256_underline_color")) return jws.objectField("UNDERLINE_COLOR_256");
-            if (std.mem.eql(u8, zig_name, "8_bg")) return jws.objectField("BG_8");
-            if (std.mem.eql(u8, zig_name, "8_fg")) return jws.objectField("FG_8");
-            if (std.mem.eql(u8, zig_name, "8_bright_bg")) return jws.objectField("BRIGHT_BG_8");
-            if (std.mem.eql(u8, zig_name, "8_bright_fg")) return jws.objectField("BRIGHT_FG_8");
-            if (std.mem.eql(u8, zig_name, "256_bg")) return jws.objectField("BG_256");
-            if (std.mem.eql(u8, zig_name, "256_fg")) return jws.objectField("FG_256");
-        }
-        if (std.mem.eql(u8, enum_name, "GhosttyTerminalOption") and std.mem.eql(u8, zig_name, "size_cb"))
-            return jws.objectField("SIZE");
-        return writeUpperObjectField(zig_name, jws);
+        try jws.objectField(comptime TypeDecl.enumValueName(enum_name, zig_name));
     }
 
     fn isBuiltinType(name: []const u8) bool {

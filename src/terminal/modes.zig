@@ -291,6 +291,11 @@ pub const Report = struct {
         reset = 2,
         permanently_set = 3,
         permanently_reset = 4,
+
+        /// The integer type this enum crosses the C API as. The C enum
+        /// `GhosttyModeReportState` is a C int, while this enum is a u8 so
+        /// it stays small inside `Report`.
+        pub const C = c_int;
     };
 
     /// Encode the DECRPM report sequence.
