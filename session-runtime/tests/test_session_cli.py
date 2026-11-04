@@ -84,7 +84,7 @@ class SessionCLITests(unittest.TestCase):
                             stream.connect(str(state / "host.sock"))
                             stream.sendall(encode(b"K", 1, identity.encode()))
                             frame(stream)
-                        wait_holders_stopped(state / "sessions")
+                        wait_holders_stopped(state)
                     finally:
                         daemon.terminate()
                         daemon.wait(timeout=5)

@@ -61,3 +61,15 @@ session count.
 - CLI/table tests never close actual user sessions. Installed-app validation
   uses read-only local UUID/PID comparisons; foreground checks require an
   unlocked desktop.
+
+## Supervisor fixture cleanup
+
+The process audit found eight orphan holders with sockets in already-deleted
+`omg-supervisor-local-*` fixture directories. The old teardown verified the shell
+as a direct broker child, so it silently skipped shells now owned by holders.
+Local supervisor fixtures now close their own UUIDs through the host protocol
+and wait for holder control sockets to disappear before stopping the broker.
+The CLI fixture checks the state root rather than the metadata subdirectory.
+All 31 Python tests passed again, with the same two environment skips, and no new
+supervisor holders remained. The eight confirmed obsolete test holders were
+cleaned using exact executable/socket-root and child ownership checks.

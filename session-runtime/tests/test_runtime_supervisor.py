@@ -138,6 +138,27 @@ def stop_owned_host(state_directory, host_pid):
             pass
 
 
+def close_fixture_sessions(state_directory, identities):
+    """Local holders outlive their broker; close fixture UUIDs before teardown."""
+    for identity in identities:
+        if identity is None:
+            continue
+        deadline = time.monotonic() + 8
+        while True:
+            with socket.socket(socket.AF_UNIX) as peer:
+                peer.settimeout(3)
+                peer.connect(str(state_directory / "host.sock"))
+                peer.sendall(encode(b"K", 1, identity.encode()))
+                kind, sequence, data = frame(peer)
+            if kind == b"D" and sequence == 1 and data[:1] == b"K" and data[13:] == b"closed":
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"fixture session close was not acknowledged: {identity}")
+            time.sleep(0.05)
+    wait_until(lambda: not list(state_directory.glob("*.ctl")),
+               message="fixture holders survived teardown")
+
+
 def make_connection(
     root,
     ssh_script,
@@ -622,8 +643,8 @@ class RuntimeSupervisorTests(unittest.TestCase):
             )
             peers = []
             session_pids = []
+            identities = [str(uuid.uuid4()), str(uuid.uuid4())]
             try:
-                identities = [str(uuid.uuid4()), str(uuid.uuid4())]
                 active = []
                 for identity in identities:
                     peer = self.connect_peer(socket_path)
@@ -692,10 +713,11 @@ class RuntimeSupervisorTests(unittest.TestCase):
             finally:
                 for peer in peers:
                     peer.close()
-                for pid in session_pids:
-                    kill_owned_session_group(daemon.pid, pid)
-                stop_process(relay)
-                stop_process(daemon)
+                try:
+                    close_fixture_sessions(host_root, identities)
+                finally:
+                    stop_process(relay)
+                    stop_process(daemon)
 
     def test_local_fresh_start_and_relay_restart_reuse_host_and_session(self):
         with tempfile.TemporaryDirectory(prefix="omg-supervisor-local-fresh-", dir="/tmp") as temp:
@@ -718,6 +740,7 @@ class RuntimeSupervisorTests(unittest.TestCase):
             relay = None
             peers = []
             session_pid = None
+            identity = None
             try:
                 relay = start_client(socket_path, config)
                 identity = str(uuid.uuid4())
@@ -772,9 +795,10 @@ class RuntimeSupervisorTests(unittest.TestCase):
                 host_info = find_host_process(local_state)
                 if host_info is not None:
                     host_pid = host_info[0]
-                    if session_pid is not None:
-                        kill_owned_session_group(host_pid, session_pid)
-                    stop_owned_host(local_state, host_pid)
+                    try:
+                        close_fixture_sessions(local_state, [identity])
+                    finally:
+                        stop_owned_host(local_state, host_pid)
 
 
 if __name__ == "__main__":
