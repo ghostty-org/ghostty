@@ -155,6 +155,11 @@ pub fn build(b: *std.Build) !void {
         _ = b.addFail("cannot execute the ABI manifest for a native freestanding target");
     }
 
+    // The packages libghostty-vt uses, for gen-lib-vt-deps.sh. Defined
+    // only for library builds so app builds skip reading every package's
+    // build.zig.zon.
+    if (config.emit_lib_vt) _ = try buildpkg.LibVtPackages.init(b, mod.vt_c);
+
     // libghostty-vt static lib
     const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
         b,

@@ -7,4 +7,16 @@
         .apple_sdk = .{ .path = "../apple-sdk" },
         .android_ndk = .{ .path = "../android-ndk" },
     },
+    // The license and version of the simdutf source copied into vendor/,
+    // for packagers. Zig ignores this field. See
+    // src/build/LibVtPackages.zig.
+    .third_party = .{
+        .{
+            .name = "simdutf",
+            .license = "Apache-2.0 OR MIT",
+            .version = "9.0.0",
+            .path = "vendor",
+            .url = "https://github.com/simdutf/simdutf",
+        },
+    },
 }

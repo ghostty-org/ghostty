@@ -25,4 +25,10 @@
         "include",
         "src",
     },
+    // The license and version of the third-party code above, for
+    // packagers. Zig ignores this field. See src/build/LibVtPackages.zig.
+    .third_party = .{
+        .{ .name = "pixels", .license = "CC0-1.0" },
+        .{ .name = "wuffs", .license = "Apache-2.0 OR MIT", .version = "0.4.0-alpha.10" },
+    },
 }

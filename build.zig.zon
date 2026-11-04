@@ -133,4 +133,11 @@
             .lazy = true,
         },
     },
+    // The license and version of the third-party code above, for
+    // packagers. Zig ignores this field. See src/build/LibVtPackages.zig.
+    .third_party = .{
+        .{ .name = "iterm2_themes", .license = "MIT" },
+        .{ .name = "uucode", .license = "MIT AND Unicode-3.0" },
+        .{ .name = "zigimg", .license = "MIT" },
+    },
 }

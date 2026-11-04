@@ -5,6 +5,8 @@ extend-exclude = [
   "build.zig.zon.nix",
   "build.zig.zon.txt",
   "build.zig.zon.json",
+  "build.zig.zon.lib-vt.txt",
+  "build.zig.zon.lib-vt.third-party.json",
   # Build artifacts
   "macos/build/*",
   "zig-out/*",
