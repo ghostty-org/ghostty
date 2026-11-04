@@ -68,6 +68,8 @@ pub fn run(alloc: Allocator) !u8 {
                 rgb.b,
             });
         }
+
+        try writer.flush();
     }
 
     return 0;
