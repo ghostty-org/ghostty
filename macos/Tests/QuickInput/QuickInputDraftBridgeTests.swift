@@ -56,8 +56,10 @@ struct QuickInputDraftBridgeTests {
                 subprocess.run([os.environ["EDITOR"], str(draft)], check=True)
         """#.write(to: script, atomically: true, encoding: .utf8)
         var configuration = Ghostty.SurfaceConfiguration()
-        configuration.command = "/usr/bin/python3 \(script.path)"
+        let python = try #require(LocalPythonInterpreter.cached())
+        configuration.command = Ghostty.Shell.quote(python.executablePath) + " " + Ghostty.Shell.quote(script.path)
         let controller = TerminalController(app.ghostty, withBaseConfig: configuration, tabLayout: .vertical)
+        controller.showWindow(nil)
         defer {
             controller.dismissQuickInput()
             controller.window?.delegate = nil
@@ -106,8 +108,10 @@ struct QuickInputDraftBridgeTests {
             (root / "keys").write_bytes(data)
         """#.write(to: script, atomically: true, encoding: .utf8)
         var configuration = Ghostty.SurfaceConfiguration()
-        configuration.command = "/usr/bin/python3 \(script.path)"
+        let python = try #require(LocalPythonInterpreter.cached())
+        configuration.command = Ghostty.Shell.quote(python.executablePath) + " " + Ghostty.Shell.quote(script.path)
         let controller = TerminalController(app.ghostty, withBaseConfig: configuration, tabLayout: .vertical)
+        controller.showWindow(nil)
         defer {
             controller.dismissQuickInput()
             controller.window?.delegate = nil

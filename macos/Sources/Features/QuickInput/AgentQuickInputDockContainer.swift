@@ -30,8 +30,6 @@ struct AgentQuickInputDockContainer: NSViewRepresentable {
         let contentHost = NSHostingView(rootView: AnyView(EmptyView()))
         let composerHost = NSHostingView(rootView: AnyView(EmptyView()))
         let queueHost = NSHostingView(rootView: AnyView(EmptyView()))
-        private var composerHeightConstraint: NSLayoutConstraint!
-        private var queueHeightConstraint: NSLayoutConstraint!
         private var requestedComposerHeight: CGFloat = 0
         private var requestedQueueHeight: CGFloat = 0
 
@@ -41,23 +39,8 @@ struct AgentQuickInputDockContainer: NSViewRepresentable {
             layer?.masksToBounds = true
             for host in [contentHost, composerHost, queueHost] {
                 host.sizingOptions = []
-                host.translatesAutoresizingMaskIntoConstraints = false
                 addSubview(host)
-                NSLayoutConstraint.activate([
-                    host.leadingAnchor.constraint(equalTo: leadingAnchor),
-                    host.trailingAnchor.constraint(equalTo: trailingAnchor),
-                ])
             }
-            composerHeightConstraint = composerHost.heightAnchor.constraint(equalToConstant: 0)
-            queueHeightConstraint = queueHost.heightAnchor.constraint(equalToConstant: 0)
-            NSLayoutConstraint.activate([
-                contentHost.topAnchor.constraint(equalTo: topAnchor),
-                contentHost.bottomAnchor.constraint(equalTo: composerHost.topAnchor),
-                composerHost.bottomAnchor.constraint(equalTo: queueHost.topAnchor),
-                queueHost.bottomAnchor.constraint(equalTo: bottomAnchor),
-                composerHeightConstraint,
-                queueHeightConstraint,
-            ])
             composerHost.isHidden = true
             queueHost.isHidden = true
         }
@@ -72,37 +55,43 @@ struct AgentQuickInputDockContainer: NSViewRepresentable {
             composerHeight: CGFloat,
             queueHeight: CGFloat
         ) {
+            requestedComposerHeight = max(0, composerHeight)
+            requestedQueueHeight = max(0, queueHeight)
+            // Publish the final viewport before SwiftUI updates the terminal
+            // leaf. Updating its root at the old size produces an extra TUI
+            // layout/redraw between the old and new composer reservations.
+            applyAccessoryFrames()
             // Preserve the Surface and ComposerTextView instances, including
             // first responder, selection, marked text and scrollback state.
             contentHost.rootView = content
             composerHost.rootView = composer
             queueHost.rootView = queue
 
-            // Assign both final extents together. Do not animate constraints or
-            // call layout between them: the terminal sees one layout commit.
-            // Queue card animations remain entirely inside the queue leaf.
-            requestedComposerHeight = max(0, composerHeight)
-            requestedQueueHeight = max(0, queueHeight)
-            applyAccessoryHeights()
         }
 
         override func layout() {
-            applyAccessoryHeights()
+            applyAccessoryFrames()
             super.layout()
         }
 
-        private func applyAccessoryHeights() {
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            applyAccessoryFrames()
+        }
+
+        private func applyAccessoryFrames() {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0
                 context.allowsImplicitAnimation = false
                 let nextQueueHeight = min(requestedQueueHeight, max(0, bounds.height))
                 let nextComposerHeight = min(requestedComposerHeight, max(0, bounds.height - nextQueueHeight))
-                if composerHeightConstraint.constant != nextComposerHeight {
-                    composerHeightConstraint.constant = nextComposerHeight
-                }
-                if queueHeightConstraint.constant != nextQueueHeight {
-                    queueHeightConstraint.constant = nextQueueHeight
-                }
+                let frames: [(NSView, NSRect)] = [
+                    (queueHost, .init(x: 0, y: 0, width: bounds.width, height: nextQueueHeight)),
+                    (composerHost, .init(x: 0, y: nextQueueHeight, width: bounds.width, height: nextComposerHeight)),
+                    (contentHost, .init(x: 0, y: nextQueueHeight + nextComposerHeight, width: bounds.width,
+                                        height: max(0, bounds.height - nextQueueHeight - nextComposerHeight)))
+                ]
+                for (host, frame) in frames where host.frame != frame { host.frame = frame }
                 if composerHost.isHidden != (nextComposerHeight == 0) {
                     composerHost.isHidden = nextComposerHeight == 0
                 }

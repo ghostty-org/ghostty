@@ -48,6 +48,8 @@ struct AgentQuickInputDockContainerTests {
                 composerHeight: composerHeight,
                 queueHeight: queueHeight
             )
+            #expect(abs(container.contentHost.frame.height - (600 - composerHeight - queueHeight)) < 0.001,
+                    "Publish the final native viewport before updating the hosted terminal")
             container.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(50))
             container.layoutSubtreeIfNeeded()

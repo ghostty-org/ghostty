@@ -260,9 +260,6 @@ enum AgentQuickInputMetrics {
 }
 
 enum AgentQuickInputMotion {
-    // Coalesce layout changes until the next main-loop turn, without waiting
-    // for a dock animation: presentation is immediate, like terminal splits.
-    static let terminalResizeDeferralDuration = 0.0
     static let queue = Animation.spring(
         response: 0.42,
         dampingFraction: 0.72,
@@ -1158,7 +1155,8 @@ private struct AgentQuickInputComposer: View {
                     model.navigateHistory(direction, current: snapshot, scope: settings.quickInputHistoryScope,
                                           atBoundary: atBoundary, isRepeat: isRepeat)
                 },
-                onHistoryCaretMoved: model.historyCaretMoved
+                onHistoryCaretMoved: model.historyCaretMoved,
+                onPresentationReady: { controller.quickInputComposerDidBecomeReady(for: model.targetSurfaceID) }
             )
             .background(.clear)
 

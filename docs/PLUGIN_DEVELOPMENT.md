@@ -607,6 +607,12 @@ callbacks must not mutate the remounted Surface.
 Transient zero-size host proposals also preserve the last valid drawable frame
 until the current wrapper receives a positive viewport.
 
+Quick Input reserves its final native content/composer/queue frames before
+updating hosted leaves. One-shot opening/closing does not enter the window-wide
+live-resize deferral used for drags. External-editor import starts only after the
+native composer has a valid layout and handles its focus request, so the draft
+handshake snapshot belongs to the final terminal viewport.
+
 ## Terminal title updates
 
 The built-in Git Inspector follows pane, directory and connection changes.

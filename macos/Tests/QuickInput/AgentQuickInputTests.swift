@@ -131,8 +131,22 @@ struct AgentQuickInputTests {
         #expect(recalled == 1)
     }
 
-    @Test func dockDoesNotWaitForAnAnimationToResizeTerminal() {
-        #expect(AgentQuickInputMotion.terminalResizeDeferralDuration == 0)
+    @Test func dockDoesNotWaitForAnAnimationToResizeTerminal() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 30"
+        let controller = TerminalController(app, withBaseConfig: config)
+        let window = try #require(controller.window)
+        defer { window.delegate = nil; window.close() }
+        var interactions = 0
+        let token = NotificationCenter.default.addObserver(forName: TerminalSurfaceResizeInteraction.didBegin,
+                                                          object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { interactions += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        controller.toggleQuickInput()
+        controller.dismissQuickInput()
+        #expect(interactions == 0, "One-shot composer changes must not put every pane into live-resize deferral")
     }
 
     @Test func queuedMessageCanBeEditedInPlace() throws {

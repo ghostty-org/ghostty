@@ -16,6 +16,7 @@ struct AgentQuickInputTextEditor: NSViewRepresentable {
     var onNavigateHistory: ((QuickInputHistoryDirection, QuickInputDraftSnapshot, Bool, Bool)
         -> QuickInputHistoryNavigationResult)?
     var onHistoryCaretMoved: (() -> Void)?
+    var onPresentationReady: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
@@ -86,15 +87,27 @@ struct AgentQuickInputTextEditor: NSViewRepresentable {
         configureTypography(for: editor)
         if isPresented,
            focusRequestID != context.coordinator.handledFocusRequestID {
-            context.coordinator.handledFocusRequestID = focusRequestID
+            let request = focusRequestID
+            let coordinator = context.coordinator
+            coordinator.pendingFocusRequestID = request
+            let onReady = onPresentationReady
             DispatchQueue.main.async { [weak editor, weak scrollView] in
-                guard let editor, let scrollView, !scrollView.isHidden,
-                      let window = editor.window else { return }
+                guard let editor, let scrollView, !scrollView.isHiddenOrHasHiddenAncestor,
+                      coordinator.pendingFocusRequestID == request,
+                      let window = editor.window, window.isVisible,
+                      (window.tabGroup?.selectedWindow ?? window) === window,
+                      (window.windowController as? TerminalController)?.workspacePresentationIsParked != true else { return }
                 // Resolve the dock's final reservation before AppKit scrolls
                 // the newly focused editor into view.
                 window.contentView?.layoutSubtreeIfNeeded()
+                guard scrollView.bounds.width > 0, scrollView.bounds.height > 0 else { return }
+                coordinator.handledFocusRequestID = request
+                coordinator.pendingFocusRequestID = nil
                 window.makeFirstResponder(editor)
+                onReady?()
             }
+        } else if !isPresented {
+            context.coordinator.pendingFocusRequestID = nil
         }
     }
 
@@ -120,6 +133,7 @@ struct AgentQuickInputTextEditor: NSViewRepresentable {
         @Binding var text: String
         weak var editor: ComposerTextView?
         var handledFocusRequestID = 0
+        var pendingFocusRequestID: Int?
         private var lastSelection: NSRange?
 
         init(text: Binding<String>) {
