@@ -119,6 +119,7 @@ jobs:
       - test-kaitai
       - test-lib-vt
       - test-lib-vt-freebsd
+      - test-lib-vt-offline
       - test-lib-vt-pkgconfig
       - test-macos
       - pinact
@@ -1712,6 +1713,53 @@ jobs:
 
       - name: Validate native ABI manifest
         run: nix develop -c zig build test-lib-vt-schema
+
+  # Checks that build.zig.zon.lib-vt.txt lists everything a packager needs.
+  # It downloads only the packages on that list, then builds and tests the
+  # library with --system, which stops Zig from downloading anything. The
+  # build also gets its own empty cache. If the list is missing a package,
+  # the build fails here instead of quietly finding it somewhere else.
+  test-lib-vt-offline:
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    runs-on: namespace-profile-ghostty-md
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Fetch the library dependency list
+        run: |
+          nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/offline-cache" \
+            ./nix/build-support/fetch-zig-cache.sh build.zig.zon.lib-vt.txt
+
+      - name: Build offline
+        run: |
+          nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/build-cache" \
+            zig build --system "$RUNNER_TEMP/offline-cache/p" \
+              -Demit-lib-vt -Demit-xcframework=false
+
+      - name: Test offline
+        run: |
+          nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/build-cache" \
+            zig build --system "$RUNNER_TEMP/offline-cache/p" \
+              -Demit-lib-vt -Demit-xcframework=false test-lib-vt
 
   # Runs the libghostty-vt tests on FreeBSD 15.1 amd64, in a QEMU virtual
   # machine (VM). A container cannot run FreeBSD, because containers share
