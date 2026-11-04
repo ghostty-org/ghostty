@@ -285,7 +285,7 @@ jobs:
         run: |
           rm -rf zig-out/dist
           nix develop -c zig build dist -Demit-lib-vt=true
-          cp zig-out/dist/*.tar.gz libghostty-vt-source.tar.gz
+          cp zig-out/dist/libghostty-vt-*.tar.gz libghostty-vt-source.tar.gz
 
       - name: Sign Tarball
         run: |

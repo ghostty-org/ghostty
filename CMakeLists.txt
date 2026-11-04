@@ -68,10 +68,9 @@
 
 cmake_minimum_required(VERSION 3.19)
 
-# The library version comes from LIB_VERSION in lib-vt source tarballs and
-# from the lib_version constant in build.zig otherwise, the same sources
-# build.zig uses. CMake versions are numeric only, so any pre-release or
-# build metadata (e.g. "0.1.0-dev+abc1234") is dropped here.
+# The library version comes from LIB_VERSION in a source tarball, or else
+# from lib_version in build.zig. CMake versions are numbers only, so
+# "0.1.0-dev+abc1234" becomes 0.1.0.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/LIB_VERSION")
     file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/LIB_VERSION" _ghostty_vt_version LIMIT_COUNT 1)
 else()
@@ -86,8 +85,8 @@ endif()
 project(ghostty-vt VERSION ${_ghostty_vt_version} LANGUAGES C)
 unset(_ghostty_vt_version)
 
-# ghostty_vt_add_target() runs in the caller's scope, where PROJECT_VERSION
-# is the caller's project, so make ours available globally.
+# ghostty_vt_add_target() runs in the parent project's scope, where
+# PROJECT_VERSION is the parent's version, so it reads these instead.
 set_property(GLOBAL PROPERTY GHOSTTY_VT_VERSION "${PROJECT_VERSION}")
 set_property(GLOBAL PROPERTY GHOSTTY_VT_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
 

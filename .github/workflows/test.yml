@@ -1279,7 +1279,7 @@ jobs:
 
       - name: Verify tarball size
         run: |
-          tarball=$(ls zig-out/dist/*.tar.gz)
+          tarball=$(ls zig-out/dist/libghostty-vt-*.tar.gz)
           size=$(stat --format=%s "$tarball")
           max=$((5 * 1024 * 1024))
           echo "Tarball size: $size bytes (max: $max)"

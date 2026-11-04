@@ -7,7 +7,11 @@ const translate_c = @import("translate_c");
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
 
-/// Libghostty version. We use a separate version from the app.
+/// The libghostty-vt version, released separately from the app with
+/// `vt-X.Y.Z` tags. See `Config.libVersion` for how builds use it.
+///
+/// CMakeLists.txt and CI read this line with a regular expression, so
+/// keep it on one line in this form.
 const lib_version = "0.1.0-dev";
 
 /// Minimum required zig version.
@@ -22,25 +26,14 @@ pub fn build(b: *std.Build) !void {
     // want to know what options are available, you can run `--help` or
     // you can read `src/build/Config.zig`.
 
-    // If we have a VERSION file (present in source tarballs) then we
-    // use that as the version source of truth. Otherwise we fall back
-    // to what is in the build.zig.zon.
-    const file_version: ?[]const u8 = if (b.root.root_dir.handle.readFileAlloc(
-        b.graph.io,
-        "VERSION",
-        b.allocator,
-        .limited(128),
-    )) |content| std.mem.trim(
-        u8,
-        content,
-        &std.ascii.whitespace,
-    ) else |_| null;
-
-    const config = try buildpkg.Config.init(
-        b,
-        file_version orelse app_zon_version,
-        lib_version,
-    );
+    // Source tarballs have no git history, so they carry their version
+    // in a VERSION (app) or LIB_VERSION (libghostty-vt) file.
+    const config = try buildpkg.Config.init(b, .{
+        .app = app_zon_version,
+        .app_file = readVersionFile(b, "VERSION"),
+        .lib = lib_version,
+        .lib_file = readVersionFile(b, "LIB_VERSION"),
+    });
     const test_filters = b.option(
         [][]const u8,
         "test-filter",
@@ -457,4 +450,16 @@ fn addGhosttyH(
         .optimize = optimize,
         .system_include_paths = &.{b.path("include")},
     }) catch unreachable;
+}
+
+/// Returns the trimmed contents of `name` in the build root, or null if
+/// it doesn't exist.
+fn readVersionFile(b: *std.Build, name: []const u8) ?[]const u8 {
+    const content = b.root.root_dir.handle.readFileAlloc(
+        b.graph.io,
+        name,
+        b.allocator,
+        .limited(128),
+    ) catch return null;
+    return std.mem.trim(u8, content, &std.ascii.whitespace);
 }
