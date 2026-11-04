@@ -1365,6 +1365,10 @@ Agent presentation and resume state. Recoverable disconnects first retain an
 exact conversation in the separate, inactive SSH recovery descriptor. A matching
 typed `omg +ssh` end performs the same cleanup; the next authenticated remote Fish/bash/zsh prompt remains an
 additional orphan-recovery signal (`cwd` and bash/zsh `cwdhex` are both accepted).
+Managed inline SSH viewers also publish `cwd` when attaching or changing terminal
+input modes. Updates for the pane's live runtime connection ID are metadata, not
+shell prompts, and must preserve Agent activity. Agent end events and matching
+SSH disconnects still clear activity through their existing lifecycle paths.
 The transient `+ssh` Fish/bash/zsh startup installs identity-only wrappers for
 `agy` and `codex` unless a user function or alias already owns that name. Normal
 command-name invocation (including restored sessions) emits remote idle identity;

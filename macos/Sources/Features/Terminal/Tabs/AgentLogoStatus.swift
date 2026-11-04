@@ -13,7 +13,7 @@ enum TabIconMetrics {
 }
 
 enum AgentLogoStyle {
-    static let selectedColor = NSColor.systemBlue
+    static var selectedColor: NSColor { NSColor(Color.accentColor) }
 
     static func nativeColor(_ activity: TabActivity) -> NSColor {
         switch activity.state {

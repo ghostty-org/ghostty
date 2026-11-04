@@ -1962,7 +1962,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         updateAgentResumeDescriptor(signal, for: surfaceID)
         var reducer = agentReducers[surfaceID] ?? AgentContextSignalReducer()
         let hadRemoteActivity = reducer.hasRemoteActivity
-        let update = reducer.consume(signal) ?? reducer.consumeRemotePrompt(signal)
+        // Inline viewers publish cwd on attachment and terminal-mode changes.
+        // Those updates do not mean the remote Agent returned to its shell.
+        let isRuntimeMetadata = surfaceTree.first { $0.id == surfaceID }?
+            .runtimeInlineSession?.connectionID == signal.id
+        let update = reducer.consume(signal) ?? (isRuntimeMetadata ? nil : reducer.consumeRemotePrompt(signal))
         agentReducers[surfaceID] = reducer
         if !hadRemoteActivity,
            reducer.hasRemoteActivity,

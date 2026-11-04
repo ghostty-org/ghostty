@@ -4,6 +4,67 @@ import Testing
 
 @MainActor
 struct VerticalNativeTabOutlineTests {
+    private final class DragInfo: NSObject, NSDraggingInfo {
+        let source: NSOutlineView
+        let draggingPasteboard = NSPasteboard.withUniqueName()
+        var draggingDestinationWindow: NSWindow? { source.window }
+        var draggingSourceOperationMask: NSDragOperation { .move }
+        var draggingLocation: NSPoint { .zero }
+        var draggedImageLocation: NSPoint { .zero }
+        var draggedImage: NSImage? { nil }
+        var draggingSource: Any? { source }
+        var draggingSequenceNumber: Int { 1 }
+        var draggingFormation: NSDraggingFormation = .none
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+        init(source: NSOutlineView, tab: UUID) {
+            self.source = source
+            super.init()
+            draggingPasteboard.setString(tab.uuidString, forType: NativeTabOutlineController.tabType)
+        }
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? { nil }
+        func resetSpringLoading() {}
+        func enumerateDraggingItems(options: NSDraggingItemEnumerationOptions, for view: NSView?,
+                                    classes classArray: [AnyClass],
+                                    searchOptions: [NSPasteboard.ReadingOptionKey: Any],
+                                    using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+    }
+
+    @Test func acceptedDropWaitsForNativeTrackingToFinishBeforeMovingWindows() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let first = try fixture.tab()
+        _ = try fixture.tab(parent: first)
+        _ = try fixture.tab(parent: first)
+        let group = try #require(first.window?.tabGroup)
+        let before = group.windows
+        let source = try #require(before.last?.windowController as? TerminalController)
+        let selected = group.selectedWindow
+        let config = NativeTabOutlineConfiguration(
+            groups: GhosttyTabOrganizationModel().groups(
+                tabs: first.tabControllers, grouping: .none, ordering: .manual),
+            selectedID: selected?.windowController.map(ObjectIdentifier.init),
+            layoutState: first.tabLayoutState, controller: first, rowHeight: 32, presentation: { _ in nil })
+        let controller = NativeTabOutlineController(config)
+        _ = controller.view
+        controller.update(config)
+        let drag = DragInfo(source: controller.outline, tab: source.tabSessionID)
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        controller.outline.dragBegan()
+        #expect(controller.outlineView(controller.outline, acceptDrop: drag, item: nil, childIndex: 0))
+        #expect(group.windows == before, "acceptDrop must return before mutating native windows")
+        _ = RunLoop.main.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.02))
+        #expect(group.windows == before, "A nested tracking loop must not commit the drop")
+        controller.outline.dragEnded()
+        for _ in 0..<40 where group.windows == before {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(group.windows == [try #require(before.last)] + before.dropLast())
+        #expect(group.selectedWindow === selected)
+    }
+
     @Test func nativeRowsAndCloseButtonsShareTheDeliveredHoverState() throws {
         final class Window: NSWindow {
             override var isKeyWindow: Bool { true }

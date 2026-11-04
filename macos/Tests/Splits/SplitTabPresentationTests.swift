@@ -10,9 +10,14 @@ struct SplitTabPresentationTests {
             .init(source: "codex", state: state, attentionKind: attention,
                   label: nil, message: nil, detail: nil, progress: nil, icon: nil)
         }
-        #expect(AgentLogoStyle.selectedColor == .systemBlue)
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            try #require(NSAppearance(named: name)).performAsCurrentDrawingAppearance {
+                #expect(AgentLogoStyle.selectedColor.usingColorSpace(.sRGB) ==
+                    NSColor(TerminalWorkspace.initial.tint).usingColorSpace(.sRGB))
+            }
+        }
         let working = activity(.working)
-        #expect(AgentLogoStyle.nativeColor(working) == .systemBlue)
+        #expect(AgentLogoStyle.nativeColor(working) == AgentLogoStyle.selectedColor)
         let done = try #require(AgentStatusBadge.resolve(activity(.done)))
         #expect(done.symbol == "checkmark.circle.fill" && done.color == .systemGreen)
         let question = try #require(AgentStatusBadge.resolve(activity(.needsAttention, .question)))

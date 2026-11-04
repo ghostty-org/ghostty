@@ -4,6 +4,43 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct SessionRuntimeInlineSessionTests {
+    @Test func runtimeDirectoryUpdatesDoNotClearRemoteCodexStatus() throws {
+        let settings = OhMyGhosttySettings.shared
+        let enabled = settings.agentStatusHooksEnabled
+        settings.agentStatusHooksEnabled = true
+        defer { settings.agentStatusHooksEnabled = enabled }
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let controller = TerminalController(app, withBaseConfig: config)
+        _ = controller.window
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        let remote = SessionRuntimeDescriptor(
+            connection: try GitSSHConnection(destination: "cloud", localWorkingDirectory: "/tmp"),
+            revision: "remote", policy: .init())
+        let inline = SessionRuntimeInlineSession(
+            descriptor: remote, pane: UUID(), connectionID: "omg-ssh-inline-status",
+            socket: URL(fileURLWithPath: "/tmp/not-used.sock"),
+            helperPID: ProcessInfo.processInfo.processIdentifier,
+            bootID: try #require(SessionRuntimeInlineSession.currentBootID),
+            workingDirectory: "/srv/project")
+        surface.runtimeInlineSession = inline
+        let metadata = try #require(inline.restorationSignal)
+        surface.contextSignal = metadata
+        for state in ["idle", "working", "done"] {
+            surface.contextSignal = .init(action: .start, id: "omg-agent-codex-42",
+                metadata: "type=app;omg_agent=codex;omg_scope=remote;omg_state=\(state)")
+            #expect(controller.agentActivities[surface.id]?.state.rawValue == state)
+            // The runtime sends cwd with attachment/password metadata, even
+            // while Codex owns the foreground. It is not a shell prompt.
+            surface.contextSignal = metadata
+            #expect(controller.agentActivities[surface.id]?.state.rawValue == state)
+        }
+        surface.contextSignal = .init(action: .end, id: inline.connectionID, metadata: "status=0;cwd=/tmp")
+        #expect(controller.agentActivities[surface.id] == nil)
+    }
+
     @Test func inlineSessionSplitsRemotelyButNewTabsKeepTheLocalDirectory() throws {
         let app = try #require(NSApp.delegate as? AppDelegate).ghostty
         var config = Ghostty.SurfaceConfiguration()

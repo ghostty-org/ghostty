@@ -131,7 +131,9 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
     @objc private func activateClickedRow() {
         guard let item = outline.item(atRow: outline.clickedRow) as? NativeTabNode else { return }
         let generation = selectionChangeGeneration
-        DispatchQueue.main.async { [weak self, weak item] in
+        // Main-queue blocks can run inside AppKit's mouse/drag tracking loop.
+        // Moving the live outline to another tab there strands that loop.
+        RunLoop.main.perform(inModes: [.default]) { [weak self, weak item] in
             guard let self, self.selectionChangeGeneration == generation,
                   let item,
                   !self.outline.isDraggingTab else { return }
@@ -475,19 +477,25 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
         guard let (source, insertion) = drop(info, item: item, index: index) else {
             guard let (target, placement) = destination(item: item, index: index) else { return false }
             if let source = externalTab(info) {
-                return configuration.controller.attachNativeTab(source, relativeTo: target, placement: placement)
+                RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                    _ = self?.configuration.controller.attachNativeTab(source, relativeTo: target, placement: placement)
+                }
+                return true
             }
             if let surface = surface(info),
                let owner = BaseTerminalController.controller(owning: surface) as? TerminalController,
                owner.workspaceID == configuration.controller.workspaceID {
-                return configuration.controller.moveSurfaceToNewTab(surface, relativeTo: target, placement: placement)
+                RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                    _ = self?.configuration.controller.moveSurfaceToNewTab(surface, relativeTo: target, placement: placement)
+                }
+                return true
             }
             return false
         }
-        let committed = configuration.controller.reorderTab(source, toInsertionIndex: insertion)
-        if committed {
-            // Publish the native order before CoreDrag finishes its preview;
-            // waiting for SwiftUI's next update produces an old-order frame.
+        // NSWindowTabGroup removal/insertion may run blocking AppKit window
+        // animations. Commit after CoreDrag releases the source window.
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            guard let self, configuration.controller.reorderTab(source, toInsertionIndex: insertion) else { return }
             let groups = GhosttyTabOrganizationModel().groups(
                 tabs: configuration.controller.tabControllers,
                 grouping: configuration.layoutState.groupingMode,
@@ -499,7 +507,7 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
                 rowHeight: configuration.rowHeight, presentation: configuration.presentation
             ))
         }
-        return committed
+        return true
     }
 }
 /// Adds a deliberate terminal activation gesture while leaving row navigation

@@ -22,7 +22,10 @@ struct QuickInputDraftBridgeTests {
             if not value: break
             data += value
             if value == b"\\r":
-                pathlib.Path(\(String(reflecting: received.path))).write_bytes(data)
+                destination = pathlib.Path(\(String(reflecting: received.path)))
+                temporary = destination.with_suffix(".tmp")
+                temporary.write_bytes(data)
+                os.replace(temporary, destination)
         """.write(to: script, atomically: true, encoding: .utf8)
         let settings = OhMyGhosttySettings.shared
         let enabled = settings.agentStatusHooksEnabled
