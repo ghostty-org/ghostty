@@ -368,7 +368,8 @@ typedef struct {
  *
  * Example:
  * @code
- * GhosttyFormatterTerminalOptions opts = GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
+ * GhosttyTerminalSelectionFormatOptions opts =
+ *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
  * opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
  * opts.trim = true;
  * @endcode

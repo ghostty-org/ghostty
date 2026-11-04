@@ -24,14 +24,22 @@ static void print_selection(
     GhosttyTerminal terminal,
     const char *label,
     const GhosttySelection *selection) {
-  GhosttyFormatterTerminalOptions opts = GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
-  opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  opts.trim = true;
-  opts.selection = selection;
-
   GhosttyFormatter formatter;
   GhosttyResult result = ghostty_formatter_terminal_new(
-      NULL, &formatter, terminal, opts);
+      NULL, &formatter, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
+  assert(result == GHOSTTY_SUCCESS);
+
+  // A NULL selection formats the whole screen.
+  result = ghostty_formatter_set(
+      formatter, GHOSTTY_FORMATTER_OPT_SELECTION, selection);
   assert(result == GHOSTTY_SUCCESS);
 
   uint8_t *buf = NULL;
