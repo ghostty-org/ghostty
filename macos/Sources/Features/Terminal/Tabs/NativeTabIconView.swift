@@ -88,18 +88,10 @@ final class NativeTabIconView: NSView {
                 }
             }
             mark.image = Self.image(glyph)
-            mark.contentTintColor = focused ? theme.accent : theme.secondary
-            let color: NSColor
-            switch state?.state {
-            case .needsAttention: color = .systemOrange
-            case .error: color = .systemRed
-            case .done: color = .systemGreen
-            default: color = focused && split ? theme.accent : .clear
-            }
+            mark.contentTintColor = focused ? AgentLogoStyle.selectedColor : theme.secondary
             mark.layer?.borderWidth = 0
             if let state, state.state != .idle {
-                mark.contentTintColor = state.state == .working
-                    ? (state.phase == .background ? .systemPurple : theme.accent) : color
+                mark.contentTintColor = AgentLogoStyle.nativeColor(state)
             }
             if let layer = mark.layer {
                 let visible = window.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false

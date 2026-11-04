@@ -742,15 +742,10 @@ final class NativeTabCell: NSTableCellView {
         let theme = OMGNativeTheme.resolve(for: self)
         label.textColor = theme.foreground
         shortcut.textColor = theme.secondary
-        let symbol: String?
-        switch value.activity?.state {
-        case .needsAttention: symbol = "exclamationmark.circle.fill"
-        case .error: symbol = "xmark.circle.fill"
-        case .done: symbol = "checkmark.circle.fill"
-        default: symbol = nil
-        }
-        status.isHidden = symbol == nil
-        status.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+        let badge = AgentStatusBadge.resolve(value.activity)
+        status.isHidden = badge == nil
+        status.image = badge.flatMap { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) }
+        status.contentTintColor = badge?.color
         status.toolTip = value.activity?.state.rawValue
         setAccessibilityLabel(value.title)
     }

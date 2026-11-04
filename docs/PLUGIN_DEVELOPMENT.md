@@ -938,6 +938,11 @@ the waiting queue. Secure Input recovery runs after the published value commits.
 An idle screen, an exited Agent or a cleared activity does not authorize sending
 queued commands to a shell.
 
+Native tab logos use the original blue for selection/foreground work and purple
+for background work, independent of terminal-theme accents. Status badges retain
+green checkmarks, orange question bubbles or permission shields, and red error
+crosses across vertical and horizontal tabs.
+
 Pin and History keyboard navigation are also Host-owned UI state. Pin only
 prevents automatic composer dismissal after a user-confirmed Send/Queue/queued
 edit; explicit dismiss still wins. Composer visibility and Pin are process-wide

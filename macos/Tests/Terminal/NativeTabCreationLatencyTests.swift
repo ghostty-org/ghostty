@@ -59,7 +59,7 @@ struct NativeTabCreationLatencyTests {
         let icon = try #require(accessory.subviews.compactMap { $0 as? NativeTabIconView }.first)
         #expect(icon.subviews.compactMap { $0 as? NSImageView }.contains { $0.image != nil })
         let mark = try #require(icon.subviews.compactMap { $0 as? NSImageView }.first)
-        #expect(mark.contentTintColor == OMGNativeTheme.resolve(for: icon).accent)
+        #expect(mark.contentTintColor == AgentLogoStyle.selectedColor)
         try await Task.sleep(for: .milliseconds(100))
         #expect(group.windows.count == 2 && group.selectedWindow === added)
     }

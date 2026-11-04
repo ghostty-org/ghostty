@@ -5,6 +5,24 @@ import Testing
 
 @MainActor
 struct SplitTabPresentationTests {
+    @Test func nativeAgentColorsAndBadgesPreserveSemanticStatusStyles() throws {
+        func activity(_ state: TabActivityState, _ attention: TabAttentionKind? = nil) -> TabActivity {
+            .init(source: "codex", state: state, attentionKind: attention,
+                  label: nil, message: nil, detail: nil, progress: nil, icon: nil)
+        }
+        #expect(AgentLogoStyle.selectedColor == .systemBlue)
+        let working = activity(.working)
+        #expect(AgentLogoStyle.nativeColor(working) == .systemBlue)
+        let done = try #require(AgentStatusBadge.resolve(activity(.done)))
+        #expect(done.symbol == "checkmark.circle.fill" && done.color == .systemGreen)
+        let question = try #require(AgentStatusBadge.resolve(activity(.needsAttention, .question)))
+        #expect(question.symbol == "questionmark.bubble.fill" && question.color == .systemOrange)
+        let permission = try #require(AgentStatusBadge.resolve(activity(.needsAttention, .permission)))
+        #expect(permission.symbol == "lock.shield.fill" && permission.color == .systemOrange)
+        let failed = try #require(AgentStatusBadge.resolve(activity(.error)))
+        #expect(failed.symbol == "xmark.circle.fill" && failed.color == .systemRed)
+    }
+
     private func pane(_ state: TabActivityState = .idle, focused: Bool = false) -> SplitTabPane {
         .init(id: UUID(), icon: .systemSymbol("terminal"),
               activity: .init(source: "pi", state: state, label: nil, message: nil,

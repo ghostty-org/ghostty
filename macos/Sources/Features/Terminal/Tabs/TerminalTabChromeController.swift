@@ -200,17 +200,10 @@ final class TerminalTabChromeController {
             activities: (NSApp.delegate as? AppDelegate)?.tabActivities) else { return }
         icon.previewEdge = horizontal ? .maxY : .maxX
         icon.configure(controller: controller, icon: value.icon, selected: selected, activity: value.activity)
-        let symbol: String?
-        switch value.activity?.state {
-        case .needsAttention:
-            symbol = value.activity?.attentionKind == .permission ? "lock.shield.fill" : "exclamationmark.circle.fill"
-            status.contentTintColor = .systemOrange
-        case .error: symbol = "xmark.circle.fill"; status.contentTintColor = .systemRed
-        case .done: symbol = "checkmark.circle.fill"; status.contentTintColor = .systemGreen
-        default: symbol = nil
-        }
-        status.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
-        status.isHidden = !horizontal || symbol == nil
+        let badge = AgentStatusBadge.resolve(value.activity)
+        status.contentTintColor = badge?.color
+        status.image = badge.flatMap { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) }
+        status.isHidden = !horizontal || badge == nil
         if horizontal {
             let title = value.remoteBreadcrumb?.title ?? value.title
             if window.tab.title != title { window.tab.title = title }

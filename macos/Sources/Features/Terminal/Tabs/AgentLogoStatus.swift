@@ -13,14 +13,20 @@ enum TabIconMetrics {
 }
 
 enum AgentLogoStyle {
-    static func color(_ activity: TabActivity) -> Color {
+    static let selectedColor = NSColor.systemBlue
+
+    static func nativeColor(_ activity: TabActivity) -> NSColor {
         switch activity.state {
         case .idle: return .clear
-        case .working: return activity.phase == .background ? .purple : .accentColor
-        case .done: return Color(nsColor: NSColor.systemGreen.blended(withFraction: 0.15, of: .black) ?? .systemGreen)
-        case .needsAttention: return .orange
-        case .error: return .red
+        case .working: return activity.phase == .background ? .systemPurple : selectedColor
+        case .done: return NSColor.systemGreen.blended(withFraction: 0.15, of: .black) ?? .systemGreen
+        case .needsAttention: return .systemOrange
+        case .error: return .systemRed
         }
+    }
+
+    static func color(_ activity: TabActivity) -> Color {
+        Color(nsColor: nativeColor(activity))
     }
 
     static func tintStrength(state: TabActivityState?, focused: Bool) -> Double {
@@ -39,6 +45,27 @@ enum AgentLogoStyle {
 
     static func animates(state: TabActivityState?, visible: Bool, reduceMotion: Bool) -> Bool {
         state == .working && visible && !reduceMotion
+    }
+}
+
+struct AgentStatusBadge {
+    let symbol: String
+    let color: NSColor
+
+    static func resolve(_ activity: TabActivity?) -> Self? {
+        switch activity?.state {
+        case .done: return .init(symbol: "checkmark.circle.fill", color: .systemGreen)
+        case .error: return .init(symbol: "xmark.circle.fill", color: .systemRed)
+        case .needsAttention:
+            let symbol: String
+            switch activity?.attentionKind {
+            case .question: symbol = "questionmark.bubble.fill"
+            case .permission: symbol = "lock.shield.fill"
+            case nil: symbol = "exclamationmark.circle.fill"
+            }
+            return .init(symbol: symbol, color: .systemOrange)
+        default: return nil
+        }
     }
 }
 

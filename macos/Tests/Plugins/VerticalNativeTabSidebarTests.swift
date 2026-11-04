@@ -119,7 +119,7 @@ struct VerticalNativeTabSidebarTests {
         let cell = try #require(outline.view(atColumn: 0, row: 1, makeIfNecessary: true))
         let icon = try #require(descendants(cell).compactMap { $0 as? NativeTabIconView }.first)
         let mark = try #require(icon.subviews.compactMap { $0 as? NSImageView }.first)
-        #expect(mark.contentTintColor == OMGNativeTheme.resolve(for: icon).accent)
+        #expect(mark.contentTintColor == AgentLogoStyle.selectedColor)
         first.tabLayoutState.updateTabs([first, second], selectedID: ObjectIdentifier(second))
         host.configure(.init(controller: second, layoutState: first.tabLayoutState,
                              statusStore: status, backgroundColor: .black))
