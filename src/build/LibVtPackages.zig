@@ -64,13 +64,16 @@
 //! build. The fields of each entry are documented on `ThirdParty`.
 //!
 //! Code copied into this repository ("vendored" code) is described the same
-//! way, with a `path` to the directory that holds it:
+//! way, with a `path` to the directory that holds it. Its version is the
+//! `.version` of the build.zig.zon the entry is in:
 //!
+//!   .name = .simdutf,
+//!   .version = "9.0.0",
+//!   ...
 //!   .third_party = .{
 //!       .{
 //!           .name = "simdutf",
 //!           .license = "Apache-2.0 OR MIT",
-//!           .version = "9.0.0",
 //!           .path = "vendor",
 //!           .url = "https://github.com/simdutf/simdutf",
 //!       },
@@ -113,9 +116,10 @@ pub const ThirdParty = struct {
     license: []const u8,
 
     /// The upstream version. Set this only for packages without a
-    /// build.zig.zon of their own, and for vendored code. A package that
-    /// declares its own version uses that one, and gen-lib-vt-deps.sh
-    /// rejects an entry that sets a second one.
+    /// build.zig.zon of their own. A package that declares its own version
+    /// uses that one, and vendored code uses the version of the
+    /// build.zig.zon that holds it. gen-lib-vt-deps.sh rejects an entry
+    /// that sets a second version.
     version: ?[]const u8 = null,
 
     /// For vendored code only: the directory that holds it, relative to the

@@ -51,6 +51,9 @@
 #     `zig build lib-vt-packages` step (src/build/LibVtPackages.zig).
 #   - Licenses, and versions of packages that do not declare one, come from
 #     the `.third_party` field of the build.zig.zon that lists the package's URL.
+#   - Vendored code takes its version from the build.zig.zon of the package
+#     that holds it, such as pkg/simdutf/build.zig.zon, unless its
+#     .third_party entry sets one.
 #     That file is the one place to update when adding or upgrading a
 #     dependency. src/build/LibVtPackages.zig documents the field.
 #
@@ -81,7 +84,10 @@
 #     The package has no build.zig.zon of its own. Add a version to its
 #     .third_party entry.
 #   "the .third_party entry for <name> sets a version, but ..."
-#     The package declares its own version. Remove the one in .third_party.
+#     The package, or for vendored code the package that holds it, declares
+#     its own version. Remove the one in .third_party.
+#   "the vendored code <name> has no version"
+#     Set .version in the build.zig.zon that holds the code.
 #   "the .third_party entry for <name> names no package"
 #     The package was removed. Remove its entry.
 #   "<path> is compiled into the library but no .third_party entry covers it"
@@ -282,13 +288,18 @@ jq --rawfile hashes "$WORK_DIR/hashes" \
           $vendored[]
           | . as $v
           | select([$linked_files[] | select(within($v.path))] | length > 0)
-          | if .version == null
-            then error("the vendored code \(.name) has no version; add one to its .third_party entry")
+          | ([$local[] | select(.hash == $v.dir) | .version] | first // null) as $declared
+          | if $declared != null and .version != null
+            then error("the .third_party entry for \(.name) sets a version, but \(join($v.dir; "build.zig.zon")) declares \($declared); remove the one in .third_party")
+            else . end
+          | ($declared // .version) as $version
+          | if $version == null
+            then error("the vendored code \(.name) has no version; set .version in \(join($v.dir; "build.zig.zon"))")
             else . end
           | {
               name,
               kind: "vendored",
-              version,
+              version: $version,
               commit: null,
               url,
               path,
