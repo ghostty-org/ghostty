@@ -12,6 +12,7 @@ const LipoStep = @import("LipoStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
+const InstallDirs = @import("InstallDirs.zig");
 
 /// The step that generates the file.
 step: *std.Build.Step,
@@ -721,17 +722,18 @@ const CMakeFiles = struct {
     /// (the top-level CMakeLists.txt) uses, so a `zig build` install and a
     /// `cmake --install` define the same targets.
     ///
-    /// Every path in the generated config is relative to the config file
-    /// itself, so nothing depends on the absolute install prefix. This
-    /// means the install still works if it is staged with `DESTDIR` or
-    /// moved somewhere else afterward. For example, a config installed at
+    /// Every path in the config is relative to the config file itself, so
+    /// the install keeps working when it is staged with `DESTDIR` or moved
+    /// somewhere else. For example, a config installed at
     ///
     ///     /opt/ghostty/lib/cmake/ghostty-vt/ghostty-vt-config.cmake
     ///
     /// finds the prefix by going up three directories to `/opt/ghostty`,
     /// and expects the library and headers in `/opt/ghostty/lib` and
-    /// `/opt/ghostty/include`. This relies on `install` using that fixed
-    /// layout (bin/, include/, lib/ and lib/cmake/ghostty-vt/).
+    /// `/opt/ghostty/include`. With `--prefix-lib-dir lib64` the config
+    /// goes in `lib64/cmake/ghostty-vt/` and expects the library in
+    /// `lib64`. The values that depend on these directories are filled in
+    /// at build time by `cmake_package_config.zig`.
     fn init(
         b: *std.Build,
         zig: *const GhosttyZig,
@@ -740,46 +742,24 @@ const CMakeFiles = struct {
         const names: SharedLibraryNames = .init(b, zig.version, target.os.tag);
 
         const generator = b.addExecutable(.{
-            .name = "configure_file",
+            .name = "cmake_package_config",
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/build/configure_file.zig"),
+                .root_source_file = b.path("src/build/cmake_package_config.zig"),
                 .target = b.graph.host,
             }),
         });
+        generator.root_module.addImport("InstallDirs", b.createModule(.{
+            .root_source_file = b.path("src/build/InstallDirs.zig"),
+        }));
         const run = b.addRunArtifact(generator);
         run.addFileArg(b.path("dist/cmake/ghostty-vt-config.cmake.in"));
         run.addArgs(&.{
-            // CMake's configure_package_config_file() replaces @PACKAGE_INIT@
-            // with setup code. This is the same code for a config three
-            // directories below the prefix. It sets PACKAGE_PREFIX_DIR and
-            // defines check_required_components(), which the template calls
-            // at the end.
-            //
-            // CMake's version also has a fallback for installs where /usr is
-            // a symlink to another directory. That fallback needs the
-            // absolute install path, which this build can't know, so it is
-            // left out.
-            "PACKAGE_INIT=" ++
-                \\get_filename_component(PACKAGE_PREFIX_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../" ABSOLUTE)
-                \\
-                \\macro(check_required_components _NAME)
-                \\  foreach(comp ${${_NAME}_FIND_COMPONENTS})
-                \\    if(NOT ${_NAME}_${comp}_FOUND)
-                \\      if(${_NAME}_FIND_REQUIRED_${comp})
-                \\        set(${_NAME}_FOUND FALSE)
-                \\      endif()
-                \\    endif()
-                \\  endforeach()
-                \\endmacro()
-            ,
-            "CMAKE_INSTALL_BINDIR=bin",
-            "CMAKE_INSTALL_INCLUDEDIR=include",
-            "CMAKE_INSTALL_LIBDIR=lib",
             b.fmt("GHOSTTY_VT_REALNAME={s}", .{names.real}),
             b.fmt("GHOSTTY_VT_SONAME={s}", .{names.soname orelse ""}),
             b.fmt("GHOSTTY_VT_IMPLIB={s}", .{names.implib orelse ""}),
             b.fmt("GHOSTTY_VT_STATIC_REALNAME={s}", .{staticLibraryName(target.os.tag)}),
         });
+        InstallDirs.addRunArgs(run);
 
         // The version file tells find_package() whether this install
         // satisfies the version a project asked for. It follows the ABI
@@ -974,35 +954,35 @@ pub fn install(
 ) void {
     const b = step.owner;
     step.dependOn(self.artifact);
-    // The pkg-config files go in lib/pkgconfig rather than
+    // The pkg-config files go in <libdir>/pkgconfig rather than
     // share/pkgconfig. share/ is meant for files that are the same on
     // every architecture, and these name the library's directory, which
-    // can differ between architectures. Both these files and the CMake
-    // files expect the library to be in lib/ under the prefix.
+    // can differ between architectures (lib64, lib/x86_64-linux-gnu).
+    // The CMake files go in <libdir>/cmake for the same reason.
     if (self.pkg_config) |pkg_config| {
         step.dependOn(&b.addInstallFileWithDir(
             pkg_config,
-            .prefix,
-            "lib/pkgconfig/libghostty-vt.pc",
+            .lib,
+            "pkgconfig/libghostty-vt.pc",
         ).step);
     }
     if (self.pkg_config_static) |pkg_config_static| {
         step.dependOn(&b.addInstallFileWithDir(
             pkg_config_static,
-            .prefix,
-            "lib/pkgconfig/libghostty-vt-static.pc",
+            .lib,
+            "pkgconfig/libghostty-vt-static.pc",
         ).step);
     }
     if (self.cmake) |cmake| {
         step.dependOn(&b.addInstallFileWithDir(
             cmake.config,
-            .prefix,
-            "lib/cmake/ghostty-vt/ghostty-vt-config.cmake",
+            .lib,
+            "cmake/ghostty-vt/ghostty-vt-config.cmake",
         ).step);
         step.dependOn(&b.addInstallFileWithDir(
             cmake.version,
-            .prefix,
-            "lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake",
+            .lib,
+            "cmake/ghostty-vt/ghostty-vt-config-version.cmake",
         ).step);
     }
 }

@@ -113,17 +113,43 @@ On Windows, the DLL is installed to `bin/` instead, and `lib/` holds
 the import library `ghostty-vt.lib` and the static library
 `ghostty-vt-static.lib`.
 
-The CMake package config finds the library and headers using paths
-relative to its own location, never the absolute prefix. You can stage
-the install with `DESTDIR` or move the whole tree, and the config will
-still work. For example:
+### Changing the install directories
+
+The paths above are the defaults. Zig's `--prefix-lib-dir`,
+`--prefix-include-dir` and `--prefix-exe-dir` options change them, and
+the pkg-config files and the CMake package config follow the libraries.
+For example, with `--prefix-lib-dir lib64` they are installed to
+`lib64/pkgconfig/` and `lib64/cmake/ghostty-vt/`.
+
+### Staged installs with DESTDIR
+
+Distro packages are usually built by installing into a staging
+directory first. Set `DESTDIR` to that directory and pass the final
+prefix with `--prefix`:
 
 ```shell-session
-DESTDIR="$PWD/stage" zig build -Demit-lib-vt -Doptimize=ReleaseFast --prefix /usr
+DESTDIR="$PWD/stage" zig build -Demit-lib-vt -Doptimize=ReleaseFast \
+  --prefix /usr --prefix-lib-dir lib64
 ```
 
-The config does expect the layout shown above, with `lib/`,
-`include/`, and `bin/` side by side under one prefix.
+This puts the files in `$PWD/stage/usr`, but the installed files only
+mention where the package will be after it is copied into place. Both
+`.pc` files start with:
+
+```
+prefix=/usr
+includedir=${prefix}/include
+libdir=${prefix}/lib64
+```
+
+The CMake package config doesn't contain the prefix at all. It finds
+the library and headers relative to its own location, so it also keeps
+working if you move the whole install somewhere else. (The one
+exception is a directory outside the prefix, such as an absolute
+`--prefix-lib-dir` elsewhere. The config still finds it, but moving
+the prefix alone would break that.)
+
+### Build defaults
 
 Two build defaults matter for packaging:
 

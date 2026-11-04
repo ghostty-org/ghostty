@@ -532,6 +532,52 @@ jobs:
           # Verify it doesn't depend on the shared lib or a C++ runtime.
           ! ldd /tmp/test_static 2>/dev/null | grep -qE 'libghostty-vt|libc\+\+|libc\+\+abi'
 
+      # Install the way distros do: staged with DESTDIR, into /usr, with
+      # the libraries in lib64. The installed files must name the final
+      # paths, never the staging directory.
+      - name: Verify staged install with DESTDIR and lib64
+        run: |
+          stage=$(mktemp -d)
+          DESTDIR="$stage" nix develop -c zig build -Demit-lib-vt \
+            --prefix /usr --prefix-lib-dir lib64
+
+          if grep -rlF "$stage" "$stage"; then
+            echo "installed files name the staging directory" >&2
+            exit 1
+          fi
+          for pc in libghostty-vt libghostty-vt-static; do
+            file="$stage/usr/lib64/pkgconfig/$pc.pc"
+            cat "$file"
+            grep -qx 'prefix=/usr' "$file"
+            grep -qxF 'libdir=${prefix}/lib64' "$file"
+            PKG_CONFIG_PATH="$stage/usr/lib64/pkgconfig" pkg-config --validate "$pc"
+          done
+          test -f "$stage/usr/lib64/cmake/ghostty-vt/ghostty-vt-config.cmake"
+
+          # Move the tree out of the staging directory, as a package
+          # manager would, and use it from a CMake project.
+          root=$(mktemp -d)
+          mv "$stage/usr" "$root/usr"
+          consumer=$(mktemp -d)
+          cat > "$consumer/CMakeLists.txt" << 'EOF'
+          cmake_minimum_required(VERSION 3.19)
+          project(consumer C)
+          find_package(ghostty-vt CONFIG REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE ghostty-vt::ghostty-vt)
+          EOF
+          cat > "$consumer/main.c" << 'EOF'
+          #include <ghostty/vt.h>
+          int main(void) {
+              bool simd = false;
+              return ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd) == GHOSTTY_SUCCESS ? 0 : 1;
+          }
+          EOF
+          nix develop -c cmake -S "$consumer" -B "$consumer/build" \
+            -DCMAKE_PREFIX_PATH="$root/usr"
+          nix develop -c cmake --build "$consumer/build"
+          "$consumer/build/consumer"
+
       # Test system integration: rebuild with -Dsystem-simdutf=true so
       # simdutf comes from the system instead of being vendored. This
       # verifies the .pc file uses Requires.private for system deps and

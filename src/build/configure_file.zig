@@ -3,10 +3,10 @@
 //! template is replaced with the value given for `NAME`, and the result
 //! is written to stdout.
 //!
-//! `zig build` uses it to generate the CMake package config for
-//! libghostty-vt from `dist/cmake/ghostty-vt-config.cmake.in`. That is
-//! the same template the CMake wrapper uses, so both builds install
-//! the same config.
+//! `zig build` uses it, through `cmake_package_config.zig`, to generate
+//! the CMake package config for libghostty-vt from
+//! `dist/cmake/ghostty-vt-config.cmake.in`. That is the same template the
+//! CMake wrapper uses, so both builds install the same config.
 //!
 //! Usage:
 //!
@@ -44,21 +44,55 @@ pub fn main(init: std.process.Init) !void {
     // The process exits right after writing its output, so allocate
     // everything from the arena and never free.
     const alloc = init.arena.allocator();
-    const io = init.io;
 
     const args = try init.minimal.args.toSlice(alloc);
     if (args.len < 2) fail("usage: configure_file <template> [NAME=VALUE]...", .{});
 
     var values: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
-    for (args[2..]) |arg| {
+    try putArgs(alloc, &values, args[2..]);
+    try configure(alloc, init.io, args[1], &values);
+}
+
+/// Parses each `NAME=VALUE` argument in `args` and adds it to `values`.
+/// A later value for the same name replaces an earlier one. Exits the
+/// process with an error if an argument has no `=`.
+///
+/// Tools that compute some values themselves can call this for the rest
+/// of their arguments, then pass the result to `configure`:
+///
+/// ```zig
+/// var values: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+/// try values.put(alloc, "LIBDIR", computed_libdir);
+/// try configure_file.putArgs(alloc, &values, args[2..]);
+/// try configure_file.configure(alloc, io, args[1], &values);
+/// ```
+pub fn putArgs(
+    alloc: std.mem.Allocator,
+    values: *std.StringArrayHashMapUnmanaged([]const u8),
+    args: []const []const u8,
+) !void {
+    for (args) |arg| {
         const eql = std.mem.findScalar(u8, arg, '=') orelse
             fail("invalid argument, expected NAME=VALUE: {s}", .{arg});
         try values.put(alloc, arg[0..eql], arg[eql + 1 ..]);
     }
+}
 
+/// Reads the template at `template_path`, replaces each `@NAME@` in it
+/// with its value from `values`, and writes the result to stdout.
+///
+/// Like the tool itself, this is strict. It exits the process with an
+/// error, and writes nothing, if the template uses a name that has no
+/// value or if `values` has a name the template never uses.
+pub fn configure(
+    alloc: std.mem.Allocator,
+    io: std.Io,
+    template_path: []const u8,
+    values: *const std.StringArrayHashMapUnmanaged([]const u8),
+) !void {
     const template = try std.Io.Dir.cwd().readFileAlloc(
         io,
-        args[1],
+        template_path,
         alloc,
         .unlimited,
     );
@@ -69,13 +103,13 @@ pub fn main(init: std.process.Init) !void {
     // Expand into memory first so a failed run writes nothing.
     var out: std.Io.Writer.Allocating = .init(alloc);
     var missing: []const u8 = undefined;
-    expand(&out.writer, template, &values, used, &missing) catch |err| switch (err) {
-        error.MissingValue => fail("{s}: no value for @{s}@", .{ args[1], missing }),
+    expand(&out.writer, template, values, used, &missing) catch |err| switch (err) {
+        error.MissingValue => fail("{s}: no value for @{s}@", .{ template_path, missing }),
         error.WriteFailed => return err,
     };
 
     for (values.keys(), used) |name, u| {
-        if (!u) fail("{s}: value given for unused @{s}@", .{ args[1], name });
+        if (!u) fail("{s}: value given for unused @{s}@", .{ template_path, name });
     }
 
     var stdout_writer = std.Io.File.stdout().writer(io, &.{});
