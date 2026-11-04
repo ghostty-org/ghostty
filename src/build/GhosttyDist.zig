@@ -205,6 +205,10 @@ const lib_vt_excludes = &[_][]const u8{
     "po",
     "example",
 
+    // The app's packaging guide. Library packagers read
+    // PACKAGING-LIBGHOSTTY.md instead.
+    "PACKAGING.md",
+
     // Test corpus (lib-vt tests use embedded testdata within src/terminal/)
     "test",
 
