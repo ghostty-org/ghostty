@@ -321,9 +321,7 @@ pub fn serve_managed(
     let mut pty = unsafe { File::from_raw_fd(master) };
     let slave = unsafe { File::from_raw_fd(slave) };
     enable_utf8_input(pty.as_raw_fd())?;
-    let tty_name = local_mode
-        .then(|| terminal_name(slave.as_raw_fd()))
-        .flatten();
+    let tty_name = terminal_name(slave.as_raw_fd());
     // Prevent one session's exec from retaining another session's PTY.
     if unsafe { libc::fcntl(master, libc::F_SETFD, libc::FD_CLOEXEC) } < 0
         || unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0
@@ -368,10 +366,26 @@ pub fn serve_managed(
         .stdin(Stdio::from(slave.try_clone()?))
         .stdout(Stdio::from(slave.try_clone()?))
         .stderr(Stdio::from(slave));
+    let mut _draft_bridge = None;
     if local_mode {
         command.env_remove("OMG_RUNTIME_REMOTE");
     } else {
         command.env("OMG_RUNTIME_REMOTE", "1");
+        if let (Some(managed), Some(tty)) = (managed.as_ref(), tty_name.as_deref()) {
+            let original = std::env::var("VISUAL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or_else(|| std::env::var("EDITOR").ok().filter(|s| !s.is_empty()))
+                .unwrap_or_else(|| "nano".into());
+            if let Ok(bridge) =
+                crate::remote_draft::prepare(parent, &managed.record, tty, &original)
+            {
+                command
+                    .env("VISUAL", &bridge.editor)
+                    .env("EDITOR", &bridge.editor);
+                _draft_bridge = Some(bridge);
+            }
+        }
     }
     if let Some(resume) = managed.as_ref().and_then(|m| m.record.resume.as_ref()) {
         command.current_dir(&resume.cwd).env("PWD", &resume.cwd);

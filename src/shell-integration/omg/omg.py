@@ -30,7 +30,11 @@ def private_directory(path):
 
 
 def root():
-    return private_directory(Path.home() / ".local/share/oh-my-ghostty/remote")
+    override = os.environ.get("OMG_REMOTE_ROOT")
+    path = Path(override) if override else Path.home() / ".local/share/oh-my-ghostty/remote"
+    if not path.is_absolute():
+        raise ValueError("OMG remote directory must be absolute")
+    return private_directory(path)
 
 
 def session_directory(session):
@@ -103,16 +107,24 @@ def main(arguments):
         # Bind requests to the live SSH pane's TTY, not merely its host.
         if metadata["tty"] != rest[1]:
             raise ValueError("Remote session TTY changed")
+        if len(rest) > 2 and metadata.get("runtime_generation") != rest[2]:
+            raise ValueError("Remote session generation changed")
         write_private(directory / "request.json", json.dumps({
             "id": identifier, "expires": time.time() + 8,
+            "generation": metadata.get("runtime_generation"),
         }).encode())
         print("OMG_REMOTE_READY_V1")
     elif command == "draft-read":
         identifier = str(uuid.UUID(rest[0])).upper()
+        request = read_json(directory / "request.json")
+        if request.get("generation") != metadata.get("runtime_generation"):
+            raise ValueError("Remote session generation changed")
         response = directory / (identifier + ".response")
         deadline = time.monotonic() + 5
         while not response.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
+        if request.get("generation") != read_json(directory / "session.json").get("runtime_generation"):
+            raise ValueError("Remote session generation changed")
         with response.open("rb") as stream:
             data = stream.read(LIMIT + 1)
         validate(data)
@@ -132,7 +144,7 @@ def main(arguments):
         try:
             request = read_json(directory / "request.json")
             identifier = str(uuid.UUID(request["id"])).upper()
-            active = time.time() < float(request["expires"])
+            active = time.time() < float(request["expires"]) and request.get("generation") == metadata.get("runtime_generation")
         except (OSError, ValueError, KeyError, TypeError):
             active = False
         if not active:

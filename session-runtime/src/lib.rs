@@ -494,6 +494,7 @@ pub mod lifecycle;
 pub mod location;
 pub mod record;
 pub mod registry;
+pub mod remote_draft;
 pub mod server;
 
 #[cfg(test)]

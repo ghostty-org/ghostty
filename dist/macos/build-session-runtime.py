@@ -52,6 +52,7 @@ def main():
     for path in [
         ROOT/'session-runtime/Cargo.toml', ROOT/'session-runtime/Cargo.lock',
         ROOT/'session-runtime/build.rs', ROOT/'session-runtime/LICENSE.herdr',
+        ROOT/'src/shell-integration/omg/omg.py',
         ROOT/'session-runtime/THIRD-PARTY-NOTICES', Path(__file__).resolve(),
     ]:
         digest.update(str(path.relative_to(ROOT)).encode())

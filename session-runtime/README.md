@@ -110,6 +110,24 @@ native confirmation before bulk close. The exit switches explicitly mean
 **Close local/SSH sessions on quit**; their values invert the existing persisted
 `sessions.keepLocalOnQuit` / `sessions.keepSSHOnQuit` booleans without migration.
 
+## Remote Quick Input
+
+New managed SSH PTYs receive a private external-editor bridge under
+`STATE/draft`. It reuses the ordinary SSH editor-file protocol and delegates
+normal editor invocations to the previous editor. An explicit short-lived
+request copies the draft without changing the Agent's input file.
+
+The bridge is bound to the runtime pane UUID, generation and PTY. GUI imports
+resolve those fields from the saved runtime record rather than requiring a
+transient `+ssh` bootstrap connection ID. Requests from an earlier generation
+are rejected, and teardown only removes its own generation's data. The embedded
+Python source participates in the runtime artifact revision.
+
+Python 3 and an Agent honoring `VISUAL`/`EDITOR` are required. Previously launched
+remote Agents do not gain new environment variables when the Mac app updates.
+Keep their current work running; start a new SSH session and resume the Agent
+when ready to enable this bridge. Existing pinned daemons are preserved.
+
 ## Tests
 
 Build the matching libghostty-vt first, then run serially:
