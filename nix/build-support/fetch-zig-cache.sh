@@ -9,8 +9,8 @@
 #   ZIG_GLOBAL_CACHE_DIR=<dir> ./nix/build-support/fetch-zig-cache.sh [LIST]
 #
 # LIST is a text file with one dependency URL per line. It defaults to
-# build.zig.zon.txt, which lists every dependency of Ghostty. To package only
-# libghostty-vt, pass build.zig.zon.lib-vt.txt, which lists only what the
+# deps/packages.txt, which lists every dependency of Ghostty. To package only
+# libghostty-vt, pass deps/libghostty-vt.txt, which lists only what the
 # library needs.
 #
 # Each package is unpacked into <dir>/p/<hash>. Point `zig build --system` at
@@ -20,7 +20,7 @@
 #
 #   # With network access:
 #   ZIG_GLOBAL_CACHE_DIR=/tmp/offline-cache \
-#     ./nix/build-support/fetch-zig-cache.sh build.zig.zon.lib-vt.txt
+#     ./nix/build-support/fetch-zig-cache.sh deps/libghostty-vt.txt
 #
 #   # Later, without network access:
 #   ZIG_GLOBAL_CACHE_DIR=/tmp/build-cache zig build \
@@ -37,7 +37,7 @@
 #
 #   ZIG_GLOBAL_CACHE_DIR  Required. Where to put the packages.
 #   ZIG_ZON_JSON          Optional. The file that maps each URL to its package
-#                         hash. Defaults to build.zig.zon.json in this
+#                         hash. Defaults to deps/packages.json in this
 #                         repository.
 #
 # Why this script exists
@@ -65,8 +65,8 @@ fi
 
 SCRIPT_PATH="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 ROOT="$SCRIPT_PATH/../.."
-ZON_TXT_FILE="${1:-$ROOT/build.zig.zon.txt}"
-ZON_JSON_FILE="${ZIG_ZON_JSON:-$ROOT/build.zig.zon.json}"
+ZON_TXT_FILE="${1:-$ROOT/deps/packages.txt}"
+ZON_JSON_FILE="${ZIG_ZON_JSON:-$ROOT/deps/packages.json}"
 
 if [ ! -f "$ZON_TXT_FILE" ]; then
   echo "dependency list not found: $ZON_TXT_FILE" >&2
@@ -88,7 +88,7 @@ PROJECT_DIR="$(mktemp -d)"
 trap 'rm -rf "$PROJECT_DIR"' EXIT
 
 # Build an index with one "<hash><TAB><url>" line per package. This reads
-# build.zig.zon.json as text rather than parsing it, so the script needs only
+# deps/packages.json as text rather than parsing it, so the script needs only
 # POSIX tools. That works because the file is generated and formatted by
 # prettier: each package is a key indented by two spaces, followed by its
 # "url" field indented by four.

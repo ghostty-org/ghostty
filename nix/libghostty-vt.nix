@@ -33,13 +33,13 @@ stdenv.mkDerivation (finalAttrs: {
         ../vendor
         ../build.zig
         ../build.zig.zon
-        ../build.zig.zon.nix
+        ../deps/packages.nix
         ../dist/cmake/ghostty-vt-config.cmake.in
       ]
     );
   };
 
-  deps = callPackage ../build.zig.zon.nix {};
+  deps = callPackage ../deps/packages.nix {};
 
   nativeBuildInputs =
     [

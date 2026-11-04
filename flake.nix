@@ -116,7 +116,7 @@
         (
           forAllPlatforms (pkgs: rec {
             # Deps are needed for environmental setup on macOS
-            deps = pkgs.callPackage ./build.zig.zon.nix {};
+            deps = pkgs.callPackage ./deps/packages.nix {};
 
             libghostty-vt-debug = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "debug");
             libghostty-vt-releasesafe = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "safe");

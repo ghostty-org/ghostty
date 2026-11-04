@@ -4,7 +4,7 @@
 //!
 //! You normally do not run this step yourself.
 //! nix/build-support/gen-lib-vt-deps.sh runs it for every supported target
-//! and turns the results into build.zig.zon.lib-vt.third-party.json. To see the
+//! and turns the results into deps/libghostty-vt-third-party.json. To see the
 //! report for one target:
 //!
 //!   zig build lib-vt-packages -Demit-lib-vt --prefix /tmp/report
@@ -34,7 +34,7 @@
 //!   }
 //!
 //!   hash          How Zig identifies the package. For a fetched package,
-//!                 this is its hash, as in build.zig.zon.json. For a
+//!                 this is its hash, as in deps/packages.json. For a
 //!                 package in this repository, it is the package's
 //!                 directory, such as "pkg/highway". Ghostty itself is "".
 //!   version       The .version field of the package's build.zig.zon, or
@@ -104,7 +104,7 @@ step: *std.Build.Step,
 
 /// One entry in the `.third_party` field of a build.zig.zon.
 pub const ThirdParty = struct {
-    /// The package's name in build.zig.zon.json. For vendored code, any
+    /// The package's name in deps/packages.json. For vendored code, any
     /// name that identifies the project.
     name: []const u8,
 

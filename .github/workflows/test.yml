@@ -1714,7 +1714,7 @@ jobs:
       - name: Validate native ABI manifest
         run: nix develop -c zig build test-lib-vt-schema
 
-  # Checks that build.zig.zon.lib-vt.txt lists everything a packager needs.
+  # Checks that deps/libghostty-vt.txt lists everything a packager needs.
   # It downloads only the packages on that list, then builds and tests the
   # library with --system, which stops Zig from downloading anything. The
   # build also gets its own empty cache. If the list is missing a package,
@@ -1747,7 +1747,7 @@ jobs:
       - name: Fetch the library dependency list
         run: |
           nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/offline-cache" \
-            ./nix/build-support/fetch-zig-cache.sh build.zig.zon.lib-vt.txt
+            ./nix/build-support/fetch-zig-cache.sh deps/libghostty-vt.txt
 
       - name: Build offline
         run: |

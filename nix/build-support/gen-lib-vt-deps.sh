@@ -2,12 +2,12 @@
 #
 # Generates the two files that describe libghostty-vt's dependencies:
 #
-#   build.zig.zon.lib-vt.txt
+#   deps/libghostty-vt.txt
 #     Every Zig package a libghostty-vt build needs, as one URL per line.
-#     This is a subset of build.zig.zon.txt. Pass it to fetch-zig-cache.sh to
+#     This is a subset of deps/packages.txt. Pass it to fetch-zig-cache.sh to
 #     download only what the library needs.
 #
-#   build.zig.zon.lib-vt.third-party.json
+#   deps/libghostty-vt-third-party.json
 #     Every third-party project in that build, with its version, upstream
 #     URL, and license, and whether its code ends up inside the library.
 #     Distributions need this for their package metadata. A project whose
@@ -17,12 +17,12 @@
 #     License tag and Debian's debian/copyright file.
 #
 # You normally do not run this directly. `check-zig-cache.sh --update` runs
-# it and writes both files to the repository root, and CI fails if they are
-# out of date. Do not edit either file by hand.
+# it and writes both files to deps/, and CI fails if they are out of
+# date. Do not edit either file by hand.
 #
 # Usage:
 #
-#   gen-lib-vt-deps.sh <build.zig.zon.json> <list.txt> <third-party.json>
+#   gen-lib-vt-deps.sh <packages.json> <list.txt> <third-party.json>
 #
 # Example entry in the third-party file:
 #
@@ -96,7 +96,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
-  echo "usage: $0 <build.zig.zon.json> <list.txt> <third-party.json>" >&2
+  echo "usage: $0 <packages.json> <list.txt> <third-party.json>" >&2
   exit 1
 fi
 
@@ -169,7 +169,7 @@ for target in "${TARGETS[@]}"; do
     jq -r --rawfile missing "$WORK_DIR/missing" '
       . as $json
       | $missing | split("\n")[] | select(. != "")
-      | $json[.].url // error("\(.) is not in build.zig.zon.json")
+      | $json[.].url // error("\(.) is not in deps/packages.json")
     ' "$ZON_JSON" >"$WORK_DIR/urls"
 
     ZIG_GLOBAL_CACHE_DIR="$FETCH_CACHE" ZIG_ZON_JSON="$ZON_JSON" \
@@ -235,7 +235,7 @@ jq --rawfile hashes "$WORK_DIR/hashes" \
   | ($json | [.[].name] | unique) as $names
   | [$entries[] | select(.path == null and (.name | IN($names[]) | not)) | .name] as $stale
   | if ($stale | length) > 0
-    then error("the .third_party entry for \($stale | join(", ")) names no package in build.zig.zon.json; remove it")
+    then error("the .third_party entry for \($stale | join(", ")) names no package in deps/packages.json; remove it")
     else . end
 
   # Packages compiled into the library for any target, and every file of
