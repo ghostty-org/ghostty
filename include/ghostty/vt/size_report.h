@@ -15,10 +15,11 @@
  *
  * ## Basic Usage
  *
- * Use ghostty_size_report_encode() to encode a size report into a
- * caller-provided buffer. If the buffer is too small, the function
- * returns GHOSTTY_OUT_OF_SPACE and sets the required size in the
- * output parameter.
+ * Fill in a GhosttySizeReportSize with the terminal geometry and pass a
+ * pointer to it to ghostty_size_report_encode(). The function encodes
+ * the report into a caller-provided buffer. If the buffer is too small,
+ * the function returns GHOSTTY_OUT_OF_SPACE and sets the required size
+ * in the output parameter.
  *
  * ## Example
  *
@@ -88,11 +89,11 @@ typedef struct {
  * @param[out] out_written On success, the number of bytes written. On
  *             GHOSTTY_OUT_OF_SPACE, the required buffer size.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
- *         is too small
+ *         is too small, or GHOSTTY_INVALID_VALUE if @p size is NULL
  */
 GHOSTTY_API GhosttyResult ghostty_size_report_encode(
     GhosttySizeReportStyle style,
-    GhosttySizeReportSize size,
+    const GhosttySizeReportSize* size,
     char* buf,
     size_t buf_len,
     size_t* out_written);

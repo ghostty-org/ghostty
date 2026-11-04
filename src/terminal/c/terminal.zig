@@ -436,15 +436,18 @@ const Effects = struct {
     /// C function pointer type for the size callback. Used by XTWINOPS queries
     /// and VT-driven mode 2048 enable reports. Returns true and fills out_size
     /// if size is available, or false to suppress the XTWINOPS response or
-    /// mode 2048 report.
+    /// mode 2048 report. The library zeroes out_size before the call.
     pub const SizeFn = *const fn (Terminal, ?*anyopaque, *size_report.Size) callconv(lib.calling_conv) bool;
 
     /// C function pointer type for the device_attributes callback.
     /// Returns true and fills out_attrs if attributes are available,
-    /// or returns false to silently ignore the query.
+    /// or returns false to silently ignore the query. The library zeroes
+    /// out_attrs before the call.
     pub const DeviceAttributesFn = *const fn (Terminal, ?*anyopaque, *CDeviceAttributes) callconv(lib.calling_conv) bool;
 
-    /// C-compatible device attributes struct.
+    /// C-compatible device attributes struct. This struct is frozen. A
+    /// later version that needs more fields adds a new callback and
+    /// struct instead of changing this one.
     /// C: GhosttyDeviceAttributes
     pub const CDeviceAttributes = extern struct {
         primary: Primary,
@@ -652,17 +655,21 @@ const Effects = struct {
     fn colorSchemeTrampoline(handler: *Handler) ?device_status.ColorScheme {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.color_scheme orelse return null;
-        var scheme: device_status.ColorScheme = undefined;
-        if (func(@ptrCast(wrapper), wrapper.effects.userdata, &scheme)) return scheme;
-        return null;
+        // Start from zero so a callback that returns true without writing
+        // reports light instead of garbage. The callback may still write
+        // a value that isn't a ColorScheme, which we treat as no answer.
+        var scheme: device_status.ColorScheme = std.mem.zeroes(device_status.ColorScheme);
+        if (!func(@ptrCast(wrapper), wrapper.effects.userdata, &scheme)) return null;
+        return lib.enumFromPtr(device_status.ColorScheme, &scheme);
     }
 
     fn deviceAttributesTrampoline(handler: *Handler) device_attributes.Attributes {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.device_attributes_cb orelse return .{};
 
-        // Get our attributes from the callback.
-        var c_attrs: CDeviceAttributes = undefined;
+        // Get our attributes from the callback. Start from zero so any
+        // field the callback doesn't write reads as zero, not garbage.
+        var c_attrs: CDeviceAttributes = std.mem.zeroes(CDeviceAttributes);
         if (!func(@ptrCast(wrapper), wrapper.effects.userdata, &c_attrs)) return .{};
 
         // Note below we use a lot of enumFromInt but its always safe
@@ -826,7 +833,9 @@ const Effects = struct {
     fn sizeTrampoline(handler: *Handler) ?size_report.Size {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.size_cb orelse return null;
-        var s: size_report.Size = undefined;
+        // Start from zero so any field the callback doesn't write reads
+        // as zero, not garbage.
+        var s: size_report.Size = std.mem.zeroes(size_report.Size);
         if (func(@ptrCast(wrapper), wrapper.effects.userdata, &s)) return s;
         return null;
     }
@@ -6780,17 +6789,19 @@ test "set size callback" {
             last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
         }
 
+        var arrived: ?size_report.Size = null;
+
         fn sizeCb(_: Terminal, _: ?*anyopaque, out_size: *size_report.Size) callconv(lib.calling_conv) bool {
-            out_size.* = .{
-                .rows = 24,
-                .columns = 80,
-                .cell_width = 8,
-                .cell_height = 16,
-            };
+            arrived = out_size.*;
+            out_size.rows = 24;
+            out_size.columns = 80;
+            out_size.cell_width = 8;
+            out_size.cell_height = 16;
             return true;
         }
     };
     defer S.deinit();
+    S.arrived = null;
 
     try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
     try testing.expectEqual(Result.success, set(t, .size_cb, @ptrCast(&S.sizeCb)));
@@ -6799,6 +6810,9 @@ test "set size callback" {
     vt_write(t, "\x1B[18t", 5);
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1b[8;24;80t", S.last_data.?);
+
+    // The callback got a zeroed struct.
+    try testing.expectEqual(std.mem.zeroes(size_report.Size), S.arrived.?);
 }
 
 test "size without callback is silent" {
@@ -6941,7 +6955,10 @@ test "set device_attributes callback primary" {
             last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
         }
 
+        var arrived: ?Effects.CDeviceAttributes = null;
+
         fn da(_: Terminal, _: ?*anyopaque, out: *Effects.CDeviceAttributes) callconv(lib.calling_conv) bool {
+            arrived = out.*;
             var features: [64]u16 = @splat(0);
             features[0] = 22;
             features[1] = 52;
@@ -6963,6 +6980,7 @@ test "set device_attributes callback primary" {
         }
     };
     defer S.deinit();
+    S.arrived = null;
 
     try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
     try testing.expectEqual(Result.success, set(t, .device_attributes, @ptrCast(&S.da)));
@@ -6971,6 +6989,9 @@ test "set device_attributes callback primary" {
     vt_write(t, "\x1B[c", 3);
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1b[?64;22;52c", S.last_data.?);
+
+    // The callback got a zeroed struct.
+    try testing.expectEqualDeep(std.mem.zeroes(Effects.CDeviceAttributes), S.arrived.?);
 }
 
 test "set device_attributes callback secondary" {

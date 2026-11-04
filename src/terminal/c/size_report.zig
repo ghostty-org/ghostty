@@ -11,12 +11,13 @@ pub const Size = terminal_size_report.Size;
 
 pub fn encode(
     style_: lib.CEnum(Style),
-    size: Size,
+    size_: ?*const Size,
     out_: ?[*]u8,
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
     const style = lib.enumFromC(Style, style_) orelse return .invalid_value;
+    const size = (size_ orelse return .invalid_value).*;
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     terminal_size_report.encode(&writer, style, size) catch |err| switch (err) {
         error.WriteFailed => {
@@ -34,7 +35,7 @@ pub fn encode(
 test "encode mode 2048" {
     var buf: [64]u8 = undefined;
     var written: usize = 0;
-    const result = encode(.mode_2048, .{
+    const result = encode(.mode_2048, &.{
         .rows = 24,
         .columns = 80,
         .cell_width = 9,
@@ -47,7 +48,7 @@ test "encode mode 2048" {
 test "encode csi 14 t" {
     var buf: [64]u8 = undefined;
     var written: usize = 0;
-    const result = encode(.csi_14_t, .{
+    const result = encode(.csi_14_t, &.{
         .rows = 24,
         .columns = 80,
         .cell_width = 9,
@@ -60,7 +61,7 @@ test "encode csi 14 t" {
 test "encode with insufficient buffer" {
     var buf: [1]u8 = undefined;
     var written: usize = 0;
-    const result = encode(.csi_18_t, .{
+    const result = encode(.csi_18_t, &.{
         .rows = 24,
         .columns = 80,
         .cell_width = 9,
@@ -72,7 +73,7 @@ test "encode with insufficient buffer" {
 
 test "encode with null buffer" {
     var written: usize = 0;
-    const result = encode(.csi_18_t, .{
+    const result = encode(.csi_18_t, &.{
         .rows = 24,
         .columns = 80,
         .cell_width = 9,
@@ -80,4 +81,10 @@ test "encode with null buffer" {
     }, null, 0, &written);
     try std.testing.expectEqual(.out_of_space, result);
     try std.testing.expect(written > 0);
+}
+
+test "encode rejects a null size" {
+    var buf: [64]u8 = undefined;
+    var written: usize = 0;
+    try std.testing.expectEqual(.invalid_value, encode(.csi_18_t, null, &buf, buf.len, &written));
 }

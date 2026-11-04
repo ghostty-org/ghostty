@@ -1898,6 +1898,11 @@ typedef void (*GhosttyTerminalResizeWindowFn)(
  * query. Return true and fill *out_scheme with the current color scheme,
  * or return false to silently ignore the query.
  *
+ * The library sets *out_scheme to GHOSTTY_COLOR_SCHEME_LIGHT (zero)
+ * before the call, so returning true without writing it reports light.
+ * If the callback writes a value that isn't a GhosttyColorScheme, the
+ * library ignores the query, the same as if the callback returned false.
+ *
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param[out] out_scheme Pointer to store the current color scheme
@@ -1918,6 +1923,30 @@ typedef bool (*GhosttyTerminalColorSchemeFn)(GhosttyTerminal terminal,
  *
  * The terminal uses whichever sub-struct (primary, secondary, tertiary)
  * matches the request type, but all three should be filled for simplicity.
+ *
+ * The library zeroes *out_attrs before the call, so you only need to set
+ * the fields you want to report. Every field you leave alone is reported
+ * as zero. This callback reports a VT220 with color and clipboard
+ * support, and leaves the tertiary unit ID at zero:
+ *
+ * @code
+ * static bool on_device_attributes(GhosttyTerminal terminal,
+ *                                  void* userdata,
+ *                                  GhosttyDeviceAttributes* out_attrs) {
+ *   out_attrs->primary.conformance_level = GHOSTTY_DA_CONFORMANCE_VT220;
+ *   out_attrs->primary.features[0] = GHOSTTY_DA_FEATURE_ANSI_COLOR;
+ *   out_attrs->primary.features[1] = GHOSTTY_DA_FEATURE_CLIPBOARD;
+ *   out_attrs->primary.num_features = 2;
+ *   out_attrs->secondary.device_type = GHOSTTY_DA_DEVICE_TYPE_VT220;
+ *   return true;
+ * }
+ * @endcode
+ *
+ * GhosttyDeviceAttributes is frozen. If a later version of libghostty-vt
+ * needs more fields, it adds a new callback typedef and a new option
+ * key, and keeps calling this callback with GhosttyDeviceAttributes
+ * forever. A callback written against this header keeps working with
+ * every later version of the library.
  *
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
@@ -1954,6 +1983,29 @@ typedef GhosttyString (*GhosttyTerminalEnquiryFn)(GhosttyTerminal terminal,
  * input enables in-band size reports (mode 2048).
  * Return true and fill *out_size with the current terminal geometry,
  * or return false to suppress the report.
+ *
+ * The library zeroes *out_size before the call, so any field you don't
+ * write reads as zero. A typical callback copies the geometry from your
+ * own window state, passed in through GHOSTTY_TERMINAL_OPT_USERDATA:
+ *
+ * @code
+ * static bool on_size(GhosttyTerminal terminal,
+ *                     void* userdata,
+ *                     GhosttySizeReportSize* out_size) {
+ *   const MyWindow* window = userdata;
+ *   out_size->rows = window->rows;
+ *   out_size->columns = window->columns;
+ *   out_size->cell_width = window->cell_width;
+ *   out_size->cell_height = window->cell_height;
+ *   return true;
+ * }
+ * @endcode
+ *
+ * GhosttySizeReportSize is frozen. If a later version of libghostty-vt
+ * needs more fields, it adds a new callback typedef and a new option
+ * key, and keeps calling this callback with GhosttySizeReportSize
+ * forever. A callback written against this header keeps working with
+ * every later version of the library.
  *
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA

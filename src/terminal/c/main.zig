@@ -429,7 +429,7 @@ test "out-of-range enum values passed as data return invalid_value" {
         .{ "mouse_encoder_setopt event", mouse_encode.setopt(mouse_enc, .event, &bad_int) },
         .{ "mouse_encoder_setopt format", mouse_encode.setopt(mouse_enc, .format, &bad_int) },
         .{ "selection_gesture_event_new", selection_gesture.event_new(alloc, &gesture_ev, @fromBackingInt(@intCast(bad))) },
-        .{ "size_report_encode", size_report.encode(@fromBackingInt(@intCast(bad)), .{ .rows = 1, .columns = 1, .cell_width = 1, .cell_height = 1 }, &buf, buf.len, &written) },
+        .{ "size_report_encode", size_report.encode(@fromBackingInt(@intCast(bad)), &.{ .rows = 1, .columns = 1, .cell_width = 1, .cell_height = 1 }, &buf, buf.len, &written) },
         .{ "color_scheme_report_encode", color_scheme.report_encode(@fromBackingInt(@intCast(bad)), &buf, buf.len, &written) },
     };
 
@@ -442,6 +442,47 @@ test "out-of-range enum values passed as data return invalid_value" {
 
     // The rejected values left the previous state in place.
     try testing.expectEqual(key_event.get_action(key_ev), .press);
+
+    // A color_scheme callback that writes an out-of-range value gets no
+    // reply sent, the same as returning false.
+    {
+        const S = struct {
+            var value: ?c_int = null;
+            var replies: usize = 0;
+            var reply: [32]u8 = undefined;
+            var reply_len: usize = 0;
+
+            fn writePty(_: terminal.Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+                replies += 1;
+                @memcpy(reply[0..len], ptr[0..len]);
+                reply_len = len;
+            }
+
+            fn colorScheme(_: terminal.Terminal, _: ?*anyopaque, out: *c_int) callconv(lib.calling_conv) bool {
+                if (value) |v| out.* = v;
+                return true;
+            }
+        };
+        S.value = bad_int;
+        S.replies = 0;
+
+        var t: terminal.Terminal = null;
+        try testing.expectEqual(Result.success, terminal.new(alloc, &t, 80, 24));
+        defer terminal.free(t);
+        try testing.expectEqual(Result.success, terminal.set(t, .write_pty, @ptrCast(&S.writePty)));
+        try testing.expectEqual(Result.success, terminal.set(t, .color_scheme, @ptrCast(&S.colorScheme)));
+
+        const query = "\x1B[?996n";
+        terminal.vt_write(t, query, query.len);
+        try testing.expectEqual(@as(usize, 0), S.replies);
+
+        // A callback that returns true without writing reports light,
+        // because the library zeroes the value first.
+        S.value = null;
+        terminal.vt_write(t, query, query.len);
+        try testing.expectEqual(@as(usize, 1), S.replies);
+        try testing.expectEqualStrings("\x1B[?997;2n", S.reply[0..S.reply_len]);
+    }
 }
 
 test "null value resets encoder options to their defaults" {
