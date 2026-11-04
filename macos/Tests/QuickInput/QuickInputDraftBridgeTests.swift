@@ -5,6 +5,61 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct QuickInputDraftBridgeTests {
+    @Test func codexCompletionWaitsForDraftImportThenSendsQueuedTextOnce() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("codex")
+        let ready = root.appendingPathComponent("ready")
+        let received = root.appendingPathComponent("received")
+        try """
+        import os, pathlib, tty
+        tty.setraw(0)
+        pathlib.Path(\(String(reflecting: ready.path))).write_text("ready")
+        data = b""
+        while True:
+            value = os.read(0, 1)
+            if not value: break
+            data += value
+            if value == b"\\r":
+                pathlib.Path(\(String(reflecting: received.path))).write_bytes(data)
+        """.write(to: script, atomically: true, encoding: .utf8)
+        let settings = OhMyGhosttySettings.shared
+        let enabled = settings.agentStatusHooksEnabled
+        settings.agentStatusHooksEnabled = true
+        defer { settings.agentStatusHooksEnabled = enabled }
+        let native = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let python = try #require(LocalPythonInterpreter.cached())
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = Ghostty.Shell.quote(python.executablePath) + " " + Ghostty.Shell.quote(script.path)
+        let controller = TerminalController(native, withBaseConfig: config)
+        _ = controller.window
+        defer {
+            controller.quickInputDraftImportTask?.cancel()
+            controller.window?.delegate = nil
+            controller.window?.close()
+        }
+        let surface = try #require(controller.surfaceTree.first)
+        try await waitForAppKit { FileManager.default.fileExists(atPath: ready.path) }
+        let group = try #require(surface.surfaceModel?.foregroundPID)
+        let contextID = "omg-agent-codex-\(group)"
+        let metadata = "type=app;omg_agent=codex;omg_scope=local;omg_liveness=pgid;omg_state="
+        surface.contextSignal = .init(action: .start, id: contextID, metadata: metadata + "working")
+        controller.quickInputModel.present(for: surface.id, requestFocus: false)
+        controller.quickInputModel.draft = "queued completion"
+        controller.quickInputDraftImportTask = Task { try? await Task.sleep(for: .seconds(10)) }
+        controller.queueQuickInputDraft()
+        surface.contextSignal = .init(action: .start, id: contextID, metadata: metadata + "done")
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(controller.quickInputModel.state(for: surface.id)?.queue.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: received.path))
+        controller.quickInputDraftImportTask?.cancel()
+        controller.quickInputDraftImportTask = nil
+        try await waitForAppKit { FileManager.default.fileExists(atPath: received.path) }
+        #expect(try String(contentsOf: received, encoding: .utf8) == "queued completion\r")
+        #expect(controller.quickInputModel.state(for: surface.id)?.queue.isEmpty == true)
+    }
+
     @Test func unresponsiveAgentCannotDelayComposerPresentation() throws {
         let app = try #require(NSApp.delegate as? AppDelegate)
         let settings = OhMyGhosttySettings.shared

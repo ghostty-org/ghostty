@@ -418,8 +418,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @Published private(set) var tabPaneFocusHistory = TabPaneFocusHistory()
     @Published private(set) var agentResumeDescriptors: [UUID: AgentResumeDescriptor] = [:]
     let quickInputModel = AgentQuickInputModel(historyStore: .shared)
-    var quickInputDraftImportTask: Task<Void, Never>?
+    var quickInputDraftImportTask: Task<Void, Never>? {
+        didSet {
+            if oldValue != nil, quickInputDraftImportTask == nil {
+                dispatchCompletedQuickInputQueues()
+            }
+        }
+    }
     private var quickInputSubmissionTasks: [UUID: Task<Void, Never>] = [:]
+    private var quickInputAutomaticTasks: [UUID: Task<Void, Never>] = [:]
     private var quickInputEventMonitor: Any?
     private var quickInputSecureInputCancellable: AnyCancellable?
     private var quickInputLastTerminalSurfaceID: UUID?
@@ -845,12 +852,35 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func dispatchNextQuickInput(for surfaceID: UUID) {
-        guard agentActivities[surfaceID]?.state == .done,
-              let item = quickInputModel.state(for: surfaceID)?.queue.first,
-              submitQuickInputText(item.text, to: surfaceID, restoreFocus: false) else {
-            return
+        guard quickInputAutomaticTasks[surfaceID] == nil,
+              agentActivities[surfaceID]?.state == .done,
+              quickInputModel.state(for: surfaceID)?.queue.isEmpty == false else { return }
+        quickInputAutomaticTasks[surfaceID] = Task { @MainActor [weak self] in
+            defer { self?.quickInputAutomaticTasks.removeValue(forKey: surfaceID) }
+            // Stop hooks report completion before the CLI has returned to its
+            // input loop. Do not paste into that in-progress hook invocation.
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            guard let self, self.agentActivities[surfaceID]?.state == .done,
+                  let surface = self.surfaceTree.first(where: { $0.id == surfaceID }),
+                  !surface.processExited,
+                  let item = self.quickInputModel.state(for: surfaceID)?.queue.first else { return }
+            if self.paneSessionContext(for: surface)?.isSSHSession != true {
+                let foreground = surface.surfaceModel?.foregroundPID
+                let hookMatches = foreground.map {
+                    self.agentReducers[surfaceID]?.validationIdentity?.matchesProcessGroup($0) == true
+                } ?? false
+                let detected = hookMatches ? nil : foreground.flatMap(Self.processGroupCommandLines)
+                    .flatMap { LocalAgentProcessDetector.detect(in: $0) }
+                guard hookMatches || detected?.rawValue == self.agentActivities[surfaceID]?.source else {
+                    self.quickInputModel.setStatusMessage(SettingsStrings(language: OhMyGhosttySettings.shared.language)
+                        .t("The Agent is no longer in the foreground. The queued message is retained.",
+                           "Agent 已不在前台，排队消息已保留。"))
+                    return
+                }
+            }
+            guard self.submitQuickInputText(item.text, to: surfaceID, restoreFocus: false) else { return }
+            _ = self.quickInputModel.dequeue(for: surfaceID)
         }
-        _ = quickInputModel.dequeue(for: surfaceID)
     }
 
     private func dispatchCompletedQuickInputQueues() {
@@ -1070,6 +1100,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         quickInputSecureInputCancellable = SecureInput.shared.$enabled
             .dropFirst()
             .filter { !$0 }
+            .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.dispatchCompletedQuickInputQueues()
             }
@@ -1091,6 +1122,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         quickInputSecureInputCancellable?.cancel()
         quickInputDraftImportTask?.cancel()
         for task in quickInputSubmissionTasks.values { task.cancel() }
+        for task in quickInputAutomaticTasks.values { task.cancel() }
         if let quickInputEventMonitor {
             NSEvent.removeMonitor(quickInputEventMonitor)
         }

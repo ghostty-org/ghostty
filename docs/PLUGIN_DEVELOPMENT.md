@@ -931,6 +931,13 @@ Agent environments cannot acquire this integration through a GUI-only update:
 the user must start a new SSH session and resume the Agent. They are never killed
 or silently replaced to enable draft import. No daemon wire frame changes.
 
+Automatic Quick Input queues use an explicit completed activity, allow the Stop
+hook to return to the CLI input loop, and recheck that the target is still done.
+If draft import temporarily blocks dispatch, finishing/canceling it reevaluates
+the waiting queue. Secure Input recovery runs after the published value commits.
+An idle screen, an exited Agent or a cleared activity does not authorize sending
+queued commands to a shell.
+
 Pin and History keyboard navigation are also Host-owned UI state. Pin only
 prevents automatic composer dismissal after a user-confirmed Send/Queue/queued
 edit; explicit dismiss still wins. Composer visibility and Pin are process-wide
