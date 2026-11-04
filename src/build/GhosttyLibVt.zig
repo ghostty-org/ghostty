@@ -10,6 +10,7 @@ const Config = @import("Config.zig");
 const GhosttyZig = @import("GhosttyZig.zig");
 const LipoStep = @import("LipoStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const WindowsCrt = @import("WindowsCrt.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
 
@@ -268,6 +269,11 @@ fn initLib(
             // The Zig standard library uses NT and kernel32 symbols.
             lib.root_module.linkSystemLibrary("ntdll", .{});
             lib.root_module.linkSystemLibrary("kernel32", .{});
+        }
+
+        // Building an MSVC DLL requires the full CRT library chain.
+        if (kind == .shared and target.result.abi == .msvc) {
+            WindowsCrt.link(b, lib);
         }
     }
 

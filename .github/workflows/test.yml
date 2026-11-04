@@ -630,8 +630,9 @@ jobs:
             aarch64-freebsd,
             x86_64-freebsd,
             x86_64-windows-gnu,
-            # doesn't work yet, we need a way to find msvc libc/c++ headers
-            # x86_64-windows-msvc
+            # x86_64-windows-msvc is built natively in
+            # build-libghostty-vt-windows since it needs the MSVC toolchain
+            # and Windows SDK to be installed.
           ]
     runs-on: namespace-profile-ghostty-sm
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
@@ -967,6 +968,9 @@ jobs:
       - name: Test libghostty-vt
         run: zig build test-lib-vt
 
+      - name: Test libghostty-vt (x86_64-windows-msvc)
+        run: zig build test-lib-vt -Dtarget=x86_64-windows-msvc
+
       - name: Build libghostty-vt
         run: zig build -Demit-lib-vt
 
@@ -974,23 +978,37 @@ jobs:
         working-directory: example/c-vt-static
         run: zig build
 
+      - name: Test static linking (x86_64-windows-msvc)
+        working-directory: example/c-vt-static
+        run: zig build -Dtarget=x86_64-windows-msvc
+
       # Run the example directly rather than through `zig build run`, so
       # the DLL is loaded the way an embedder would load it.
       - name: Build dynamic linking example
         working-directory: example/c-vt-effects
-        shell: pwsh
-        run: |
-          zig build
-          # setup-zig moves the local cache out of the project directory.
-          $cache = if ($env:ZIG_LOCAL_CACHE_DIR) { $env:ZIG_LOCAL_CACHE_DIR } else { ".zig-cache" }
-          Get-ChildItem $cache -Recurse -Filter ghostty-vt.dll |
-            Sort-Object LastWriteTime |
-            Select-Object -Last 1 |
-            Copy-Item -Destination zig-out/bin
+        run: zig build
 
       # pwsh reports the full NTSTATUS; `zig build run` and Git Bash
       # truncate it to 8 bits.
       - name: Test dynamic linking
+        working-directory: example/c-vt-effects
+        shell: pwsh
+        run: |
+          ./zig-out/bin/c_vt_effects.exe
+          $code = $LASTEXITCODE
+          "exit code: 0x{0:X8}" -f $code
+          exit $code
+
+      # Link and run against the MSVC-built DLL, which needs the CRT
+      # libraries from the Windows SDK.
+      - name: Build dynamic linking example (x86_64-windows-msvc)
+        working-directory: example/c-vt-effects
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue zig-out
+          zig build -Dtarget=x86_64-windows-msvc
+
+      - name: Test dynamic linking (x86_64-windows-msvc)
         working-directory: example/c-vt-effects
         shell: pwsh
         run: |
