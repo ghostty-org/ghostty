@@ -20,6 +20,9 @@
  *
  * @snippet c-vt-build-info/src/main.c build-info-query
  *
+ * To check the version of the headers rather than the library, see
+ * @ref version "Version".
+ *
  * @{
  */
 
@@ -140,6 +143,34 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup build_info
  */
 GHOSTTY_API GhosttyResult ghostty_build_info(GhosttyBuildInfo data, void *out);
+
+/**
+ * Get the full version of the library as a string.
+ *
+ * This is the version of the library your program loaded, which can
+ * differ from the GHOSTTY_VT_VERSION of the headers it was compiled
+ * against. See @ref version "Version" for when that matters.
+ *
+ * A release returns its version, such as "0.1.0". A development build
+ * also has a pre-release and build suffix, such as "0.2.0-dev+abc1234".
+ *
+ * This returns the same text as GHOSTTY_BUILD_INFO_VERSION_STRING, but
+ * as a null-terminated string that you can pass straight to `printf` or
+ * to other languages. To get the version as numbers, use
+ * ghostty_build_info() with GHOSTTY_BUILD_INFO_VERSION_MAJOR and the
+ * values that follow it.
+ *
+ * @code
+ * printf("Using libghostty-vt %s\n", ghostty_version());
+ * @endcode
+ *
+ * @return The version string. It is never NULL, is owned by the
+ *         library, and stays valid for as long as the library is
+ *         loaded. Do not free it.
+ *
+ * @ingroup build_info
+ */
+GHOSTTY_API const char *ghostty_version(void);
 
 #ifdef __cplusplus
 }

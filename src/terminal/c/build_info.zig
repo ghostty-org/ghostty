@@ -40,6 +40,18 @@ pub const BuildInfo = enum(c_int) {
     }
 };
 
+/// The library version as a null-terminated string, for ghostty_version.
+/// It has the same text as the version_string build info.
+const version_z: [:0]const u8 = std.fmt.comptimePrint(
+    "{s}",
+    .{build_options.version_string},
+);
+
+/// C: ghostty_version
+pub fn version() callconv(lib.calling_conv) [*:0]const u8 {
+    return version_z.ptr;
+}
+
 pub fn get(
     data: BuildInfo,
     out: ?*anyopaque,
@@ -169,6 +181,16 @@ test "get version_build" {
     const testing = std.testing;
     var value: lib.String = undefined;
     try testing.expectEqual(Result.success, get(.version_build, @ptrCast(&value)));
+}
+
+test "version" {
+    const testing = std.testing;
+    const value = std.mem.span(version());
+    try testing.expectEqualStrings(build_options.version_string, value);
+
+    var string: lib.String = undefined;
+    try testing.expectEqual(Result.success, get(.version_string, @ptrCast(&string)));
+    try testing.expectEqualStrings(string.ptr[0..string.len], value);
 }
 
 test "get invalid" {

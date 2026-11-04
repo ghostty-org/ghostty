@@ -372,6 +372,35 @@ pub fn build(b: *std.Build) !void {
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
 
+        // The committed version.h must match lib_version, so a version
+        // bump has to update both. The test embeds the header, so both
+        // files are copied into one directory.
+        const version_h_test = version_h_test: {
+            const wf = b.addWriteFiles();
+            const root = wf.addCopyFile(
+                b.path("src/terminal/c/version_h_test.zig"),
+                "version_h_test.zig",
+            );
+            _ = wf.addCopyFile(
+                b.path("include/ghostty/vt/version.h"),
+                "version.h",
+            );
+            const opts = b.addOptions();
+            opts.addOption(std.SemanticVersion, "lib_version", config.lib_version);
+            const test_mod = b.createModule(.{
+                .root_source_file = root,
+                .target = b.graph.host,
+                .optimize = .debug,
+            });
+            test_mod.addOptions("lib_version", opts);
+            break :version_h_test b.addTest(.{
+                .name = "ghostty-vt-version-h-test",
+                .root_module = test_mod,
+                .filters = test_filters,
+            });
+        };
+        test_lib_vt_step.dependOn(&b.addRunArtifact(version_h_test).step);
+
         if (config.emit_test_exe) {
             // With -Demit-test-exe, test-lib-vt-build builds only the C API
             // test binary and installs it to zig-out/bin, so it can run on
