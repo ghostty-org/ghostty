@@ -13,9 +13,11 @@ DOCS = [
     ROOT / "CONTRIBUTING.md",
     ROOT / "docs/REPORTING.md",
     ROOT / "docs/CONTRIBUTING.md",
+    ROOT / "docs/omg-dev-memory-diagnostics.md",
     ROOT / "docs/RELEASING.md",
     ROOT / "docs/PLUGIN_DEVELOPMENT.md",
     *sorted((ROOT / ".agents/skills/omg-issue-report").rglob("*.md")),
+    ROOT / ".agents/skills/omg-debug/SKILL.md",
 ]
 ERRORS: list[str] = []
 

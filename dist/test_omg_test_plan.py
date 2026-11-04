@@ -204,6 +204,17 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(result["suite_count"], 0)
                 self.assertEqual(result["unknown_paths"], [])
 
+    def test_debug_skill_and_diagnostics_docs_do_not_launch_xcode(self):
+        for paths in [[".agents/skills/omg-debug/SKILL.md",
+                       "docs/omg-dev-memory-diagnostics.md"],
+                      ["dist/test_omg_debug_docs.py"]]:
+            with self.subTest(paths=paths):
+                result = self.plan(paths=paths)
+                self.assertFalse(result["run_swift"])
+                self.assertEqual(result["only_testing"], [])
+                self.assertEqual(result["suite_count"], 0)
+                self.assertEqual(result["unknown_paths"], [])
+
     def test_settings_schema_is_not_treated_as_irrelevant_documentation(self):
         result = self.plan(paths=["docs/settings/schema.json"])
         self.assertEqual(result["root_modules"], ["settings"])

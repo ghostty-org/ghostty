@@ -1,6 +1,6 @@
 ---
 name: omg-debug
-description: Diagnose and repair Oh My Ghostty (OMG Dev) runtime problems on macOS, including UI latency, hover/event routing, memory growth, CPU activity, lifecycle retention, and crashes. Uses bounded local evidence and Dev builds for verification. Never touches the user's release OMG installation.
+description: Diagnose and repair Oh My Ghostty (OMG Dev) runtime problems on macOS, including UI latency, hover/event routing, memory growth, CPU activity, lifecycle retention, and crashes. Uses bounded local evidence and Dev builds for verification. Dev state is disposable, so restarts and Dev reinstalls need no extra confirmation. Never touches the user's release OMG installation.
 ---
 
 # OMG debugging
@@ -9,9 +9,10 @@ Environment: macOS with an OMG Dev Debug bundle; Xcode command-line tools are
 optional.
 
 Use this skill for OMG Dev runtime diagnosis. For memory/event schema and
-sampling commands, read `docs/omg-dev-memory-diagnostics.md` from the repo root.
+sampling commands, read
+[OMG Dev memory diagnostics](../../../docs/omg-dev-memory-diagnostics.md).
 If building, testing, or preparing a separate debuggable app, also read
-`.agents/skills/omg-build/SKILL.md` **before** running commands.
+[omg-build](../omg-build/SKILL.md) **before** running commands.
 
 ## Local tool environment
 
@@ -35,13 +36,24 @@ to work around an inherited environment variable.
 - A user request to diagnose or repair OMG Dev authorizes the bounded local
   observation, profiling, reproduction, Dev-only build/install, and restart
   needed to verify that task. Do not ask again for those scoped steps. This does
-  not authorize deleting session data, stopping unrelated processes, changing
-  the release app, public uploads, issue/PR publication, pushes, or merges.
-- Treat open terminals and their running work as user state. Before a Dev
-  restart, verify the current app and restoration state, preserve its session
-  data, and use the normal close/install path. If a specific session cannot be
-  preserved and the restart would discard it, pause for that concrete risk;
-  task authorization is not permission to lose user work.
+  not authorize stopping unrelated processes, changing the release app, public
+  uploads, issue/PR publication, pushes, or merges.
+- **Dev state is disposable.** OMG Dev and other Dev/debug builds are a
+  development sandbox: their tabs, sessions, workspaces and checkpoints are
+  scratch state, not user work. Restarting, reinstalling or resetting that state
+  to reproduce or verify a problem is already in scope; do not spend the task
+  exporting, backing up or preserving Dev state first.
+- Keep the blast radius on Dev-owned data, for example
+  `~/Library/Application Support/OMG Dev/`, `~/.config/oh-my-ghostty-dev/` and
+  Dev session-runtime records. Unrelated repositories, the user's uncommitted
+  work, other processes and the release app stay out of scope; if a required
+  step would end one of them, stop for that concrete reason instead of
+  continuing silently.
+- Confirm the target is a Dev bundle before treating its state as disposable.
+  The release app and any non-Dev instance keep the full preservation rules.
+- Capture what the reproduction needs — bounded logs, traces, screenshots —
+  before a restart that would discard it, and keep it in an owner-only
+  directory. That is about evidence, not about preserving Dev session state.
 - For analysis-only requests, do not build, install, restart, or change app
   state. Inspect the live process and existing evidence only.
 - Observe the *current* app/bundle/PID; old PIDs and `/tmp` files in a prior
