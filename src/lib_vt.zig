@@ -431,6 +431,7 @@ comptime {
         @export(&c.build_info, .{ .name = "ghostty_build_info" });
         @export(&c.version, .{ .name = "ghostty_version" });
         @export(&c.type_json, .{ .name = "ghostty_type_json" });
+        @export(&c.sized_init, .{ .name = "ghostty_sized_init" });
         @export(&c.alloc_alloc, .{ .name = "ghostty_alloc" });
         @export(&c.alloc_free, .{ .name = "ghostty_free" });
 

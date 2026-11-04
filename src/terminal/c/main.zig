@@ -255,6 +255,7 @@ pub const snapshot_decoder_next = snapshot.decoder_next;
 pub const snapshot_decoder_decode = snapshot.decoder_decode;
 
 pub const type_json = types.get_json;
+pub const sized_init = types.sized_init;
 
 pub const unicode_codepoint_width = unicode.codepoint_width;
 pub const unicode_grapheme_width = unicode.grapheme_width;

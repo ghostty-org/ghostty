@@ -22,7 +22,12 @@ pub const TaggedUnion = lib.TaggedUnion;
 pub const Struct = lib.Struct;
 pub const String = lib.String;
 pub const checkGhosttyHEnum = lib.checkGhosttyHEnum;
-pub const structSizedFieldFits = lib.structSizedFieldFits;
+pub const sizedBaseEnd = lib.sizedBaseEnd;
+pub const sizedCheck = lib.sizedCheck;
+pub const sizedField = lib.sizedField;
+pub const sizedFieldFits = lib.sizedFieldFits;
+pub const sizedSet = lib.sizedSet;
+pub const sizedWrite = lib.sizedWrite;
 
 /// A copy of the enum `E` that accepts any integer value.
 ///

@@ -551,6 +551,35 @@ pub fn get_json() callconv(lib.calling_conv) [*:0]const u8 {
     return json.ptr;
 }
 
+/// Initialize a sized struct for callers that cannot use the
+/// GHOSTTY_INIT_SIZED macro. Sets `size` bytes at `ptr` to zero, then
+/// stores `size` in the leading `size_t`. Does nothing if `ptr` is NULL or
+/// `size` is too small to hold the `size` field itself.
+pub fn sized_init(ptr: ?*anyopaque, size: usize) callconv(lib.calling_conv) void {
+    const bytes: [*]u8 = @ptrCast(ptr orelse return);
+    if (size < @sizeOf(usize)) return;
+    @memset(bytes[0..size], 0);
+    std.mem.writeInt(usize, bytes[0..@sizeOf(usize)], size, builtin.target.cpu.arch.endian());
+}
+
+test "sized_init" {
+    const Sized = extern struct {
+        size: usize,
+        a: u32,
+        b: bool,
+    };
+
+    var value: Sized = .{ .size = 1, .a = 7, .b = true };
+    sized_init(&value, @sizeOf(Sized));
+    try std.testing.expectEqual(Sized{ .size = @sizeOf(Sized), .a = 0, .b = false }, value);
+
+    // A struct too small for the size field and a NULL pointer are left alone.
+    var tiny: [@sizeOf(usize)]u8 = @splat(0xaa);
+    sized_init(&tiny, tiny.len - 1);
+    for (tiny) |b| try std.testing.expectEqual(@as(u8, 0xaa), b);
+    sized_init(null, 16);
+}
+
 const Json = struct {
     fn writeAll(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         var jws: std.json.Stringify = .{ .writer = writer };

@@ -31,6 +31,23 @@
   registered, or if it does not match its Zig type. Run it with
   `zig build test-lib-vt -Dtest-filter="C header"`.
 
+## Sized Structs
+
+Sized structs follow the rule documented on `sizedCheck` in
+`src/lib/struct.zig`. When you add or change one:
+
+- Declare the last field of its first released layout:
+  `pub const sized_base = "<field>";`. Never change it after release.
+- Call `lib.sizedCheck(.input, ptr)` or `lib.sizedCheck(.output, ptr)`
+  before you touch any other field.
+- Read input fields with `lib.sizedField` once they come after the base.
+  Write output fields with `lib.sizedSet` or `lib.sizedWrite`.
+- Never read or assign the whole struct. The caller's struct may be
+  smaller than ours.
+- Add new fields only at the end, starting at or after the previous
+  version's `@sizeOf`. Never place a new field in trailing padding.
+- Never nest sized structs, put them in arrays or pass them by value.
+
 ## Enums From C
 
 C can pass any integer where a header declares an enum. Reading an

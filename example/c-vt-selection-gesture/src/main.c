@@ -34,7 +34,7 @@ static void print_selection(
   uint8_t *buf = NULL;
   size_t len = 0;
   GhosttyResult result = ghostty_terminal_selection_format_alloc(
-      terminal, NULL, opts, &buf, &len);
+      terminal, NULL, &opts, &buf, &len);
   assert(result == GHOSTTY_SUCCESS);
 
   printf("%s: ", label);

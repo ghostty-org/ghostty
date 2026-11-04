@@ -387,6 +387,28 @@ typedef struct {
 #endif
 
 /**
+ * Initialize a sized struct at runtime.
+ *
+ * This does the same thing as GHOSTTY_INIT_SIZED(). It sets every byte of
+ * the struct to zero and then stores `size` in the struct's `size` field.
+ * It is meant for language bindings that cannot use a C macro. Pass the
+ * size of the struct as your binding lays it out, which is `sizeof` of the
+ * struct in the header the binding was built from. See @ref sized_sec.
+ *
+ * @code{.c}
+ * GhosttyRenderStateCursor cursor;
+ * ghostty_sized_init(&cursor, sizeof(cursor));
+ * @endcode
+ *
+ * If `ptr` is NULL, or `size` is too small to hold the `size` field
+ * itself, this function does nothing.
+ *
+ * @param ptr The struct to initialize, or NULL
+ * @param size The size of the struct in bytes
+ */
+GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
+
+/**
  * Return the versioned libghostty-vt C type manifest for the current target.
  *
  * The manifest defines all the public types available in the linked
