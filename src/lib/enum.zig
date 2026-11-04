@@ -125,14 +125,10 @@ pub fn checkGhosttyHEnum(comptime T: type, comptime prefix: []const u8) CheckErr
 
 /// Verify that for every key in enum T, there is a matching macro in
 /// `ghostty/vt.h`. This should only ever be called inside a `test` because the
-/// `ghostty/vt.h` module is only available then. The actual value of the macro
+/// `ghostty-vt-h` module is only available then. The actual value of the macro
 /// is not checked as the value of the macro may be more complex than an integer
 /// that matches the Zig enum.
 pub fn checkGhosttyVtHMacroExists(comptime T: type, comptime prefix: []const u8) CheckError!void {
-    // these targets don't support libc, which is required for this test
-    if (comptime builtin.cpu.arch.isWasm()) return error.SkipZigTest;
-    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
-
     try checkEnum("ghostty/vt.h", @import("ghostty-vt-h"), T, null, prefix, null);
 }
 

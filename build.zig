@@ -395,10 +395,7 @@ pub fn build(b: *std.Build) !void {
             .root_module = mod.vt,
             .filters = test_filters,
         });
-        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_test.root_module, &config, .{
-            .optimize = .Debug,
-            .target = config.baselineTarget(b.graph.io),
-        });
+        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_test.root_module, &config, .{});
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
 
@@ -406,10 +403,6 @@ pub fn build(b: *std.Build) !void {
             .name = "ghostty-vt-c-test",
             .root_module = try buildpkg.GhosttyZig.initVtCTest(b, &config, &deps),
             .filters = test_filters,
-        });
-        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_c_test.root_module, &config, .{
-            .optimize = .Debug,
-            .target = config.baselineTarget(b.graph.io),
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
