@@ -395,7 +395,8 @@ struct InspectorGitView: View {
                                   isActive: content.activeTab == .history, isBusy: content.operation != nil,
                                   worktrees: content.workingTree.worktrees, worktreesError: content.workingTree.worktreesError,
                                   state: collectionState, stateKey: collectionKey + "/refs/picker", selectedID: historySelectionID,
-                                  tags: Array(Set(content.history.snapshot?.decorationsByCommitID.values.joined().filter { $0.kind == .tag } ?? [])).sorted { $0.name < $1.name }) {
+                                  tags: Array(Set(content.history.snapshot?.decorationsByCommitID.values.joined().filter { $0.kind == .tag } ?? [])).sorted { $0.name < $1.name },
+                                  repository: content.repository) {
                 perform(.gitAction($0))
             }
             .frame(height: 28)

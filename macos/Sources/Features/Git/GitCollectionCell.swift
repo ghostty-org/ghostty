@@ -3,6 +3,7 @@ import AppKit
 /// Reused native cells keep file identity and checkbox state explicit.
 final class GitCollectionCell: NSTableCellView {
     let checkbox = GitStageCheckbox()
+    let favoriteButton = NSButton()
     private let progress = NativeProgressIndicator()
     private let disclosure = NSButton()
     private let icon = NSImageView()
@@ -13,6 +14,7 @@ final class GitCollectionCell: NSTableCellView {
     private let rule = NSView()
     private var row: GitCollectionRow?
     private var toggle: () -> Void = {}
+    private var toggleFavorite: () -> Void = {}
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
@@ -30,20 +32,34 @@ final class GitCollectionCell: NSTableCellView {
         disclosure.imagePosition = .imageOnly
         disclosure.target = self
         disclosure.action = #selector(toggleFolder)
+        favoriteButton.isBordered = false
+        favoriteButton.imagePosition = .imageOnly
+        favoriteButton.target = self
+        favoriteButton.action = #selector(activateFavorite)
         progress.style = .spinning
         progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
         rule.wantsLayer = true
-        [checkbox, progress, disclosure, icon, name, subtitle, status, badge, rule].forEach(addSubview)
+        [checkbox, favoriteButton, progress, disclosure, icon, name, subtitle, status, badge, rule].forEach(addSubview)
     }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(_ row: GitCollectionRow, colors: GitCollectionColors, toggle: @escaping () -> Void,
-                   stage: @escaping () -> Void) {
+                   stage: @escaping () -> Void, favorite: (isFavorite: Bool, toggle: () -> Void)? = nil) {
         self.row = row
         self.toggle = toggle
+        self.toggleFavorite = favorite?.toggle ?? {}
         let item = row.item
-        [checkbox, progress, disclosure, icon, subtitle, status, badge, rule].forEach { $0.isHidden = true }
+        [checkbox, favoriteButton, progress, disclosure, icon, subtitle, status, badge, rule].forEach { $0.isHidden = true }
+        if case .branch = item.kind, let favorite {
+            favoriteButton.isHidden = false
+            favoriteButton.image = NSImage(systemSymbolName: favorite.isFavorite ? "star.fill" : "star", accessibilityDescription: nil)
+            favoriteButton.contentTintColor = favorite.isFavorite ? colors.accent : colors.secondary
+            favoriteButton.state = favorite.isFavorite ? .on : .off
+            favoriteButton.toolTip = GitL10n.text(favorite.isFavorite ? "Remove Favorite" : "Favorite Branch")
+            favoriteButton.setAccessibilityLabel(favoriteButton.toolTip)
+            favoriteButton.setAccessibilityIdentifier(item.id + "/favorite")
+        }
         progress.setAnimating(false)
         name.stringValue = item.title
         name.font = .systemFont(ofSize: 11, weight: item.isCategory ? .medium : .regular)
@@ -129,6 +145,7 @@ final class GitCollectionCell: NSTableCellView {
             .withSymbolConfiguration(.init(pointSize: 11, weight: .regular))
     }
     @objc private func toggleFolder() { toggle() }
+    @objc private func activateFavorite() { toggleFavorite() }
 
     override func layout() {
         super.layout()
@@ -136,7 +153,8 @@ final class GitCollectionCell: NSTableCellView {
         let x = InspectorTreeLayout.leading + CGFloat(row.depth) * InspectorTreeLayout.indent
         var textX = x
         let center = subtitle.isHidden ? bounds.height / 2 : 12
-        let categoryActionWidth: CGFloat = row.item.isCategory && row.item.stageBatch != nil ? 28 : 0
+        let categoryActionWidth: CGFloat = (row.item.isCategory && row.item.stageBatch != nil) || !favoriteButton.isHidden ? 28 : 0
+        favoriteButton.frame = .init(x: bounds.width - 32, y: center - 12, width: 24, height: 24)
         if row.item.isCategory {
             checkbox.frame = .init(x: bounds.width - 32, y: center - 12, width: 22, height: 24)
             progress.frame = .init(x: bounds.width - 27, y: center - 6, width: 12, height: 12)

@@ -70,6 +70,9 @@ struct GitCollectionView: NSViewRepresentable {
     var stateKey = ""
     var selectedID: String?
     var extraRefs: [GitRefDecoration] = []
+    var favoriteBranchIDs: Set<String> = []
+    var favoritesOnly = false
+    var toggleBranchFavorite: ((String) -> Void)?
     var pasteboard = NSPasteboard.general
     var referenceAction: (GitRefDecoration) -> Void = { InspectorCopyMenu.copy($0.name) }
     var controller: GitCollectionController?
@@ -142,6 +145,7 @@ struct GitCollectionView: NSViewRepresentable {
             let changedMode = old?.mode != value.mode
             let changedQuery = old?.query != value.query
             let rebuild = old?.source != value.source || changedMode || changedQuery || changedContext ||
+                old?.favoritesOnly != value.favoritesOnly || (value.favoritesOnly && old?.favoriteBranchIDs != value.favoriteBranchIDs) ||
                 old?.pending != value.pending || old?.canWrite != value.canWrite || old?.extraRefs != value.extraRefs || old?.languageCode != value.languageCode
             if changedContext || changedMode { saveAnchor() }
             input = value
@@ -170,7 +174,8 @@ struct GitCollectionView: NSViewRepresentable {
             if changedQuery { filterCollapsed.removeAll() }
             if rebuild {
                 nodes = GitCollectionBuilder.nodes(source: value.source, mode: value.mode, query: value.query,
-                                                   pending: value.pending, canWrite: value.canWrite, extraRefs: value.extraRefs)
+                                                   pending: value.pending, canWrite: value.canWrite, extraRefs: value.extraRefs,
+                                                   favoriteBranchIDs: value.favoritesOnly ? value.favoriteBranchIDs : nil)
                 let collapsed = value.query.isEmpty ? state.collapsed[value.stateKey, default: []] : filterCollapsed
                 let initial: String?
                 if case .refs(let branches, _, _, _, _) = value.source { initial = branches.first(where: \.isCurrent)?.id } else { initial = nil }
@@ -189,7 +194,7 @@ struct GitCollectionView: NSViewRepresentable {
                     }
                 }
             }
-            if old?.effectiveColors != value.effectiveColors {
+            if old?.effectiveColors != value.effectiveColors || old?.favoriteBranchIDs != value.favoriteBranchIDs {
                 table.enumerateAvailableRowViews { view, index in
                     (view as? GitCollectionRowView)?.colors = value.effectiveColors
                     if self.rows.indices.contains(index), let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? GitCollectionCell {
@@ -348,7 +353,10 @@ struct GitCollectionView: NSViewRepresentable {
             if let table, table.selectedRowIndexes.count > 1, selectedRows.contains(row.id),
                let batch = selectedBatch, !batch.paths.isDisjoint(with: input?.pending ?? []) { displayed.item.enabled = false }
             cell.configure(displayed, colors: input?.effectiveColors ?? .init(), toggle: { [weak self] in self?.toggleFolder(row.id) },
-                           stage: { [weak self] in self?.toggleStage(rowID: row.id) })
+                           stage: { [weak self] in self?.toggleStage(rowID: row.id) },
+                           favorite: input?.toggleBranchFavorite.map { toggle in
+                               (isFavorite: input?.favoriteBranchIDs.contains(row.id) == true, toggle: { toggle(row.id) })
+                           })
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !updating, let table, let input else { return }

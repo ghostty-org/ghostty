@@ -2696,7 +2696,7 @@ status updates. It grows from 44 to 112 points, then scrolls internally. The
 footer reserves space for index progress without moving the Commit action.
 
 
-History's ref picker embeds the same `GitRefBrowser` as Branches. Search and the
+History's native ref picker reuses the same `GitCollectionView` as Branches. Search and the
 List/Tree control live inside the popover on one row. Categories are Branches,
 Remote Branches and Worktrees, plus current/all-history scope choices. Search is
 case-insensitive and reuses the command palette's matching helper. Up/Down move
@@ -2705,7 +2705,14 @@ closes the popover. Background ref refreshes and mode switches preserve the
 keyboard candidate. Browsing a worktree reads its HEAD (including detached HEAD)
 without opening a terminal or changing Git refs. Ref selection refreshes history
 only. Worktrees remain physical checkout rows with visible paths; branch rows
-mark associated worktrees.
+mark associated worktrees. Branch rows in the History picker have a star button
+that toggles a favorite without selecting a ref or closing the popover. The
+All References / Favorite Branches filter keeps the current/all-history scope
+shortcuts available. Favorites retain full local/remote ref identities and use
+the same search and List/Tree modes. They persist in app preferences per common
+Git directory (shared by linked worktrees), with local and SSH connection
+identities kept separate. Missing refs are omitted from the favorite list;
+favoriting never checks out a branch or changes repository files.
 
 Changes has its own remembered mode; Branches and the picker share the remembered
 ref mode. Ref Tree grouping splits full branch names on `/`, with the remote as

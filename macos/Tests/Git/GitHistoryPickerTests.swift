@@ -5,6 +5,106 @@ import Testing
 
 @MainActor
 struct GitHistoryPickerTests {
+    @Test func favoritesPersistShareWorktreesAndSeparateRepositoriesAndSSHHosts() throws {
+        let suite = "GitHistoryFavoritesTests." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let repository = GitRepositoryIdentity(worktreePath: "/repo", gitDirPath: "/repo/.git", commonGitDirPath: "/repo/.git")
+        let worktree = GitRepositoryIdentity(worktreePath: "/repo-feature", gitDirPath: "/repo/.git/worktrees/feature", commonGitDirPath: "/repo/.git")
+        let other = GitRepositoryIdentity(worktreePath: "/other", gitDirPath: "/other/.git", commonGitDirPath: "/other/.git")
+        let store = GitHistoryBranchFavorites(repository: repository, defaults: defaults)
+        store.toggle("refs/heads/main")
+        store.toggle("refs/remotes/origin/main")
+        store.toggle("refs/tags/v1")
+        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["refs/heads/main", "refs/remotes/origin/main"])
+        #expect(GitHistoryBranchFavorites(repository: worktree, defaults: defaults).refs == store.refs)
+        #expect(GitHistoryBranchFavorites(repository: other, defaults: defaults).refs.isEmpty)
+        func remote(_ host: String) throws -> GitHistoryBranchFavorites {
+            GitHistoryBranchFavorites(repository: GitRepositoryIdentity(target: .ssh(try GitSSHConnection(destination: host)),
+                worktreePath: "/repo", gitDirPath: "/repo/.git", commonGitDirPath: "/repo/.git"), defaults: defaults)
+        }
+        let firstHost = try remote("host-a")
+        let secondHost = try remote("host-b")
+        #expect(firstHost.refs.isEmpty)
+        firstHost.toggle("refs/heads/remote-only")
+        #expect(secondHost.refs.isEmpty)
+        #expect(!store.refs.contains("refs/heads/remote-only"))
+        store.toggle("refs/heads/main")
+        #expect(store.refs == ["refs/remotes/origin/main"])
+        store.toggle("refs/remotes/origin/main")
+        #expect(store.refs.isEmpty)
+    }
+
+    @Test func favoriteFilterKeepsFullRefIdentitySearchAndTreeModes() {
+        let branches = [("feature/main", false), ("origin/main", true), ("main", false)].map { name, remote in
+            GitBranchInfo(name: name, commit: .init("abc1234"), isCurrent: name == "main", isRemote: remote, upstream: "", tracking: "")
+        }
+        let source = GitCollectionSource.refs(branches: branches, worktrees: [], scopes: true, branchesError: nil, worktreesError: nil)
+        let favorites: Set<String> = ["refs/heads/feature/main", "refs/remotes/origin/main", "refs/heads/deleted"]
+        for mode in GitCollectionMode.allCases {
+            let nodes = GitCollectionBuilder.nodes(source: source, mode: mode, favoriteBranchIDs: favorites)
+            let rows = GitCollectionBuilder.rows(nodes)
+            #expect(rows.filter { if case .branch = $0.item.kind { return true }; return false }.map(\.id).sorted()
+                == ["refs/heads/feature/main", "refs/remotes/origin/main"])
+            let searched = GitCollectionBuilder.rows(GitCollectionBuilder.nodes(source: source, mode: mode, query: "ORIGIN",
+                favoriteBranchIDs: favorites))
+            #expect(searched.contains { $0.id == "refs/remotes/origin/main" })
+            #expect(!searched.contains { $0.id == "refs/heads/feature/main" })
+        }
+        let empty = GitCollectionBuilder.nodes(source: source, mode: .list, favoriteBranchIDs: [])
+        #expect(empty.first?.children.first?.item.title == GitL10n.text("No favorite branches. Star a branch to add it here."))
+    }
+
+    @Test func favoriteButtonsUpdateWithoutBrowsingAndPickerStillSelectsCurrentScope() throws {
+        let suite = "GitHistoryFavoritesPickerTests." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let repository = GitRepositoryIdentity(worktreePath: "/repo", gitDirPath: "/repo/.git", commonGitDirPath: "/repo/.git")
+        let branches = ["main", "feature/demo"].map {
+            GitBranchInfo(name: $0, commit: .init("abc1234"), isCurrent: $0 == "main", isRemote: false, upstream: "", tracking: "")
+        }
+        var actions: [InspectorGitAction] = []
+        var closed = false
+        let picker = GitHistoryScopePicker(title: "All branches", branches: branches, enabled: true,
+            selectedID: "scope:allBranches", repository: repository) { actions.append($0) }
+        let controller = GitHistoryScopePopoverController(content: picker, defaults: defaults) { closed = true }
+        let window = NSWindow(contentRect: .init(origin: .zero, size: controller.preferredContentSize),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        defer { window.contentViewController = nil; window.close() }
+        controller.view.layoutSubtreeIfNeeded()
+        let table = try #require(find(GitCollectionTableView.self, in: controller.view).first)
+        let coordinator = try #require(table.target as? GitCollectionView.Coordinator)
+        func star(_ id: String) throws -> NSButton {
+            let row = try #require(coordinator.rows.firstIndex { $0.id == id })
+            let cell = try #require(table.view(atColumn: 0, row: row, makeIfNecessary: true) as? GitCollectionCell)
+            cell.layoutSubtreeIfNeeded()
+            #expect(!cell.favoriteButton.isHidden)
+            #expect(cell.favoriteButton.frame.width == 24)
+            return cell.favoriteButton
+        }
+        try star("refs/heads/main").performClick(nil)
+        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["refs/heads/main"])
+        #expect(actions.isEmpty && !closed)
+        controller.favoritesControlForTesting.buttonsForTesting[1].performClick(nil)
+        #expect(coordinator.rows.contains { $0.id == "refs/heads/main" })
+        #expect(!coordinator.rows.contains { $0.id == "refs/heads/feature/demo" })
+        let selected = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/main" })
+        coordinator.activate(row: selected)
+        #expect(actions == [.browseBranch("refs/heads/main")] && closed)
+        closed = false
+        try star("refs/heads/main").performClick(nil)
+        #expect(!coordinator.rows.contains { $0.id == "refs/heads/main" })
+        #expect(!closed)
+        controller.favoritesControlForTesting.buttonsForTesting[0].performClick(nil)
+        #expect(coordinator.rows.contains { $0.id == "refs/heads/feature/demo" })
+        let currentScope = try #require(GitHistoryScope.allCases.firstIndex { $0 != .allBranches })
+        controller.scopeControlForTesting.buttonsForTesting[currentScope].performClick(nil)
+        #expect(actions.last == .selectHistoryScope(GitHistoryScope.allCases[currentScope]))
+        #expect(closed)
+    }
+
     private func find<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
         (view as? T).map { [$0] } ?? view.subviews.flatMap { find(type, in: $0) }
     }

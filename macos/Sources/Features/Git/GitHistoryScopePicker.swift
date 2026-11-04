@@ -13,6 +13,7 @@ struct GitHistoryScopePicker: NSViewRepresentable {
     var stateKey = "history-refs"
     var selectedID: String?
     var tags: [GitRefDecoration] = []
+    var repository: GitRepositoryIdentity?
     let perform: (InspectorGitAction) -> Void
     @Environment(\.gitCollectionColors) private var colors
     var nativeColors: GitCollectionColors { colors }
@@ -109,5 +110,32 @@ struct GitHistoryScopePicker: NSViewRepresentable {
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: Control, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 0, height: 28)
+    }
+}
+
+struct GitHistoryBranchFavorites {
+    private let defaults: UserDefaults
+    private let repositoryKey: String
+    private static let defaultsKey = "git.history.favoriteBranches"
+
+    init(repository: GitRepositoryIdentity, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        switch repository.target {
+        case .local: repositoryKey = "local\0" + repository.commonGitDirPath
+        case .ssh(let connection): repositoryKey = "ssh\0" + connection.identity + "\0" + repository.commonGitDirPath
+        }
+    }
+
+    var refs: Set<String> {
+        Set((defaults.dictionary(forKey: Self.defaultsKey)?[repositoryKey] as? [String]) ?? [])
+    }
+
+    func toggle(_ ref: String) {
+        guard ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/remotes/") else { return }
+        var values = refs
+        if !values.insert(ref).inserted { values.remove(ref) }
+        var repositories = defaults.dictionary(forKey: Self.defaultsKey) ?? [:]
+        repositories[repositoryKey] = values.isEmpty ? nil : values.sorted()
+        defaults.set(repositories, forKey: Self.defaultsKey)
     }
 }
