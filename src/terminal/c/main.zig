@@ -295,6 +295,7 @@ test {
     _ = sys;
     _ = terminal;
     _ = types;
+    _ = @import("abi_test.zig");
     _ = unicode;
 
     // We want to make sure we run the tests for the C allocator interface.

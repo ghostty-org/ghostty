@@ -366,7 +366,7 @@ pub fn build(b: *std.Build) !void {
 
         const mod_vt_c_test = b.addTest(.{
             .name = "ghostty-vt-c-test",
-            .root_module = mod.vt_c,
+            .root_module = try buildpkg.GhosttyZig.initVtCTest(b, &config, &deps),
             .filters = test_filters,
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
