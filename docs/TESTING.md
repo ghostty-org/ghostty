@@ -152,9 +152,9 @@ Selection safety:
 - A project-file diff containing only balanced changes to `MARKETING_VERSION` and
   `CURRENT_PROJECT_VERSION` selects update/version coverage instead of forcing a
   broad sweep. Any structural project-file edit still falls back broadly.
-- Documentation-only/no-change selection does not invoke Xcode; it explicitly
-  says no Swift tests ran. Settings schema and mapped editor resources are not
-  treated as irrelevant documentation.
+- Documentation/skill-support and no-change selections do not invoke Xcode; the
+  plan explicitly says no Swift tests ran. Settings schema and mapped editor
+  resources are not treated as irrelevant documentation.
 - Suite names are discovered from `Tests`/`Suite` type declarations in Swift test
   files. Add new areas and dependency edges to the map alongside feature changes.
   Unmapped test files or undiscoverable test types are errors, not silently omitted

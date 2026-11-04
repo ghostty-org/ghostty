@@ -75,6 +75,12 @@ Local, SSH, Agent, split layout (if relevant):
 ## Evidence
 Short redacted log excerpt or screenshot:
 What I have already checked:
+
+## Related issues
+Full GitHub URLs, one per line; omit when none.
+
+## AI assistance
+Tool, scope of assistance, and review confirmation; omit when none.
 ```
 
 You are not expected to diagnose the root cause or propose a fix. If you have a
@@ -128,6 +134,14 @@ private reporting service.
 The checked-in [OMG Issue Report skill](../.agents/skills/omg-issue-report/SKILL.md)
 is an implementation aid for this guide, not a separate source of policy.
 
+The helper keeps a short entrypoint and loads only the report template or
+evidence/submission reference relevant to the request. Its checked-in templates
+follow the compact shape used by mature open-source issue forms: expected and
+actual behavior, minimal reproduction, affected version/environment, bounded
+evidence, related issues and AI-assistance disclosure. Those forms inspired the
+layout only; OMG's own reporting, privacy and authorization rules remain the
+authority here.
+
 - Only an explicit `/skill:omg-issue-report <description>` invocation authorizes
   that helper to submit an issue directly to `jischeng/oh-my-ghostty` using local
   `gh`. By the maintainer's established workflow, this invocation is the user's
@@ -140,8 +154,9 @@ is an implementation aid for this guide, not a separate source of policy.
   reviewed, minimal factual body with redacted evidence. A skill cannot grant
   itself authority over those instructions.
 - After submission, return the issue URL and any local evidence location to the
-  user. If submission fails, retain the draft and report the failure rather than
-  posting through a different tool or destination.
+  user; return the complete filtered-log path privately, never in the public
+  issue. If submission fails, retain the draft and report the failure rather
+  than posting through a different tool or destination.
 
 Humans can submit directly through GitHub; the local-`gh` restriction above is
 for the dedicated automation helper. Review and disclose AI assistance in manual

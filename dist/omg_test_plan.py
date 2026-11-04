@@ -97,7 +97,10 @@ FULL_SUITE_GLOBS = (
     "macos/Tests/Helpers/TemporaryConfig.swift", "macos/Tests/Helpers/OMGTestTags.swift",
     "macos/Tests/Helpers/AppKitTestWait.swift",
 )
-NO_SWIFT_GLOBS = ("docs/**", "*.md", "LICENSE*", ".agents/skills/*/SKILL.md")
+NO_SWIFT_GLOBS = (
+    "docs/**", "*.md", "LICENSE*", ".agents/skills/omg-issue-report/**",
+    ".agents/skills/*/SKILL.md", "dist/*docs*.py",
+)
 SMOKE_SUITE = "GhosttyTests/OhMyGhosttyVersionTests"
 SUITE_TYPE = re.compile(r"\b(?:struct|class|enum)\s+(\w+(?:Tests|Suite))\b")
 DESKTOP_TAG = re.compile(r"\.tags\([^)]*\.interactiveDesktop\b")

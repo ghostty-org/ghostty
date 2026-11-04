@@ -192,12 +192,17 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result["unknown_paths"], [path])
 
     def test_documentation_only_or_no_change_does_not_launch_xcode(self):
-        for paths in [[], ["docs/TESTING.md"], ["AGENTS.md", ".agents/skills/omg-build/SKILL.md"]]:
+        for paths in [[], ["docs/TESTING.md"], ["AGENTS.md", ".agents/skills/omg-build/SKILL.md"],
+                      [".agents/skills/omg-issue-report/SKILL.md",
+                       ".agents/skills/omg-issue-report/references/evidence.md",
+                       ".agents/skills/omg-issue-report/assets/bug-report.md"],
+                      ["dist/check_omg_docs.py", "dist/test_omg_community_docs.py"]]:
             with self.subTest(paths=paths):
                 result = self.plan(paths=paths)
                 self.assertFalse(result["run_swift"])
                 self.assertEqual(result["only_testing"], [])
                 self.assertEqual(result["suite_count"], 0)
+                self.assertEqual(result["unknown_paths"], [])
 
     def test_settings_schema_is_not_treated_as_irrelevant_documentation(self):
         result = self.plan(paths=["docs/settings/schema.json"])

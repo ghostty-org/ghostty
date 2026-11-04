@@ -9,14 +9,15 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLIC_DOCS = [
     "README.md", "README.zh-CN.md", "CONTRIBUTING.md",
     "docs/REPORTING.md", "docs/CONTRIBUTING.md",
-    ".agents/skills/omg-issue-report/SKILL.md",
     ".github/pull_request_template.md",
 ]
+SKILL_DIR = ROOT / ".agents/skills/omg-issue-report"
+SKILL_DOCS = sorted(str(path.relative_to(ROOT)) for path in SKILL_DIR.rglob("*.md"))
 
 
 class CommunityDocsTests(unittest.TestCase):
     def test_public_guides_exist_and_both_readmes_link_them(self):
-        for path in PUBLIC_DOCS:
+        for path in [*PUBLIC_DOCS, *SKILL_DOCS]:
             self.assertTrue((ROOT / path).is_file(), path)
         for name in ["README.md", "README.zh-CN.md"]:
             text = (ROOT / name).read_text()
@@ -26,7 +27,7 @@ class CommunityDocsTests(unittest.TestCase):
         self.assertIn("README.md", (ROOT / "README.zh-CN.md").read_text())
 
     def test_relative_markdown_and_html_links_resolve(self):
-        for name in PUBLIC_DOCS:
+        for name in [*PUBLIC_DOCS, *SKILL_DOCS]:
             document = ROOT / name
             text = document.read_text()
             targets = re.findall(r"\[[^]]*\]\(([^)]+)\)", text)
@@ -73,18 +74,43 @@ class CommunityDocsTests(unittest.TestCase):
                                  f"{path.name}: {job}")
 
     def test_report_helper_references_policy_and_requires_explicit_invocation(self):
-        skill = (ROOT / ".agents/skills/omg-issue-report/SKILL.md").read_text()
+        skill = (SKILL_DIR / "SKILL.md").read_text()
+        evidence = (SKILL_DIR / "references/evidence.md").read_text()
+        submission = (SKILL_DIR / "references/submission.md").read_text()
+        bug = (SKILL_DIR / "assets/bug-report.md").read_text()
+        feature = (SKILL_DIR / "assets/feature-request.md").read_text()
         report = (ROOT / "docs/REPORTING.md").read_text()
         agents = (ROOT / "AGENTS.md").read_text()
         self.assertIn("disable-model-invocation: true", skill)
         self.assertIn("../../../docs/REPORTING.md", skill)
+        for name in ["assets/bug-report.md", "assets/feature-request.md",
+                     "references/evidence.md", "references/submission.md"]:
+            self.assertIn(name, skill)
+            self.assertTrue((SKILL_DIR / name).is_file(), name)
         self.assertNotIn("优先级高于", skill)
         self.assertIn("无需二次确认", skill)
         self.assertIn("no second confirmation", report)
         self.assertIn("/skill:omg-issue-report", report)
         self.assertIn("docs/REPORTING.md", agents)
-        self.assertIn("gh issue create --repo jischeng/oh-my-ghostty", skill)
-        self.assertIn("完整日志路径只私下返回给用户", skill)
+        self.assertIn("gh issue create --repo jischeng/oh-my-ghostty", submission)
+        self.assertIn("complete local path only to the", evidence)
+        self.assertIn("never publish it in an Issue", evidence)
+        self.assertIn("return the complete filtered-log path privately", report)
+        for required in ["Expected:", "Actual:", "## Reproduction", "## Environment",
+                         "## Evidence", "## Related issues", "## AI assistance"]:
+            self.assertIn(required, bug)
+        for required in ["## Workflow and current difficulty", "## Desired outcome",
+                         "not version-specific"]:
+            self.assertIn(required, feature)
+        self.assertIn("Include:", report)
+
+    def test_report_helper_uses_progressive_disclosure(self):
+        entrypoint = (SKILL_DIR / "SKILL.md").read_text()
+        self.assertLess(len(entrypoint.splitlines()), 80)
+        self.assertIn("Reporting problems", entrypoint)
+        self.assertNotIn("````markdown", entrypoint)
+        self.assertNotIn("gh issue create --repo", entrypoint)
+        self.assertIn("mature open-source issue forms", (ROOT / "docs/REPORTING.md").read_text())
 
     def test_github_templates_point_to_omg_guides(self):
         folder = ROOT / ".github/ISSUE_TEMPLATE"
