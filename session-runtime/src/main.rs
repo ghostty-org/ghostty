@@ -7,6 +7,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::Arc,
 };
+mod session_cli;
 fn copy(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
     let mut buffer = [0; 65536];
     loop {
@@ -346,6 +347,7 @@ fn report(agent: &str, state: &str, conversation: &str, cwd: &str) -> io::Result
 fn main() -> io::Result<()> {
     let a: Vec<String> = env::args().collect();
     match a.get(1).map(String::as_str) {
+        Some("sessions") => std::process::exit(session_cli::run(&a[2..])?.into()),
         Some("serve") if a.len() >= 5 && a[3] == "--" => {
             omg_session_runtime::server::serve(Path::new(&a[2]), &a[4..])
         }
@@ -434,7 +436,7 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         _ => {
-            eprintln!("usage: omgd host DIRECTORY -- SHELL... | host-local DIRECTORY -- SHELL... | session-holder | serve SOCKET -- COMMAND... | bridge SOCKET | install-runtime CONNECTION_JSON | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive] | close-local SOCKET UUID | list-local SOCKET");
+            eprintln!("usage: omgd sessions --help | host DIRECTORY -- SHELL... | host-local DIRECTORY -- SHELL... | session-holder | serve SOCKET -- COMMAND... | bridge SOCKET | install-runtime CONNECTION_JSON | connect LOCAL_SOCKET CONNECTION_JSON | retry-local SOCKET [--interactive] | close-local SOCKET UUID | list-local SOCKET");
             std::process::exit(2)
         }
     }

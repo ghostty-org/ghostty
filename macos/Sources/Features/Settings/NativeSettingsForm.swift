@@ -174,6 +174,16 @@ final class NativeSettingsForm: NSViewController {
     var retained: [AnyObject] = []
     var refreshers: [() -> Void] = []
     private var anchors: [String: NSView] = [:]
+    private var boxes: [NSBox] = []
+    private var palette: OMGThemePalette?
+
+    func applyPalette(_ palette: OMGThemePalette) {
+        self.palette = palette
+        for box in boxes {
+            box.fillColor = palette.background.blended(withFraction: 0.045, of: palette.foreground) ?? palette.background
+            box.borderColor = palette.foreground.withAlphaComponent(0.12)
+        }
+    }
 
     override func loadView() {
         let scroll = NSScrollView()
@@ -213,6 +223,8 @@ final class NativeSettingsForm: NSViewController {
         box.borderColor = .separatorColor
         box.fillColor = .controlBackgroundColor
         box.cornerRadius = 10
+        boxes.append(box)
+        if let palette { applyPalette(palette) }
         box.contentViewMargins = .zero
         box.translatesAutoresizingMaskIntoConstraints = false
         let rows = NSStackView()

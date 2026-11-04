@@ -84,11 +84,20 @@ extension NativeSettingsController {
     private func terminal(_ form: NativeSettingsForm) {
         form.section(text("On launch", "启动时"))
         picker(form, strings.startupModeLabel, \.startupMode, OMGStartupMode.allCases.map { ($0, strings.startupModeTitle($0)) })
-        form.section(text("Background sessions", "后台会话"),
-                     caption: text("Continue tasks while OMG is closed.", "退出 OMG 后仍可继续任务。"))
-        toggle(form, text("Local sessions", "本地会话"), \.keepLocalSessionsOnQuit)
-        toggle(form, text("SSH sessions", "SSH 会话"), \.keepSSHSessionsOnQuit)
-        form.row(text("Session Library", "后台会话库"), control: SettingsActionButton(strings.openFileButton) { SessionRuntimeLibrary.show() })
+        form.section(text("When quitting OMG", "退出 OMG 时"),
+                     caption: text("Leave a switch off to keep those sessions running in the background.", "关闭开关后，相应会话会在退出 OMG 后继续运行。"))
+        for (title, key) in [(text("Close local sessions on quit", "退出时关闭本地会话"), \OhMyGhosttySettings.keepLocalSessionsOnQuit),
+                             (text("Close SSH sessions on quit", "退出时关闭 SSH 会话"), \OhMyGhosttySettings.keepSSHSessionsOnQuit)] {
+            let control = SettingsSwitch(value: !settings[keyPath: key]) { [weak settings] in settings?[keyPath: key] = !$0 }
+            form.row(title, control: control)
+            form.refreshers.append { [weak settings, weak control] in
+                if let settings { control?.state = settings[keyPath: key] ? .off : .on }
+            }
+        }
+        form.section(text("Session management", "会话管理"))
+        form.row(text("Local and SSH sessions", "本地与 SSH 会话"),
+                 control: SettingsActionButton(text("View all sessions…", "查看所有会话…")) { SessionRuntimeOverview.show() },
+                 help: "omg +sessions list · omg +sessions close --all --yes")
         form.row(strings.runtimeLocalOpen, control: SettingsActionButton(text("Open…", "打开…")) { [weak self] in
             guard let self, let window = self.view.window else { return }
             let panel = NSOpenPanel()
@@ -139,12 +148,9 @@ extension NativeSettingsController {
         picker(form, strings.appearancePickerLabel, \.windowThemeOverride, [
             (nil, text("Follow terminal", "跟随终端")), (.system, text("System", "系统")), (.light, text("Light", "浅色")), (.dark, text("Dark", "深色"))
         ])
-        let themes = GhosttyThemeCatalog.availableThemes()
-        for (title, key) in [(strings.lightThemeLabel, \OhMyGhosttySettings.lightThemeOverride),
-                             (strings.darkThemeLabel, \OhMyGhosttySettings.darkThemeOverride)] {
-            let available = Array(Set(themes + [settings[keyPath: key]].compactMap { $0 })).sorted()
-            picker(form, title, key, [(nil, text("Default", "默认"))] + available.map { (Optional($0), $0) })
-        }
+        let gallery = NativeThemeGallery(settings: settings)
+        form.addChild(gallery)
+        form.embed(gallery.view, height: 470)
         form.section(strings.fontSection)
         picker(form, strings.fontFamilyLabel, \.fontFamilyOverride,
                [(nil, text("Default", "默认"))] + Array(Set(NSFontManager.shared.availableFontFamilies +
@@ -161,13 +167,9 @@ extension NativeSettingsController {
         }, range: 0.05...1, step: 0.05)
         picker(form, strings.backgroundBlurLabel, \.backgroundBlurOverride,
                [(nil, text("Default", "默认"))] + OhMyGhosttyBackgroundBlur.allCases.map { (Optional($0), strings.blurTitle($0)) })
-        more(form, strings.cursorSection) { [weak self] page in
-            guard let self else { return }
-            page.section(self.strings.cursorSection)
-            self.picker(page, self.strings.cursorStyleLabel, \.cursorStyleOverride,
-                        [(nil, self.text("Default", "默认"))] + OhMyGhosttyCursorStyle.allCases.map { (Optional($0), self.strings.cursorTitle($0)) })
-            self.core(.cursor, in: page)
-        }
+        core(.cursor, in: form)
+        picker(form, strings.cursorStyleLabel, \.cursorStyleOverride,
+               [(nil, text("Default", "默认"))] + OhMyGhosttyCursorStyle.allCases.map { (Optional($0), strings.cursorTitle($0)) })
         form.row(strings.resetAppearanceButton, control: SettingsActionButton(text("Reset", "重置")) { [weak self] in
             self?.settings.resetAppearance(); self?.select(.appearance)
         })

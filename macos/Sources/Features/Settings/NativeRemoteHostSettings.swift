@@ -118,10 +118,11 @@ extension NativeSettingsController {
     }
 
     private func addHost() {
-        guard let window = view.window else { return }
+        guard let window = view.window, window.attachedSheet == nil else { return }
         let sheet = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         sheet.title = text("Add a host", "添加主机")
+        sheet.isReleasedWhenClosed = false
         let form = NativeSettingsForm()
         sheet.contentViewController = form
         form.section(text("SSH address", "SSH 地址"))
@@ -136,17 +137,30 @@ extension NativeSettingsController {
             window.endSheet(sheet)
             self.showHost(id)
         }
-        let controls = NSStackView(views: [field, SettingsActionButton(text("Add", "添加")) { [weak self, weak field] in
+        let errorLabel = NSTextField(wrappingLabelWithString: "")
+        errorLabel.textColor = .systemRed
+        errorLabel.font = .systemFont(ofSize: 12)
+        errorLabel.isHidden = true
+        let addButton = SettingsActionButton(text("Add", "添加")) { [weak field, weak errorLabel] in
             guard let value = field?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
-            do { add(try GitSSHConnection(destination: value), nil, false) } catch { self?.showError(error) }
-        }])
+            do { add(try GitSSHConnection(destination: value), nil, false) } catch {
+                errorLabel?.stringValue = error.localizedDescription
+                errorLabel?.isHidden = false
+            }
+        }
+        addButton.keyEquivalent = "\r"
+        let controls = NSStackView(views: [field, addButton])
         form.row(text("Alias or address", "别名或地址"), control: controls)
-        form.row("", control: SettingsActionButton(text("Cancel", "取消")) { [weak window, weak sheet] in
+        form.stack.addArrangedSubview(errorLabel)
+        let cancel = SettingsActionButton(text("Cancel", "取消")) { [weak window, weak sheet] in
             if let window, let sheet { window.endSheet(sheet) }
-        })
+        }
+        cancel.keyEquivalent = "\u{1b}"
+        form.row("", control: cancel)
         form.section(text("From SSH config", "从 SSH config 添加"))
         let task = Task { @MainActor [weak self, weak form] in
-            let choices = await SSHConfigurationCatalog.choices(live: [])
+            guard let load = self?.hostChoices else { return }
+            let choices = await load()
             guard let self, let form, !Task.isCancelled else { return }
             for choice in choices {
                 let exists = self.registry.host(self.registry.targetID(for: choice.connection)) != nil
@@ -158,7 +172,11 @@ extension NativeSettingsController {
             }
             if choices.isEmpty { form.note(self.text("No named hosts in SSH config.", "SSH config 中没有可添加的主机。")) }
         }
-        window.beginSheet(sheet) { _ in task.cancel() }
+        // NSScrollView has no intrinsic height; assigning the controller resets
+        // the panel's original contentRect to zero unless sized after layout.
+        sheet.setContentSize(.init(width: 560, height: 440))
+        sheet.contentMinSize = .init(width: 560, height: 440)
+        window.beginSheet(sheet) { _ in task.cancel(); sheet.orderOut(nil) }
     }
 
     func showError(_ error: Error) {

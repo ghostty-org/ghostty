@@ -6,6 +6,88 @@ import Testing
 struct NativeSettingsTests {
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
+    @Test func themeGalleryPreviewsWithoutApplyingAndCursorRemainsInline() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let themes = root.appendingPathComponent("ghostty/themes")
+        try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+        try "background = #123456\nforeground = #abcdef\npalette = 2=#00ff00\n"
+            .write(to: themes.appendingPathComponent("Fixture"), atomically: true, encoding: .utf8)
+        let sample = try #require(SettingsThemeSample.load("Fixture", resourceURL: root, homeURL: root))
+        let color = try #require(sample.background.usingColorSpace(.sRGB))
+        #expect(abs(color.redComponent - 18.0 / 255) < 0.001)
+        #expect(abs(color.blueComponent - 86.0 / 255) < 0.001)
+        let settings = OhMyGhosttySettings(fileURL: root.appendingPathComponent("settings.json"))
+        settings.language = .english
+        let gallery = NativeThemeGallery(settings: settings)
+        _ = gallery.view
+        gallery.previewTheme("Atom One Dark")
+        #expect(settings.darkThemeOverride == nil)
+        gallery.applyPreview()
+        #expect(settings.darkThemeOverride == "Atom One Dark")
+        let controller = NativeSettingsController(settings: settings, initialSelection: .appearance)
+        _ = controller.view
+        let form = try #require(controller.children.compactMap { $0 as? NativeSettingsForm }.first)
+        #expect(form.rowTitles.contains(SettingsStrings(language: .english).cursorStyleLabel))
+        #expect(!descendants(form.view).compactMap { $0 as? NSButton }.contains { $0.accessibilityLabel() == "Cursor" })
+        let palette = OMGThemePalette(background: sample.background, foreground: sample.foreground)
+        controller.applyPalette(palette)
+        let box = try #require(descendants(form.view).compactMap { $0 as? NSBox }.first { $0.boxType == .custom })
+        #expect(box.fillColor == palette.background.blended(withFraction: 0.045, of: palette.foreground))
+    }
+
+    @Test func closeOnQuitControlsInvertExistingKeepPreferencesWithoutChangingDefaults() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = OhMyGhosttySettings(fileURL: root.appendingPathComponent("settings.json"))
+        settings.language = .english
+        let controller = NativeSettingsController(settings: settings, initialSelection: .terminal)
+        _ = controller.view
+        let local = try #require(descendants(controller.view).compactMap { $0 as? SettingsSwitch }
+            .first { $0.accessibilityLabel() == "Close local sessions on quit" })
+        #expect(local.state == .off && settings.keepLocalSessionsOnQuit)
+        local.state = .on
+        local.sendAction(local.action, to: local.target)
+        #expect(!settings.keepLocalSessionsOnQuit && settings.keepSSHSessionsOnQuit)
+        local.state = .off
+        local.sendAction(local.action, to: local.target)
+        #expect(settings.keepLocalSessionsOnQuit)
+    }
+
+    @Test func addHostSheetHasUsableSizeAndCancelRestoresParent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = OhMyGhosttySettings(fileURL: directory.appendingPathComponent("settings.json"))
+        settings.language = .english
+        let controller = NativeSettingsController(settings: settings, initialSelection: .ssh)
+        controller.hostChoices = { [] }
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 900, height: 680),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.setContentSize(.init(width: 900, height: 680))
+        window.orderFront(nil)
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.close()
+        }
+        let add = try #require(descendants(controller.view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == "Add a host" })
+        add.performClick(nil)
+        try await Task.sleep(for: .milliseconds(150))
+        let sheet = try #require(window.attachedSheet)
+        #expect(sheet.frame.width >= 500 && sheet.frame.height >= 400, "Visible Add Host sheet: \(sheet.frame)")
+        let content = try #require(sheet.contentView)
+        content.layoutSubtreeIfNeeded()
+        let cancel = try #require(descendants(content).compactMap { $0 as? NSButton }.first { $0.title == "Cancel" })
+        #expect(cancel.bounds.width > 0 && cancel.bounds.height > 0)
+        cancel.performClick(nil)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(window.attachedSheet == nil)
+        controller.select(.appearance)
+        #expect(controller.selection == .appearance)
+    }
+
     @Test func themePickerPreservesDistinctOptionsWithTheSameDisplayName() {
         var selected: Int?
         let picker = SettingsPopup(titles: ["Follow OMG", "Shared name", "Shared name"], selected: 2) { selected = $0 }

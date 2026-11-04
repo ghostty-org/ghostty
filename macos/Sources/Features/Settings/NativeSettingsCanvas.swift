@@ -5,6 +5,6 @@ final class NativeSettingsCanvas: NSView {
     override var wantsUpdateLayer: Bool { false }
     override func draw(_ dirtyRect: NSRect) {
         (background ?? window?.backgroundColor ?? .windowBackgroundColor).setFill()
-        dirtyRect.fill()
+        bounds.intersection(dirtyRect).fill()
     }
 }

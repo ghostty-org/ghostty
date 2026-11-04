@@ -34,6 +34,14 @@ are rejected. Snapshot plus live output restores the terminal. Remote cwd metada
 comes from the PTY foreground process, falling back to its owning shell, rather
 than the Mac launch directory.
 
+The process name alone does not identify an `omgd` role. On this Mac,
+`host-local` is a shared broker and `session-holder` is one process per local
+PTY, so a broker restart can preserve each shell. On an SSH host, `host` owns
+multiple session workers in threads. `connect` is an app-side shared relay;
+`handoff`/`handoff-cwd` are attached SSH viewers. Release, Dev and still-used
+runtime revisions remain isolated. Closing a session uses its UUID and durable
+close protocol; killing every process named `omgd` is not session management.
+
 Local sessions use the same protocol and private channel-scoped state. Ghostty
 prepares the actual shell/custom command, environment, directory, initial input
 and terminal dimensions. Only first creation consumes that launch configuration.
@@ -71,6 +79,36 @@ The GUI writes the private `CONNECTION_JSON.setup.json` sidecar with
 schema because cached inline viewers reject unknown fields. A missing sidecar
 uses legacy behavior; a malformed sidecar fails closed. This is a local
 deployment preference, not a daemon wire-protocol change.
+
+## Session management CLI
+
+The bundled OMG executable exposes these actions in `omg --help`:
+
+```sh
+omg +sessions list
+omg +sessions list --local --json
+omg +sessions list --host user@example.com
+omg +sessions close --all --yes
+```
+
+The default scope is this app channel's saved endpoint catalogue, including
+local and SSH sessions pinned to older revisions. Dev never silently includes
+release sessions. `--app-support PATH` explicitly selects a different catalogue
+for tooling and disposable fixtures. An absent catalogue returns an empty list
+without creating it. Inventory reuses or restarts the existing pinned broker
+without creating a terminal session; it never deploys remote artifacts.
+
+JSON output contains `sessions`, `errors` and `closed`. Exit 1 can accompany a
+partial inventory; callers must inspect errors and must not treat it as an empty
+host. Bulk close requires `--all --yes`, first queries every selected endpoint,
+and performs no close when that inventory is incomplete. It closes only the
+snapshot's running UUIDs, waits for durable close acknowledgements, and reports
+partial close errors without killing daemons or deleting layouts.
+
+Settings → Shell & Sessions → View all sessions uses the same helper and adds a
+native confirmation before bulk close. The exit switches explicitly mean
+**Close local/SSH sessions on quit**; their values invert the existing persisted
+`sessions.keepLocalOnQuit` / `sessions.keepSSHOnQuit` booleans without migration.
 
 ## Tests
 

@@ -12,6 +12,7 @@ const list_themes = @import("list_themes.zig");
 const list_colors = @import("list_colors.zig");
 const list_actions = @import("list_actions.zig");
 const ssh = @import("ssh.zig");
+const sessions = @import("sessions.zig");
 const ssh_cache = @import("ssh_cache.zig");
 const edit_config = @import("edit_config.zig");
 const show_config = @import("show_config.zig");
@@ -52,6 +53,9 @@ pub const Action = enum {
 
     /// Wrap `ssh` to configure Ghostty terminal integration on remote hosts
     ssh,
+
+    /// Manage OMG background sessions.
+    sessions,
 
     /// Manage SSH terminfo cache for automatic remote host setup
     @"ssh-cache",
@@ -161,6 +165,7 @@ pub const Action = enum {
             .@"list-actions" => try list_actions.run(alloc),
             .@"ssh-cache" => try ssh_cache.run(alloc),
             .ssh => try ssh.run(alloc),
+            .sessions => try sessions.run(alloc),
             .@"edit-config" => try edit_config.run(alloc),
             .@"show-config" => try show_config.run(alloc),
             .@"explain-config" => try explain_config.run(alloc),
@@ -204,6 +209,7 @@ pub const Action = enum {
                 .@"list-actions" => list_actions.Options,
                 .@"ssh-cache" => ssh_cache.Options,
                 .ssh => ssh.Options,
+                .sessions => sessions.Options,
                 .@"edit-config" => edit_config.Options,
                 .@"show-config" => show_config.Options,
                 .@"explain-config" => explain_config.Options,
@@ -230,6 +236,16 @@ test "parse action none" {
     defer iter.deinit();
     const action = try actionpkg.detectIter(Action, &iter);
     try testing.expect(action == null);
+}
+
+test "parse action sessions" {
+    const testing = std.testing;
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
+        testing.allocator,
+        "+sessions list --local --json",
+    );
+    defer iter.deinit();
+    try testing.expect((try actionpkg.detectIter(Action, &iter)) == Action.sessions);
 }
 
 test "parse action version" {

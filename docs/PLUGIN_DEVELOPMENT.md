@@ -559,6 +559,26 @@ or the Agent table without replacing the whole page during edits. Page-owned
 subscriptions end with the page; asynchronous installation results do not navigate
 away from the user's current route.
 
+The settings sidebar and grouped cards derive subtle shades from the same opaque
+terminal palette as their content canvas, rather than mixing behind-window
+vibrancy with system control backgrounds. Appearance has an AppKit theme gallery
+and terminal sample. Visible thumbnails use Ghostty's parser on the named theme,
+without loading application CLI arguments or the user's final settings overlay.
+Selecting a tile previews it; Use Theme commits the selected light/dark override.
+Cursor options remain inline. Add Host gives its scroll-backed sheet an explicit
+content size after attaching its controller, and supports Cancel/Escape and inline
+validation so an invisible zero-height modal cannot strand the parent.
+
+The native all-session window and `omg +sessions` share the bundled runtime's
+management path. It reads this channel's saved endpoint descriptors, including
+pinned older revisions, and uses existing catalogue/durable-close protocol
+frames. No new plugin wire capability is introduced. Read-only listing never
+deploys remote artifacts or creates a terminal session. Bulk close requires an
+explicit GUI confirmation or CLI `close --all --yes`; incomplete inventory
+prevents all closes, and partial close errors stay visible. Release/Dev scopes
+remain separate. The settings exit switches use explicit close-on-quit wording
+while preserving the existing keep-on-quit storage keys through inverse bindings.
+
 **Remote Hosts** displays only registered records. SSH-config candidates appear
 in **Add a host**, and explicit registration is local/offline. Host details expose
 connection actions, Agent configuration, and independent automatic `omgd`/Hook

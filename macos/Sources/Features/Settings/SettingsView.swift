@@ -135,7 +135,9 @@ final class OhMyGhosttySettingsWindowController: NSWindowController {
         }
         // Follow the OMG/terminal theme background color (e.g. Atom One Dark),
         // not the default aqua/darkAqua window background.
-        window.backgroundColor = OMGThemeBackground.windowBackground()
+        let palette = OMGThemeBackground.palette()
+        window.backgroundColor = palette.background
+        (window.contentViewController as? NativeSettingsController)?.applyPalette(palette)
         window.appearance = appearance
         window.contentView?.needsDisplay = true
     }
@@ -164,7 +166,7 @@ struct SettingsView: NSViewControllerRepresentable {
         let controller = NativeSettingsController(settings: settings, initialSelection: initialSelection)
         _ = controller.view
         if let palette {
-            (controller.view as? NativeSettingsCanvas)?.background = palette.background
+            controller.applyPalette(palette)
             controller.view.appearance = NSAppearance(named: palette.colorScheme == .dark ? .darkAqua : .aqua)
         }
         controller.searchFor(initialSearch)

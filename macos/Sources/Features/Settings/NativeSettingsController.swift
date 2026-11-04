@@ -25,8 +25,11 @@ final class NativeSettingsController: NSViewController, NSTableViewDataSource, N
     let settings: OhMyGhosttySettings
     let registry: SSHHostRegistry
     let agents: AgentIntegrationManager
+    var hostChoices: @Sendable () async -> [SSHRegistrationChoice] = { await SSHConfigurationCatalog.choices(live: []) }
     private(set) var selection: OhMyGhosttySettingsTab
     private let sidebar = NSTableView()
+    private let sidebarSurface = NativeSettingsCanvas()
+    private var palette: OMGThemePalette?
     private let search = NSSearchField()
     private let titleLabel = NSTextField(labelWithString: "")
     private let content = NSView()
@@ -57,9 +60,7 @@ final class NativeSettingsController: NSViewController, NSTableViewDataSource, N
 
     override func loadView() {
         view = NativeSettingsCanvas()
-        let side = NSVisualEffectView()
-        side.material = .sidebar
-        side.blendingMode = .behindWindow
+        let side = sidebarSurface
         search.placeholderString = strings.settingsSearch
         search.delegate = self
         search.sendsSearchStringImmediately = true
@@ -225,6 +226,7 @@ final class NativeSettingsController: NSViewController, NSTableViewDataSource, N
         page?.removeFromParent()
         page = controller
         if let form = controller as? NativeSettingsForm {
+            if let palette { form.applyPalette(palette) }
             let token = settings.objectWillChange.receive(on: RunLoop.main).sink { [weak form] _ in
                 form?.refreshers.forEach { $0() }
             }
@@ -246,6 +248,13 @@ final class NativeSettingsController: NSViewController, NSTableViewDataSource, N
         ])
         titleLabel.stringValue = title
         back.isHidden = history.isEmpty
+    }
+
+    func applyPalette(_ palette: OMGThemePalette) {
+        self.palette = palette
+        (view as? NativeSettingsCanvas)?.background = palette.background
+        sidebarSurface.background = palette.background.blended(withFraction: 0.025, of: palette.foreground)
+        (page as? NativeSettingsForm)?.applyPalette(palette)
     }
 
     func setRoute(_ id: String) { routeID = id }
@@ -344,7 +353,7 @@ final class NativeSettingsController: NSViewController, NSTableViewDataSource, N
         select(entry.tab)
         if entry.id.hasPrefix("core:"),
            let group = CoreSetting.Group(rawValue: String(entry.id.dropFirst(5))),
-           [.clipboard, .mouse, .keyboard, .notifications, .cursor].contains(group) {
+           [.clipboard, .mouse, .keyboard, .notifications].contains(group) {
             push(entry.title, previous: { [weak self] in self?.select(entry.tab) }, build: { [weak self] in self?.core(group, in: $0) })
             return
         }
