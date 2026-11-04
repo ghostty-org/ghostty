@@ -156,6 +156,9 @@ typedef void (*GhosttySysLogFn)(
  * @p data and @p allocator are only valid for the duration of the
  * callback.
  *
+ * Use @p allocator only through ghostty_alloc() and ghostty_free().
+ * Dereferencing its vtable is not supported.
+ *
  * @param userdata  The userdata pointer set via GHOSTTY_SYS_OPT_USERDATA
  * @param allocator The allocator to use for the output pixel buffer
  * @param data      Pointer to the raw PNG data
