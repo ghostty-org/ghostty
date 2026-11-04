@@ -477,7 +477,7 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
         guard let (source, insertion) = drop(info, item: item, index: index) else {
             guard let (target, placement) = destination(item: item, index: index) else { return false }
             if let source = externalTab(info) {
-                RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                (info.draggingSource as? NativeTabOutline ?? outline).afterDragEnds { [weak self] in
                     _ = self?.configuration.controller.attachNativeTab(source, relativeTo: target, placement: placement)
                 }
                 return true
@@ -494,7 +494,7 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
         }
         // NSWindowTabGroup removal/insertion may run blocking AppKit window
         // animations. Commit after CoreDrag releases the source window.
-        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+        outline.afterDragEnds { [weak self] in
             guard let self, configuration.controller.reorderTab(source, toInsertionIndex: insertion) else { return }
             let groups = GhosttyTabOrganizationModel().groups(
                 tabs: configuration.controller.tabControllers,
@@ -520,31 +520,64 @@ final class NativeTabOutline: NSOutlineView {
     private(set) var isNavigatingWithKeyboard = false
     private(set) var isDraggingTab = false
     private weak var mouseDownResponder: NSResponder?
+    private var dragDiagnosticMonitor: Any?
+    private var completedDragActions: [() -> Void] = []
     var contextMenu: ((Int) -> NSMenu?)?
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
-    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); hover.update() }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover.update()
+        guard NativeTabDragDiagnostics.enabled, dragDiagnosticMonitor == nil else { return }
+        dragDiagnosticMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .keyDown],
+            handler: WeakLocalEventMonitor.handler(for: self) { outline, event in
+                if outline.isDraggingTab || (event.type != .keyDown && event.window === outline.window) {
+                    NativeTabDragDiagnostics.record("delivered", outline: outline, event: event)
+                }
+                return event
+            })
+    }
     override func viewDidHide() { super.viewDidHide(); hover.clear() }
     override func viewDidUnhide() { super.viewDidUnhide(); hover.didUnhide() }
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu?(row(at: convert(event.locationInWindow, from: nil))) }
 
     override func mouseDown(with event: NSEvent) {
+        NativeTabDragDiagnostics.record("mouseDown-enter", outline: self, event: event)
         mouseDownResponder = window?.firstResponder
         didBeginMouseTracking?()
         super.mouseDown(with: event)
+        NativeTabDragDiagnostics.record("mouseDown-return", outline: self, event: event)
     }
 
     func dragBegan() {
         isDraggingTab = true
+        NativeTabDragDiagnostics.record("drag-began", outline: self)
         didBeginDrag?()
     }
 
     func dragEnded() {
+        NativeTabDragDiagnostics.record("drag-ended", outline: self)
         isDraggingTab = false
         if let previous = mouseDownResponder as? NSView, previous.window === window {
             window?.makeFirstResponder(previous)
         }
         mouseDownResponder = nil
+        let actions = completedDragActions
+        completedDragActions.removeAll()
+        for action in actions { RunLoop.main.perform(inModes: [.default], block: action) }
+    }
+
+    func afterDragEnds(_ action: @escaping () -> Void) {
+        if isDraggingTab {
+            completedDragActions.append(action)
+        } else {
+            RunLoop.main.perform(inModes: [.default], block: action)
+        }
+    }
+
+    deinit {
+        if let dragDiagnosticMonitor { NSEvent.removeMonitor(dragDiagnosticMonitor) }
     }
 
     override func keyDown(with event: NSEvent) {

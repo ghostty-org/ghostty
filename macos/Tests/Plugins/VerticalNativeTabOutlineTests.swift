@@ -57,6 +57,8 @@ struct VerticalNativeTabOutlineTests {
         #expect(group.windows == before, "acceptDrop must return before mutating native windows")
         _ = RunLoop.main.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.02))
         #expect(group.windows == before, "A nested tracking loop must not commit the drop")
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        #expect(group.windows == before, "Default-mode callbacks can run before the drag session has ended")
         controller.outline.dragEnded()
         for _ in 0..<40 where group.windows == before {
             try await Task.sleep(for: .milliseconds(10))

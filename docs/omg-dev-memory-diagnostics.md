@@ -108,3 +108,24 @@ not an idle app baseline or passing functional tests. Persistent diagnostic logs
 exclude framebuffers, renderer resources, IOSurface ownership, image-cache
 and scrollback bytes; obtain system-level numbers independently rather than
 inferring them from view counts.
+
+## Native tab drag event evidence
+
+For a Dev-only drag reproduction, launch the app with
+`OMG_DEV_TAB_DRAG_DIAGNOSTICS=1`. The observer always returns the original
+event; it does not finish, cancel, or repair a drag. This is separate from the
+memory logger and does not require enabling it.
+
+The private `DragDiagnostics` directory under the active Dev application-support
+directory receives a `drag-<pid>-<uuid>.jsonl` file. Records contain only uptime,
+event type, mouse-button state, native drag phase, run-loop mode and whether the
+event belongs to the outline's window. They exclude key contents, pointer
+coordinates, terminal contents, tab titles and session paths. Capture starts at
+the first mouse-down, expires after 120 seconds, and is capped at 1024 records.
+
+Compare delivered down/drag/up events with `mouseDown-enter`,
+`mouseDown-return`, `drag-began` and `drag-ended`. A successful extra click is
+not proof that the original mouse-up completed the drag. Confirm an ordinary
+drag/drop, a cancelled drag and subsequent tab selection without adding an
+extra release event. Check that the desktop is unlocked before interpreting
+failed UI automation.
