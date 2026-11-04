@@ -20,6 +20,7 @@ const encoding = @import("osc/encoding.zig");
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
 pub const context_signal = parsers.context_signal;
+pub const program_status = parsers.program_status;
 
 const log = std.log.scoped(.osc);
 
@@ -163,6 +164,7 @@ pub const Command = union(Key) {
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
+    program_status: parsers.program_status.Command,
 
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
@@ -200,6 +202,7 @@ pub const Command = union(Key) {
             "kitty_clipboard_protocol",
             "kitty_dnd_protocol",
             "context_signal",
+            "program_status",
         },
     );
 
@@ -348,6 +351,9 @@ pub const Parser = struct {
         @"30",
         @"300",
         @"3008",
+        @"75",
+        @"750",
+        @"7501",
         @"10",
         @"11",
         @"12",
@@ -446,6 +452,7 @@ pub const Parser = struct {
             .kitty_clipboard_protocol,
             .kitty_dnd_protocol,
             .context_signal,
+            .program_status,
             => {},
         }
 
@@ -584,6 +591,11 @@ pub const Parser = struct {
                 };
             },
         }
+    }
+
+    /// Consume a complete or partial OSC body.
+    pub fn nextSlice(self: *Parser, bytes: []const u8) void {
+        for (bytes) |byte| self.next(byte);
     }
 
     /// Consume the next character c and advance the parser state.
@@ -746,6 +758,7 @@ pub const Parser = struct {
             .@"7" => switch (c) {
                 ';' => self.captureTrailing(.fixed),
                 '2' => self.state = .@"72",
+                '5' => self.state = .@"75",
                 '7' => self.state = .@"77",
                 else => self.state = .invalid,
             },
@@ -757,6 +770,22 @@ pub const Parser = struct {
 
             .@"77" => switch (c) {
                 '7' => self.state = .@"777",
+                else => self.state = .invalid,
+            },
+
+            .@"75" => switch (c) {
+                '0' => self.state = .@"750",
+                else => self.state = .invalid,
+            },
+            .@"750" => switch (c) {
+                '1' => self.state = .@"7501",
+                else => self.state = .invalid,
+            },
+            .@"7501" => switch (c) {
+                ';' => {
+                    self.captureTrailing(.allocating);
+                    if (self.capture) |*cap| cap.max_bytes = @min(cap.max_bytes, program_status.max_body_bytes);
+                },
                 else => self.state = .invalid,
             },
 
@@ -860,6 +889,8 @@ pub const Parser = struct {
             => null,
 
             .@"3008" => parsers.context_signal.parse(self, terminator_ch),
+            .@"7501" => parsers.program_status.parse(self, terminator_ch),
+            .@"75", .@"750" => null,
 
             .@"6" => null,
 

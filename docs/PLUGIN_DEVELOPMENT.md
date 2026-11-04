@@ -1365,6 +1365,38 @@ Agent presentation and resume state. Recoverable disconnects first retain an
 exact conversation in the separate, inactive SSH recovery descriptor. A matching
 typed `omg +ssh` end performs the same cleanup; the next authenticated remote Fish/bash/zsh prompt remains an
 additional orphan-recovery signal (`cwd` and bash/zsh `cwdhex` are both accepted).
+Native terminal clients can also report Agent activity through OSC 7501. OMG
+uses Ghostty's program-status parser (backported from upstream commit
+`c7f68a7f48c6a5b357689eb8c2328bc2dab5d8ed`) and forwards validated reports over
+the existing per-Surface context bridge as `omg-program-status`. Support queries
+are answered on the terminal IO thread with the query's BEL or ST terminator.
+The headless runtime leaves the query for the attached viewer, preventing two
+terminal replies.
+
+Known `app` values identify an Agent directly in its originating pane; this does
+not authorize commands, infer a conversation ID, or inspect a shared server's
+TTY. Native reports take presentation precedence over legacy Hook and title
+fallbacks until cleared. Reports replace their record, with at most 32 records
+per pane; `clear` removes the named namespace and descendants, or all records
+when no ID is supplied. Completion uses the same Quick Input completion/queue
+path as Hooks. State follows pane ownership and is removed on SSH disconnect
+or when Agent status is disabled.
+Completion and attention transitions also use Ghostty's surface-associated
+notification delivery. They honor the completion, attention, and sound settings
+and the existing foreground-notification policy. Repeated reports of the same
+Agent state, including native/Hook duplicates, do not notify twice.
+
+Codex 0.166 emits `state=idle:app=codex`, `state=working:app=codex`, and
+`state=done:app=codex` through this channel even with its shared app server.
+Installing or manually executing an OSC 3008 Hook is not an end-to-end test of
+that mode. Validate real Codex output in local and SSH PTYs; no global Codex
+daemon setting or Hook trust bypass is needed for native status.
+This parser-only backport keeps the previous snapshot epoch through an
+exact-source-digest compatibility entry in the runtime builder. Bidirectional
+old/new VT snapshot tests cover text, colors, alternate screens, split UTF-8,
+CSI, and partial OSC 7501. Unlisted source digests still receive a new epoch;
+the pinned-session compatibility guard is unchanged.
+
 Managed inline SSH viewers also publish `cwd` when attaching or changing terminal
 input modes. Updates for the pane's live runtime connection ID are metadata, not
 shell prompts, and must preserve Agent activity. Agent end events and matching

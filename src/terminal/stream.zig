@@ -2557,6 +2557,21 @@ pub fn Stream(comptime H: type) type {
                     self.handler.vt(.context_signal, v);
                 },
 
+                // The OMG host uses its existing per-Surface context bridge.
+                // Queries stay on the IO thread and never become UI state.
+                .program_status => |v| switch (v) {
+                    .query => |terminator| self.handler.vt(.context_signal, .{
+                        .action = .start,
+                        .id = "omg-program-status-query",
+                        .metadata = terminator.string(),
+                    }),
+                    .report => |report| self.handler.vt(.context_signal, .{
+                        .action = .start,
+                        .id = "omg-program-status",
+                        .metadata = report.data,
+                    }),
+                },
+
                 .conemu_sleep,
                 .conemu_show_message_box,
                 .conemu_change_tab_title,
@@ -4799,12 +4814,43 @@ test "stream: continuation allocation failure recovers" {
     try testing.expectEqual(@as(usize, 0), recovered_writer.end);
 }
 
+test "OSC 7501: fragmented reports and queries reach the host bridge" {
+    const Handler = struct {
+        reports: usize = 0,
+        queries: usize = 0,
+        pub fn deinit(_: *@This()) void {}
+        pub fn vt(self: *@This(), comptime action: Action.Tag, value: Action.Value(action)) void {
+            switch (action) {
+                .context_signal => {
+                    if (std.mem.eql(u8, value.id, "omg-program-status")) {
+                        testing.expectEqualStrings("state=done:app=codex", value.metadata) catch unreachable;
+                        self.reports += 1;
+                    } else {
+                        testing.expectEqualStrings("omg-program-status-query", value.id) catch unreachable;
+                        testing.expectEqualStrings("\x07", value.metadata) catch unreachable;
+                        self.queries += 1;
+                    }
+                },
+                else => {},
+            }
+        }
+    };
+    var stream = Stream(Handler).init(.{ .allocator = testing.allocator, .handler = .{} });
+    defer stream.deinit();
+    for ("\x1b]7501;state=done:app=codex\x1b\\") |byte| stream.next(byte);
+    stream.nextSlice("\x1b]7501;?\x07");
+    stream.nextSlice("\x1b]7501;state=invalid:app=codex\x07");
+    try testing.expectEqual(@as(usize, 1), stream.handler.reports);
+    try testing.expectEqual(@as(usize, 1), stream.handler.queries);
+}
+
 test "stream: continuation every-byte cuts preserve future behavior" {
     const corpora = [_][]const u8{
         "plain \xF0\x9F\x98\x84 utf8",
         "bad \xE0\xA0\xF0\x9F\x98\x84 utf8",
         "\x1b[1\x07;2mstyled\x1b[0m",
         "\x1b]2;window title\x1b\\text",
+        "\x1b]7501;state=working:app=codex\x1b\\text",
         "\x1bP$qm\x1b\\text",
         "\x1b_Ga=q;payload\x1b\\text",
         "\x1b_25a1;s\x1b\\text",

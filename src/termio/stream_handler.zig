@@ -1041,6 +1041,14 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         signal: terminal.osc.context_signal.Command,
     ) !void {
+        if (std.mem.eql(u8, signal.id, "omg-program-status-query")) {
+            if (std.mem.eql(u8, signal.metadata, "\x07")) {
+                self.messageWriter(.{ .write_stable = "\x1b]7501;" ++ terminal.osc.program_status.query_reply ++ "\x07" });
+            } else {
+                self.messageWriter(.{ .write_stable = "\x1b]7501;" ++ terminal.osc.program_status.query_reply ++ "\x1b\\" });
+            }
+            return;
+        }
         const message = apprt.surface.Message.ContextSignal.init(
             self.alloc,
             signal,

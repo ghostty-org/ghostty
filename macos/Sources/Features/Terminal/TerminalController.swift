@@ -50,6 +50,7 @@ struct PaneSessionStateSnapshot {
     let resumeDescriptor: AgentResumeDescriptor?
     let resumeContextID: String?
     let reducer: AgentContextSignalReducer?
+    var programStatus: AgentProgramStatus?
     let typedHookContextID: String?
     let observedForegroundProcessID: Int?
     let detectedAgent: PaneDetectedAgentState?
@@ -434,6 +435,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var agentResumeContextIDs: [UUID: String] = [:]
     private var paneSessionObservers: [UUID: Set<AnyCancellable>] = [:]
     private var agentReducers: [UUID: AgentContextSignalReducer] = [:]
+    private var agentProgramStatuses: [UUID: AgentProgramStatus] = [:]
     /// Title observations per surface, used to clear a stale "working" state
     /// when an Agent hook never delivered its terminal event.
     private var agentTitleWatchers: [UUID: AgentTitleIdleWatcher] = [:]
@@ -1194,6 +1196,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             resumeDescriptor: agentResumeDescriptors[surfaceID],
             resumeContextID: agentResumeContextIDs[surfaceID],
             reducer: agentReducers[surfaceID],
+            programStatus: agentProgramStatuses[surfaceID],
             typedHookContextID: typedAgentHookContextIDs[surfaceID],
             observedForegroundProcessID: observedForegroundProcessIDs[surfaceID],
             detectedAgent: detectedAgentInstances[surfaceID],
@@ -1227,6 +1230,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .agentResumeDescriptor = snapshot.resumeDescriptor
         agentResumeContextIDs[surfaceID] = snapshot.resumeContextID
         agentReducers[surfaceID] = snapshot.reducer
+        agentProgramStatuses[surfaceID] = snapshot.programStatus
         typedAgentHookContextIDs[surfaceID] = snapshot.typedHookContextID
         observedForegroundProcessIDs[surfaceID] = snapshot.observedForegroundProcessID
         detectedAgentInstances[surfaceID] = snapshot.detectedAgent
@@ -1270,6 +1274,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             activeIDs.contains($0.key)
         }
         agentReducers = agentReducers.filter { activeIDs.contains($0.key) }
+        agentProgramStatuses = agentProgramStatuses.filter { activeIDs.contains($0.key) }
         agentTitleWatchers = agentTitleWatchers.filter { activeIDs.contains($0.key) }
         typedAgentHookContextIDs = typedAgentHookContextIDs.filter {
             activeIDs.contains($0.key)
@@ -1360,6 +1365,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 .compactMap { $0 }
                 .sink { [weak self, weak surface] signal in
                     guard let self, let surface else { return }
+                    if signal.id == "omg-program-status" {
+                        consumeProgramStatus(signal.metadata, for: surface)
+                        return
+                    }
                     if SessionRuntimeHandoff.shared.accept(signal, source: surface, controller: self) { return }
                     if signal.id == "omg-inline-password" {
                         if surface.runtimeInlineSession != nil, signal.metadata == "0" || signal.metadata == "1" {
@@ -1852,6 +1861,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
         detectedAgentInstances.removeValue(forKey: surfaceID)
+        if let status = agentProgramStatuses[surfaceID], !status.isRemote,
+           status.foregroundProcessGroup == detected.processGroupID {
+            agentProgramStatuses.removeValue(forKey: surfaceID)
+        }
         if typedAgentHookContextIDs[surfaceID] == detected.id {
             typedAgentHookContextIDs.removeValue(forKey: surfaceID)
         }
@@ -1949,6 +1962,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         for surfaceID: UUID
     ) {
         guard AgentStatusPlugin.isEnabled else {
+            agentProgramStatuses.removeValue(forKey: surfaceID)
             agentReducers.removeValue(forKey: surfaceID)
             agentTitleWatchers.removeValue(forKey: surfaceID)
             typedAgentHookContextIDs.removeValue(forKey: surfaceID)
@@ -1983,6 +1997,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func clearRemoteAgentState(for surfaceID: UUID) {
+        let removedProgramStatus = agentProgramStatuses[surfaceID]?.isRemote == true
+        if removedProgramStatus {
+            agentProgramStatuses.removeValue(forKey: surfaceID)
+        }
         var clearedRemoteActivity = false
         if var reducer = agentReducers[surfaceID] {
             clearedRemoteActivity = reducer.hasRemoteActivity
@@ -1994,6 +2012,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         if clearedRemoteActivity {
             typedAgentHookContextIDs.removeValue(forKey: surfaceID)
+        }
+        if removedProgramStatus && !clearedRemoteActivity {
+            applyAgentActivityUpdate(agentReducers[surfaceID]?.currentActivity.map(AgentActivityUpdate.set) ?? .clear,
+                                     for: surfaceID)
         }
         if agentResumeDescriptors[surfaceID]?.scope == .remote {
             clearAgentResumeDescriptor(for: surfaceID)
@@ -2157,6 +2179,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private func acknowledgeTerminalAgentState(
         for surface: Ghostty.SurfaceView?
     ) {
+        if let surface, agentProgramStatuses[surface.id]?.acknowledge() == true,
+           let activity = agentProgramStatuses[surface.id]?.activity {
+            applyAgentActivityUpdate(.set(activity), for: surface.id)
+            return
+        }
         guard let surface,
               var reducer = agentReducers[surface.id],
               let update = reducer.acknowledgeTerminalState() else { return }
@@ -2168,6 +2195,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         _ update: AgentActivityUpdate,
         for surfaceID: UUID
     ) {
+        let update = agentProgramStatuses[surfaceID]?.activity.map(AgentActivityUpdate.set) ?? update
         let previousActivity = agentActivities[surfaceID]
         let previousState = previousActivity?.state
         var next = agentActivities
@@ -2179,6 +2207,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         guard next != agentActivities else { return }
         agentActivities = next
+        if let surface = surfaceTree.first(where: { $0.id == surfaceID }) {
+            AgentActivityNotification.deliver(previous: previousActivity, next: next[surfaceID], surface: surface)
+        }
         if AgentQuickInputPresentationPolicy.shouldPresentForAgentStart(
             previous: previousActivity,
             next: next[surfaceID],
@@ -2203,6 +2234,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ) {
             dispatchNextQuickInput(for: surfaceID)
         }
+    }
+
+    private func consumeProgramStatus(_ body: String, for surface: Ghostty.SurfaceView) {
+        guard AgentStatusPlugin.isEnabled else { return }
+        var status = agentProgramStatuses[surface.id] ?? AgentProgramStatus()
+        guard status.consume(body) else { return }
+        status.isRemote = paneSessionContexts[surface.id]?.isSSHSession == true ||
+            surface.runtimeInlineSession != nil || surface.runtimeDescriptor?.isLocal == false
+        status.foregroundProcessGroup = status.isRemote ? nil : surface.surfaceModel?.foregroundPID
+        agentProgramStatuses[surface.id] = status.records.isEmpty ? nil : status
+        let activity = status.activity ?? agentReducers[surface.id]?.currentActivity
+        applyAgentActivityUpdate(activity.map(AgentActivityUpdate.set) ?? .clear, for: surface.id)
     }
 
     /// A hook that never delivered its terminal event would keep the tab in
@@ -5265,6 +5308,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             if !settings.agentStatusHooksEnabled {
                 agentActivities = [:]
                 agentReducers = [:]
+                agentProgramStatuses = [:]
                 typedAgentHookContextIDs = [:]
                 agentResumeDescriptors = [:]
                 agentResumeContextIDs = [:]

@@ -29,6 +29,20 @@ def sign_adhoc(paths):
         run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', str(path)])
 
 
+def snapshot_revision(source_digest, compatibility):
+    """Only exact, verified source trees may share an earlier snapshot epoch."""
+    hexadecimal = set("0123456789abcdef")
+    if len(source_digest) != 64 or not set(source_digest) <= hexadecimal:
+        raise ValueError("invalid snapshot source digest")
+    if not isinstance(compatibility, dict) or any(
+        not isinstance(key, str) or len(key) != 64 or not set(key) <= hexadecimal
+        or not isinstance(value, str) or len(value) != 20 or not set(value) <= hexadecimal
+        for key, value in compatibility.items()
+    ):
+        raise ValueError("invalid snapshot compatibility map")
+    return compatibility.get(source_digest, source_digest[:20])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', required=True, type=Path)
@@ -54,6 +68,7 @@ def main():
         ROOT/'session-runtime/build.rs', ROOT/'session-runtime/LICENSE.herdr',
         ROOT/'src/shell-integration/omg/omg.py',
         ROOT/'session-runtime/THIRD-PARTY-NOTICES', Path(__file__).resolve(),
+        ROOT/'dist/macos/session-runtime-snapshot-compatibility.json',
     ]:
         digest.update(str(path.relative_to(ROOT)).encode())
         digest.update(path.read_bytes())
@@ -134,7 +149,8 @@ def main():
     shutil.copy2(ROOT/'dist/macos/session-runtime-askpass.sh', output/'askpass')
     (output/'askpass').chmod(0o755)
     (output/'revision').write_text(revision+'\n')
-    (output/'snapshot-revision').write_text(snapshot_digest.hexdigest()[:20]+'\n')
+    compatibility = json.loads((ROOT/'dist/macos/session-runtime-snapshot-compatibility.json').read_text())
+    (output/'snapshot-revision').write_text(snapshot_revision(snapshot_digest.hexdigest(), compatibility)+'\n')
     print(f'runtime artifacts: {output}', flush=True)
 
 
