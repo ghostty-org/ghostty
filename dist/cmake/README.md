@@ -14,8 +14,8 @@ Add the following to your project's `CMakeLists.txt`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(ghostty
-    GIT_REPOSITORY https://github.com/ghostty-org/ghostty.git
-    GIT_TAG main
+    URL https://release.files.ghostty.org/libghostty-vt/0.1.0/libghostty-vt-0.1.0.tar.gz
+    URL_HASH SHA256=<sha256 of the tarball>
 )
 FetchContent_MakeAvailable(ghostty)
 
@@ -23,9 +23,20 @@ add_executable(myapp main.c)
 target_link_libraries(myapp PRIVATE ghostty-vt)
 ```
 
-This fetches the Ghostty source, builds libghostty-vt via Zig during your
-CMake build, and links it into your target. Headers are added to the
-include path automatically.
+This downloads the source tarball of a libghostty-vt release, builds
+libghostty-vt via Zig during your CMake build, and links it into your
+target. Headers are added to the include path automatically.
+
+Replace `0.1.0` with the release you want, in both places in the URL. Then
+replace the hash with the tarball's SHA-256 checksum, which you can find in
+the `SHA256SUMS` file next to it. For 0.1.0, that is
+`https://release.files.ghostty.org/libghostty-vt/0.1.0/SHA256SUMS`.
+See [`PACKAGING-LIBGHOSTTY.md`](../../PACKAGING-LIBGHOSTTY.md) for the
+other release files and how to verify their signatures.
+
+Use the release tarball, not the archive GitHub generates for the
+`vt-0.1.0` tag. The GitHub archive is missing a file that the build
+needs to know it should build the library.
 
 ### Using a local checkout
 
@@ -39,17 +50,18 @@ cmake --build build
 
 ## Using find_package (install-based)
 
-Build and install libghostty-vt first, either with Zig directly:
+Build and install libghostty-vt first. From an unpacked release tarball,
+either use Zig directly:
 
 ```shell-session
-cd /path/to/ghostty
-zig build -Demit-lib-vt -Doptimize=ReleaseFast --prefix /usr/local
+cd libghostty-vt-0.1.0
+zig build -Doptimize=ReleaseFast --prefix /usr/local
 ```
 
 or through the CMake wrapper:
 
 ```shell-session
-cd /path/to/ghostty
+cd libghostty-vt-0.1.0
 cmake -B build
 cmake --build build
 cmake --install build --prefix /usr/local
@@ -100,66 +112,20 @@ installed versions each request accepts:
 
 ## Notes for packagers
 
-`zig build -Demit-lib-vt --prefix <prefix>` installs the following:
+[`PACKAGING-LIBGHOSTTY.md`](../../PACKAGING-LIBGHOSTTY.md) covers
+packaging libghostty-vt: the build command, the installed files, the
+install directories and the build options. Two details there affect the
+CMake package config:
 
-| Path                    | Contents                                                                                |
-| ----------------------- | --------------------------------------------------------------------------------------- |
-| `lib/`                  | The shared library and its version symlinks, and the static library (`libghostty-vt.a`) |
-| `include/ghostty/`      | The C headers                                                                           |
-| `lib/pkgconfig/`        | `libghostty-vt.pc` and `libghostty-vt-static.pc`                                        |
-| `lib/cmake/ghostty-vt/` | The CMake package config                                                                |
-
-On Windows, the DLL is installed to `bin/` instead, and `lib/` holds
-the import library `ghostty-vt.lib` and the static library
-`ghostty-vt-static.lib`.
-
-### Changing the install directories
-
-The paths above are the defaults. Zig's `--prefix-lib-dir`,
-`--prefix-include-dir` and `--prefix-exe-dir` options change them, and
-the pkg-config files and the CMake package config follow the libraries.
-For example, with `--prefix-lib-dir lib64` they are installed to
-`lib64/pkgconfig/` and `lib64/cmake/ghostty-vt/`.
-
-### Staged installs with DESTDIR
-
-Distro packages are usually built by installing into a staging
-directory first. Set `DESTDIR` to that directory and pass the final
-prefix with `--prefix`:
-
-```shell-session
-DESTDIR="$PWD/stage" zig build -Demit-lib-vt -Doptimize=ReleaseFast \
-  --prefix /usr --prefix-lib-dir lib64
-```
-
-This puts the files in `$PWD/stage/usr`, but the installed files only
-mention where the package will be after it is copied into place. Both
-`.pc` files start with:
-
-```
-prefix=/usr
-includedir=${prefix}/include
-libdir=${prefix}/lib64
-```
-
-The CMake package config doesn't contain the prefix at all. It finds
-the library and headers relative to its own location, so it also keeps
-working if you move the whole install somewhere else. (The one
-exception is a directory outside the prefix, such as an absolute
-`--prefix-lib-dir` elsewhere. The config still finds it, but moving
-the prefix alone would break that.)
-
-### Build defaults
-
-Two build defaults matter for packaging:
-
-- **Debug info is kept.** libghostty-vt is not stripped by default, so
-  you can split its debug info into a separate package with your usual
-  tools. Pass `-Dstrip=true` to strip it instead. The one exception is
-  `-Doptimize=ReleaseSmall`, which strips by default.
-- **Xcode is not required on macOS.** `-Demit-lib-vt` builds only the
-  plain libraries. Pass `-Demit-xcframework=true` if you also want the
-  XCFramework for Apple app development, which needs Xcode.
+- It is installed next to the libraries, in `cmake/ghostty-vt/`. With
+  `--prefix-lib-dir lib64`, for example, it is in
+  `lib64/cmake/ghostty-vt/`.
+- It doesn't record the prefix or `DESTDIR`. It finds the library and
+  headers relative to its own location, so it keeps working if you move
+  the whole install somewhere else. The one exception is a library
+  directory outside the prefix, such as an absolute `--prefix-lib-dir`.
+  The config still finds it, but moving the prefix alone would break
+  that.
 
 ## Cross-compilation
 

@@ -7,8 +7,8 @@
  * escape sequences as well as maintaining terminal state such as styles,
  * cursor position, screen, scrollback, and more.
  *
- * WARNING: This is an incomplete, work-in-progress API. It is not yet
- * stable and is definitely going to change. 
+ * Until 1.0, each minor release (such as 0.2) may make changes that break
+ * existing programs. See the main page for details.
  */
 
 /**
@@ -22,8 +22,29 @@
  * encoding input events, etc. It can handle scrollback, line wrapping, 
  * reflow on resize, and more.
  *
- * @warning This library is currently in development and the API is not yet stable.
- * Breaking changes are expected in future versions. Use with caution in production code.
+ * @section stability_sec Stability
+ *
+ * libghostty-vt is released separately from Ghostty, with its own version
+ * numbers.
+ *
+ * Until 1.0, each minor release may change the API (the functions and
+ * types in these headers) and the ABI (how compiled programs call the
+ * library). A program built against 0.1 may not compile against 0.2, or
+ * may not run with a 0.2 library installed. Patch releases, such as 0.1.1,
+ * never break programs built against an earlier 0.1 release.
+ *
+ * From 1.0, only a new major version can break programs, and it comes with
+ * a new shared library name such as `libghostty-vt.so.2`. Minor and patch
+ * releases only add to the library.
+ *
+ * Every 0.x release uses the same shared library name, so the system
+ * can't stop a program built against 0.1 from loading a 0.2 library. A
+ * program can check this itself when it starts, by comparing the library's
+ * version with the version of the headers it was compiled against:
+ *
+ * @snippet c-vt-build-info/src/main.c version-compatible
+ *
+ * See @ref version "Version" for the version macros and more examples.
  *
  * @section groups_sec API Reference
  *

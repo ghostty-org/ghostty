@@ -91,10 +91,13 @@ pub fn build(b: *std.Build) !void {
     const docs = try buildpkg.GhosttyDocs.init(b, &deps);
     if (config.emit_docs) {
         docs.install();
-    } else if (config.target.result.os.tag.isDarwin()) {
+    } else if (config.target.result.os.tag.isDarwin() and
+        !config.emit_lib_vt)
+    {
         // If we aren't emitting docs we need to emit a placeholder so
         // our macOS xcodeproject builds since it expects the `share/man`
-        // directory to exist to copy into the app bundle.
+        // directory to exist to copy into the app bundle. A libghostty-vt
+        // build has no app bundle, so it doesn't need one.
         docs.installDummy(b.getInstallStep());
     }
 
