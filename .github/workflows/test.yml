@@ -473,7 +473,10 @@ jobs:
 
           # Libs.private must NOT include the C++ runtime libraries (all
           # vendored C++ deps are built in no-libcxx mode).
-          ! pkg-config --libs --static libghostty-vt | grep -qE -- '-lc\+\+|-lc\+\+abi'
+          if pkg-config --libs --static libghostty-vt | grep -qE -- '-lc\+\+|-lc\+\+abi'; then
+            echo "pkg-config --static links the C++ runtime" >&2
+            exit 1
+          fi
 
       - name: Verify shared library name and SONAME
         run: |
@@ -490,7 +493,10 @@ jobs:
         run: |
           lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
           ldd "zig-out/lib/libghostty-vt.so.${lib_version}"
-          ! ldd "zig-out/lib/libghostty-vt.so.${lib_version}" 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'
+          if ldd "zig-out/lib/libghostty-vt.so.${lib_version}" 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'; then
+            echo "the shared library depends on the C++ runtime" >&2
+            exit 1
+          fi
 
       - name: Verify static archive contains SIMD deps
         run: |
@@ -530,7 +536,10 @@ jobs:
             $(pkg-config --libs-only-l --static libghostty-vt | sed 's/-lghostty-vt//')
           /tmp/test_static
           # Verify it doesn't depend on the shared lib or a C++ runtime.
-          ! ldd /tmp/test_static 2>/dev/null | grep -qE 'libghostty-vt|libc\+\+|libc\+\+abi'
+          if ldd /tmp/test_static 2>/dev/null | grep -qE 'libghostty-vt|libc\+\+|libc\+\+abi'; then
+            echo "the static test program depends on libghostty-vt or the C++ runtime" >&2
+            exit 1
+          fi
 
       # Install the way distros do: staged with DESTDIR, into /usr, with
       # the libraries in lib64. The installed files must name the final
@@ -597,12 +606,23 @@ jobs:
           echo "$pc_content" | grep -q 'Requires.private:.*simdutf'
 
           # Requires.private must NOT reference libhwy (still vendored)
-          ! echo "$pc_content" | grep -q 'Requires.private:.*libhwy'
+          if echo "$pc_content" | grep -q 'Requires.private:.*libhwy'; then
+            echo "Requires.private names libhwy, which is still vendored" >&2
+            exit 1
+          fi
 
       - name: Verify archive with system simdutf
         run: |
-          # simdutf symbols must NOT be defined (comes from system)
-          ! nm -g zig-out/lib/libghostty-vt.a | grep -q ' T .*simdutf'
+          # simdutf symbols must NOT be defined (comes from system).
+          #
+          # grep reads all of the output here instead of using -q. With
+          # -q it stops at the first match, nm can then die writing the
+          # rest of its large output, and with pipefail that failure
+          # would make the if skip the very case it is checking for.
+          if nm -g zig-out/lib/libghostty-vt.a | grep ' T .*simdutf' >/dev/null; then
+            echo "the archive defines simdutf symbols, which should come from the system" >&2
+            exit 1
+          fi
 
           # highway symbols must still be defined (vendored)
           nm -g zig-out/lib/libghostty-vt.a | grep -q ' T .*3hwy'
