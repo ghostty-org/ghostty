@@ -28,6 +28,8 @@ pub const BuildInfo = enum(c_int) {
     version_pre = 9,
     version_build = 10,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: BuildInfo) type {
         return switch (self) {
@@ -36,6 +38,7 @@ pub const BuildInfo = enum(c_int) {
             .optimize => OptimizeMode,
             .version_string, .version_pre, .version_build => lib.String,
             .version_major, .version_minor, .version_patch => usize,
+            _ => void,
         };
     }
 };
@@ -56,14 +59,8 @@ pub fn get(
     data: BuildInfo,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(BuildInfo, @backingInt(data)) orelse {
-            log.warn("build_info invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             comptime_data,
@@ -105,6 +102,7 @@ fn getTyped(
                 out.* = .{ .ptr = "", .len = 0 };
             }
         },
+        _ => comptime unreachable,
     }
 
     return .success;

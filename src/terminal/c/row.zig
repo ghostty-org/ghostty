@@ -51,6 +51,8 @@ pub const RowData = enum(c_int) {
     /// Output type: bool *
     dirty = 8,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowData) type {
         return switch (self) {
@@ -58,6 +60,7 @@ pub const RowData = enum(c_int) {
             .wrap, .wrap_continuation, .grapheme, .styled, .hyperlink => bool,
             .kitty_virtual_placeholder, .dirty => bool,
             .semantic_prompt => SemanticPrompt,
+            _ => void,
         };
     }
 };
@@ -67,13 +70,8 @@ pub fn get(
     data: RowData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             row_,
@@ -120,6 +118,7 @@ fn getTyped(
         .semantic_prompt => out.* = @fromBackingInt(@backingInt(row.semantic_prompt)),
         .kitty_virtual_placeholder => out.* = row.kitty_virtual_placeholder,
         .dirty => out.* = row.dirty,
+        _ => comptime unreachable,
     }
 
     return .success;

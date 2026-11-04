@@ -8,4 +8,5 @@ pub const Result = enum(c_int) {
     io_error = -5,
     limit_exceeded = -6,
     rejected = -7,
+    unsupported = -8,
 };

@@ -134,6 +134,7 @@ fn terminal_new_(
     OutOfMemory,
 }!*FormatterWrapper {
     const t: *ZigTerminal = (terminal_ orelse return error.InvalidValue).terminal;
+    _ = lib.enumFromPtr(Format, &opts.emit) orelse return error.InvalidValue;
 
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(FormatterWrapper) catch

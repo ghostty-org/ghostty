@@ -92,6 +92,8 @@ pub const Data = enum(c_int) {
     viewport_matches = 6,
     select_scroll = 7,
 
+    _,
+
     pub fn OutType(comptime self: Data) type {
         return switch (self) {
             .status => Status,
@@ -101,6 +103,7 @@ pub const Data = enum(c_int) {
             .selected_match => selection_c.CSelection,
             .matches, .viewport_matches => selection_c.CSelectionBuffer,
             .select_scroll => Scroll,
+            _ => void,
         };
     }
 };
@@ -112,12 +115,15 @@ pub const Option = enum(c_int) {
     select_prev = 2,
     select_scroll = 3,
 
+    _,
+
     pub fn Type(comptime self: Option) type {
         return switch (self) {
             .needle => lib.String,
             // The value must be NULL. Reserved for future use.
             .select_next, .select_prev => void,
             .select_scroll => Scroll,
+            _ => void,
         };
     }
 };
@@ -215,14 +221,8 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("search_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
     return switch (option) {
+        _ => .unsupported,
         inline else => |comptime_option| setTyped(
             search_,
             comptime_option,
@@ -294,10 +294,11 @@ fn setTyped(
                 wrapper.select_scroll = .if_needed;
                 return .success;
             };
-            const scroll = std.enums.fromInt(Scroll, @backingInt(v.*)) orelse
+            const scroll = lib.enumFromPtr(Scroll, v) orelse
                 return .invalid_value;
             wrapper.select_scroll = scroll.toZig();
         },
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -316,15 +317,9 @@ pub fn get(
     data: Data,
     value: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
-            log.warn("search_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     const out_ptr = value orelse return .invalid_value;
     return switch (data) {
+        _ => .unsupported,
         inline else => |comptime_data| getTyped(
             search_,
             comptime_data,
@@ -425,6 +420,7 @@ fn getTyped(
         },
 
         .select_scroll => out.* = .fromZig(wrapper.select_scroll),
+        _ => comptime unreachable,
     }
 
     return .success;

@@ -638,7 +638,9 @@ typedef struct {
  * @param graphics The kitty graphics handle
  * @param data The type of data to extract
  * @param[out] out Pointer to store the extracted data
- * @return GHOSTTY_SUCCESS on success
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_UNSUPPORTED if `data` is not
+ *         known to this version of the library, or GHOSTTY_NO_VALUE if Kitty
+ *         graphics support was disabled when the library was built
  *
  * @ingroup kitty_graphics
  */
@@ -714,7 +716,9 @@ GHOSTTY_API GhosttyKittyGraphicsImage ghostty_kitty_graphics_image(
  * @param image The image handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_UNSUPPORTED if `data` is not
+ *         known to this version of the library, or GHOSTTY_NO_VALUE if Kitty
+ *         graphics support was disabled when the library was built
  *
  * @ingroup kitty_graphics
  */
@@ -746,7 +750,9 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_image_get(
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup kitty_graphics
  */
@@ -799,7 +805,10 @@ GHOSTTY_API void ghostty_kitty_graphics_placement_iterator_free(
  * @param option The option to set
  * @param value Pointer to the value (type depends on option; NULL returns
  *              GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `value` is NULL
+ *         or out of range, GHOSTTY_UNSUPPORTED if `option` is not known to
+ *         this version of the library, or GHOSTTY_NO_VALUE if Kitty graphics
+ *         support was disabled when the library was built
  *
  * @ingroup kitty_graphics
  */
@@ -832,8 +841,9 @@ GHOSTTY_API bool ghostty_kitty_graphics_placement_next(
  * @param iterator The iterator handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the
- *         iterator is NULL or not positioned on a placement
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the iterator is
+ *         NULL or not positioned on a placement, or GHOSTTY_UNSUPPORTED if
+ *         `data` is not known to this version of the library
  *
  * @ingroup kitty_graphics
  */
@@ -865,7 +875,9 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_get(
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup kitty_graphics
  */

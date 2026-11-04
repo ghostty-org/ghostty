@@ -218,6 +218,8 @@ pub const Data = enum(c_int) {
     image_iterator = 22,
     image_placements_generation = 23,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: Data) type {
         return switch (self) {
@@ -237,6 +239,7 @@ pub const Data = enum(c_int) {
             .overscan, .overscan_request => Overscan,
             .image_iterator => ImageIterator,
             .image_placements_generation => u64,
+            _ => void,
         };
     }
 };
@@ -246,11 +249,14 @@ pub const SetOption = enum(c_int) {
     dirty = 0,
     overscan = 1,
 
+    _,
+
     /// Input type expected for setting the option.
     pub fn InType(comptime self: SetOption) type {
         return switch (self) {
             .dirty => Dirty,
             .overscan => Overscan,
+            _ => void,
         };
     }
 };
@@ -377,15 +383,9 @@ inline fn getDispatch(
     data: Data,
     out: ?*anyopaque,
 ) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
-            log.warn("render_state_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     const out_ptr = out orelse return .invalid_value;
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             state,
@@ -464,6 +464,7 @@ fn getTyped(
             };
         },
         .image_placements_generation => out.* = state.state.imagePlacementsGeneration(),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -474,14 +475,8 @@ pub fn set(
     option: SetOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(SetOption, @backingInt(option)) orelse {
-            log.warn("render_state_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
     return switch (option) {
+        _ => .unsupported,
         inline else => |comptime_option| setTyped(
             state_,
             comptime_option,
@@ -497,13 +492,15 @@ fn setTyped(
 ) Result {
     const state = state_ orelse return .invalid_value;
     switch (option) {
-        .dirty => state.state.dirty = value.*,
+        .dirty => state.state.dirty = lib.enumFromPtr(Dirty, value) orelse
+            return .invalid_value,
 
         // Applied by the next update. See the field docs for why.
         .overscan => state.overscan_request = .{
             .above = value.above,
             .below = value.below,
         },
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -771,6 +768,8 @@ pub const RowCellsData = enum(c_int) {
     has_styling = 8,
     graphemes_utf8 = 9,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowCellsData) type {
         return switch (self) {
@@ -782,6 +781,7 @@ pub const RowCellsData = enum(c_int) {
             .bg_color, .fg_color => colorpkg.RGB.C,
             .selected, .has_styling => bool,
             .graphemes_utf8 => lib.Buffer,
+            _ => void,
         };
     }
 };
@@ -837,15 +837,10 @@ inline fn rowCellsGetDispatch(
     data: RowCellsData,
     out: ?*anyopaque,
 ) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowCellsData, @backingInt(data)) orelse {
-            log.warn("render_state_row_cells_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
     if (out == null) return .invalid_value;
 
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| rowCellsGetTypedInner(
             cells,
@@ -927,6 +922,7 @@ fn rowCellsGetTypedInner(
             false,
         .has_styling => out.* = cell.hasStyling(),
         .graphemes_utf8 => return rowCellsGetGraphemesUtf8(cell, if (cell.hasGrapheme()) cells.graphemes[x] else &.{}, out),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -996,6 +992,8 @@ pub const RowData = enum(c_int) {
     viewport_y = 6,
     id = 7,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowData) type {
         return switch (self) {
@@ -1007,6 +1005,7 @@ pub const RowData = enum(c_int) {
             .cells_raw => cell_c.CellsView,
             .viewport_y => i32,
             .id => RowId,
+            _ => void,
         };
     }
 };
@@ -1015,10 +1014,13 @@ pub const RowData = enum(c_int) {
 pub const RowOption = enum(c_int) {
     dirty = 0,
 
+    _,
+
     /// Input type expected for setting the option.
     pub fn InType(comptime self: RowOption) type {
         return switch (self) {
             .dirty => bool,
+            _ => void,
         };
     }
 };
@@ -1074,14 +1076,8 @@ inline fn rowGetDispatch(
     data: RowData,
     out: ?*anyopaque,
 ) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
-            log.warn("render_state_row_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| rowGetTyped(
             it,
@@ -1132,6 +1128,7 @@ fn rowGetTyped(
         },
         .viewport_y => out.* = it.viewport_y_base + @as(i32, @intCast(y)),
         .id => out.* = .init(.{ .serial = it.serials[y], .y = it.pins[y].y }),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -1142,14 +1139,8 @@ pub fn row_set(
     option: RowOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowOption, @backingInt(option)) orelse {
-            log.warn("render_state_row_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
     return switch (option) {
+        _ => .unsupported,
         inline else => |comptime_option| rowSetTyped(
             iterator_,
             comptime_option,
@@ -1168,6 +1159,7 @@ fn rowSetTyped(
     if (y >= it.raws.len) return .invalid_value;
     switch (option) {
         .dirty => it.dirty[y] = value.*,
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -1205,6 +1197,8 @@ pub const ImageData = enum(c_int) {
     kitty_placement_id = 18,
     kitty_kind = 19,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: ImageData) type {
         return switch (self) {
@@ -1227,6 +1221,7 @@ pub const ImageData = enum(c_int) {
             .kitty_placement_id,
             => u32,
             .viewport_col, .viewport_row, .z => i32,
+            _ => void,
         };
     }
 };
@@ -1270,14 +1265,8 @@ pub fn image_get(
     data: ImageData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(ImageData, @backingInt(data)) orelse {
-            log.warn("render_state_image_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| imageGetTyped(
             iterator_,
@@ -1344,6 +1333,7 @@ fn imageGetTyped(
         .kitty_kind => switch (p.protocol) {
             .kitty => |kitty| out.* = kitty.kind,
         },
+        _ => comptime unreachable,
     }
 
     return .success;

@@ -85,25 +85,31 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup key
  */
 typedef enum GHOSTTY_ENUM_TYPED {
-    /** Terminal DEC mode 1: cursor key application mode (value: bool) */
+    /** Terminal DEC mode 1: cursor key application mode (value: bool,
+     *  default: false) */
     GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION = 0,
 
-    /** Terminal DEC mode 66: keypad key application mode (value: bool) */
+    /** Terminal DEC mode 66: keypad key application mode (value: bool,
+     *  default: false) */
     GHOSTTY_KEY_ENCODER_OPT_KEYPAD_KEY_APPLICATION = 1,
 
-    /** Terminal DEC mode 1035: ignore keypad with numlock (value: bool) */
+    /** Terminal DEC mode 1035: ignore keypad with numlock (value: bool,
+     *  default: false) */
     GHOSTTY_KEY_ENCODER_OPT_IGNORE_KEYPAD_WITH_NUMLOCK = 2,
 
-    /** Terminal DEC mode 1036: alt sends escape prefix (value: bool) */
+    /** Terminal DEC mode 1036: alt sends escape prefix (value: bool,
+     *  default: false) */
     GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX = 3,
 
-    /** xterm modifyOtherKeys mode 2 (value: bool) */
+    /** xterm modifyOtherKeys mode 2 (value: bool, default: false) */
     GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2 = 4,
 
-    /** Kitty keyboard protocol flags (value: GhosttyKittyKeyFlags bitmask) */
+    /** Kitty keyboard protocol flags (value: GhosttyKittyKeyFlags bitmask,
+     *  default: GHOSTTY_KITTY_KEY_DISABLED) */
     GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS = 5,
 
-    /** macOS option-as-alt setting (value: GhosttyOptionAsAlt) */
+    /** macOS option-as-alt setting (value: GhosttyOptionAsAlt,
+     *  default: GHOSTTY_OPTION_AS_ALT_FALSE) */
     GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT = 6,
 
     /** Backarrow key mode (value: bool)
@@ -155,16 +161,32 @@ GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  * options based on the active terminal state (e.g. legacy vs Kitty mode
  * and associated flags) with ghostty_key_encoder_setopt_from_terminal().
  *
- * A null pointer value does nothing. It does not reset the value to the
- * default. The setopt call will do nothing.
+ * Passing NULL for `value` resets the option to its default, the same
+ * value a new encoder starts with. Each option's default is listed on
+ * GhosttyKeyEncoderOption.
+ *
+ * @code{.c}
+ * bool enabled = true;
+ * ghostty_key_encoder_setopt(
+ *     encoder, GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION, &enabled);
+ *
+ * // Later, put the option back to its default (false).
+ * ghostty_key_encoder_setopt(
+ *     encoder, GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION, NULL);
+ * @endcode
  *
  * @param encoder The encoder handle, must not be NULL
  * @param option The option to set
- * @param value Pointer to the value to set (type depends on the option)
+ * @param value Pointer to the value to set (type depends on the option), or
+ *              NULL to reset the option to its default
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `encoder` is
+ *         NULL or the value is out of range (such as an unknown
+ *         GhosttyOptionAsAlt), or GHOSTTY_UNSUPPORTED if `option` is not
+ *         known to this version of the library
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
 
 /**
  * Set encoder options from a terminal's current state.

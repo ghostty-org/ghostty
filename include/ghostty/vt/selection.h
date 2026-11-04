@@ -578,8 +578,9 @@ GHOSTTY_API void ghostty_selection_gesture_event_free(
  * @param option Event option to set or clear
  * @param value Pointer to the input value for option, or NULL to clear
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY if copying
- *         event-owned data fails, or GHOSTTY_INVALID_VALUE if event, option, or
- *         value is invalid
+ *         event-owned data fails, GHOSTTY_INVALID_VALUE if `event` or `value`
+ *         is invalid, or GHOSTTY_UNSUPPORTED if `option` is not known to this
+ *         version of the library
  *
  * @ingroup selection
  */
@@ -710,8 +711,9 @@ GHOSTTY_API void ghostty_selection_gesture_reset(
  * @param data Data field to read
  * @param value Output pointer whose type depends on data
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the requested data
- *         has no value, or GHOSTTY_INVALID_VALUE if gesture, terminal, data, or
- *         value is invalid
+ *         has no value, GHOSTTY_INVALID_VALUE if `gesture`, `terminal`, or
+ *         `out` is invalid, or GHOSTTY_UNSUPPORTED if `data` is not known to
+ *         this version of the library
  *
  * @ingroup selection
  */
@@ -738,9 +740,9 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_get(
  * @param keys Data fields to read (must not be NULL)
  * @param values Output pointers corresponding to keys (must not be NULL)
  * @param out_written Optional number of fields read, or failing index on error
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a requested data
- *         field has no value, or GHOSTTY_INVALID_VALUE if gesture, terminal,
- *         keys, values, or a value pointer is invalid
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup selection
  */

@@ -3307,10 +3307,13 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  * ghostty_terminal_vt_write_until() on the same terminal
  * (no reentrancy).
  *
- * @param terminal The terminal handle (may be NULL, in which case this is a no-op)
+ * @param terminal The terminal handle, must not be NULL
  * @param option The option to set
  * @param value Pointer to the value to set (type depends on the option),
  *              or NULL to clear the option
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `terminal`
+ *         is NULL, or GHOSTTY_UNSUPPORTED if `option` is not known to this
+ *         version of the library
  *
  * @ingroup terminal
  */
@@ -3650,8 +3653,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compress(
  * @param terminal The terminal handle (may be NULL)
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal
- *         is NULL or the data type is invalid
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal is
+ *         NULL or `data` is GHOSTTY_TERMINAL_DATA_INVALID, or
+ *         GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
+ *         library
  *
  * @ingroup terminal
  */
@@ -3682,7 +3687,9 @@ GHOSTTY_API GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup terminal
  */

@@ -244,7 +244,7 @@ pub fn decoder_set(
             @as(*const bool, @ptrCast(@alignCast(value))).*,
         .kitty_image_storage_limit => decoder.kitty_image_storage_limit =
             @as(*const u64, @ptrCast(@alignCast(value))).*,
-        _ => return .invalid_value,
+        _ => return .unsupported,
     }
     return .success;
 }
@@ -281,7 +281,7 @@ pub fn decoder_get(
             comptime_data,
             @ptrCast(@alignCast(out)),
         ),
-        _ => .invalid_value,
+        _ => .unsupported,
     };
 }
 

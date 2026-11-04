@@ -10,12 +10,13 @@ pub const Style = terminal_size_report.Style;
 pub const Size = terminal_size_report.Size;
 
 pub fn encode(
-    style: Style,
+    style_: lib.CEnum(Style),
     size: Size,
     out_: ?[*]u8,
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    const style = lib.enumFromC(Style, style_) orelse return .invalid_value;
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     terminal_size_report.encode(&writer, style, size) catch |err| switch (err) {
         error.WriteFailed => {

@@ -59,10 +59,11 @@ pub fn tracked_grid_ref_snapshot(
 
 pub fn tracked_grid_ref_point(
     ref_: CTrackedGridRef,
-    tag: point.Tag,
+    tag_: lib.CEnum(point.Tag),
     out: ?*point.Coordinate,
 ) callconv(lib.calling_conv) Result {
     const ref = ref_ orelse return .invalid_value;
+    const tag = lib.enumFromC(point.Tag, tag_) orelse return .invalid_value;
     const list = ref.pageList() orelse return .no_value;
     if (ref.pin.garbage) return .no_value;
     const pt = list.pointFromPin(tag, ref.pin.*) orelse return .no_value;
@@ -81,7 +82,8 @@ pub fn tracked_grid_ref_set(
 
     const t = wrapper.terminal;
     const list = &t.screens.active.pages;
-    const p = list.pin(point.Point.fromC(pt)) orelse return .invalid_value;
+    const p = list.pin(point.Point.fromC(pt) orelse return .invalid_value) orelse
+        return .invalid_value;
     const tracked_pin = list.trackPin(p) catch return .out_of_memory;
 
     if (ref.pageList()) |old_list| old_list.untrackPin(ref.pin);

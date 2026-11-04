@@ -635,7 +635,9 @@ GHOSTTY_API void ghostty_snapshot_decoder_free(GhosttySnapshotDecoder decoder);
  * @param option Option to change
  * @param value Pointer to the option value (must not be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if decoding has
- *         started or an argument is invalid, or another error code on failure
+ *         started or an argument is invalid, GHOSTTY_UNSUPPORTED if `option`
+ *         is not known to this version of the library, or another error code
+ *         on failure
  *
  * @ingroup snapshot
  */
@@ -798,7 +800,8 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_decode(
  * @param data Data kind to query
  * @param[out] out Pointer to receive the value (must not be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the requested data
- *         is unavailable, or another error code on failure
+ *         is unavailable, GHOSTTY_UNSUPPORTED if `data` is not known to this
+ *         version of the library, or another error code on failure
  *
  * @ingroup snapshot
  */
@@ -821,7 +824,9 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_get(
  * @param keys Array of data kinds to query
  * @param values Array of output pointers corresponding to keys
  * @param[out] out_written Number of successfully written values (may be NULL)
- * @return GHOSTTY_SUCCESS if every query succeeds, or the first error
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup snapshot
  */

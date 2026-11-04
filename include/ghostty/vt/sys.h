@@ -262,8 +262,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param option The option to set
  * @param value  Pointer to the value (type depends on the option),
  *               or NULL to clear it
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the
- *         option is not recognized
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_UNSUPPORTED if the
+ *         option is not known to this build (see GhosttyResult)
  */
 GHOSTTY_API GhosttyResult ghostty_sys_set(GhosttySysOption option,
                                            const void* value);

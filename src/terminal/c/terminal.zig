@@ -1486,6 +1486,8 @@ pub const Option = enum(c_int) {
     program_status = 46,
     resize_window = 47,
 
+    _,
+
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
         return switch (self) {
@@ -1534,6 +1536,7 @@ pub const Option = enum(c_int) {
             .default_cursor_style => ?*const TerminalCursorStyle,
             .default_cursor_blink => ?*const bool,
             .mode, .mode_default => ?*const ModeConfig,
+            _ => void,
         };
     }
 };
@@ -1543,18 +1546,10 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("terminal_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
-    const wrapper = terminal_ orelse return .invalid_value;
-
     return switch (option) {
+        _ => .unsupported,
         inline else => |comptime_option| setTyped(
-            wrapper,
+            terminal_ orelse return .invalid_value,
             comptime_option,
             @ptrCast(@alignCast(value)),
         ),
@@ -1781,6 +1776,7 @@ fn setTyped(
                 else => unreachable,
             }
         },
+        _ => comptime unreachable,
     }
     return .success;
 }
@@ -1967,6 +1963,8 @@ pub const TerminalData = enum(c_int) {
     mouse_shape = 41,
     memory_usage = 42,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
         return switch (self) {
@@ -2011,6 +2009,7 @@ pub const TerminalData = enum(c_int) {
             .selection => selection_c.CSelection,
             .mode => ModeConfig,
             .memory_usage => TerminalMemoryUsage,
+            _ => void,
         };
     }
 };
@@ -2020,16 +2019,10 @@ pub fn get(
     data: TerminalData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(TerminalData, @backingInt(data)) orelse {
-            log.warn("terminal_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     const out_ptr = out orelse return .invalid_value;
 
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             terminal_,
@@ -2164,6 +2157,7 @@ fn getTyped(
             if (out.size < @sizeOf(TerminalMemoryUsage)) return .invalid_value;
             out.* = .init(t, out.size);
         },
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -2175,7 +2169,7 @@ pub fn grid_ref(
     out_ref: ?*grid_ref_c.CGridRef,
 ) callconv(lib.calling_conv) Result {
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const zig_pt: point.Point = .fromC(pt);
+    const zig_pt = point.Point.fromC(pt) orelse return .invalid_value;
     const p = t.screens.active.pages.pin(zig_pt) orelse
         return .invalid_value;
     if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
@@ -2193,7 +2187,8 @@ pub fn grid_ref_track(
 
     const t: *ZigTerminal = wrapper.terminal;
     const list = &t.screens.active.pages;
-    const p = list.pin(.fromC(pt)) orelse return .invalid_value;
+    const p = list.pin(point.Point.fromC(pt) orelse return .invalid_value) orelse
+        return .invalid_value;
     const tracked_pin = list.trackPin(p) catch return .out_of_memory;
 
     const alloc = t.gpa();
