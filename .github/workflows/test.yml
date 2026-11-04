@@ -119,6 +119,7 @@ jobs:
       - test-kaitai
       - test-lib-vt
       - test-lib-vt-freebsd
+      - test-lib-vt-offline
       - test-lib-vt-pkgconfig
       - test-macos
       - pinact
@@ -383,7 +384,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_27.1.app
 
       - name: Build XCFramework
-        run: nix develop -c zig build -Demit-lib-vt
+        run: nix develop -c zig build -Demit-lib-vt -Demit-xcframework=true
 
       - name: Verify XCFramework artifact
         run: test -f zig-out/lib/ghostty-vt.xcframework/Info.plist
@@ -427,7 +428,8 @@ jobs:
 
       - name: Verify artifacts
         run: |
-          test -f zig-out/lib/libghostty-vt.so.0.1.0
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
+          test -f "zig-out/lib/libghostty-vt.so.${lib_version}"
           test -d zig-out/include/ghostty
           ls -la zig-out/lib/
           ls -la zig-out/include/ghostty/
@@ -464,7 +466,7 @@ jobs:
 
       - name: Verify pkg-config file
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
           pkg-config --validate libghostty-vt
           echo "Cflags: $(pkg-config --cflags libghostty-vt)"
           echo "Libs:   $(pkg-config --libs libghostty-vt)"
@@ -472,12 +474,30 @@ jobs:
 
           # Libs.private must NOT include the C++ runtime libraries (all
           # vendored C++ deps are built in no-libcxx mode).
-          ! pkg-config --libs --static libghostty-vt | grep -qE -- '-lc\+\+|-lc\+\+abi'
+          if pkg-config --libs --static libghostty-vt | grep -qE -- '-lc\+\+|-lc\+\+abi'; then
+            echo "pkg-config --static links the C++ runtime" >&2
+            exit 1
+          fi
+
+      - name: Verify shared library name and SONAME
+        run: |
+          # Zig's usual layout: the SONAME only carries the major version,
+          # and the .so.<major> and .so names are symlinks to the real file.
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
+          lib_major=${lib_version%%.*}
+          test -f "zig-out/lib/libghostty-vt.so.${lib_version}"
+          test "$(readlink zig-out/lib/libghostty-vt.so.${lib_major})" = "libghostty-vt.so.${lib_version}"
+          test "$(readlink zig-out/lib/libghostty-vt.so)" = "libghostty-vt.so.${lib_major}"
+          objdump -p "zig-out/lib/libghostty-vt.so.${lib_version}" | grep -E "^\s*SONAME\s+libghostty-vt\.so\.${lib_major}\$"
 
       - name: Verify shared library has no libc++ dependency
         run: |
-          ldd zig-out/lib/libghostty-vt.so.0.1.0
-          ! ldd zig-out/lib/libghostty-vt.so.0.1.0 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' build.zig)
+          ldd "zig-out/lib/libghostty-vt.so.${lib_version}"
+          if ldd "zig-out/lib/libghostty-vt.so.${lib_version}" 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'; then
+            echo "the shared library depends on the C++ runtime" >&2
+            exit 1
+          fi
 
       - name: Verify static archive contains SIMD deps
         run: |
@@ -500,7 +520,7 @@ jobs:
 
       - name: Test shared link via pkg-config
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
           nix develop -c cc -o /tmp/test_shared /tmp/test_libghostty_vt.c \
             $(pkg-config --cflags --libs libghostty-vt) \
             -Wl,-rpath,"$PWD/zig-out/lib"
@@ -508,7 +528,7 @@ jobs:
 
       - name: Test static link via pkg-config
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
           # The static archive must link cleanly into a plain C program
           # without any extra C++ runtime flags.
           nix develop -c cc -o /tmp/test_static /tmp/test_libghostty_vt.c \
@@ -517,7 +537,56 @@ jobs:
             $(pkg-config --libs-only-l --static libghostty-vt | sed 's/-lghostty-vt//')
           /tmp/test_static
           # Verify it doesn't depend on the shared lib or a C++ runtime.
-          ! ldd /tmp/test_static 2>/dev/null | grep -qE 'libghostty-vt|libc\+\+|libc\+\+abi'
+          if ldd /tmp/test_static 2>/dev/null | grep -qE 'libghostty-vt|libc\+\+|libc\+\+abi'; then
+            echo "the static test program depends on libghostty-vt or the C++ runtime" >&2
+            exit 1
+          fi
+
+      # Install the way distros do: staged with DESTDIR, into /usr, with
+      # the libraries in lib64. The installed files must name the final
+      # paths, never the staging directory.
+      - name: Verify staged install with DESTDIR and lib64
+        run: |
+          stage=$(mktemp -d)
+          DESTDIR="$stage" nix develop -c zig build -Demit-lib-vt \
+            --prefix /usr --prefix-lib-dir lib64
+
+          if grep -rlF "$stage" "$stage"; then
+            echo "installed files name the staging directory" >&2
+            exit 1
+          fi
+          for pc in libghostty-vt libghostty-vt-static; do
+            file="$stage/usr/lib64/pkgconfig/$pc.pc"
+            cat "$file"
+            grep -qx 'prefix=/usr' "$file"
+            grep -qxF 'libdir=${prefix}/lib64' "$file"
+            PKG_CONFIG_PATH="$stage/usr/lib64/pkgconfig" pkg-config --validate "$pc"
+          done
+          test -f "$stage/usr/lib64/cmake/ghostty-vt/ghostty-vt-config.cmake"
+
+          # Move the tree out of the staging directory, as a package
+          # manager would, and use it from a CMake project.
+          root=$(mktemp -d)
+          mv "$stage/usr" "$root/usr"
+          consumer=$(mktemp -d)
+          cat > "$consumer/CMakeLists.txt" << 'EOF'
+          cmake_minimum_required(VERSION 3.19)
+          project(consumer C)
+          find_package(ghostty-vt CONFIG REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE ghostty-vt::ghostty-vt)
+          EOF
+          cat > "$consumer/main.c" << 'EOF'
+          #include <ghostty/vt.h>
+          int main(void) {
+              bool simd = false;
+              return ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd) == GHOSTTY_SUCCESS ? 0 : 1;
+          }
+          EOF
+          nix develop -c cmake -S "$consumer" -B "$consumer/build" \
+            -DCMAKE_PREFIX_PATH="$root/usr"
+          nix develop -c cmake --build "$consumer/build"
+          "$consumer/build/consumer"
 
       # Test system integration: rebuild with -Dsystem-simdutf=true so
       # simdutf comes from the system instead of being vendored. This
@@ -530,20 +599,31 @@ jobs:
 
       - name: Verify pkg-config with system simdutf
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
-          pc_content=$(cat zig-out/share/pkgconfig/libghostty-vt.pc)
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
+          pc_content=$(cat zig-out/lib/pkgconfig/libghostty-vt.pc)
           echo "$pc_content"
 
           # Requires.private must reference simdutf
           echo "$pc_content" | grep -q 'Requires.private:.*simdutf'
 
           # Requires.private must NOT reference libhwy (still vendored)
-          ! echo "$pc_content" | grep -q 'Requires.private:.*libhwy'
+          if echo "$pc_content" | grep -q 'Requires.private:.*libhwy'; then
+            echo "Requires.private names libhwy, which is still vendored" >&2
+            exit 1
+          fi
 
       - name: Verify archive with system simdutf
         run: |
-          # simdutf symbols must NOT be defined (comes from system)
-          ! nm -g zig-out/lib/libghostty-vt.a | grep -q ' T .*simdutf'
+          # simdutf symbols must NOT be defined (comes from system).
+          #
+          # grep reads all of the output here instead of using -q. With
+          # -q it stops at the first match, nm can then die writing the
+          # rest of its large output, and with pipefail that failure
+          # would make the if skip the very case it is checking for.
+          if nm -g zig-out/lib/libghostty-vt.a | grep ' T .*simdutf' >/dev/null; then
+            echo "the archive defines simdutf symbols, which should come from the system" >&2
+            exit 1
+          fi
 
           # highway symbols must still be defined (vendored)
           nm -g zig-out/lib/libghostty-vt.a | grep -q ' T .*3hwy'
@@ -849,18 +929,22 @@ jobs:
             platform: 1
             arch: arm64
             expect_encryption: false
+            xcframework: true
           - target: x86_64-macos
             platform: 1
             arch: x86_64
             expect_encryption: false
+            xcframework: true
           - target: aarch64-ios
             platform: 2
             arch: arm64
             expect_encryption: true
+            xcframework: false
           - target: aarch64-ios-simulator
             platform: 7
             arch: arm64
             expect_encryption: false
+            xcframework: false
     runs-on: namespace-profile-ghostty-macos-golden
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
     needs: skip
@@ -891,10 +975,14 @@ jobs:
       - name: Xcode Select
         run: sudo xcode-select -s /Applications/Xcode_27.1.app
 
+      # The libghostty-vt xcframework is opt-in and can only be built
+      # from a macOS target. Build it for the macOS targets, which used
+      # to build it by default.
       - name: Build
         run: |
           nix develop -c zig build -Demit-lib-vt \
-            -Dtarget=${{ matrix.target }}
+            -Dtarget=${{ matrix.target }} \
+            -Demit-xcframework=${{ matrix.xcframework }}
 
       - name: Verify Apple dylib
         run: |
@@ -1158,6 +1246,7 @@ jobs:
             ".#$PKG.tests.pkg-config" \
             ".#$PKG.tests.build-with-shared" \
             ".#$PKG.tests.build-with-static" \
+            ".#$PKG.tests.build-with-cmake" \
             ".#$PKG.tests.build-example-c-vt-build-info"
 
   build-dist:
@@ -1266,7 +1355,7 @@ jobs:
 
       - name: Verify tarball size
         run: |
-          tarball=$(ls zig-out/dist/*.tar.gz)
+          tarball=$(ls zig-out/dist/libghostty-vt-*.tar.gz)
           size=$(stat --format=%s "$tarball")
           max=$((5 * 1024 * 1024))
           echo "Tarball size: $size bytes (max: $max)"
@@ -1624,6 +1713,53 @@ jobs:
 
       - name: Validate native ABI manifest
         run: nix develop -c zig build test-lib-vt-schema
+
+  # Checks that deps/libghostty-vt.txt lists everything a packager needs.
+  # It downloads only the packages on that list, then builds and tests the
+  # library with --system, which stops Zig from downloading anything. The
+  # build also gets its own empty cache. If the list is missing a package,
+  # the build fails here instead of quietly finding it somewhere else.
+  test-lib-vt-offline:
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    runs-on: namespace-profile-ghostty-md
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Fetch the library dependency list
+        run: |
+          nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/offline-cache" \
+            ./nix/build-support/fetch-zig-cache.sh deps/libghostty-vt.txt
+
+      - name: Build offline
+        run: |
+          nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/build-cache" \
+            zig build --system "$RUNNER_TEMP/offline-cache/p" \
+              -Demit-lib-vt -Demit-xcframework=false
+
+      - name: Test offline
+        run: |
+          nix develop -c env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/build-cache" \
+            zig build --system "$RUNNER_TEMP/offline-cache/p" \
+              -Demit-lib-vt -Demit-xcframework=false test-lib-vt
 
   # Runs the libghostty-vt tests on FreeBSD 15.1 amd64, in a QEMU virtual
   # machine (VM). A container cannot run FreeBSD, because containers share

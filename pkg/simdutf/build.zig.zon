@@ -1,10 +1,22 @@
 .{
     .name = .simdutf,
-    .version = "5.2.8",
+    .version = "9.0.0",
     .fingerprint = 0x7494ad640528a0d,
     .paths = .{""},
     .dependencies = .{
         .apple_sdk = .{ .path = "../apple-sdk" },
         .android_ndk = .{ .path = "../android-ndk" },
+    },
+    // The license of the simdutf source copied into vendor/, for
+    // packagers. Its version is .version above, so keep that in sync with
+    // SIMDUTF_VERSION in vendor/simdutf.h. Zig ignores this field. See
+    // src/build/LibVtPackages.zig.
+    .third_party = .{
+        .{
+            .name = "simdutf",
+            .license = "Apache-2.0 OR MIT",
+            .path = "vendor",
+            .url = "https://github.com/simdutf/simdutf",
+        },
     },
 }

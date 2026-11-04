@@ -37,6 +37,7 @@
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
  * - @ref paste "Paste" - Paste into a terminal, validate and encode paste data
  * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
+ * - @ref version "Version" - Check the version of the headers and the library
  * - @ref build_info "Build Info" - Query compile-time build configuration
  * - @ref allocator "Memory Management" - Memory management and custom allocators
  * - @ref io "Byte-stream I/O" - Reusable synchronous reader and writer callbacks
@@ -66,7 +67,8 @@
 
 /** @example c-vt-build-info/src/main.c
  * This example demonstrates how to query compile-time build configuration
- * such as SIMD support, Kitty graphics, and tmux control mode availability.
+ * such as SIMD support, Kitty graphics, and tmux control mode availability,
+ * and how to check that the library matches the headers.
  */
 
 /** @example c-vt/src/main.c
@@ -140,6 +142,7 @@
 extern "C" {
 #endif
 
+#include <ghostty/vt/version.h>
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/build_info.h>

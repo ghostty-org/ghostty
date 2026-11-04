@@ -7,7 +7,11 @@ const translate_c = @import("translate_c");
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
 
-/// Libghostty version. We use a separate version from the app.
+/// The libghostty-vt version, released separately from the app with
+/// `vt-X.Y.Z` tags. See `Config.libVersion` for how builds use it.
+///
+/// CMakeLists.txt and CI read this line with a regular expression, so
+/// keep it on one line in this form.
 const lib_version = "0.1.0-dev";
 
 /// Minimum required zig version.
@@ -22,25 +26,14 @@ pub fn build(b: *std.Build) !void {
     // want to know what options are available, you can run `--help` or
     // you can read `src/build/Config.zig`.
 
-    // If we have a VERSION file (present in source tarballs) then we
-    // use that as the version source of truth. Otherwise we fall back
-    // to what is in the build.zig.zon.
-    const file_version: ?[]const u8 = if (b.root.root_dir.handle.readFileAlloc(
-        b.graph.io,
-        "VERSION",
-        b.allocator,
-        .limited(128),
-    )) |content| std.mem.trim(
-        u8,
-        content,
-        &std.ascii.whitespace,
-    ) else |_| null;
-
-    const config = try buildpkg.Config.init(
-        b,
-        file_version orelse app_zon_version,
-        lib_version,
-    );
+    // Source tarballs have no git history, so they carry their version
+    // in a VERSION (app) or LIB_VERSION (libghostty-vt) file.
+    const config = try buildpkg.Config.init(b, .{
+        .app = app_zon_version,
+        .app_file = readVersionFile(b, "VERSION"),
+        .lib = lib_version,
+        .lib_file = readVersionFile(b, "LIB_VERSION"),
+    });
     const test_filters = b.option(
         [][]const u8,
         "test-filter",
@@ -126,6 +119,13 @@ pub fn build(b: *std.Build) !void {
     }
 
     // libghostty-vt
+    //
+    // The libraries are always defined so that steps like test-lib-vt can
+    // use them, but they are only installed by a libghostty-vt build or
+    // when Ghostty is a dependency. A dependency must install them so
+    // that dep.artifact("ghostty-vt") and friends can find them. App
+    // builds install none of it, so they don't ship a stray C library.
+    const install_lib_vt = config.emit_lib_vt or config.is_dep;
     const native_freestanding = config.target.result.os.tag == .freestanding and
         !config.target.result.cpu.arch.isWasm();
     const libghostty_vt_shared: ?buildpkg.GhosttyLibVt = shared: {
@@ -140,10 +140,11 @@ pub fn build(b: *std.Build) !void {
         break :shared try buildpkg.GhosttyLibVt.initShared(
             b,
             &mod,
+            config.is_dep,
         );
     };
     if (libghostty_vt_shared) |shared| {
-        shared.install(b.getInstallStep());
+        if (install_lib_vt) shared.install(b.getInstallStep());
 
         const type_schema_test = b.addSystemCommand(&.{"python3"});
         type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
@@ -154,6 +155,11 @@ pub fn build(b: *std.Build) !void {
         _ = b.addFail("cannot execute the ABI manifest for a native freestanding target");
     }
 
+    // The packages libghostty-vt uses, for gen-lib-vt-deps.sh. Defined
+    // only for library builds so app builds skip reading every package's
+    // build.zig.zon.
+    if (config.emit_lib_vt) _ = try buildpkg.LibVtPackages.init(b, mod.vt_c);
+
     // libghostty-vt static lib
     const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
         b,
@@ -163,7 +169,7 @@ pub fn build(b: *std.Build) !void {
         // If we're a dependency, we need to install everything as-is
         // so that dep.artifact("ghostty-vt-static") works.
         libghostty_vt_static.install(b.getInstallStep());
-    } else {
+    } else if (install_lib_vt) {
         // If we're not a dependency, we rename the static lib to
         // be idiomatic. On Windows, we use a distinct name to avoid
         // colliding with the DLL import library (ghostty-vt.lib).
@@ -372,6 +378,35 @@ pub fn build(b: *std.Build) !void {
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
 
+        // The committed version.h must match lib_version, so a version
+        // bump has to update both. The test embeds the header, so both
+        // files are copied into one directory.
+        const version_h_test = version_h_test: {
+            const wf = b.addWriteFiles();
+            const root = wf.addCopyFile(
+                b.path("src/terminal/c/version_h_test.zig"),
+                "version_h_test.zig",
+            );
+            _ = wf.addCopyFile(
+                b.path("include/ghostty/vt/version.h"),
+                "version.h",
+            );
+            const opts = b.addOptions();
+            opts.addOption(std.SemanticVersion, "lib_version", config.lib_version);
+            const test_mod = b.createModule(.{
+                .root_source_file = root,
+                .target = b.graph.host,
+                .optimize = .debug,
+            });
+            test_mod.addOptions("lib_version", opts);
+            break :version_h_test b.addTest(.{
+                .name = "ghostty-vt-version-h-test",
+                .root_module = test_mod,
+                .filters = test_filters,
+            });
+        };
+        test_lib_vt_step.dependOn(&b.addRunArtifact(version_h_test).step);
+
         if (config.emit_test_exe) {
             // With -Demit-test-exe, test-lib-vt-build builds only the C API
             // test binary and installs it to zig-out/bin, so it can run on
@@ -457,4 +492,16 @@ fn addGhosttyH(
         .optimize = optimize,
         .system_include_paths = &.{b.path("include")},
     }) catch unreachable;
+}
+
+/// Returns the trimmed contents of `name` in the build root, or null if
+/// it doesn't exist.
+fn readVersionFile(b: *std.Build, name: []const u8) ?[]const u8 {
+    const content = b.root.root_dir.handle.readFileAlloc(
+        b.graph.io,
+        name,
+        b.allocator,
+        .limited(128),
+    ) catch return null;
+    return std.mem.trim(u8, content, &std.ascii.whitespace);
 }

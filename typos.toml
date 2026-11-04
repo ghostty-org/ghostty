@@ -2,9 +2,11 @@
 extend-exclude = [
   # Build
   "build.zig.zon",
-  "build.zig.zon.nix",
-  "build.zig.zon.txt",
-  "build.zig.zon.json",
+  "deps/packages.nix",
+  "deps/packages.txt",
+  "deps/packages.json",
+  "deps/libghostty-vt.txt",
+  "deps/libghostty-vt-third-party.json",
   # Build artifacts
   "macos/build/*",
   "zig-out/*",

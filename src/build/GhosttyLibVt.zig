@@ -12,6 +12,7 @@ const LipoStep = @import("LipoStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 const GhosttyPkgConfig = @import("GhosttyPkgConfig.zig");
+const InstallDirs = @import("InstallDirs.zig");
 
 /// The step that generates the file.
 step: *std.Build.Step,
@@ -27,6 +28,12 @@ output: std.Build.LazyPath,
 dsym: ?std.Build.LazyPath,
 pkg_config: ?std.Build.LazyPath,
 pkg_config_static: ?std.Build.LazyPath,
+
+/// The CMake package config files that let CMake projects use
+/// `find_package(ghostty-vt)`. One config describes both the shared and
+/// static library, so it is generated with the shared library only and
+/// is null for every other kind.
+cmake: ?CMakeFiles,
 
 /// The kind of library being built. This is similar to LinkMode but
 /// also includes wasm which is an executable, not a library.
@@ -95,6 +102,7 @@ pub fn initWasm(
         .dsym = null,
         .pkg_config = null,
         .pkg_config_static = null,
+        .cmake = null,
     };
 }
 
@@ -108,6 +116,7 @@ pub fn initStatic(
 pub fn initShared(
     b: *std.Build,
     zig: *const GhosttyZig,
+    is_dep: bool,
 ) !GhosttyLibVt {
     const target = zig.vt.resolved_target.?;
 
@@ -115,7 +124,14 @@ pub fn initShared(
     // available. Besides producing the platform load commands expected by
     // Apple distribution, this lets the static archive's libSystem symbol
     // override take effect. Cross-compiled macOS dylibs continue through Zig.
-    if (@import("apple_sdk").nativeLink.available(target)) {
+    //
+    // A Zig dependent gets the Zig-linked library instead. The native link
+    // is a Run step, and dep.artifact("ghostty-vt") only finds Compile
+    // steps installed with addInstallArtifact. The dependent links the
+    // library into its own build, so the Apple linker's packaging details
+    // (compatibility version, distribution load commands) don't matter
+    // there.
+    if (!is_dep and @import("apple_sdk").nativeLink.available(target)) {
         return initLibApple(b, zig);
     }
 
@@ -183,6 +199,7 @@ pub fn initStaticAppleUniversal(
         .dsym = null,
         .pkg_config = null,
         .pkg_config_static = null,
+        .cmake = null,
     });
 
     // Additional Apple platforms, each gated on SDK availability.
@@ -229,8 +246,15 @@ fn initLib(
         .name = if (kind == .static) "ghostty-vt-static" else "ghostty-vt",
         .linkage = linkage,
         .root_module = zig.vt_c,
+        // Zig names the shared library from this version and records it as
+        // the dylib's current version. See SharedVersion.
         .version = zig.version,
     });
+    if (kind == .shared and target.result.os.tag.isDarwin()) {
+        // Zig has no option for the compatibility version and always writes
+        // 1.0.0, so only the install name can follow SharedVersion here.
+        lib.install_name = SharedVersion.init(b, zig.version).install_name;
+    }
     lib.installHeadersDirectory(
         b.path("include/ghostty"),
         "ghostty",
@@ -314,6 +338,10 @@ fn initLib(
         try pkgConfigFiles(b, zig, target.result.os.tag)
     else
         null;
+    const cmake: ?CMakeFiles = if (kind == .shared)
+        .init(b, zig, target.result)
+    else
+        null;
 
     // For static libraries with vendored SIMD dependencies, combine
     // all archives into a single fat archive so consumers only need
@@ -346,6 +374,7 @@ fn initLib(
             .dsym = dsymutil,
             .pkg_config = if (pcs) |v| v.shared else null,
             .pkg_config_static = if (pcs) |v| v.static else null,
+            .cmake = cmake,
         };
     }
 
@@ -369,6 +398,7 @@ fn initLib(
         .dsym = dsymutil,
         .pkg_config = if (pcs) |v| v.shared else null,
         .pkg_config_static = if (pcs) |v| v.static else null,
+        .cmake = cmake,
     };
 }
 
@@ -393,14 +423,11 @@ fn initLibApple(
         "_ghostty_*\n",
     );
 
-    // Match Zig's versioned dylib naming so existing consumers and packaging
-    // continue to receive the same real name and compatibility symlinks.
-    const real_name = b.fmt("libghostty-vt.{d}.{d}.{d}.dylib", .{
-        zig.version.major,
-        zig.version.minor,
-        zig.version.patch,
-    });
-    const soname = b.fmt("libghostty-vt.{d}.dylib", .{zig.version.major});
+    // Use the same file names Zig would, so both linkers install the same
+    // files. See SharedVersion.
+    const shared_version: SharedVersion = .init(b, zig.version);
+    const real_name = shared_version.real_name;
+    const soname = shared_version.major_name;
 
     const native_link = try @import("apple_sdk").nativeLink.addCommand(
         b,
@@ -420,22 +447,28 @@ fn initLibApple(
     });
     // Restrict exports to libghostty-vt's public C ABI.
     native_link.addPrefixedFileArg("-Wl,-exported_symbols_list,", exports);
+    // With -Dstrip, the objects in the archive have no debug info, but
+    // Apple's linker still copies their internal symbol names into the
+    // dylib. These flags tell it to leave those out as well.
+    if (zig.vt_c.strip orelse false) native_link.addArgs(&.{
+        // Leave out the debug map, which points debuggers at the
+        // original object files.
+        "-Wl,-S",
+        // Leave out symbols that aren't exported.
+        "-Wl,-x",
+    });
     // Link the archive produced by the normal static-library path.
     native_link.addFileArg(static.output);
     native_link.addArgs(&.{
-        // Give framework consumers a stable runtime-relative identity.
+        // The name programs record and load at run time, found via @rpath.
         "-install_name",
-        "@rpath/libghostty-vt.dylib",
-        // Record the exact package version for runtime inspection.
+        shared_version.install_name,
+        // The full library version.
         "-current_version",
-        b.fmt("{d}.{d}.{d}", .{
-            zig.version.major,
-            zig.version.minor,
-            zig.version.patch,
-        }),
-        // Preserve compatibility with the initial public ABI.
+        shared_version.current_version,
+        // The oldest release with the same ABI.
         "-compatibility_version",
-        "1.0.0",
+        shared_version.compatibility_version,
         // Write the fully versioned dylib used by the install symlinks.
         "-o",
     });
@@ -497,8 +530,87 @@ fn initLibApple(
         .dsym = dsym,
         .pkg_config = pcs.shared,
         .pkg_config_static = pcs.static,
+        .cmake = .init(b, zig, target.result),
     };
 }
+
+/// The version metadata of the libghostty-vt shared library. All of it is
+/// derived from `lib_version` here, so every link path agrees.
+/// CMakeLists.txt, nix/libghostty-vt.nix and the CI checks compute the same
+/// values, so update them together with this.
+///
+/// The file names are Zig's usual ones. For version 0.1.0:
+///
+///   | Platform      | File                      | Runtime name                 |
+///   | ------------- | ------------------------- | ---------------------------- |
+///   | Linux and BSD | libghostty-vt.so.0.1.0    | libghostty-vt.so.0 (SONAME)  |
+///   | macOS and iOS | libghostty-vt.0.1.0.dylib | @rpath/libghostty-vt.0.dylib |
+///   | Windows       | ghostty-vt.dll            | ghostty-vt.dll               |
+///
+/// Except on Windows, the runtime name and the unversioned name
+/// (libghostty-vt.so or libghostty-vt.dylib) are installed as symlinks to
+/// the real file.
+///
+/// The runtime name only carries the major version. Before 1.0 there is no
+/// ABI promise: any minor release may break the ABI, even though 0.1 and
+/// 0.2 share a runtime name. Packagers handle that by rebuilding everything
+/// that depends on the library whenever the minor version changes. From 1.0
+/// on, the library follows semver and only a new major version breaks the
+/// ABI.
+///
+/// macOS and iOS dylibs also record two versions:
+///
+///   - The current version is the full version, for example 0.1.3.
+///   - The compatibility version is the oldest release with the same ABI.
+///     Before 1.0 every minor release is its own ABI, so it is 0.<minor>.0
+///     (0.1.0 for 0.1.3). From 1.0 on it is <major>.0.0 (1.0.0 for 1.4.2).
+///
+/// Programs that link against the dylib store its compatibility version,
+/// but current versions of dyld don't check it when loading. Treat it as a
+/// record of the ABI, not as a guard against loading the wrong release.
+///
+/// Zig's own linker can't set the compatibility version and always writes
+/// 1.0.0. That path is only used for Darwin dylibs built on non-Apple hosts.
+const SharedVersion = struct {
+    /// The file the linker writes, for example "libghostty-vt.0.1.0.dylib".
+    real_name: []const u8,
+
+    /// The file name with only the major version, for example
+    /// "libghostty-vt.0.dylib". It is a symlink to `real_name`.
+    major_name: []const u8,
+
+    /// The dylib's runtime name, for example "@rpath/libghostty-vt.0.dylib".
+    install_name: []const u8,
+
+    /// The full version, for example "0.1.3".
+    current_version: []const u8,
+
+    /// The oldest version with the same ABI, for example "0.1.0" for 0.1.3
+    /// or "1.0.0" for 1.4.2.
+    compatibility_version: []const u8,
+
+    fn init(b: *std.Build, version: std.SemanticVersion) SharedVersion {
+        const major_name = b.fmt("libghostty-vt.{d}.dylib", .{version.major});
+        return .{
+            .real_name = b.fmt("libghostty-vt.{d}.{d}.{d}.dylib", .{
+                version.major,
+                version.minor,
+                version.patch,
+            }),
+            .major_name = major_name,
+            .install_name = b.fmt("@rpath/{s}", .{major_name}),
+            .current_version = b.fmt("{d}.{d}.{d}", .{
+                version.major,
+                version.minor,
+                version.patch,
+            }),
+            .compatibility_version = if (version.major == 0)
+                b.fmt("0.{d}.0", .{version.minor})
+            else
+                b.fmt("{d}.0.0", .{version.major}),
+        };
+    }
+};
 
 /// Returns the Libs.private value for the pkg-config file.
 /// Vendored C++ dependencies are built in no-libcxx mode so consumers
@@ -543,6 +655,230 @@ fn staticLibraryName(os_tag: std.Target.Os.Tag) []const u8 {
     else
         "libghostty-vt.a";
 }
+
+/// The file names the shared library is installed under, which the CMake
+/// config needs to point at the right files. They follow the naming
+/// policy documented on `SharedVersion`.
+///
+/// For version 0.1.0, the names are:
+///
+///     Linux:   real = "libghostty-vt.so.0.1.0", soname = "libghostty-vt.so.0"
+///     macOS:   real = "libghostty-vt.0.1.0.dylib", soname = "libghostty-vt.0.dylib"
+///     Windows: real = "ghostty-vt.dll", implib = "ghostty-vt.lib"
+///
+/// On macOS the config adds the "@rpath/" prefix to the soname itself.
+const SharedLibraryNames = struct {
+    /// The library file itself. On Windows this is the DLL, which is
+    /// installed to bin/. Everywhere else it is in lib/.
+    real: []const u8,
+
+    /// The name a program records when it links against the library,
+    /// and looks for again at run time. Null on Windows.
+    soname: ?[]const u8,
+
+    /// The import library that programs link against on Windows,
+    /// installed to lib/. Null everywhere else.
+    implib: ?[]const u8,
+
+    /// Returns the installed shared library names for `os_tag`.
+    fn init(
+        b: *std.Build,
+        version: std.SemanticVersion,
+        os_tag: std.Target.Os.Tag,
+    ) SharedLibraryNames {
+        if (os_tag == .windows) return .{
+            .real = "ghostty-vt.dll",
+            .soname = null,
+            .implib = "ghostty-vt.lib",
+        };
+
+        if (os_tag.isDarwin()) {
+            const shared_version: SharedVersion = .init(b, version);
+            return .{
+                .real = shared_version.real_name,
+                .soname = shared_version.major_name,
+                .implib = null,
+            };
+        }
+
+        return .{
+            .real = b.fmt("libghostty-vt.so.{d}.{d}.{d}", .{
+                version.major,
+                version.minor,
+                version.patch,
+            }),
+            .soname = b.fmt("libghostty-vt.so.{d}", .{version.major}),
+            .implib = null,
+        };
+    }
+};
+
+/// The two files CMake looks for when a project calls
+/// `find_package(ghostty-vt)`.
+const CMakeFiles = struct {
+    /// `ghostty-vt-config.cmake`, which defines the imported targets
+    /// `ghostty-vt::ghostty-vt` (shared) and `ghostty-vt::ghostty-vt-static`.
+    config: std.Build.LazyPath,
+
+    /// `ghostty-vt-config-version.cmake`, which CMake uses to check
+    /// that this install matches the version the project asked for.
+    version: std.Build.LazyPath,
+
+    /// Generates the CMake package config for `find_package(ghostty-vt)`.
+    ///
+    /// The config is made from the same template that the CMake wrapper
+    /// (the top-level CMakeLists.txt) uses, so a `zig build` install and a
+    /// `cmake --install` define the same targets.
+    ///
+    /// Every path in the config is relative to the config file itself, so
+    /// the install keeps working when it is staged with `DESTDIR` or moved
+    /// somewhere else. For example, a config installed at
+    ///
+    ///     /opt/ghostty/lib/cmake/ghostty-vt/ghostty-vt-config.cmake
+    ///
+    /// finds the prefix by going up three directories to `/opt/ghostty`,
+    /// and expects the library and headers in `/opt/ghostty/lib` and
+    /// `/opt/ghostty/include`. With `--prefix-lib-dir lib64` the config
+    /// goes in `lib64/cmake/ghostty-vt/` and expects the library in
+    /// `lib64`. The values that depend on these directories are filled in
+    /// at build time by `cmake_package_config.zig`.
+    fn init(
+        b: *std.Build,
+        zig: *const GhosttyZig,
+        target: std.Target,
+    ) CMakeFiles {
+        const names: SharedLibraryNames = .init(b, zig.version, target.os.tag);
+
+        const generator = b.addExecutable(.{
+            .name = "cmake_package_config",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/build/cmake_package_config.zig"),
+                .target = b.graph.host,
+            }),
+        });
+        generator.root_module.addImport("InstallDirs", b.createModule(.{
+            .root_source_file = b.path("src/build/InstallDirs.zig"),
+        }));
+        const run = b.addRunArtifact(generator);
+        run.addFileArg(b.path("dist/cmake/ghostty-vt-config.cmake.in"));
+        run.addArgs(&.{
+            b.fmt("GHOSTTY_VT_REALNAME={s}", .{names.real}),
+            b.fmt("GHOSTTY_VT_SONAME={s}", .{names.soname orelse ""}),
+            b.fmt("GHOSTTY_VT_IMPLIB={s}", .{names.implib orelse ""}),
+            b.fmt("GHOSTTY_VT_STATIC_REALNAME={s}", .{staticLibraryName(target.os.tag)}),
+        });
+        InstallDirs.addRunArgs(run);
+
+        // The version file tells find_package() whether this install
+        // satisfies the version a project asked for. It follows the ABI
+        // policy documented on SharedVersion: before 1.0 every minor
+        // release may break the ABI, and from 1.0 on only a new major
+        // release does. So an install of 0.1.2 satisfies a request for
+        // 0.1 or 0.1.1, but not 0.2, and an install of 1.4.2 satisfies
+        // 1.0 or 1.3, but not 2.0.
+        //
+        // These are the same rules as CMake's
+        // write_basic_package_version_file() with COMPATIBILITY
+        // SameMinorVersion before 1.0 and SameMajorVersion after, which
+        // is what the CMake wrapper uses. Writing the file by hand keeps
+        // CMake out of the build and makes the policy easy to read.
+        //
+        // The version is written without any pre-release suffix (such as
+        // "-dev") because CMake can't compare versions that have one.
+        //
+        // The file also rejects an install built for a different pointer
+        // size, such as a 32-bit library found by a 64-bit project.
+        const version = b.fmt("{d}.{d}.{d}", .{
+            zig.version.major,
+            zig.version.minor,
+            zig.version.patch,
+        });
+
+        // The releases that share this release's ABI, from abi_first up
+        // to but not including abi_next. For example 0.1 to 0.2, or 1 to 2.
+        const abi_first, const abi_next = if (zig.version.major == 0) .{
+            b.fmt("0.{d}", .{zig.version.minor}),
+            b.fmt("0.{d}", .{zig.version.minor + 1}),
+        } else .{
+            b.fmt("{d}", .{zig.version.major}),
+            b.fmt("{d}", .{zig.version.major + 1}),
+        };
+
+        const ptr_size = target.ptrBitWidth() / 8;
+        const version_file = b.addWriteFiles().add(
+            "ghostty-vt-config-version.cmake",
+            b.fmt(
+                \\# Generated by `zig build`. This follows the same rules as CMake's
+                \\# write_basic_package_version_file() with COMPATIBILITY SameMinorVersion
+                \\# before 1.0 and SameMajorVersion from 1.0 on.
+                \\
+                \\set(PACKAGE_VERSION "{[version]s}")
+                \\
+                \\# Releases from {[first]s} up to, but not including, {[next]s} have the same
+                \\# ABI as this one.
+                \\set(_ghostty_vt_abi_first "{[first]s}")
+                \\set(_ghostty_vt_abi_next "{[next]s}")
+                \\
+                \\set(PACKAGE_VERSION_COMPATIBLE FALSE)
+                \\if(PACKAGE_FIND_VERSION_RANGE)
+                \\  # The whole range must have this release's ABI, and must
+                \\  # include this release.
+                \\  if(PACKAGE_FIND_VERSION_MIN VERSION_GREATER_EQUAL _ghostty_vt_abi_first
+                \\      AND PACKAGE_FIND_VERSION_MIN VERSION_LESS _ghostty_vt_abi_next
+                \\      AND PACKAGE_VERSION VERSION_GREATER_EQUAL PACKAGE_FIND_VERSION_MIN)
+                \\    if(PACKAGE_FIND_VERSION_RANGE_MAX STREQUAL "INCLUDE")
+                \\      if(PACKAGE_FIND_VERSION_MAX VERSION_LESS _ghostty_vt_abi_next
+                \\          AND PACKAGE_VERSION VERSION_LESS_EQUAL PACKAGE_FIND_VERSION_MAX)
+                \\        set(PACKAGE_VERSION_COMPATIBLE TRUE)
+                \\      endif()
+                \\    elseif(PACKAGE_FIND_VERSION_MAX VERSION_LESS_EQUAL _ghostty_vt_abi_next
+                \\        AND PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION_MAX)
+                \\      set(PACKAGE_VERSION_COMPATIBLE TRUE)
+                \\    endif()
+                \\  endif()
+                \\else()
+                \\  # The requested version must have this release's ABI, and must
+                \\  # not be newer than this release.
+                \\  if(PACKAGE_FIND_VERSION VERSION_GREATER_EQUAL _ghostty_vt_abi_first
+                \\      AND PACKAGE_FIND_VERSION VERSION_LESS _ghostty_vt_abi_next
+                \\      AND PACKAGE_VERSION VERSION_GREATER_EQUAL PACKAGE_FIND_VERSION)
+                \\    set(PACKAGE_VERSION_COMPATIBLE TRUE)
+                \\  endif()
+                \\  if(PACKAGE_FIND_VERSION STREQUAL PACKAGE_VERSION)
+                \\    set(PACKAGE_VERSION_EXACT TRUE)
+                \\  endif()
+                \\endif()
+                \\
+                \\unset(_ghostty_vt_abi_first)
+                \\unset(_ghostty_vt_abi_next)
+                \\
+                \\# Skip the pointer size check if either side doesn't know its own.
+                \\if("${{CMAKE_SIZEOF_VOID_P}}" STREQUAL "")
+                \\  return()
+                \\endif()
+                \\
+                \\# Reject an install built for a different pointer size, for example
+                \\# a 32-bit library found by a 64-bit project.
+                \\if(NOT CMAKE_SIZEOF_VOID_P STREQUAL "{[ptr_size]d}")
+                \\  math(EXPR installedBits "{[ptr_size]d} * 8")
+                \\  set(PACKAGE_VERSION "${{PACKAGE_VERSION}} (${{installedBits}}bit)")
+                \\  set(PACKAGE_VERSION_UNSUITABLE TRUE)
+                \\endif()
+                \\
+            , .{
+                .version = version,
+                .first = abi_first,
+                .next = abi_next,
+                .ptr_size = ptr_size,
+            }),
+        );
+
+        return .{
+            .config = run.captureStdOut(.{}),
+            .version = version_file,
+        };
+    }
+};
 
 /// Returns the Requires.private value for the pkg-config file.
 /// When SIMD dependencies are provided by the system (via
@@ -626,18 +962,35 @@ pub fn install(
 ) void {
     const b = step.owner;
     step.dependOn(self.artifact);
+    // The pkg-config files go in <libdir>/pkgconfig rather than
+    // share/pkgconfig. share/ is meant for files that are the same on
+    // every architecture, and these name the library's directory, which
+    // can differ between architectures (lib64, lib/x86_64-linux-gnu).
+    // The CMake files go in <libdir>/cmake for the same reason.
     if (self.pkg_config) |pkg_config| {
         step.dependOn(&b.addInstallFileWithDir(
             pkg_config,
-            .prefix,
-            "share/pkgconfig/libghostty-vt.pc",
+            .lib,
+            "pkgconfig/libghostty-vt.pc",
         ).step);
     }
     if (self.pkg_config_static) |pkg_config_static| {
         step.dependOn(&b.addInstallFileWithDir(
             pkg_config_static,
-            .prefix,
-            "share/pkgconfig/libghostty-vt-static.pc",
+            .lib,
+            "pkgconfig/libghostty-vt-static.pc",
+        ).step);
+    }
+    if (self.cmake) |cmake| {
+        step.dependOn(&b.addInstallFileWithDir(
+            cmake.config,
+            .lib,
+            "cmake/ghostty-vt/ghostty-vt-config.cmake",
+        ).step);
+        step.dependOn(&b.addInstallFileWithDir(
+            cmake.version,
+            .lib,
+            "cmake/ghostty-vt/ghostty-vt-config-version.cmake",
         ).step);
     }
 }

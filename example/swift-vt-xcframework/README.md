@@ -11,7 +11,7 @@ This example requires the XCFramework to be built first.
 First, build the XCFramework from the repository root:
 
 ```shell-session
-zig build -Demit-lib-vt
+zig build -Demit-lib-vt -Demit-xcframework=true
 ```
 
 Then build and run the Swift package:

@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-# This script downloads external dependencies from build.zig.zon.json that
+# This script downloads external dependencies from deps/packages.json that
 # are not already mirrored at deps.files.ghostty.org, saves them to a local
 # directory, and updates the build.zig.zon files (the root one as well as
 # every pkg/*/build.zig.zon) to point to the new mirror URLs.
@@ -57,11 +57,11 @@ def main [
 ] {
   let script_dir = ($env.CURRENT_FILE | path dirname)
   let root_dir = ($script_dir | path join ".." ".." | path expand)
-  let input_file = ($root_dir | path join "build.zig.zon.json")
+  let input_file = ($root_dir | path join "deps" "packages.json")
   let output_dir = $output
 
   # All build.zig.zon files that may reference external URLs: the root
-  # one plus every package under pkg/. build.zig.zon.json is generated
+  # one plus every package under pkg/. deps/packages.json is generated
   # from the full dependency tree so it covers all of these.
   let zon_files = (
     [($root_dir | path join "build.zig.zon")]

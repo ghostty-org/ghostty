@@ -427,6 +427,7 @@ comptime {
             @export(&c.tracked_grid_ref_snapshot, .{ .name = "ghostty_tracked_grid_ref_snapshot" });
         }
         @export(&c.build_info, .{ .name = "ghostty_build_info" });
+        @export(&c.version, .{ .name = "ghostty_version" });
         @export(&c.type_json, .{ .name = "ghostty_type_json" });
         @export(&c.alloc_alloc, .{ .name = "ghostty_alloc" });
         @export(&c.alloc_free, .{ .name = "ghostty_free" });

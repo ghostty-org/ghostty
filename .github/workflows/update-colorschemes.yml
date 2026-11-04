@@ -87,9 +87,11 @@ jobs:
           commit-message: "deps: Update iTerm2 color schemes"
           add-paths: |
             build.zig.zon
-            build.zig.zon.nix
-            build.zig.zon.txt
-            build.zig.zon.json
+            deps/packages.nix
+            deps/packages.txt
+            deps/packages.json
+            deps/libghostty-vt.txt
+            deps/libghostty-vt-third-party.json
             flatpak/zig-packages.json
           body: |
             Upstream release: https://github.com/mbadolato/iTerm2-Color-Schemes/releases/tag/${{ steps.download.outputs.tag_name }}

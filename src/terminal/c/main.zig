@@ -52,6 +52,7 @@ pub const unicode = @import("unicode.zig");
 
 // The full C API, unexported.
 pub const build_info = buildpkg.get;
+pub const version = buildpkg.version;
 
 pub const osc_new = osc.new;
 pub const osc_free = osc.free;

@@ -65,6 +65,22 @@ fn initInner(
     const vt_options = vtOptions(cfg);
     var simd_libs: SharedDeps.LazyPathList = .empty;
 
+    const vt_c = try initVt(
+        vt_c_name,
+        b,
+        cfg,
+        deps,
+        vtCOptions(cfg),
+        &simd_libs,
+    );
+
+    // Every libghostty-vt artifact (shared, static, wasm and each
+    // xcframework slice) is built from the C ABI module, so setting
+    // -Dstrip here covers all of them. The Zig module is left alone.
+    // It is compiled into whatever program imports it, and that
+    // program's own build decides whether to strip.
+    vt_c.strip = cfg.strip_lib_vt;
+
     return .{
         .vt = try initVt(
             vt_name,
@@ -75,14 +91,7 @@ fn initInner(
             null,
         ),
 
-        .vt_c = try initVt(
-            vt_c_name,
-            b,
-            cfg,
-            deps,
-            vtCOptions(cfg),
-            &simd_libs,
-        ),
+        .vt_c = vt_c,
 
         .version = cfg.lib_version,
 
