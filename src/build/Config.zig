@@ -48,6 +48,10 @@ installed_exe_path: ?[]const u8 = null,
 /// Binary properties
 pie: bool = false,
 strip: bool = false,
+/// Whether to strip debug info and symbols from libghostty-vt. Both
+/// this and `strip` come from the `-Dstrip` option, but their defaults
+/// differ, so they are stored separately.
+strip_lib_vt: bool = false,
 patchelf: ?PatchElf = null,
 
 /// Artifacts
@@ -108,7 +112,9 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
     const emit_lib_vt = b.option(
         bool,
         "emit-lib-vt",
-        "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
+        "Build and install libghostty-vt only. Disables the xcframework, " ++
+            "macOS app, and docs by default. Without this, libghostty-vt " ++
+            "is not installed unless Ghostty is a dependency.",
     ) orelse (is_dep or
         // A libghostty-vt source tarball has LIB_VERSION but no VERSION.
         (versions.lib_file != null and versions.app_file == null));
@@ -462,15 +468,26 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
         "Build a Position Independent Executable. Default true for system packages.",
     ) orelse system_package;
 
-    config.strip = b.option(
+    const strip = b.option(
         bool,
         "strip",
-        "Strip the final executable. Default true for fast and small releases",
-    ) orelse switch (optimize) {
+        "Strip debug info and symbols from the final artifacts. For the " ++
+            "app, defaults to true for ReleaseFast and ReleaseSmall. For " ++
+            "libghostty-vt, defaults to true only for ReleaseSmall, so " ++
+            "packagers can split out debug info.",
+    );
+    config.strip = strip orelse switch (optimize) {
         .debug => false,
         .safe => false,
         .fast, .small => true,
     };
+
+    // Distributions usually ship a library's debug info in a separate
+    // package, which they can only do if the build leaves it in. So
+    // libghostty-vt keeps its debug info unless asked otherwise.
+    // ReleaseSmall is the exception. Zig strips it by default, and
+    // keeping that means the wasm build stays small.
+    config.strip_lib_vt = strip orelse (optimize == .small);
 
     //---------------------------------------------------------------
     // Artifacts to Emit
@@ -588,18 +605,16 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
     config.emit_xcframework = b.option(
         bool,
         "emit-xcframework",
-        "Build and install the xcframework for the macOS library.",
+        "Build and install the xcframework for the macOS library. With " ++
+            "-Demit-lib-vt, this builds the libghostty-vt xcframework " ++
+            "instead. That requires Xcode, so it defaults to false.",
     ) orelse emit_xcfw: {
         if (!builtin.target.os.tag.isDarwin() or target.result.os.tag != .macos)
             break :emit_xcfw false;
-        if (config.emit_lib_vt) {
-            // In lib-vt mode default to whether xcodebuild is available,
-            // since xcodebuild is required to produce the XCFramework.
-            const path = expandPath(b.graph.io, b.allocator, &b.graph.environ_map, "xcodebuild") catch
-                break :emit_xcfw false;
-            defer if (path) |p| b.allocator.free(p);
-            break :emit_xcfw path != null;
-        }
+        // Building the libghostty-vt xcframework needs xcodebuild, and
+        // only Apple app developers use it. Someone packaging the plain
+        // libraries on macOS shouldn't need Xcode, so it is opt-in.
+        if (config.emit_lib_vt) break :emit_xcfw false;
         break :emit_xcfw config.app_runtime == .none and
             (!config.emit_bench and
                 !config.emit_test_exe and

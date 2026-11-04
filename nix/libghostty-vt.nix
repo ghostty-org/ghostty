@@ -1,5 +1,6 @@
 {
   callPackage,
+  cmake,
   git,
   lib,
   llvmPackages,
@@ -33,6 +34,7 @@ stdenv.mkDerivation (finalAttrs: {
         ../build.zig
         ../build.zig.zon
         ../build.zig.zon.nix
+        ../dist/cmake/ghostty-vt-config.cmake.in
       ]
     );
   };
@@ -56,20 +58,16 @@ stdenv.mkDerivation (finalAttrs: {
   doCheck = false;
   dontSetZigDefaultFlags = true;
 
-  zigBuildFlags =
-    [
-      "--system"
-      "${finalAttrs.deps}"
-      "-Dlib-version-string=${finalAttrs.version}"
-      "-Dcpu=baseline"
-      "-Doptimize=${optimize}"
-      "-Dapp-runtime=none"
-      "-Demit-lib-vt=true"
-      "-Dsimd=${lib.boolToString simd}"
-    ]
-    ++ lib.optionals stdenv.hostPlatform.isDarwin [
-      "-Demit-xcframework=false"
-    ];
+  zigBuildFlags = [
+    "--system"
+    "${finalAttrs.deps}"
+    "-Dlib-version-string=${finalAttrs.version}"
+    "-Dcpu=baseline"
+    "-Doptimize=${optimize}"
+    "-Dapp-runtime=none"
+    "-Demit-lib-vt=true"
+    "-Dsimd=${lib.boolToString simd}"
+  ];
   zigCheckFlags = finalAttrs.zigBuildFlags ++ ["test-lib-vt"];
 
   outputs = [
@@ -83,8 +81,15 @@ stdenv.mkDerivation (finalAttrs: {
   '';
 
   postFixup = ''
-    substituteInPlace "$dev/share/pkgconfig/libghostty-vt-static.pc" \
+    substituteInPlace "$dev/lib/pkgconfig/libghostty-vt-static.pc" \
       --replace-fail "$out" "$dev"
+
+    # The CMake config is moved to $dev along with the headers and the
+    # static library, so its relative paths find those in $dev. The shared
+    # library stays in $out, so point the config at it directly.
+    substituteInPlace "$dev/lib/cmake/ghostty-vt/ghostty-vt-config.cmake" \
+      --replace-fail 'set(_ghostty_vt_shared_libdir "''${_ghostty_vt_libdir}")' \
+      'set(_ghostty_vt_shared_libdir "'"$out/lib"'")'
   '';
 
   passthru.tests = let
@@ -150,7 +155,7 @@ stdenv.mkDerivation (finalAttrs: {
       runCommand "pkg-config-libs" {
         nativeBuildInputs = [pkg-config];
       } ''
-        export PKG_CONFIG_PATH="${finalAttrs.finalPackage.dev}/share/pkgconfig"
+        export PKG_CONFIG_PATH="${finalAttrs.finalPackage.dev}/lib/pkgconfig"
 
         pkg-config --libs --static libghostty-vt | grep -q -- '-lghostty-vt'
         pkg-config --libs --static libghostty-vt-static | grep -q -- '${finalAttrs.finalPackage.dev}/lib/libghostty-vt.a'
@@ -234,6 +239,57 @@ stdenv.mkDerivation (finalAttrs: {
       '';
       meta = {
         mainProgram = "test";
+      };
+    };
+    build-with-cmake = stdenv.mkDerivation {
+      name = "build-with-cmake";
+      src = ./test-src;
+      doInstallCheck = true;
+      dontUseCmakeConfigure = true;
+      nativeBuildInputs = [cmake];
+      buildInputs = [finalAttrs.finalPackage llvmPackages.libcxxClang];
+      buildPhase = ''
+        runHook preBuildHooks
+
+        cat > CMakeLists.txt <<'EOF'
+        cmake_minimum_required(VERSION 3.19)
+        project(test LANGUAGES C)
+        find_package(ghostty-vt ${lib.versions.majorMinor finalAttrs.version} CONFIG REQUIRED)
+        add_executable(test_shared test_libghostty_vt.c)
+        target_link_libraries(test_shared PRIVATE ghostty-vt::ghostty-vt)
+        add_executable(test_static test_libghostty_vt.c)
+        target_link_libraries(test_static PRIVATE ghostty-vt::ghostty-vt-static)
+        EOF
+        cmake -B build -S .
+        cmake --build build
+
+        runHook postBuildHooks
+      '';
+      installPhase = ''
+        runHook preInstallHooks
+
+        mkdir -p "$out/bin";
+        cp -a build/test_shared build/test_static "$out/bin/";
+
+        runHook postInstallHooks
+      '';
+      installCheckPhase = ''
+        runHook preInstallCheckHooks
+
+        for bin in test_shared test_static; do
+          "$out/bin/$bin" | grep -q "SIMD: ${
+          if simd
+          then "yes"
+          else "no"
+        }"
+        done
+        ${linkCheck "$out/bin/test_shared" "libghostty-vt"}
+        ! ${linkCheck "$out/bin/test_static" "libghostty-vt"}
+
+        runHook postInstallCheckHooks
+      '';
+      meta = {
+        mainProgram = "test_shared";
       };
     };
     build-example-c-vt-build-info = stdenv.mkDerivation {

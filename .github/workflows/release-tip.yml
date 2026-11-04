@@ -365,7 +365,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_27.1.app
 
       - name: Build XCFramework
-        run: nix develop -c zig build -Demit-lib-vt -Doptimize=ReleaseFast
+        run: nix develop -c zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast
 
       # The same build also installs the macOS dylib. Check that its
       # install name and versions follow lib_version, so a tip with the

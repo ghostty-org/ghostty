@@ -119,6 +119,13 @@ pub fn build(b: *std.Build) !void {
     }
 
     // libghostty-vt
+    //
+    // The libraries are always defined so that steps like test-lib-vt can
+    // use them, but they are only installed by a libghostty-vt build or
+    // when Ghostty is a dependency. A dependency must install them so
+    // that dep.artifact("ghostty-vt") and friends can find them. App
+    // builds install none of it, so they don't ship a stray C library.
+    const install_lib_vt = config.emit_lib_vt or config.is_dep;
     const native_freestanding = config.target.result.os.tag == .freestanding and
         !config.target.result.cpu.arch.isWasm();
     const libghostty_vt_shared: ?buildpkg.GhosttyLibVt = shared: {
@@ -136,7 +143,7 @@ pub fn build(b: *std.Build) !void {
         );
     };
     if (libghostty_vt_shared) |shared| {
-        shared.install(b.getInstallStep());
+        if (install_lib_vt) shared.install(b.getInstallStep());
 
         const type_schema_test = b.addSystemCommand(&.{"python3"});
         type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
@@ -156,7 +163,7 @@ pub fn build(b: *std.Build) !void {
         // If we're a dependency, we need to install everything as-is
         // so that dep.artifact("ghostty-vt-static") works.
         libghostty_vt_static.install(b.getInstallStep());
-    } else {
+    } else if (install_lib_vt) {
         // If we're not a dependency, we rename the static lib to
         // be idiomatic. On Windows, we use a distinct name to avoid
         // colliding with the DLL import library (ghostty-vt.lib).

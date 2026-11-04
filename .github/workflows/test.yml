@@ -383,7 +383,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_27.1.app
 
       - name: Build XCFramework
-        run: nix develop -c zig build -Demit-lib-vt
+        run: nix develop -c zig build -Demit-lib-vt -Demit-xcframework=true
 
       - name: Verify XCFramework artifact
         run: test -f zig-out/lib/ghostty-vt.xcframework/Info.plist
@@ -465,7 +465,7 @@ jobs:
 
       - name: Verify pkg-config file
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
           pkg-config --validate libghostty-vt
           echo "Cflags: $(pkg-config --cflags libghostty-vt)"
           echo "Libs:   $(pkg-config --libs libghostty-vt)"
@@ -513,7 +513,7 @@ jobs:
 
       - name: Test shared link via pkg-config
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
           nix develop -c cc -o /tmp/test_shared /tmp/test_libghostty_vt.c \
             $(pkg-config --cflags --libs libghostty-vt) \
             -Wl,-rpath,"$PWD/zig-out/lib"
@@ -521,7 +521,7 @@ jobs:
 
       - name: Test static link via pkg-config
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
           # The static archive must link cleanly into a plain C program
           # without any extra C++ runtime flags.
           nix develop -c cc -o /tmp/test_static /tmp/test_libghostty_vt.c \
@@ -543,8 +543,8 @@ jobs:
 
       - name: Verify pkg-config with system simdutf
         run: |
-          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
-          pc_content=$(cat zig-out/share/pkgconfig/libghostty-vt.pc)
+          export PKG_CONFIG_PATH="$PWD/zig-out/lib/pkgconfig"
+          pc_content=$(cat zig-out/lib/pkgconfig/libghostty-vt.pc)
           echo "$pc_content"
 
           # Requires.private must reference simdutf
@@ -862,18 +862,22 @@ jobs:
             platform: 1
             arch: arm64
             expect_encryption: false
+            xcframework: true
           - target: x86_64-macos
             platform: 1
             arch: x86_64
             expect_encryption: false
+            xcframework: true
           - target: aarch64-ios
             platform: 2
             arch: arm64
             expect_encryption: true
+            xcframework: false
           - target: aarch64-ios-simulator
             platform: 7
             arch: arm64
             expect_encryption: false
+            xcframework: false
     runs-on: namespace-profile-ghostty-macos-golden
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
     needs: skip
@@ -904,10 +908,14 @@ jobs:
       - name: Xcode Select
         run: sudo xcode-select -s /Applications/Xcode_27.1.app
 
+      # The libghostty-vt xcframework is opt-in and can only be built
+      # from a macOS target. Build it for the macOS targets, which used
+      # to build it by default.
       - name: Build
         run: |
           nix develop -c zig build -Demit-lib-vt \
-            -Dtarget=${{ matrix.target }}
+            -Dtarget=${{ matrix.target }} \
+            -Demit-xcframework=${{ matrix.xcframework }}
 
       - name: Verify Apple dylib
         run: |
@@ -1171,6 +1179,7 @@ jobs:
             ".#$PKG.tests.pkg-config" \
             ".#$PKG.tests.build-with-shared" \
             ".#$PKG.tests.build-with-static" \
+            ".#$PKG.tests.build-with-cmake" \
             ".#$PKG.tests.build-example-c-vt-build-info"
 
   build-dist:

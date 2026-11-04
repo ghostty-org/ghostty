@@ -261,12 +261,21 @@ configure_package_config_file(
     INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ghostty-vt"
 )
 
-# Generate the version file
+# Generate the version file. Before 1.0 every minor release may break the
+# ABI, so find_package(ghostty-vt 0.1) must not accept 0.2. From 1.0 on,
+# only a new major release breaks it. `zig build` writes a version file
+# with the same rules (see CMakeFiles in src/build/GhosttyLibVt.zig).
+if(PROJECT_VERSION_MAJOR EQUAL 0)
+    set(_ghostty_vt_compatibility SameMinorVersion)
+else()
+    set(_ghostty_vt_compatibility SameMajorVersion)
+endif()
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/ghostty-vt-config-version.cmake"
     VERSION "${PROJECT_VERSION}"
-    COMPATIBILITY SameMajorVersion
+    COMPATIBILITY ${_ghostty_vt_compatibility}
 )
+unset(_ghostty_vt_compatibility)
 
 # Install the config files
 install(
