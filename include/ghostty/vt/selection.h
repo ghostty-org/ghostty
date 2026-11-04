@@ -618,6 +618,11 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_event_set(
  * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_WORD_BOUNDARY_CODEPOINTS is valid. It is
  * optional and uses initialized defaults when unset or cleared.
  *
+ * An event's GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF is resolved against the
+ * terminal's active screen: a ref that is not in a page of it, such as one
+ * from the other screen after a screen switch, returns GHOSTTY_INVALID_VALUE
+ * without applying the event.
+ *
  * The returned selection is not installed as the terminal's current selection.
  * It is a snapshot with the same lifetime rules as GhosttySelection.
  *
@@ -629,7 +634,8 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_event_set(
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the event does not
  *         currently produce a selection, GHOSTTY_OUT_OF_MEMORY if tracking
  *         gesture state fails, or GHOSTTY_INVALID_VALUE if gesture, terminal,
- *         event, or required event data is invalid
+ *         event, or required event data is invalid, or the event's ref is not
+ *         in the active screen
  *
  * @ingroup selection
  */
@@ -758,6 +764,10 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_get_multi(
  * The returned selection is not installed as the terminal's current
  * selection. It is a snapshot with the same lifetime rules as GhosttySelection.
  *
+ * The ref is resolved against the terminal's active screen: a ref that is not in a
+ * page of it, such as one from the other screen after a screen switch,
+ * returns GHOSTTY_INVALID_VALUE.
+ *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param options Word-selection options
  * @param[out] out_selection On success, receives the derived selection
@@ -792,6 +802,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_word(
  * The returned selection is not installed as the terminal's current
  * selection. It is a snapshot with the same lifetime rules as GhosttySelection.
  *
+ * Both refs are resolved against the terminal's active screen: a ref that is not in a
+ * page of it, such as one from the other screen after a screen switch,
+ * returns GHOSTTY_INVALID_VALUE.
+ *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param options Word-between-selection options
  * @param[out] out_selection On success, receives the derived selection
@@ -812,6 +826,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_word_between(
  *
  * The returned selection is not installed as the terminal's current
  * selection. It is a snapshot with the same lifetime rules as GhosttySelection.
+ *
+ * The ref is resolved against the terminal's active screen: a ref that is not in a
+ * page of it, such as one from the other screen after a screen switch,
+ * returns GHOSTTY_INVALID_VALUE.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param options Line-selection options
@@ -852,6 +870,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_all(
  * The returned selection is not installed as the terminal's current
  * selection. It is a snapshot with the same lifetime rules as GhosttySelection.
  *
+ * The ref is resolved against the terminal's active screen: a ref that is not in a
+ * page of it, such as one from the other screen after a screen switch,
+ * returns GHOSTTY_INVALID_VALUE.
+ *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param ref Grid reference within command output to select
  * @param[out] out_selection On success, receives the derived selection
@@ -880,6 +902,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_output(
  * If buf is too small, the function returns GHOSTTY_OUT_OF_SPACE and writes
  * the required size to out_written. The caller can then retry with a larger
  * buffer.
+ *
+ * A provided options.selection must be in the terminal's active screen: if
+ * either of its refs is not in a page of it, such as a ref from the other
+ * screen after a screen switch, the function returns GHOSTTY_INVALID_VALUE.
  *
  * If options.selection is NULL and the terminal has no active selection, the
  * function returns GHOSTTY_NO_VALUE.
@@ -917,6 +943,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
  * The returned bytes are not NUL-terminated. This supports plain text, VT, and
  * HTML uniformly as byte output.
  *
+ * A provided options.selection must be in the terminal's active screen: if
+ * either of its refs is not in a page of it, such as a ref from the other
+ * screen after a screen switch, the function returns GHOSTTY_INVALID_VALUE.
+ *
  * If options.selection is NULL and the terminal has no active selection, the
  * function returns GHOSTTY_NO_VALUE and leaves out_ptr as NULL and out_len as 0.
  *
@@ -949,15 +979,17 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_alloc(
  * snapshots for the given terminal's currently active screen. In practice,
  * they must come from that terminal and screen, and no mutating terminal call
  * may have occurred since the refs were produced or reconstructed from
- * tracked refs. Passing refs from another terminal, another screen, or stale
- * refs violates this precondition.
+ * tracked refs. A ref that is not in a page of the active screen, such as one
+ * from the other screen after a screen switch, returns GHOSTTY_INVALID_VALUE.
+ * A stale ref into a page that still exists is not reliably detected: the
+ * result may describe other cells than intended.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param selection Selection snapshot to adjust in place
  * @param adjustment The adjustment operation to apply
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal,
- *         selection, or adjustment are invalid. Selection reference validity
- *         is a precondition and is not checked.
+ *         selection, or adjustment are invalid, or a selection ref is not in
+ *         the active screen.
  *
  * @ingroup selection
  */
@@ -973,15 +1005,17 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_adjust(
  * snapshots for the given terminal's currently active screen. In practice,
  * they must come from that terminal and screen, and no mutating terminal call
  * may have occurred since the refs were produced or reconstructed from
- * tracked refs. Passing refs from another terminal, another screen, or stale
- * refs violates this precondition.
+ * tracked refs. A ref that is not in a page of the active screen, such as one
+ * from the other screen after a screen switch, returns GHOSTTY_INVALID_VALUE.
+ * A stale ref into a page that still exists is not reliably detected: the
+ * result may describe other cells than intended.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param selection Selection snapshot to inspect
  * @param[out] out_order On success, receives the selection order
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal,
- *         selection, or output pointer are invalid. Selection reference
- *         validity is a precondition and is not checked.
+ *         selection, or output pointer are invalid, or a selection ref is
+ *         not in the active screen.
  *
  * @ingroup selection
  */
@@ -1003,16 +1037,18 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_order(
  * snapshots for the given terminal's currently active screen. In practice,
  * they must come from that terminal and screen, and no mutating terminal call
  * may have occurred since the refs were produced or reconstructed from
- * tracked refs. Passing refs from another terminal, another screen, or stale
- * refs violates this precondition.
+ * tracked refs. A ref that is not in a page of the active screen, such as one
+ * from the other screen after a screen switch, returns GHOSTTY_INVALID_VALUE.
+ * A stale ref into a page that still exists is not reliably detected: the
+ * result may describe other cells than intended.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param selection Selection snapshot to order
  * @param desired Desired endpoint order
  * @param[out] out_selection On success, receives the ordered selection
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal,
- *         selection, desired order, or output pointer are invalid. Selection
- *         reference validity is a precondition and is not checked.
+ *         selection, desired order, or output pointer are invalid, or a
+ *         selection ref is not in the active screen.
  *
  * @ingroup selection
  */
@@ -1032,16 +1068,18 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_ordered(
  * snapshots for the given terminal's currently active screen. In practice,
  * they must come from that terminal and screen, and no mutating terminal call
  * may have occurred since the refs were produced or reconstructed from
- * tracked refs. Passing refs from another terminal, another screen, or stale
- * refs violates this precondition.
+ * tracked refs. A ref that is not in a page of the active screen, such as one
+ * from the other screen after a screen switch, returns GHOSTTY_INVALID_VALUE.
+ * A stale ref into a page that still exists is not reliably detected: the
+ * result may describe other cells than intended.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param selection Selection snapshot to inspect
  * @param point Point to test for containment
  * @param[out] out_contains On success, receives whether point is inside selection
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal,
- *         selection, point, or output pointer are invalid. Selection reference
- *         validity is a precondition and is not checked.
+ *         selection, point, or output pointer are invalid, or a selection
+ *         ref is not in the active screen.
  *
  * @ingroup selection
  */

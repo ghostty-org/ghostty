@@ -1730,7 +1730,7 @@ fn setTyped(
         },
         .selection => {
             if (value) |ptr| {
-                const sel = ptr.toZig() orelse return .invalid_value;
+                const sel = ptr.toZigIn(wrapper.terminal.screens.active) orelse return .invalid_value;
                 wrapper.terminal.screens.active.select(sel) catch return .out_of_memory;
             } else {
                 wrapper.terminal.screens.active.clearSelection();
@@ -2178,6 +2178,23 @@ pub fn grid_ref(
     const zig_pt: point.Point = .fromC(pt);
     const p = t.screens.active.pages.pin(zig_pt) orelse
         return .invalid_value;
+    if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
+    return .success;
+}
+
+pub fn screen_grid_ref(
+    terminal_: Terminal,
+    screen: TerminalScreen,
+    pt: point.Point.C,
+    out_ref: ?*grid_ref_c.CGridRef,
+) callconv(lib.calling_conv) Result {
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    if (comptime std.debug.runtime_safety) {
+        _ = std.enums.fromInt(TerminalScreen, @backingInt(screen)) orelse
+            return .invalid_value;
+    }
+    const s = t.screens.get(screen) orelse return .no_value;
+    const p = s.pages.pin(.fromC(pt)) orelse return .invalid_value;
     if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
     return .success;
 }
@@ -4879,6 +4896,89 @@ test "grid_ref null terminal" {
     try testing.expectEqual(Result.invalid_value, grid_ref(null, .{
         .tag = .active,
         .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_ref));
+}
+
+test "screen_grid_ref primary beneath the alternate screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+    vt_write(t, "\x1b[?1049h\x1b[HWorld", 16);
+
+    // grid_ref looks in the active screen; screen_grid_ref in the given one.
+    for ([_]struct { screen: ?TerminalScreen, want: u32 }{
+        .{ .screen = null, .want = 'W' },
+        .{ .screen = .primary, .want = 'H' },
+        .{ .screen = .alternate, .want = 'W' },
+    }) |tc| {
+        const pt: point.Point.C = .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 0, .y = 0 } },
+        };
+        var out_ref: grid_ref_c.CGridRef = .{};
+        try testing.expectEqual(Result.success, if (tc.screen) |screen|
+            screen_grid_ref(t, screen, pt, &out_ref)
+        else
+            grid_ref(t, pt, &out_ref));
+
+        var out_cell: cell_c.CCell = undefined;
+        try testing.expectEqual(Result.success, grid_ref_c.grid_ref_cell(&out_ref, &out_cell));
+        var cp: u32 = 0;
+        try testing.expectEqual(Result.success, cell_c.get(out_cell, .codepoint, @ptrCast(&cp)));
+        try testing.expectEqual(tc.want, cp);
+    }
+}
+
+test "screen_grid_ref no_value until the alternate screen exists" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.no_value, screen_grid_ref(t, .alternate, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_ref));
+
+    vt_write(t, "\x1b[?1049h", 8);
+    try testing.expectEqual(Result.success, screen_grid_ref(t, .alternate, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_ref));
+}
+
+test "screen_grid_ref invalid_value" {
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(null, .primary, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_ref));
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    // Out of bounds.
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(t, .primary, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 100, .y = 0 } },
     }, &out_ref));
 }
 
