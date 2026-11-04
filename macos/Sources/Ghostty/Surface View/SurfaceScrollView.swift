@@ -120,6 +120,10 @@ class SurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var coreResizeState = SurfaceCoreResizeState()
     private var liveResizeCommitWorkItem: DispatchWorkItem?
+    // Split-tree reconstruction can mount this Surface in a new wrapper before
+    // SwiftUI finishes retiring the old one. Only its current parent may write
+    // geometry, scroll position or renderer size.
+    private var ownsSurface: Bool { surfaceView.superview === documentView }
 
     /// Match Otty's default: if the grid remains unchanged during a live drag,
     /// publish one mid-drag PTY size after 50 ms. Continuous motion only
@@ -284,6 +288,7 @@ class SurfaceScrollView: NSView {
         surfaceView.$pointerStyle
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newStyle in
+                guard self?.ownsSurface == true else { return }
                 self?.scrollView.documentCursor = newStyle.cursor
                 if self?.surfaceView.mouseOverSurface == true {
                     newStyle.cursor.set()
@@ -319,6 +324,7 @@ class SurfaceScrollView: NSView {
 
     override func layout() {
         super.layout()
+        guard ownsSurface, bounds.width > 0, bounds.height > 0 else { return }
 
         // Fill entire bounds with scroll view
         scrollView.frame = bounds
@@ -351,6 +357,7 @@ class SurfaceScrollView: NSView {
     /// actual terminal rendering) always fills exactly the visible portion of the document view,
     /// so the renderer only needs to render what's currently on screen.
     private func synchronizeSurfaceView() {
+        guard ownsSurface else { return }
         let visibleRect = scrollView.contentView.documentVisibleRect
         surfaceView.frame.origin = visibleRect.origin
     }
@@ -359,6 +366,7 @@ class SurfaceScrollView: NSView {
     /// frame because we do want to render the whole thing, but it will prevent our
     /// rows/cols from going into the non-content area.
     private func synchronizeCoreSurface() {
+        guard ownsSurface else { return }
         // Only update the pty if we have a valid (non-zero) content size. The content size
         // can be zero when this is added early to a view, or to an invisible hierarchy.
         // Practically, this happened in the quick terminal.
@@ -371,6 +379,7 @@ class SurfaceScrollView: NSView {
     }
 
     private func applyCoreSurfaceResize(_ action: SurfaceCoreResizeAction) {
+        guard ownsSurface else { return }
         switch action {
         case .normal(let size):
             surfaceView.sizeDidChange(size)
@@ -447,6 +456,7 @@ class SurfaceScrollView: NSView {
     /// Converts the current scroll position to a row number and sends a `scroll_to_row` action
     /// to the terminal core. Only sends actions when the row changes to avoid IPC spam.
     private func handleLiveScroll() {
+        guard ownsSurface else { return }
         // If our cell height is currently zero then we avoid a div by zero below
         // and just don't scroll (there's no where to scroll anyways). This can
         // happen with a tiny terminal.
@@ -479,7 +489,8 @@ class SurfaceScrollView: NSView {
     /// - `offset`: First visible row (0 = top of history)
     /// - `len`: Number of visible rows (viewport height)
     private func handleScrollbarUpdate(_ notification: Notification) {
-        guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
+        guard ownsSurface,
+              let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
             return
         }
         surfaceView.scrollbar = scrollbar

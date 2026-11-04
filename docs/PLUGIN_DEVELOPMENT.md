@@ -599,6 +599,14 @@ composite over the same blurred backing identically. Using the raw sRGB color fo
 translucent chrome drifted by one code value (e.g. 73,76,81 vs 73,75,80). Chrome
 colors follow the focused surface's background (per-surface/OSC dynamic colors).
 
+Split reconstruction retains each terminal Surface while moving it into a new
+native scroll wrapper. Only the wrapper whose document view currently contains
+that Surface may change its frame, scroll position or core size. Retired wrappers
+can still receive SwiftUI layout, scrollbar and delayed resize callbacks; those
+callbacks must not mutate the remounted Surface.
+Transient zero-size host proposals also preserve the last valid drawable frame
+until the current wrapper receives a positive viewport.
+
 ## Terminal title updates
 
 The built-in Git Inspector follows pane, directory and connection changes.
