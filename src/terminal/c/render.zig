@@ -128,6 +128,8 @@ pub const RowSelection = extern struct {
     size: usize = @sizeOf(RowSelection),
     start_x: u16 = 0,
     end_x: u16 = 0,
+
+    pub const sized_base = "end_x";
 };
 
 /// C: GhosttyRenderStateOverscan
@@ -189,6 +191,8 @@ pub const Cursor = extern struct {
     blinking: bool,
     password_input: bool,
     visual_style: CursorVisualStyle,
+
+    pub const sized_base = "visual_style";
 };
 
 /// C: GhosttyRenderStateData
@@ -269,6 +273,8 @@ pub const Colors = extern struct {
     cursor: colorpkg.RGB.C,
     cursor_has_value: bool,
     palette: colorpkg.PaletteC,
+
+    pub const sized_base = "palette";
 };
 
 pub fn new(
@@ -508,133 +514,45 @@ fn setTyped(
 
 fn writeCursor(
     state: *RenderStateWrapper,
-    out_cursor: *Cursor,
+    out: *Cursor,
 ) Result {
-    const out_size = out_cursor.size;
-    if (out_size < @sizeOf(usize)) return .invalid_value;
+    if (!lib.sizedCheck(.output, out)) return .invalid_value;
 
     const cursor = &state.state.cursor;
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "viewport_has_value",
-    )) {
-        out_cursor.viewport_has_value = cursor.viewport != null;
-    }
-
+    lib.sizedSet(out, "viewport_has_value", cursor.viewport != null);
     if (cursor.viewport) |viewport| {
-        if (lib.structSizedFieldFits(
-            Cursor,
-            out_size,
-            "viewport_x",
-        )) {
-            out_cursor.viewport_x = viewport.x;
-        }
-
-        if (lib.structSizedFieldFits(
-            Cursor,
-            out_size,
-            "viewport_y",
-        )) {
-            out_cursor.viewport_y = viewport.y;
-        }
-
-        if (lib.structSizedFieldFits(
-            Cursor,
-            out_size,
-            "wide_tail",
-        )) {
-            out_cursor.wide_tail = viewport.wide_tail;
-        }
+        lib.sizedSet(out, "viewport_x", viewport.x);
+        lib.sizedSet(out, "viewport_y", viewport.y);
+        lib.sizedSet(out, "wide_tail", viewport.wide_tail);
     }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "visible",
-    )) {
-        out_cursor.visible = cursor.visible;
-    }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "blinking",
-    )) {
-        out_cursor.blinking = cursor.blinking;
-    }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "password_input",
-    )) {
-        out_cursor.password_input = cursor.password_input;
-    }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
+    lib.sizedSet(out, "visible", cursor.visible);
+    lib.sizedSet(out, "blinking", cursor.blinking);
+    lib.sizedSet(out, "password_input", cursor.password_input);
+    lib.sizedSet(
+        out,
         "visual_style",
-    )) {
-        out_cursor.visual_style = CursorVisualStyle.fromCursorStyle(cursor.visual_style);
-    }
+        CursorVisualStyle.fromCursorStyle(cursor.visual_style),
+    );
 
     return .success;
 }
 
 fn writeColors(
     state: *RenderStateWrapper,
-    out_colors: *Colors,
+    out: *Colors,
 ) Result {
-    const out_size = out_colors.size;
-    if (out_size < @sizeOf(usize)) return .invalid_value;
+    if (!lib.sizedCheck(.output, out)) return .invalid_value;
 
     const colors = &state.state.colors;
-    if (lib.structSizedFieldFits(
-        Colors,
-        out_size,
-        "background",
-    )) {
-        out_colors.background = colors.background.cval();
-    }
+    lib.sizedSet(out, "background", colors.background.cval());
+    lib.sizedSet(out, "foreground", colors.foreground.cval());
+    if (colors.cursor) |cursor| lib.sizedSet(out, "cursor", cursor.cval());
+    lib.sizedSet(out, "cursor_has_value", colors.cursor != null);
 
-    if (lib.structSizedFieldFits(
-        Colors,
-        out_size,
-        "foreground",
-    )) {
-        out_colors.foreground = colors.foreground.cval();
-    }
-
-    if (colors.cursor) |cursor| {
-        if (lib.structSizedFieldFits(
-            Colors,
-            out_size,
-            "cursor",
-        )) {
-            out_colors.cursor = cursor.cval();
-        }
-    }
-
-    if (lib.structSizedFieldFits(
-        Colors,
-        out_size,
-        "cursor_has_value",
-    )) {
-        out_colors.cursor_has_value = colors.cursor != null;
-    }
-
-    {
-        const palette_offset = @offsetOf(Colors, "palette");
-        if (out_size > palette_offset) {
-            const available = out_size - palette_offset;
-            const max_entries = @min(colors.palette.len, available / @sizeOf(colorpkg.RGB.C));
-            colorpkg.paletteCvalSlice(
-                colors.palette[0..max_entries],
-                out_colors.palette[0..max_entries],
-            );
-        }
+    // Convert the palette in place rather than building a 768-byte copy
+    // on the stack for sizedSet.
+    if (lib.sizedFieldFits(Colors, out.size, "palette")) {
+        colorpkg.paletteCvalSlice(&colors.palette, &out.palette);
     }
 
     return .success;
@@ -1112,12 +1030,10 @@ fn rowGetTyped(
             };
         },
         .selection => {
-            const out_size = out.size;
-            if (out_size < @sizeOf(RowSelection)) return .invalid_value;
+            if (!lib.sizedCheck(.output, out)) return .invalid_value;
 
             const sel = it.selection[y] orelse return .no_value;
-            out.start_x = sel[0];
-            out.end_x = sel[1];
+            lib.sizedWrite(out, .{ .start_x = sel[0], .end_x = sel[1] });
         },
         .cells_raw => {
             const raws: []const page.Cell = it.cells[y].items(.raw);
@@ -1455,7 +1371,7 @@ test "render: aggregate get invalid value" {
     try testing.expectEqual(Result.invalid_value, get(null, .colors, &colors));
     try testing.expectEqual(Result.invalid_value, get(state, .colors, null));
 
-    colors.size = @sizeOf(usize) - 1;
+    colors.size = lib.sizedBaseEnd(Colors) - 1;
     try testing.expectEqual(Result.invalid_value, get(state, .colors, &colors));
 
     var cursor: Cursor = std.mem.zeroes(Cursor);
@@ -1464,7 +1380,7 @@ test "render: aggregate get invalid value" {
     try testing.expectEqual(Result.invalid_value, get(null, .cursor, &cursor));
     try testing.expectEqual(Result.invalid_value, get(state, .cursor, null));
 
-    cursor.size = @sizeOf(usize) - 1;
+    cursor.size = lib.sizedBaseEnd(Cursor) - 1;
     try testing.expectEqual(Result.invalid_value, get(state, .cursor, &cursor));
 }
 
@@ -1811,6 +1727,28 @@ test "render: row get selection" {
     try testing.expect(row_iterator_next(it));
     sel = .{};
     try testing.expectEqual(Result.no_value, row_get(it, .selection, @ptrCast(&sel)));
+
+    // The size rule, on the selected row.
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+    try testing.expect(row_iterator_next(it));
+    try testing.expect(row_iterator_next(it));
+
+    sel = .{ .size = lib.sizedBaseEnd(RowSelection) - 1, .start_x = 9 };
+    try testing.expectEqual(Result.invalid_value, row_get(it, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(@as(u16, 9), sel.start_x);
+
+    sel = .{ .size = lib.sizedBaseEnd(RowSelection) };
+    try testing.expectEqual(Result.success, row_get(it, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(@as(u16, 2), sel.start_x);
+    try testing.expectEqual(@as(u16, 4), sel.end_x);
+
+    const Larger = extern struct { sel: RowSelection, extra: [8]u8 };
+    var large: Larger = .{ .sel = .{ .size = @sizeOf(Larger) }, .extra = @splat(0xaa) };
+    try testing.expectEqual(Result.success, row_get(it, .selection, @ptrCast(&large.sel)));
+    try testing.expectEqual(@sizeOf(Larger), large.sel.size);
+    try testing.expectEqual(@as(u16, 2), large.sel.start_x);
+    try testing.expectEqual(@as(u16, 4), large.sel.end_x);
+    try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
 }
 
 test "render: row get cells_raw" {
@@ -2407,7 +2345,7 @@ test "render: cursor data get without viewport" {
     try testing.expectEqual(CursorVisualStyle.underline, cursor.visual_style);
 }
 
-test "render: cursor data get supports truncated sized struct" {
+test "render: cursor data get size rule" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -2426,19 +2364,31 @@ test "render: cursor data get supports truncated sized struct" {
 
     try testing.expectEqual(Result.success, update(state, terminal));
     const expected = state.?.state.cursor;
-    const viewport = expected.viewport.?;
 
+    // Below the base layout: rejected and nothing written.
     var cursor: Cursor = std.mem.zeroes(Cursor);
-    cursor.size = @offsetOf(Cursor, "viewport_y") + @sizeOf(u16);
-    cursor.wide_tail = !viewport.wide_tail;
+    cursor.size = lib.sizedBaseEnd(Cursor) - 1;
     cursor.visible = !expected.visible;
-    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
-
-    try testing.expect(cursor.viewport_has_value);
-    try testing.expectEqual(viewport.x, cursor.viewport_x);
-    try testing.expectEqual(viewport.y, cursor.viewport_y);
-    try testing.expectEqual(!viewport.wide_tail, cursor.wide_tail);
+    try testing.expectEqual(Result.invalid_value, get(state, .cursor, &cursor));
     try testing.expectEqual(!expected.visible, cursor.visible);
+
+    // Exactly the base layout.
+    cursor.size = lib.sizedBaseEnd(Cursor);
+    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
+    try testing.expectEqual(expected.visible, cursor.visible);
+    try testing.expectEqual(
+        CursorVisualStyle.fromCursorStyle(expected.visual_style),
+        cursor.visual_style,
+    );
+
+    // A newer caller's tail is left untouched.
+    const Larger = extern struct { cursor: Cursor, extra: [8]u8 };
+    var large: Larger = .{ .cursor = std.mem.zeroes(Cursor), .extra = @splat(0xaa) };
+    large.cursor.size = @sizeOf(Larger);
+    try testing.expectEqual(Result.success, get(state, .cursor, &large.cursor));
+    try testing.expectEqual(@sizeOf(Larger), large.cursor.size);
+    try testing.expectEqual(expected.visible, large.cursor.visible);
+    try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
 }
 
 test "render: row cells bg_color no background" {
@@ -2684,7 +2634,7 @@ test "render: row cells fg_color from style" {
     try testing.expectEqual(@as(u8, 30), fg.b);
 }
 
-test "render: colors data get supports truncated sized struct" {
+test "render: colors data get size rule" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -2702,18 +2652,32 @@ test "render: colors data get supports truncated sized struct" {
     defer free(state);
 
     try testing.expectEqual(Result.success, update(state, terminal));
-
-    var colors: Colors = std.mem.zeroes(Colors);
-    const sentinel: colorpkg.RGB.C = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
-    for (&colors.palette) |*entry| entry.* = sentinel;
-
-    colors.size = @offsetOf(Colors, "palette") + @sizeOf(colorpkg.RGB.C) * 2;
-    try testing.expectEqual(Result.success, get(state, .colors, &colors));
-
     const state_colors = &state.?.state.colors;
+    const sentinel: colorpkg.RGB.C = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
+
+    // Below the base layout: rejected and nothing written, even the
+    // palette entries that would fit.
+    var colors: Colors = std.mem.zeroes(Colors);
+    for (&colors.palette) |*entry| entry.* = sentinel;
+    colors.size = lib.sizedBaseEnd(Colors) - 1;
+    try testing.expectEqual(Result.invalid_value, get(state, .colors, &colors));
+    try testing.expectEqual(sentinel, colors.palette[0]);
+
+    // Exactly the base layout.
+    colors.size = lib.sizedBaseEnd(Colors);
+    try testing.expectEqual(Result.success, get(state, .colors, &colors));
     try testing.expectEqual(state_colors.palette[0].cval(), colors.palette[0]);
-    try testing.expectEqual(state_colors.palette[1].cval(), colors.palette[1]);
-    try testing.expectEqual(sentinel, colors.palette[2]);
+    try testing.expectEqual(state_colors.palette[255].cval(), colors.palette[255]);
+
+    // A newer caller's tail is left untouched.
+    const Larger = extern struct { colors: Colors, extra: [8]u8 };
+    var large: Larger = .{ .colors = std.mem.zeroes(Colors), .extra = @splat(0xaa) };
+    large.colors.size = @sizeOf(Larger);
+    try testing.expectEqual(Result.success, get(state, .colors, &large.colors));
+    try testing.expectEqual(@sizeOf(Larger), large.colors.size);
+    try testing.expectEqual(state_colors.background.cval(), large.colors.background);
+    try testing.expectEqual(state_colors.palette[255].cval(), large.colors.palette[255]);
+    try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
 }
 
 test "render: get_multi success" {

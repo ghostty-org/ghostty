@@ -68,6 +68,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * This describes the rendered terminal geometry used to convert
  * surface-space positions into encoded coordinates.
  *
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
+ * the fields you need. See @ref sized_sec.
+ *
  * @ingroup mouse
  */
 typedef struct {

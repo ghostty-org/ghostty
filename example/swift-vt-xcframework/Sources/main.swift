@@ -15,15 +15,20 @@ text.withCString { ptr in
 }
 
 // Format the terminal contents as plain text
-var fmtOpts = GhosttyFormatterTerminalOptions()
-fmtOpts.size = MemoryLayout<GhosttyFormatterTerminalOptions>.size
-fmtOpts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN
-fmtOpts.trim = true
-
 var formatter: GhosttyFormatter?
-let fmtResult = ghostty_formatter_terminal_new(nil, &formatter, terminal, fmtOpts)
+let fmtResult = ghostty_formatter_terminal_new(nil, &formatter, terminal)
 guard fmtResult == GHOSTTY_SUCCESS, let formatter else {
     fatalError("Failed to create formatter")
+}
+
+var emit = GHOSTTY_FORMATTER_FORMAT_PLAIN
+guard ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit) == GHOSTTY_SUCCESS else {
+    fatalError("Failed to set formatter emit")
+}
+
+var trim = true
+guard ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim) == GHOSTTY_SUCCESS else {
+    fatalError("Failed to set formatter trim")
 }
 
 var buf: UnsafeMutablePointer<UInt8>?

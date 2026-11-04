@@ -6,7 +6,7 @@
 
 //! [grid-ref-tracked]
 static uint32_t codepoint_at_tracked_ref(GhosttyTrackedGridRef tracked) {
-  GhosttyGridRef snapshot = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef snapshot = {0};
   GhosttyResult result = ghostty_tracked_grid_ref_snapshot(tracked, &snapshot);
   assert(result == GHOSTTY_SUCCESS);
 
@@ -63,7 +63,7 @@ int main() {
   ghostty_terminal_reset(terminal);
   assert(!ghostty_tracked_grid_ref_has_value(tracked));
 
-  GhosttyGridRef discarded = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef discarded = {0};
   result = ghostty_tracked_grid_ref_snapshot(tracked, &discarded);
   assert(result == GHOSTTY_NO_VALUE);
 

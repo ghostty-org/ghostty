@@ -582,9 +582,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * image list, which gives the same values for every image on screen.
  * See "Drawing Images" in the @ref kitty_graphics documentation.
  *
- * Later versions may add fields to the end of this struct. Set `size`
- * with GHOSTTY_INIT_SIZED before each call, so the library knows which
- * fields you have:
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
+ * each call. See @ref sized_sec.
  *
  * @code{.c}
  * GhosttyKittyGraphicsPlacementRenderInfo info =

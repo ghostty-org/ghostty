@@ -44,7 +44,9 @@ pub const Size = extern struct {
     padding_right: u32,
     padding_left: u32,
 
-    fn toRenderer(self: Size) ?renderer_size.Size {
+    pub const sized_base = "padding_left";
+
+    fn toRenderer(self: *const Size) ?renderer_size.Size {
         if (self.cell_width == 0 or self.cell_height == 0) return null;
         return .{
             .screen = .{
@@ -179,8 +181,8 @@ fn setoptTyped(
         },
 
         .size => {
-            if (value.size < @sizeOf(Size)) {
-                log.warn("setopt size struct too small size={d} expected>={d}", .{
+            if (!lib.sizedCheck(.input, value)) {
+                log.warn("setopt size struct rejected size={d} expected={d}", .{
                     value.size,
                     @sizeOf(Size),
                 });
@@ -323,6 +325,25 @@ test "setopt" {
     try testing.expectEqual(Result.success, setopt(e, .size, &size));
     try testing.expectEqual(size.screen_width, e.?.opts.size.screen.width);
     try testing.expectEqual(size.screen_height, e.?.opts.size.screen.height);
+
+    // The size rule: below the base layout is rejected, a newer caller's
+    // zero tail is accepted and a non-zero tail is rejected.
+    {
+        const Larger = extern struct { size: Size, extra: [8]u8 };
+        var large: Larger = .{ .size = size, .extra = @splat(0) };
+        large.size.screen_width += 1;
+        large.size.size = lib.sizedBaseEnd(Size) - 1;
+        try testing.expectEqual(Result.invalid_value, setopt(e, .size, &large.size));
+        try testing.expectEqual(size.screen_width, e.?.opts.size.screen.width);
+        large.size.size = @sizeOf(Larger);
+        try testing.expectEqual(Result.success, setopt(e, .size, &large.size));
+        try testing.expectEqual(size.screen_width + 1, e.?.opts.size.screen.width);
+        large.extra[7] = 1;
+        large.size.screen_width += 1;
+        try testing.expectEqual(Result.invalid_value, setopt(e, .size, &large.size));
+        try testing.expectEqual(size.screen_width + 1, e.?.opts.size.screen.width);
+        try testing.expectEqual(Result.success, setopt(e, .size, &size));
+    }
 
     const any_button_pressed = true;
     try testing.expectEqual(Result.success, setopt(e, .any_button_pressed, &any_button_pressed));

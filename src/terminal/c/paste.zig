@@ -32,6 +32,8 @@ pub const Request = extern struct {
     mimes_len: usize,
     reader: io.MimeReader,
     allow_unsafe: bool,
+
+    pub const sized_base = "allow_unsafe";
 };
 
 pub fn terminal_paste(
@@ -42,9 +44,7 @@ pub fn terminal_paste(
     const wrapper = terminal_ orelse return .invalid_value;
     const req = req_ orelse return .invalid_value;
 
-    // Every field is required; a smaller size is a caller from a
-    // different ABI version than any this struct has had.
-    if (req.size < @sizeOf(Request)) return .invalid_value;
+    if (!lib.sizedCheck(.input, req)) return .invalid_value;
 
     // The handler always has a write_pty trampoline that no-ops without
     // a C callback, so the "nothing can be written" check is ours.
@@ -374,10 +374,20 @@ test "terminal_paste null handling" {
     try testing.expectEqual(Result.invalid_value, terminal_paste(t, null, &written));
     try testing.expect(written);
 
-    // A size smaller than the struct is rejected.
+    // The size rule: below the base layout is rejected, exactly the base
+    // layout is enough, a newer caller's zero tail is accepted and a
+    // non-zero tail is rejected.
     var small = req;
-    small.size = @sizeOf(usize);
+    small.size = lib.sizedBaseEnd(Request) - 1;
     try testing.expectEqual(Result.invalid_value, terminal_paste(t, &small, &written));
+    small.size = lib.sizedBaseEnd(Request);
+    try testing.expectEqual(Result.success, terminal_paste(t, &small, &written));
+    const Larger = extern struct { req: Request, extra: [8]u8 };
+    var large: Larger = .{ .req = req, .extra = @splat(0) };
+    large.req.size = @sizeOf(Larger);
+    try testing.expectEqual(Result.success, terminal_paste(t, &large.req, &written));
+    large.extra[0] = 1;
+    try testing.expectEqual(Result.invalid_value, terminal_paste(t, &large.req, &written));
 
     // MIME types without a reader are rejected; none at all is fine.
     var unreadable = req;

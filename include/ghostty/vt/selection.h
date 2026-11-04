@@ -71,47 +71,61 @@ typedef struct GhosttySelectionGestureImpl* GhosttySelectionGesture;
 typedef struct GhosttySelectionGestureEventImpl* GhosttySelectionGestureEvent;
 
 /**
- * A snapshot selection range defined by two grid references.
+ * A range of terminal content between two cells.
  *
- * Both endpoints are inclusive. The endpoints preserve selection direction
- * and may be reversed; callers must not assume that start is the top-left
- * endpoint or that end is the bottom-right endpoint.
+ * A selection is described by the two cells at its ends, `start` and `end`.
+ * Both ends are included in the selection. By default the selection is
+ * linear: it runs from `start` to `end` the way text flows, wrapping from
+ * the end of one row to the start of the next. Set `rectangle` to true to
+ * select a rectangular block instead, with `start` and `end` at opposite
+ * corners.
  *
- * When rectangle is false, the endpoints describe a linear selection. When
- * rectangle is true, the same endpoints are interpreted as opposite corners
- * of a rectangular/block selection.
+ * The ends keep the direction the user selected in. If the user dragged
+ * up or to the left, `start` comes after `end` in the terminal. Don't
+ * assume `start` is the top-left end. Use
+ * ghostty_terminal_selection_ordered() when you need the ends in order.
  *
- * The start and end values are untracked GhosttyGridRef snapshots and are
- * only valid until the next mutating operation on the terminal that produced
- * them unless the selection is reconstructed from tracked references.
+ * Both ends are untracked grid references, so a selection is only valid
+ * until the next call that changes the terminal. To keep a selection
+ * across changes, track its ends with GhosttyTrackedGridRef and build a new
+ * GhosttySelection from fresh snapshots when you need one.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * Start with a zero-initialized value. The example below selects the first
+ * ten cells of the second row and makes that the terminal's active
+ * selection.
+ *
+ * @code{.c}
+ * GhosttyPoint start_pt = {
+ *     .tag = GHOSTTY_POINT_TAG_ACTIVE,
+ *     .value = { .coordinate = { .x = 0, .y = 1 } },
+ * };
+ * GhosttyPoint end_pt = {
+ *     .tag = GHOSTTY_POINT_TAG_ACTIVE,
+ *     .value = { .coordinate = { .x = 9, .y = 1 } },
+ * };
+ *
+ * GhosttySelection selection = {0};
+ * ghostty_terminal_grid_ref(terminal, start_pt, &selection.start);
+ * ghostty_terminal_grid_ref(terminal, end_pt, &selection.end);
+ * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+ * @endcode
+ *
+ * The layout of this struct is frozen. It is 40 bytes on 64-bit targets
+ * and 20 bytes on 32-bit targets such as wasm32. If it ever needs to hold
+ * more, that will be a new type.
  *
  * @ingroup selection
  */
 typedef struct {
-  /** Size of this struct in bytes. Must be set to sizeof(GhosttySelection). */
-  size_t size;
-
-  /**
-   * Start of the selection range (inclusive).
-   *
-   * This may be after end in terminal order. It is an untracked
-   * GhosttyGridRef snapshot and follows untracked grid-ref lifetime rules.
-   */
+  /** The cell where the selection starts. It is included in the selection. */
   GhosttyGridRef start;
 
-  /**
-   * End of the selection range (inclusive).
-   *
-   * This may be before start in terminal order. It is an untracked
-   * GhosttyGridRef snapshot and follows untracked grid-ref lifetime rules.
-   */
+  /** The cell where the selection ends. It is included in the selection. */
   GhosttyGridRef end;
 
   /**
-   * Whether the endpoints are interpreted as a rectangular/block selection
-   * rather than a linear selection.
+   * Whether this is a rectangular selection. When true, `start` and `end`
+   * are opposite corners of a block of cells.
    */
   bool rectangle;
 } GhosttySelection;
@@ -142,7 +156,9 @@ typedef struct {
 /**
  * Options for deriving a word selection from a terminal grid reference.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
+ * the fields you need. See @ref sized_sec.
+ *
  * If boundary_codepoints is NULL and boundary_codepoints_len is 0, Ghostty's
  * default word-boundary codepoints are used. If boundary_codepoints_len is
  * non-zero, boundary_codepoints must not be NULL.
@@ -166,7 +182,9 @@ typedef struct {
 /**
  * Options for deriving the nearest word selection between two grid references.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
+ * the fields you need. See @ref sized_sec.
+ *
  * If boundary_codepoints is NULL and boundary_codepoints_len is 0, Ghostty's
  * default word-boundary codepoints are used. If boundary_codepoints_len is
  * non-zero, boundary_codepoints must not be NULL.
@@ -193,7 +211,9 @@ typedef struct {
 /**
  * Options for deriving a line selection from a terminal grid reference.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
+ * the fields you need. See @ref sized_sec.
+ *
  * If whitespace is NULL and whitespace_len is 0, Ghostty's default line-trim
  * whitespace codepoints are used. If whitespace_len is non-zero, whitespace
  * must not be NULL.
@@ -220,7 +240,8 @@ typedef struct {
 /**
  * Options for one-shot formatting of a terminal selection.
  *
- * This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
+ * the fields you need. See @ref sized_sec.
  *
  * If selection is NULL, the terminal's current active selection is used.
  * If selection is non-NULL, that caller-provided snapshot selection is used.
@@ -883,11 +904,15 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_output(
  * the required size to out_written. The caller can then retry with a larger
  * buffer.
  *
- * If options.selection is NULL and the terminal has no active selection, the
+ * Pass NULL for options to use the defaults: plain text, no unwrapping or
+ * trimming, and the terminal's active selection. This is the same as
+ * passing options initialized with GHOSTTY_INIT_SIZED().
+ *
+ * If no selection is given and the terminal has no active selection, the
  * function returns GHOSTTY_NO_VALUE.
  *
  * @param terminal The terminal to read from (must not be NULL)
- * @param options Selection formatting options
+ * @param options Selection formatting options, or NULL for the defaults
  * @param buf Output buffer, or NULL to query required size
  * @param buf_len Length of buf in bytes
  * @param out_written Number of bytes written, or required size on
@@ -898,7 +923,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_output(
  */
 GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
                                     GhosttyTerminal terminal,
-                                    GhosttyTerminalSelectionFormatOptions options,
+                                    const GhosttyTerminalSelectionFormatOptions* options,
                                     uint8_t* buf,
                                     size_t buf_len,
                                     size_t* out_written);
@@ -919,12 +944,17 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
  * The returned bytes are not NUL-terminated. This supports plain text, VT, and
  * HTML uniformly as byte output.
  *
- * If options.selection is NULL and the terminal has no active selection, the
- * function returns GHOSTTY_NO_VALUE and leaves out_ptr as NULL and out_len as 0.
+ * Pass NULL for options to use the defaults: plain text, no unwrapping or
+ * trimming, and the terminal's active selection. This is the same as
+ * passing options initialized with GHOSTTY_INIT_SIZED().
+ *
+ * If no selection is given and the terminal has no active selection, the
+ * function returns GHOSTTY_NO_VALUE and leaves out_ptr as NULL and out_len
+ * as 0.
  *
  * @param terminal The terminal to read from (must not be NULL)
  * @param allocator Allocator used for the returned buffer, or NULL for the default allocator
- * @param options Selection formatting options
+ * @param options Selection formatting options, or NULL for the defaults
  * @param out_ptr Receives the allocated output buffer (must not be NULL)
  * @param out_len Receives the output length in bytes (must not be NULL)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
@@ -934,7 +964,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
 GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_alloc(
                                     GhosttyTerminal terminal,
                                     const GhosttyAllocator* allocator,
-                                    GhosttyTerminalSelectionFormatOptions options,
+                                    const GhosttyTerminalSelectionFormatOptions* options,
                                     uint8_t** out_ptr,
                                     size_t* out_len);
 

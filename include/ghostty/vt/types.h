@@ -368,7 +368,8 @@ typedef struct {
  *
  * Example:
  * @code
- * GhosttyFormatterTerminalOptions opts = GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
+ * GhosttyTerminalSelectionFormatOptions opts =
+ *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
  * opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
  * opts.trim = true;
  * @endcode
@@ -384,6 +385,28 @@ typedef struct {
 #define GHOSTTY_INIT_SIZED(type) \
   ((type){ .size = sizeof(type) })
 #endif
+
+/**
+ * Initialize a sized struct at runtime.
+ *
+ * This does the same thing as GHOSTTY_INIT_SIZED(). It sets every byte of
+ * the struct to zero and then stores `size` in the struct's `size` field.
+ * It is meant for language bindings that cannot use a C macro. Pass the
+ * size of the struct as your binding lays it out, which is `sizeof` of the
+ * struct in the header the binding was built from. See @ref sized_sec.
+ *
+ * @code{.c}
+ * GhosttyRenderStateCursor cursor;
+ * ghostty_sized_init(&cursor, sizeof(cursor));
+ * @endcode
+ *
+ * If `ptr` is NULL, or `size` is too small to hold the `size` field
+ * itself, this function does nothing.
+ *
+ * @param ptr The struct to initialize, or NULL
+ * @param size The size of the struct in bytes
+ */
+GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
 
 /**
  * Return the versioned libghostty-vt C type manifest for the current target.
@@ -422,11 +445,11 @@ typedef struct {
  *       "values": { "INVALID": 0, "DIRTY": 3, "MAX_VALUE": 2147483647 }
  *     },
  *     "GhosttyStyleColor": {
- *       "kind": "struct", "size": 16, "align": 8,
+ *       "kind": "struct", "size": 4, "align": 1,
  *       "fields": {
- *         "tag": { "offset": 0, "size": 4,
+ *         "tag": { "offset": 0, "size": 1,
  *                  "type": "GhosttyStyleColorTag" },
- *         "value": { "offset": 8, "size": 8,
+ *         "value": { "offset": 1, "size": 3,
  *                    "type": "GhosttyStyleColorValue", "tag": "tag",
  *                    "arms": { "NONE": null, "PALETTE": "palette",
  *                              "RGB": "rgb" } }

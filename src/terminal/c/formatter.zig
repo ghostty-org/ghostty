@@ -27,93 +27,114 @@ pub const Formatter = ?*FormatterWrapper;
 pub const Format = formatterpkg.Format;
 
 const CSelection = selection_c.CSelection;
+const ZigExtra = formatterpkg.TerminalFormatter.Extra;
 
-/// C: GhosttyFormatterScreenOptions
-pub const ScreenOptions = extern struct {
-    /// C: GhosttyFormatterScreenExtra
-    pub const Extra = extern struct {
-        size: usize = @sizeOf(Extra),
-        cursor: bool,
-        style: bool,
-        hyperlink: bool,
-        protection: bool,
-        kitty_keyboard: bool,
-        charsets: bool,
+/// C: GhosttyFormatterExtras
+///
+/// A bitmask of GHOSTTY_FORMATTER_EXTRA_* values. Each bit is one boolean
+/// of `TerminalFormatter.Extra`. The terminal extras come first and the
+/// screen extras follow, in the same order as the packed struct, so the
+/// bitmask and the struct convert with a plain bit cast. `ExtraBit` checks
+/// that at compile time.
+pub const Extras = u32;
 
-        comptime {
-            for (@typeInfo(formatterpkg.ScreenFormatter.Extra).@"struct".field_names) |name| {
-                if (!@hasField(Extra, name))
-                    @compileError("ScreenOptions.Extra missing field: " ++ name);
-            }
+/// The bit position of each GHOSTTY_FORMATTER_EXTRA_* define in
+/// formatter.h. The names match the fields of `TerminalFormatter.Extra`
+/// and `ScreenFormatter.Extra`.
+///
+/// The comptime block fails the build if a field moves or a new one is
+/// added without a bit here. When that happens, add the bit here and a
+/// matching define to formatter.h.
+pub const ExtraBit = enum(u5) {
+    palette = 0,
+    modes = 1,
+    scrolling_region = 2,
+    tabstops = 3,
+    pwd = 4,
+    keyboard = 5,
+    cursor = 6,
+    style = 7,
+    hyperlink = 8,
+    protection = 9,
+    kitty_keyboard = 10,
+    charsets = 11,
+
+    /// The bitmask with only this bit set.
+    pub fn mask(self: ExtraBit) Extras {
+        return @as(Extras, 1) << @backingInt(self);
+    }
+
+    comptime {
+        const ZigScreenExtra = formatterpkg.ScreenFormatter.Extra;
+        const info = @typeInfo(ExtraBit).@"enum";
+        if (@bitSizeOf(ZigExtra) != info.field_names.len)
+            @compileError("ExtraBit must have one bit per TerminalFormatter.Extra boolean");
+        for (info.field_names, info.field_values) |name, value| {
+            const offset = if (@hasField(ZigExtra, name))
+                @bitOffsetOf(ZigExtra, name)
+            else
+                @bitOffsetOf(ZigExtra, "screen") +
+                    @bitOffsetOf(ZigScreenExtra, name);
+            if (offset != value)
+                @compileError("ExtraBit." ++ name ++ " does not match its Extra bit");
         }
-
-        fn toZig(self: Extra) formatterpkg.ScreenFormatter.Extra {
-            return .{
-                .cursor = self.cursor,
-                .style = self.style,
-                .hyperlink = self.hyperlink,
-                .protection = self.protection,
-                .kitty_keyboard = self.kitty_keyboard,
-                .charsets = self.charsets,
-            };
-        }
-    };
+    }
 };
 
-/// C: GhosttyFormatterTerminalOptions
-pub const TerminalOptions = extern struct {
-    size: usize = @sizeOf(TerminalOptions),
-    emit: Format,
-    unwrap: bool,
-    trim: bool,
-    extra: Extra,
+/// Every bit that has a meaning. `set` rejects a value with any other bit.
+const extras_valid: Extras = (@as(Extras, 1) << @bitSizeOf(ZigExtra)) - 1;
 
-    /// Optional selection to restrict output to a range.
-    /// If null, the entire screen is formatted.
-    selection: ?*const CSelection = null,
+fn extrasFromZig(extra: ZigExtra) Extras {
+    const Int = @typeInfo(ZigExtra).@"struct".backing_integer.?;
+    return @as(Int, @bitCast(extra));
+}
 
-    /// C: GhosttyFormatterTerminalExtra
-    pub const Extra = extern struct {
-        size: usize = @sizeOf(Extra),
-        palette: bool,
-        modes: bool,
-        scrolling_region: bool,
-        tabstops: bool,
-        pwd: bool,
-        keyboard: bool,
-        screen: ScreenOptions.Extra,
+/// Returns null if `extras` has a bit with no meaning.
+fn extrasToZig(extras: Extras) ?ZigExtra {
+    if (extras & ~extras_valid != 0) return null;
+    const Int = @typeInfo(ZigExtra).@"struct".backing_integer.?;
+    return @bitCast(@as(Int, @intCast(extras)));
+}
 
-        comptime {
-            for (@typeInfo(formatterpkg.TerminalFormatter.Extra).@"struct".field_names) |name| {
-                if (!@hasField(Extra, name))
-                    @compileError("TerminalOptions.Extra missing field: " ++ name);
-            }
-        }
+/// The value each option starts with, and the value a NULL `set` puts back.
+/// These are the Zig TerminalFormatter's own defaults. formatter.h lists
+/// them, so update the header when one changes.
+const defaults = struct {
+    const opts: formatterpkg.Options = .plain;
+    const extra: ZigExtra = .styles;
+};
 
-        fn toZig(self: Extra) formatterpkg.TerminalFormatter.Extra {
-            return .{
-                .palette = self.palette,
-                .modes = self.modes,
-                .scrolling_region = self.scrolling_region,
-                .tabstops = self.tabstops,
-                .pwd = self.pwd,
-                .keyboard = self.keyboard,
-                .screen = self.screen.toZig(),
-            };
-        }
-    };
+/// C: GhosttyFormatterOption
+pub const Option = enum(c_int) {
+    invalid = 0,
+    emit = 1,
+    unwrap = 2,
+    trim = 3,
+    selection = 4,
+    extras = 5,
+    _,
+
+    /// The type that a `set` value or a `get` output points to.
+    pub fn Type(comptime self: Option) type {
+        return switch (self) {
+            .invalid => void,
+            .emit => Format,
+            .unwrap, .trim => bool,
+            .selection => CSelection,
+            .extras => Extras,
+            _ => void,
+        };
+    }
 };
 
 pub fn terminal_new(
     alloc_: ?*const CAllocator,
     result: *Formatter,
     terminal_: terminal_c.Terminal,
-    opts: TerminalOptions,
 ) callconv(lib.calling_conv) Result {
     result.* = terminal_new_(
         alloc_,
         terminal_,
-        opts,
     ) catch |err| {
         result.* = null;
         return switch (err) {
@@ -128,31 +149,19 @@ pub fn terminal_new(
 fn terminal_new_(
     alloc_: ?*const CAllocator,
     terminal_: terminal_c.Terminal,
-    opts: TerminalOptions,
 ) error{
     InvalidValue,
     OutOfMemory,
 }!*FormatterWrapper {
     const t: *ZigTerminal = (terminal_ orelse return error.InvalidValue).terminal;
-    _ = lib.enumFromPtr(Format, &opts.emit) orelse return error.InvalidValue;
 
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(FormatterWrapper) catch
         return error.OutOfMemory;
     errdefer alloc.destroy(ptr);
 
-    var formatter: formatterpkg.TerminalFormatter = .init(t, .{
-        .emit = opts.emit,
-        .unwrap = opts.unwrap,
-        .trim = opts.trim,
-    });
-    formatter.extra = opts.extra.toZig();
-
-    // Setup the content that we're formatting
-    if (opts.selection) |sel| formatter.content = .{
-        .selection = sel.toZig() orelse
-            return error.InvalidValue,
-    };
+    var formatter: formatterpkg.TerminalFormatter = .init(t, defaults.opts);
+    formatter.extra = defaults.extra;
 
     ptr.* = .{
         .kind = .{ .terminal = formatter },
@@ -160,6 +169,102 @@ fn terminal_new_(
     };
 
     return ptr;
+}
+
+pub fn set(
+    formatter_: Formatter,
+    option: Option,
+    value: ?*const anyopaque,
+) callconv(lib.calling_conv) Result {
+    return switch (option) {
+        _ => .unsupported,
+        .invalid => .invalid_value,
+        inline else => |comptime_option| {
+            const wrapper = formatter_ orelse return .invalid_value;
+            return setTyped(
+                terminalFormatter(wrapper),
+                comptime_option,
+                @ptrCast(@alignCast(value)),
+            );
+        },
+    };
+}
+
+/// Set one option. A null value puts it back to its default.
+fn setTyped(
+    f: *formatterpkg.TerminalFormatter,
+    comptime option: Option,
+    value: ?*const option.Type(),
+) Result {
+    switch (option) {
+        .invalid => comptime unreachable,
+        .emit => f.opts.emit = if (value) |v|
+            lib.enumFromPtr(Format, v) orelse return .invalid_value
+        else
+            defaults.opts.emit,
+        .unwrap => f.opts.unwrap = if (value) |v| v.* else defaults.opts.unwrap,
+        .trim => f.opts.trim = if (value) |v| v.* else defaults.opts.trim,
+        .selection => f.content = .{
+            .selection = if (value) |v|
+                v.toZig() orelse return .invalid_value
+            else
+                null,
+        },
+        .extras => f.extra = if (value) |v|
+            extrasToZig(v.*) orelse return .invalid_value
+        else
+            defaults.extra,
+        _ => comptime unreachable,
+    }
+
+    return .success;
+}
+
+pub fn get(
+    formatter_: Formatter,
+    option: Option,
+    out: ?*anyopaque,
+) callconv(lib.calling_conv) Result {
+    return switch (option) {
+        _ => .unsupported,
+        .invalid => .invalid_value,
+        inline else => |comptime_option| {
+            const wrapper = formatter_ orelse return .invalid_value;
+            const out_ptr = out orelse return .invalid_value;
+            return getTyped(
+                terminalFormatter(wrapper),
+                comptime_option,
+                @ptrCast(@alignCast(out_ptr)),
+            );
+        },
+    };
+}
+
+fn getTyped(
+    f: *const formatterpkg.TerminalFormatter,
+    comptime option: Option,
+    out: *option.Type(),
+) Result {
+    switch (option) {
+        .invalid => comptime unreachable,
+        .emit => out.* = f.opts.emit,
+        .unwrap => out.* = f.opts.unwrap,
+        .trim => out.* = f.opts.trim,
+        .selection => out.* = CSelection.fromZig(switch (f.content) {
+            .none => return .no_value,
+            .selection => |sel| sel orelse return .no_value,
+        }),
+        .extras => out.* = extrasFromZig(f.extra),
+        _ => comptime unreachable,
+    }
+
+    return .success;
+}
+
+fn terminalFormatter(wrapper: *FormatterWrapper) *formatterpkg.TerminalFormatter {
+    return switch (wrapper.kind) {
+        .terminal => |*t| t,
+    };
 }
 
 /// Format directly to a synchronous C writer callback.
@@ -263,7 +368,6 @@ test "terminal_new/free" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     try testing.expect(f != null);
     free(f);
@@ -275,7 +379,6 @@ test "terminal_new invalid_value on null terminal" {
         &lib.alloc.test_allocator,
         &f,
         null,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     try testing.expect(f == null);
 }
@@ -295,16 +398,17 @@ test "format_alloc empty output" {
     ));
     defer terminal_c.free(t);
 
-    // Match a zero-initialized C options struct, including trim = false.
-    const opts: TerminalOptions = std.mem.zeroInit(TerminalOptions, .{});
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
         &lib.alloc.test_allocator,
         &f,
         t,
-        opts,
     ));
     defer free(f);
+
+    // Output is still empty with trimming turned off.
+    const trim = false;
+    try testing.expectEqual(Result.success, set(f, .trim, &trim));
 
     for ([_]?*const CAllocator{ null, &failing }) |allocator| {
         var sentinel: u8 = 0;
@@ -342,7 +446,6 @@ test "format plain" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
 
@@ -369,7 +472,6 @@ test "format streams to writer" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
 
@@ -432,7 +534,6 @@ test "format writer errors" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
 
@@ -459,7 +560,6 @@ test "format reflects terminal changes" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
 
@@ -492,7 +592,6 @@ test "format null returns required size" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
 
@@ -525,7 +624,6 @@ test "format buffer too small" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
 
@@ -559,9 +657,11 @@ test "format vt" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .vt, .unwrap = false, .trim = true, .extra = .{ .palette = true, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = true, .hyperlink = true, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
+
+    const emit: Format = .vt;
+    try testing.expectEqual(Result.success, set(f, .emit, &emit));
 
     var buf: [65536]u8 = undefined;
     var written: usize = 0;
@@ -605,9 +705,10 @@ test "format plain with selection" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .plain, .unwrap = false, .trim = true, .selection = &sel, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
+
+    try testing.expectEqual(Result.success, set(f, .selection, &sel));
 
     var buf: [1024]u8 = undefined;
     var written: usize = 0;
@@ -632,13 +733,265 @@ test "format html" {
         &lib.alloc.test_allocator,
         &f,
         t,
-        .{ .emit = .html, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
     ));
     defer free(f);
+
+    const emit: Format = .html;
+    try testing.expectEqual(Result.success, set(f, .emit, &emit));
 
     var buf: [65536]u8 = undefined;
     var written: usize = 0;
     try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
     try testing.expect(written > 0);
     try testing.expect(std.mem.indexOf(u8, buf[0..written], "Html") != null);
+}
+
+test "set and get each option" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        10,
+        5,
+    ));
+    defer terminal_c.free(t);
+
+    // Row 0 soft-wraps into row 1, row 2 has trailing spaces, and the
+    // cursor ends bold so VT output carries an SGR for its style.
+    const input = "0123456789abc\r\nhi   \x1b[1m";
+    terminal_c.vt_write(t, input, input.len);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+    ));
+    defer free(f);
+
+    var buf: [65536]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("0123456789\nabc\nhi", buf[0..written]);
+
+    // Emit
+    for ([_]Format{ .vt, .html, .plain }) |emit| {
+        try testing.expectEqual(Result.success, set(f, .emit, &emit));
+        var out: Format = .plain;
+        try testing.expectEqual(Result.success, get(f, .emit, &out));
+        try testing.expectEqual(emit, out);
+
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        const output = buf[0..written];
+        switch (emit) {
+            .plain => try testing.expectEqualStrings("0123456789\nabc\nhi", output),
+            .vt => try testing.expect(std.mem.indexOf(u8, output, "\x1b[") != null),
+            .html => try testing.expect(std.mem.indexOf(u8, output, "<div") != null),
+        }
+    }
+
+    // Unwrap
+    {
+        const v = true;
+        try testing.expectEqual(Result.success, set(f, .unwrap, &v));
+        var out = false;
+        try testing.expectEqual(Result.success, get(f, .unwrap, &out));
+        try testing.expect(out);
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expectEqualStrings("0123456789abc\nhi", buf[0..written]);
+    }
+
+    // Trim
+    {
+        const v = false;
+        try testing.expectEqual(Result.success, set(f, .trim, &v));
+        var out = true;
+        try testing.expectEqual(Result.success, get(f, .trim, &out));
+        try testing.expect(!out);
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expectEqualStrings("0123456789abc\nhi   ", buf[0..written]);
+    }
+
+    // Extras only change VT output, so compare VT with the defaults and
+    // with nothing.
+    {
+        const vt: Format = .vt;
+        try testing.expectEqual(Result.success, set(f, .emit, &vt));
+
+        var out: Extras = 0;
+        try testing.expectEqual(Result.success, get(f, .extras, &out));
+        try testing.expectEqual(
+            ExtraBit.palette.mask() | ExtraBit.style.mask() | ExtraBit.hyperlink.mask(),
+            out,
+        );
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        const styles_len = written;
+        try testing.expect(std.mem.indexOf(u8, buf[0..written], "\x1b]4;") != null);
+
+        const none: Extras = 0;
+        try testing.expectEqual(Result.success, set(f, .extras, &none));
+        try testing.expectEqual(Result.success, get(f, .extras, &out));
+        try testing.expectEqual(none, out);
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expect(written < styles_len);
+        try testing.expect(std.mem.indexOf(u8, buf[0..written], "\x1b]4;") == null);
+
+        const all: Extras = extras_valid;
+        try testing.expectEqual(Result.success, set(f, .extras, &all));
+        try testing.expectEqual(Result.success, get(f, .extras, &out));
+        try testing.expectEqual(all, out);
+        try testing.expectEqual(@as(Extras, 0xFFF), out);
+
+        // Bits without a meaning are rejected and leave the value alone.
+        const unknown: Extras = 1 << 12;
+        try testing.expectEqual(Result.invalid_value, set(f, .extras, &unknown));
+        try testing.expectEqual(Result.success, get(f, .extras, &out));
+        try testing.expectEqual(all, out);
+
+        const plain: Format = .plain;
+        try testing.expectEqual(Result.success, set(f, .emit, &plain));
+    }
+
+    // Selection: "hi" on row 2, columns 0..1.
+    {
+        var out: CSelection = .{ .start = .{}, .end = .{} };
+        try testing.expectEqual(Result.no_value, get(f, .selection, &out));
+
+        var start_ref: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 0, .y = 2 } },
+        }, &start_ref));
+        var end_ref: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 1, .y = 2 } },
+        }, &end_ref));
+        var sel: CSelection = .{ .start = start_ref, .end = end_ref };
+        try testing.expectEqual(Result.success, set(f, .selection, &sel));
+
+        // The formatter copied the selection.
+        sel.start = .{};
+        try testing.expectEqual(Result.success, get(f, .selection, &out));
+        try testing.expectEqual(start_ref, out.start);
+        try testing.expectEqual(end_ref, out.end);
+        try testing.expect(!out.rectangle);
+
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expectEqualStrings("hi", buf[0..written]);
+
+        // A selection with a zeroed grid reference is rejected and the
+        // old selection stays.
+        try testing.expectEqual(Result.invalid_value, set(f, .selection, &sel));
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expectEqualStrings("hi", buf[0..written]);
+    }
+
+    // Invalid values for typed options are rejected.
+    {
+        const bad_emit: c_int = 99;
+        try testing.expectEqual(Result.invalid_value, set(f, .emit, &bad_emit));
+        var out: Format = .vt;
+        try testing.expectEqual(Result.success, get(f, .emit, &out));
+        try testing.expectEqual(Format.plain, out);
+    }
+}
+
+test "set null resets to defaults" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        10,
+        5,
+    ));
+    defer terminal_c.free(t);
+    terminal_c.vt_write(t, "0123456789abc\r\nhi   ", 20);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+    ));
+    defer free(f);
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    const expected = "0123456789\nabc\nhi";
+    try testing.expectEqualStrings(expected, buf[0..written]);
+
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    const sel: CSelection = .{ .start = start_ref, .end = start_ref };
+    const html: Format = .html;
+    const yes = true;
+    const no = false;
+    const none: Extras = 0;
+    try testing.expectEqual(Result.success, set(f, .emit, &html));
+    try testing.expectEqual(Result.success, set(f, .unwrap, &yes));
+    try testing.expectEqual(Result.success, set(f, .trim, &no));
+    try testing.expectEqual(Result.success, set(f, .selection, &sel));
+    try testing.expectEqual(Result.success, set(f, .extras, &none));
+
+    for ([_]Option{ .emit, .unwrap, .trim, .selection, .extras }) |option| {
+        try testing.expectEqual(Result.success, set(f, option, null));
+    }
+
+    var emit: Format = .vt;
+    try testing.expectEqual(Result.success, get(f, .emit, &emit));
+    try testing.expectEqual(Format.plain, emit);
+    var unwrap = true;
+    try testing.expectEqual(Result.success, get(f, .unwrap, &unwrap));
+    try testing.expect(!unwrap);
+    var trim = false;
+    try testing.expectEqual(Result.success, get(f, .trim, &trim));
+    try testing.expect(trim);
+    var out_sel: CSelection = .{ .start = .{}, .end = .{} };
+    try testing.expectEqual(Result.no_value, get(f, .selection, &out_sel));
+    var extras: Extras = 0;
+    try testing.expectEqual(Result.success, get(f, .extras, &extras));
+    try testing.expectEqual(extrasFromZig(.styles), extras);
+
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings(expected, buf[0..written]);
+}
+
+test "set and get reject unknown and invalid options" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+    ));
+    defer free(f);
+
+    const yes = true;
+    var out = false;
+    try testing.expectEqual(Result.invalid_value, set(f, .invalid, &yes));
+    try testing.expectEqual(Result.invalid_value, get(f, .invalid, &out));
+    try testing.expectEqual(Result.invalid_value, set(null, .trim, &yes));
+    try testing.expectEqual(Result.invalid_value, get(null, .trim, &out));
+    try testing.expectEqual(Result.invalid_value, get(f, .trim, null));
+
+    // Keys newer than this library are unsupported, with or without a
+    // formatter, so a caller can check for a key before creating one.
+    const unknown: Option = @fromBackingInt(@intCast(99));
+    try testing.expectEqual(Result.unsupported, set(f, unknown, &yes));
+    try testing.expectEqual(Result.unsupported, get(f, unknown, &out));
+    try testing.expectEqual(Result.unsupported, set(null, unknown, &yes));
+    try testing.expectEqual(Result.unsupported, get(null, unknown, null));
 }

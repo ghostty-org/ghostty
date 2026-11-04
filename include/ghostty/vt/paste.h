@@ -103,8 +103,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * A paste of clipboard contents into the terminal.
  *
- * This is a sized struct; set `size` to `sizeof(GhosttyPaste)`. The
- * MIME type array and the strings it points to are borrowed only for
+ * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
+ * the fields you need. See @ref sized_sec.
+ *
+ * The MIME type array and the strings it points to are borrowed only for
  * the duration of the ghostty_terminal_paste() call, as is everything
  * the reader produces.
  */
