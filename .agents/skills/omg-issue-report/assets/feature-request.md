@@ -1,6 +1,6 @@
 ## Workflow and current difficulty
 
-<what you are trying to do, and what makes it awkward now>
+<what you are trying to do, and what makes it awkward now; one sentence is enough>
 
 ## Desired outcome
 

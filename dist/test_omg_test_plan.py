@@ -215,6 +215,15 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(result["suite_count"], 0)
                 self.assertEqual(result["unknown_paths"], [])
 
+    def test_issue_templates_do_not_launch_xcode(self):
+        for paths in [[".github/ISSUE_TEMPLATE/note.yml"],
+                      [".github/ISSUE_TEMPLATE/bug_report.yml",
+                       ".github/ISSUE_TEMPLATE/feature_request.yml"]]:
+            with self.subTest(paths=paths):
+                result = self.plan(paths=paths)
+                self.assertFalse(result["run_swift"])
+                self.assertEqual(result["unknown_paths"], [])
+
     def test_settings_schema_is_not_treated_as_irrelevant_documentation(self):
         result = self.plan(paths=["docs/settings/schema.json"])
         self.assertEqual(result["root_modules"], ["settings"])

@@ -1,0 +1,48 @@
+name: Note / 备忘
+description: Record a short observation, wish or task you want to remember.
+title: "[Note] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. See the [reporting guide](https://github.com/jischeng/oh-my-ghostty/blob/main/docs/REPORTING.md).
+        Use this form for a short observation, wish or task, not for a confirmed defect.
+        It does not need a verified version, logs or reproduction steps.
+        English and Chinese are welcome; please keep private workflow details and prompts redacted.
+  - type: textarea
+    id: note
+    attributes:
+      label: What to remember / 备忘内容
+      description: One or two sentences in your own words.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind / 类型
+      options:
+        - Observation / 观察
+        - Wish / 期望
+        - Task / 待办
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Why it matters (optional) / 补充说明（可选）
+  - type: textarea
+    id: related
+    attributes:
+      label: Related issues or links (optional) / 关联 issue 或链接（可选）
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting / 提交前检查
+      options:
+        - label: I reviewed this note and removed private or sensitive information. / 我已检查并移除敏感信息。
+          required: true
+  - type: textarea
+    id: ai_assistance
+    attributes:
+      label: AI assistance, if any / AI 辅助说明（如有）
+      description: Name the tool and scope of assistance; confirm you reviewed the note. Leave blank if not used.

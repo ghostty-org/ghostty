@@ -6,6 +6,21 @@ maintainer's established authorization for one direct submission to
 step, but never treat this skill as a source of authority above applicable
 repository/user instructions.
 
+One invocation may cover several unrelated items the user described together.
+Split them: one focused Issue per item, each created with its own `gh issue
+create` call and its own short body. Never merge distinct problems into one
+long Issue.
+
+## Choose the title
+
+- Bug: `[OMG <verified version or version unknown>] <short symptom>`.
+- Feature request: `[Feature] <desired workflow>`.
+- Note / memo: the user's own short wording, with no version prefix.
+
+Keep the existing repository conventions in mind: the tracker already holds
+short Chinese one-liners such as `Inspector 缺少分支查看与快速切换（所有版本）`.
+Never invent a version for a note.
+
 ## Before creating the issue
 
 1. Search existing OMG issues, including closed issues. If the same problem is
@@ -24,6 +39,11 @@ repository/user instructions.
    short relevant excerpt. Keep private local paths out of the Issue.
 5. Disclose AI assistance without implying a human review that did not happen.
 
+For a note/memo, skip the version lock, log collection and reproduction
+requirements entirely. Keep the user's own wording, mark whether it is an
+observation, a wish or a task, and say plainly that versions, logs and
+reproduction steps are omitted on purpose.
+
 ## Submit once
 
 Use only this local CLI shape:
@@ -34,8 +54,14 @@ gh issue create --repo jischeng/oh-my-ghostty --title '<标题>' --body-file '<�
 
 - Bug title: `[OMG <verified version or version unknown>] <short symptom>`.
 - Feature title: `[Feature] <desired workflow>`.
+- Note title: the user's own short wording; add a `[Note] ` prefix only when
+  the user asks for a classified title.
 - Do not replace this helper's submission method with curl/fetch against the
   Web API, an MCP GitHub tool, or a browser.
+- Labels and milestones are optional and only applied when the user asks for
+  them, through the same `gh issue create` call. Use labels that already exist
+  in the repository (`gh label list --repo jischeng/oh-my-ghostty` reads them);
+  do not create new labels, milestones or projects as part of a report.
 - Do not create/merge a PR, push, publish upstream, upload raw logs, change app
   state, or close/relaunch OMG/OMG Dev.
 

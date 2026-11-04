@@ -69,8 +69,10 @@ must update `docs/PLUGIN_DEVELOPMENT.md` and relevant tests in the same commit.
 - Do not publish issues/PRs, push, or merge without explicit user authorization.
 - An explicit `/skill:omg-issue-report <description>` invocation authorizes only
   the dedicated helper's local-`gh` submission to `jischeng/oh-my-ghostty`, without
-  a second confirmation. It does not authorize raw-log uploads, upstream reports,
-  PR creation/merging, or changing existing app state. Follow higher-priority rules.
+  a second confirmation. One invocation may file several focused issues when the
+  user describes several unrelated items. It does not authorize raw-log uploads,
+  upstream reports, PR creation/merging, or changing existing app state. Follow
+  higher-priority rules.
 - Keep public reports factual and redacted; retain complete evidence locally.
 
 ## OMG Architecture Principles

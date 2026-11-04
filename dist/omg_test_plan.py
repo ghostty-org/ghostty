@@ -99,7 +99,7 @@ FULL_SUITE_GLOBS = (
 )
 NO_SWIFT_GLOBS = (
     "docs/**", "*.md", "LICENSE*", ".agents/skills/omg-issue-report/**",
-    ".agents/skills/*/SKILL.md", "dist/*docs*.py",
+    ".agents/skills/*/SKILL.md", "dist/*docs*.py", ".github/ISSUE_TEMPLATE/**",
 )
 SMOKE_SUITE = "GhosttyTests/OhMyGhosttyVersionTests"
 SUITE_TYPE = re.compile(r"\b(?:struct|class|enum)\s+(\w+(?:Tests|Suite))\b")

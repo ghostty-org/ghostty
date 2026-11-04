@@ -121,6 +121,18 @@ Write `not version-specific` for a request's intended scope, not `broken in all
 versions` unless you have evidence. Bugs in an existing feature still benefit
 from an actual affected version and reproduction steps.
 
+## Notes and memos
+
+A short observation, wish or task you want to remember is a valid report. Say
+what should be remembered and mark it as an observation, a wish or a task;
+versions, logs and reproduction steps are omitted on purpose and are added
+later only when they already exist. One focused item per issue — the tracker
+already holds one-line notes such as "Inspector 缺少分支查看与快速切换" — and
+split several unrelated items into separate issues.
+
+Notes are ordinary issues, so they stay public and follow the same redaction
+rules as any other report.
+
 ## Security reports
 
 Do not publish secrets or exploit details in an ordinary issue. Use GitHub's
@@ -157,6 +169,8 @@ authority here.
   user; return the complete filtered-log path privately, never in the public
   issue. If submission fails, retain the draft and report the failure rather
   than posting through a different tool or destination.
+- When one invocation describes several unrelated items, the helper files one
+  focused issue per item and returns every issue URL.
 
 Humans can submit directly through GitHub; the local-`gh` restriction above is
 for the dedicated automation helper. Review and disclose AI assistance in manual

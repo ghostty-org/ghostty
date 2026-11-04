@@ -79,12 +79,14 @@ class CommunityDocsTests(unittest.TestCase):
         submission = (SKILL_DIR / "references/submission.md").read_text()
         bug = (SKILL_DIR / "assets/bug-report.md").read_text()
         feature = (SKILL_DIR / "assets/feature-request.md").read_text()
+        note = (SKILL_DIR / "assets/note.md").read_text()
         report = (ROOT / "docs/REPORTING.md").read_text()
         agents = (ROOT / "AGENTS.md").read_text()
         self.assertIn("disable-model-invocation: true", skill)
         self.assertIn("../../../docs/REPORTING.md", skill)
         for name in ["assets/bug-report.md", "assets/feature-request.md",
-                     "references/evidence.md", "references/submission.md"]:
+                     "assets/note.md", "references/evidence.md",
+                     "references/submission.md"]:
             self.assertIn(name, skill)
             self.assertTrue((SKILL_DIR / name).is_file(), name)
         self.assertNotIn("优先级高于", skill)
@@ -102,6 +104,14 @@ class CommunityDocsTests(unittest.TestCase):
         for required in ["## Workflow and current difficulty", "## Desired outcome",
                          "not version-specific"]:
             self.assertIn(required, feature)
+        for required in ["## What to remember", "## Status",
+                         "Kind: observation | wish | task", "Verified:"]:
+            self.assertIn(required, note)
+        self.assertIn("Note title: the user's own short wording", submission)
+        self.assertIn("one focused Issue per item", submission)
+        self.assertIn("## Notes and memos", report)
+        self.assertIn("files one\n  focused issue per item", report)
+        self.assertIn("One invocation may file several focused issues", agents)
         self.assertIn("Include:", report)
 
     def test_report_helper_uses_progressive_disclosure(self):
@@ -117,11 +127,16 @@ class CommunityDocsTests(unittest.TestCase):
         config = (folder / "config.yml").read_text()
         self.assertIn("blank_issues_enabled: true", config)
         self.assertIn("jischeng/oh-my-ghostty/blob/main/docs/REPORTING.md", config)
-        for name in ["bug_report.yml", "feature_request.yml"]:
+        for name in ["bug_report.yml", "feature_request.yml", "note.yml"]:
             text = (folder / name).read_text()
             self.assertIn("id: privacy", text)
             self.assertIn("id: ai_assistance", text)
             self.assertIn("jischeng/oh-my-ghostty/blob/main/docs/REPORTING.md", text)
+        note = (folder / "note.yml").read_text()
+        self.assertIn("name: Note / 备忘", note)
+        self.assertIn('title: "[Note] "', note)
+        self.assertIn("id: note", note)
+        self.assertIn("id: kind", note)
         self.assertIn("docs/CONTRIBUTING.md", (ROOT / ".github/pull_request_template.md").read_text())
 
 
