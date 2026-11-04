@@ -79,6 +79,7 @@ jobs:
               - '!CONTRIBUTING.md'
               - '!HACKING.md'
               - '!PACKAGING.md'
+              - '!PACKAGING-LIBGHOSTTY.md'
               - '!AI_POLICY.md'
               - '!AGENTS.md'
               - '!CLAUDE.md'

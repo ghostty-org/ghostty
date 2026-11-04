@@ -283,8 +283,8 @@ jobs:
             libghostty-vt-${{ env.VERSION }}.tar.gz
             libghostty-vt-${{ env.VERSION }}.tar.gz.minisig
 
-  # Builds the tarball the way PACKAGING.md tells packagers to, then checks
-  # what it installs:
+  # Builds the tarball the way PACKAGING-LIBGHOSTTY.md tells packagers
+  # to, then checks what it installs:
   #
   #   - The build is offline. Zig sees only the packages listed in
   #     deps/libghostty-vt.txt, passed with --system, and starts from an
