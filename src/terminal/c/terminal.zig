@@ -29,6 +29,7 @@ const grid_ref_tracked_c = @import("grid_ref_tracked.zig");
 const search_c = @import("search.zig");
 const selection_c = @import("selection.zig");
 const style_c = @import("style.zig");
+const CursorStyle = @import("types.zig").CursorStyle;
 const color = @import("../color.zig");
 const clipboard = @import("../clipboard.zig");
 const kitty_clipboard = @import("../kitty/clipboard.zig");
@@ -1457,54 +1458,55 @@ pub fn compress(
 
 /// C: GhosttyTerminalOption
 pub const Option = enum(c_int) {
-    userdata = 0,
-    write_pty = 1,
-    bell = 2,
-    enquiry = 3,
-    xtversion = 4,
-    title_changed = 5,
-    size_cb = 6,
-    color_scheme = 7,
-    device_attributes = 8,
-    title = 9,
-    pwd = 10,
-    color_foreground = 11,
-    color_background = 12,
-    color_cursor = 13,
-    color_palette = 14,
-    kitty_image_storage_limit = 15,
-    kitty_image_medium_file = 16,
-    kitty_image_medium_temp_file = 17,
-    kitty_image_medium_shared_mem = 18,
-    apc_max_bytes = 19,
-    apc_max_bytes_kitty = 20,
-    selection = 21,
-    default_cursor_style = 22,
-    default_cursor_blink = 23,
-    glyph_protocol = 24,
-    pwd_changed = 25,
-    clipboard_write = 26,
-    scrollback_max_bytes = 27,
-    scrollback_max_lines = 28,
-    desktop_notification = 29,
-    progress_report = 30,
-    continuation_max_bytes = 31,
-    title_report = 32,
-    mode_default = 33,
-    mode = 34,
-    unknown_sequence = 35,
-    unknown_max_bytes = 36,
-    terminfo_name = 37,
-    clipboard_read = 38,
-    clipboard_write_max_bytes = 39,
-    resize_pull_scrollback = 40,
-    render_hold = 41,
-    semantic_prompt = 42,
-    reset = 43,
-    xt_checksum_report = 44,
-    xt_checksum_extension = 45,
-    program_status = 46,
-    resize_window = 47,
+    invalid = 0,
+    userdata = 1,
+    write_pty = 2,
+    bell = 3,
+    enquiry = 4,
+    xtversion = 5,
+    title_changed = 6,
+    size_cb = 7,
+    color_scheme = 8,
+    device_attributes = 9,
+    title = 10,
+    pwd = 11,
+    color_foreground = 12,
+    color_background = 13,
+    color_cursor = 14,
+    color_palette = 15,
+    kitty_image_storage_limit = 16,
+    kitty_image_medium_file = 17,
+    kitty_image_medium_temp_file = 18,
+    kitty_image_medium_shared_mem = 19,
+    apc_max_bytes = 20,
+    apc_max_bytes_kitty = 21,
+    selection = 22,
+    default_cursor_style = 23,
+    default_cursor_blink = 24,
+    glyph_protocol = 25,
+    pwd_changed = 26,
+    clipboard_write = 27,
+    scrollback_max_bytes = 28,
+    scrollback_max_lines = 29,
+    desktop_notification = 30,
+    progress_report = 31,
+    continuation_max_bytes = 32,
+    title_report = 33,
+    mode_default = 34,
+    mode = 35,
+    unknown_sequence = 36,
+    unknown_max_bytes = 37,
+    terminfo_name = 38,
+    clipboard_read = 39,
+    clipboard_write_max_bytes = 40,
+    resize_pull_scrollback = 41,
+    render_hold = 42,
+    semantic_prompt = 43,
+    reset = 44,
+    xt_checksum_report = 45,
+    xt_checksum_extension = 46,
+    program_status = 47,
+    resize_window = 48,
 
     _,
 
@@ -1553,10 +1555,10 @@ pub const Option = enum(c_int) {
             .clipboard_write_max_bytes,
             => ?*const usize,
             .selection => ?*const selection_c.CSelection,
-            .default_cursor_style => ?*const TerminalCursorStyle,
+            .default_cursor_style => ?*const CursorStyle,
             .default_cursor_blink => ?*const bool,
             .mode, .mode_default => ?*const ModeConfig,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -1567,6 +1569,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| setTyped(
             terminal_ orelse return .invalid_value,
@@ -1752,7 +1755,7 @@ fn setTyped(
             }
         },
         .default_cursor_style => {
-            const style = (if (value) |ptr| ptr.* else TerminalCursorStyle.block).toZig() orelse return .invalid_value;
+            const style = (if (value) |ptr| ptr.* else CursorStyle.block).toZig() orelse return .invalid_value;
             wrapper.terminal.setDefaultCursorStyle(style);
         },
         .default_cursor_blink => {
@@ -1796,29 +1799,10 @@ fn setTyped(
                 else => unreachable,
             }
         },
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
     return .success;
 }
-
-/// C: GhosttyTerminalCursorStyle
-pub const TerminalCursorStyle = enum(c_int) {
-    bar = 0,
-    block = 1,
-    underline = 2,
-    block_hollow = 3,
-    _,
-
-    fn toZig(self: TerminalCursorStyle) ?Screen.CursorStyle {
-        return switch (self) {
-            .bar => .bar,
-            .block => .block,
-            .underline => .underline,
-            .block_hollow => .block_hollow,
-            _ => null,
-        };
-    }
-};
 
 /// C: GhosttyDeviceAttributes
 pub const DeviceAttributes = Effects.CDeviceAttributes;
@@ -4450,7 +4434,7 @@ test "set default cursor style and blink" {
     ));
     defer free(t);
 
-    var default_style: TerminalCursorStyle = .bar;
+    var default_style: CursorStyle = .bar;
     var default_blink = true;
     try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
     try testing.expectEqual(Result.success, set(t, .default_cursor_blink, @ptrCast(&default_blink)));

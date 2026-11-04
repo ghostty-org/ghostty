@@ -52,7 +52,8 @@ pub fn end(parser_: Parser, terminator: u8) callconv(lib.calling_conv) Command {
 
 /// C: GhosttyOscOption
 pub const Option = enum(c_int) {
-    unknown_max_bytes = 0,
+    invalid = 0,
+    unknown_max_bytes = 1,
     _,
 };
 
@@ -67,6 +68,7 @@ pub fn set(
             const ptr: ?*const usize = @ptrCast(@alignCast(value));
             parser.unknown_max_bytes = if (ptr) |v| v.* else 0;
         },
+        .invalid => return .invalid_value,
         _ => return .unsupported,
     }
 

@@ -183,6 +183,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
+   * Not a real option. ghostty_osc_set() returns GHOSTTY_INVALID_VALUE for
+   * it. Its value is 0, so a zeroed or uninitialized variable is never
+   * mistaken for a real option.
+   */
+  GHOSTTY_OSC_OPT_INVALID = 0,
+
+  /**
    * The most bytes to keep from each OSC sequence whose number the parser
    * does not implement.
    *
@@ -201,7 +208,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: size_t*
    */
-  GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES = 0,
+  GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES = 1,
   GHOSTTY_OSC_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOscOption;
 

@@ -83,14 +83,15 @@ pub const Scroll = enum(c_int) {
 
 /// C: GhosttySearchData
 pub const Data = enum(c_int) {
-    status = 0,
-    needle = 1,
-    total_matches = 2,
-    selected_index = 3,
-    selected_match = 4,
-    matches = 5,
-    viewport_matches = 6,
-    select_scroll = 7,
+    invalid = 0,
+    status = 1,
+    needle = 2,
+    total_matches = 3,
+    selected_index = 4,
+    selected_match = 5,
+    matches = 6,
+    viewport_matches = 7,
+    select_scroll = 8,
 
     _,
 
@@ -103,17 +104,18 @@ pub const Data = enum(c_int) {
             .selected_match => selection_c.CSelection,
             .matches, .viewport_matches => selection_c.CSelectionBuffer,
             .select_scroll => Scroll,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
 
 /// C: GhosttySearchOption
 pub const Option = enum(c_int) {
-    needle = 0,
-    select_next = 1,
-    select_prev = 2,
-    select_scroll = 3,
+    invalid = 0,
+    needle = 1,
+    select_next = 2,
+    select_prev = 3,
+    select_scroll = 4,
 
     _,
 
@@ -123,7 +125,7 @@ pub const Option = enum(c_int) {
             // The value must be NULL. Reserved for future use.
             .select_next, .select_prev => void,
             .select_scroll => Scroll,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -222,6 +224,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| setTyped(
             search_,
@@ -298,7 +301,7 @@ fn setTyped(
                 return .invalid_value;
             wrapper.select_scroll = scroll.toZig();
         },
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -319,6 +322,7 @@ pub fn get(
 ) callconv(lib.calling_conv) Result {
     const out_ptr = value orelse return .invalid_value;
     return switch (data) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_data| getTyped(
             search_,
@@ -420,7 +424,7 @@ fn getTyped(
         },
 
         .select_scroll => out.* = .fromZig(wrapper.select_scroll),
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;

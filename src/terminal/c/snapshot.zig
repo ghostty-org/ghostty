@@ -21,10 +21,11 @@ const terminal_c = @import("terminal.zig");
 /// Options configure validation and returned-terminal policy before snapshot
 /// decoding begins.
 pub const DecoderOption = enum(c_int) {
-    max_continuation_bytes = 0,
-    retain_continuation = 1,
-    compress_history = 2,
-    kitty_image_storage_limit = 3,
+    invalid = 0,
+    max_continuation_bytes = 1,
+    retain_continuation = 2,
+    compress_history = 3,
+    kitty_image_storage_limit = 4,
     _,
 };
 
@@ -244,6 +245,7 @@ pub fn decoder_set(
             @as(*const bool, @ptrCast(@alignCast(value))).*,
         .kitty_image_storage_limit => decoder.kitty_image_storage_limit =
             @as(*const u64, @ptrCast(@alignCast(value))).*,
+        .invalid => return .invalid_value,
         _ => return .unsupported,
     }
     return .success;

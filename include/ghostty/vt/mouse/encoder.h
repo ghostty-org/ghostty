@@ -111,25 +111,32 @@ typedef struct {
  * @ingroup mouse
  */
 typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Not a real option. ghostty_mouse_encoder_setopt() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
+   */
+  GHOSTTY_MOUSE_ENCODER_OPT_INVALID = 0,
+
   /** Mouse tracking mode (value: GhosttyMouseTrackingMode,
    *  default: GHOSTTY_MOUSE_TRACKING_NONE). */
-  GHOSTTY_MOUSE_ENCODER_OPT_EVENT = 0,
+  GHOSTTY_MOUSE_ENCODER_OPT_EVENT = 1,
 
   /** Mouse output format (value: GhosttyMouseFormat,
    *  default: GHOSTTY_MOUSE_FORMAT_X10). */
-  GHOSTTY_MOUSE_ENCODER_OPT_FORMAT = 1,
+  GHOSTTY_MOUSE_ENCODER_OPT_FORMAT = 2,
 
   /** Renderer size context (value: GhosttyMouseEncoderSize, default: a
    *  1x1 pixel screen with 1x1 pixel cells and no padding). */
-  GHOSTTY_MOUSE_ENCODER_OPT_SIZE = 2,
+  GHOSTTY_MOUSE_ENCODER_OPT_SIZE = 3,
 
   /** Whether any mouse button is currently pressed (value: bool,
    *  default: false). */
-  GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED = 3,
+  GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED = 4,
 
   /** Whether to enable motion deduplication by last cell (value: bool,
    *  default: false). */
-  GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL = 4,
+  GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL = 5,
   GHOSTTY_MOUSE_ENCODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyMouseEncoderOption;
 

@@ -15,6 +15,7 @@ const Result = @import("result.zig").Result;
 const cell_c = @import("cell.zig");
 const row = @import("row.zig");
 const style_c = @import("style.zig");
+const CursorStyle = @import("types.zig").CursorStyle;
 const PageList = @import("../PageList.zig");
 
 const log = std.log.scoped(.render_state_c);
@@ -163,23 +164,6 @@ pub const RowId = extern struct {
     }
 };
 
-/// C: GhosttyRenderStateCursorVisualStyle
-pub const CursorVisualStyle = enum(c_int) {
-    bar = 0,
-    block = 1,
-    underline = 2,
-    block_hollow = 3,
-
-    pub fn fromCursorStyle(s: cursorpkg.Style) CursorVisualStyle {
-        return switch (s) {
-            .bar => .bar,
-            .block => .block,
-            .underline => .underline,
-            .block_hollow => .block_hollow,
-        };
-    }
-};
-
 /// C: GhosttyRenderStateCursor
 pub const Cursor = extern struct {
     size: usize = @sizeOf(Cursor),
@@ -190,7 +174,7 @@ pub const Cursor = extern struct {
     visible: bool,
     blinking: bool,
     password_input: bool,
-    visual_style: CursorVisualStyle,
+    visual_style: CursorStyle,
 
     pub const sized_base = "visual_style";
 };
@@ -234,7 +218,7 @@ pub const Data = enum(c_int) {
             .color_background, .color_foreground, .color_cursor => colorpkg.RGB.C,
             .color_cursor_has_value => bool,
             .color_palette => colorpkg.PaletteC,
-            .cursor_visual_style => CursorVisualStyle,
+            .cursor_visual_style => CursorStyle,
             .cursor_visible, .cursor_blinking, .cursor_password_input => bool,
             .cursor_viewport_has_value, .cursor_viewport_wide_tail => bool,
             .cursor_viewport_x, .cursor_viewport_y => size.CellCountInt,
@@ -250,8 +234,9 @@ pub const Data = enum(c_int) {
 
 /// C: GhosttyRenderStateOption
 pub const SetOption = enum(c_int) {
-    dirty = 0,
-    overscan = 1,
+    invalid = 0,
+    dirty = 1,
+    overscan = 2,
 
     _,
 
@@ -260,7 +245,7 @@ pub const SetOption = enum(c_int) {
         return switch (self) {
             .dirty => Dirty,
             .overscan => Overscan,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -440,7 +425,7 @@ fn getTyped(
         },
         .color_cursor_has_value => out.* = state.state.colors.cursor != null,
         .color_palette => out.* = colorpkg.paletteCval(&state.state.colors.palette),
-        .cursor_visual_style => out.* = CursorVisualStyle.fromCursorStyle(state.state.cursor.visual_style),
+        .cursor_visual_style => out.* = CursorStyle.fromZig(state.state.cursor.visual_style),
         .cursor_visible => out.* = state.state.cursor.visible,
         .cursor_blinking => out.* = state.state.cursor.blinking,
         .cursor_password_input => out.* = state.state.cursor.password_input,
@@ -482,6 +467,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| setTyped(
             state_,
@@ -506,7 +492,7 @@ fn setTyped(
             .above = value.above,
             .below = value.below,
         },
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -531,7 +517,7 @@ fn writeCursor(
     lib.sizedSet(
         out,
         "visual_style",
-        CursorVisualStyle.fromCursorStyle(cursor.visual_style),
+        CursorStyle.fromZig(cursor.visual_style),
     );
 
     return .success;
@@ -930,7 +916,8 @@ pub const RowData = enum(c_int) {
 
 /// C: GhosttyRenderStateRowOption
 pub const RowOption = enum(c_int) {
-    dirty = 0,
+    invalid = 0,
+    dirty = 1,
 
     _,
 
@@ -938,7 +925,7 @@ pub const RowOption = enum(c_int) {
     pub fn InType(comptime self: RowOption) type {
         return switch (self) {
             .dirty => bool,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -1056,6 +1043,7 @@ pub fn row_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| rowSetTyped(
             iterator_,
@@ -1075,7 +1063,7 @@ fn rowSetTyped(
     if (y >= it.raws.len) return .invalid_value;
     switch (option) {
         .dirty => it.dirty[y] = value.*,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -1084,7 +1072,7 @@ fn rowSetTyped(
 /// C: GhosttyImageProtocol
 pub const ImageProtocol = renderpkg.RenderState.ImageProtocol;
 
-/// C: GhosttyRenderStateImageLayer
+/// C: GhosttyImageLayer
 pub const ImageLayer = renderpkg.RenderState.ImageLayer;
 
 /// C: GhosttyRenderStateKittyPlacementKind
@@ -2294,7 +2282,7 @@ test "render: cursor data get matches scalar getters" {
     var visible: bool = undefined;
     var blinking: bool = undefined;
     var password_input: bool = undefined;
-    var visual_style: CursorVisualStyle = undefined;
+    var visual_style: CursorStyle = undefined;
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_has_value, &viewport_has_value));
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_x, &viewport_x));
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_y, &viewport_y));
@@ -2342,7 +2330,7 @@ test "render: cursor data get without viewport" {
     try testing.expect(cursor.visible);
     try testing.expect(cursor.blinking);
     try testing.expect(cursor.password_input);
-    try testing.expectEqual(CursorVisualStyle.underline, cursor.visual_style);
+    try testing.expectEqual(CursorStyle.underline, cursor.visual_style);
 }
 
 test "render: cursor data get size rule" {
@@ -2377,7 +2365,7 @@ test "render: cursor data get size rule" {
     try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
     try testing.expectEqual(expected.visible, cursor.visible);
     try testing.expectEqual(
-        CursorVisualStyle.fromCursorStyle(expected.visual_style),
+        CursorStyle.fromZig(expected.visual_style),
         cursor.visual_style,
     );
 

@@ -12,6 +12,7 @@ const c_abi = @import("../../lib/c_abi.zig");
 
 const color = @import("../color.zig");
 const clipboard = @import("../clipboard.zig");
+const cursor = @import("../cursor.zig");
 const device_status = @import("../device_status.zig");
 const focus_pkg = @import("../focus.zig");
 const formatter_pkg = @import("../formatter.zig");
@@ -54,6 +55,43 @@ const terminal = @import("terminal.zig");
 pub const SurfacePosition = extern struct {
     x: f64,
     y: f64,
+};
+
+/// C: GhosttyCursorStyle
+///
+/// The cursor shape in the C API. The terminal option
+/// GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE reads it as input, and the
+/// render state reports it as output. Both convert to and from the core
+/// `cursor.Style`.
+pub const CursorStyle = enum(c_int) {
+    bar = 0,
+    block = 1,
+    underline = 2,
+    block_hollow = 3,
+    _,
+
+    /// Convert a core cursor style. Every core style has a C value.
+    pub fn fromZig(s: cursor.Style) CursorStyle {
+        return switch (s) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+        };
+    }
+
+    /// Convert a value from C. Returns null for a value this version of
+    /// the library doesn't know, which callers report as
+    /// GHOSTTY_INVALID_VALUE.
+    pub fn toZig(self: CursorStyle) ?cursor.Style {
+        return switch (self) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+            _ => null,
+        };
+    }
 };
 
 /// C: GhosttyCodepoints
@@ -407,21 +445,22 @@ pub const type_decls = [_]TypeDecl{
     .initEnum("GhosttyClipboardLocation", clipboard.Location, "GHOSTTY_CLIPBOARD_LOCATION_"),
     .initEnum("GhosttyClipboardReadResult", clipboard.Read.Status, "GHOSTTY_CLIPBOARD_READ_RESULT_"),
     .initEnum("GhosttyClipboardWriteResult", clipboard.Write.Status, "GHOSTTY_CLIPBOARD_WRITE_RESULT_"),
+    .initEnum("GhosttyCursorStyle", CursorStyle, "GHOSTTY_CURSOR_STYLE_"),
     .initEnum("GhosttyColorScheme", device_status.ColorScheme, "GHOSTTY_COLOR_SCHEME_"),
     .initEnum("GhosttyFocusEvent", focus_pkg.Event, "GHOSTTY_FOCUS_"),
     .initEnum("GhosttyFormatterFormat", formatter_pkg.Format, "GHOSTTY_FORMATTER_FORMAT_"),
     .initEnum("GhosttyFormatterOption", formatter.Option, "GHOSTTY_FORMATTER_OPT_"),
+    .initEnum("GhosttyImageLayer", render.ImageLayer, "GHOSTTY_IMAGE_LAYER_"),
     .initEnum("GhosttyImageProtocol", render.ImageProtocol, "GHOSTTY_IMAGE_PROTOCOL_"),
     .initEnum("GhosttyKey", input_key.Key, "GHOSTTY_KEY_"),
     .initEnum("GhosttyKeyAction", input_key.Action, "GHOSTTY_KEY_ACTION_"),
     .initEnum("GhosttyKeyEncoderOption", key_encode.Option, "GHOSTTY_KEY_ENCODER_OPT_"),
     .initEnum("GhosttyKittyGraphicsData", kitty_graphics.Data, "GHOSTTY_KITTY_GRAPHICS_DATA_"),
-    .initEnum("GhosttyKittyGraphicsImageData", kitty_graphics.ImageData, "GHOSTTY_KITTY_IMAGE_DATA_"),
+    .initEnum("GhosttyKittyGraphicsImageData", kitty_graphics.ImageData, "GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_"),
     .initEnum("GhosttyKittyGraphicsPlacementData", kitty_graphics.PlacementData, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_"),
-    .initEnum("GhosttyKittyGraphicsPlacementIteratorOption", kitty_graphics.PlacementIteratorOption, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_"),
+    .initEnum("GhosttyKittyGraphicsPlacementIteratorOption", kitty_graphics.PlacementIteratorOption, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_"),
     .initEnum("GhosttyKittyImageCompression", kitty_graphics.ImageCompression, "GHOSTTY_KITTY_IMAGE_COMPRESSION_"),
     .initEnum("GhosttyKittyImageFormat", kitty_graphics.ImageFormat, "GHOSTTY_KITTY_IMAGE_FORMAT_"),
-    .initEnum("GhosttyKittyPlacementLayer", kitty_graphics.PlacementLayer, "GHOSTTY_KITTY_PLACEMENT_LAYER_"),
     .initEnum("GhosttyModeReportState", modes_pkg.Report.State, "GHOSTTY_MODE_REPORT_"),
     .initEnum("GhosttyMouseAction", input_mouse.Action, "GHOSTTY_MOUSE_ACTION_"),
     .initEnum("GhosttyMouseButton", input_mouse.Button, "GHOSTTY_MOUSE_BUTTON_"),
@@ -443,16 +482,14 @@ pub const type_decls = [_]TypeDecl{
     .initEnum("GhosttyPointTag", point.Tag, "GHOSTTY_POINT_TAG_"),
     .initEnum("GhosttyProgramStatusKind", terminal.ProgramStatusKind, "GHOSTTY_PROGRAM_STATUS_KIND_"),
     .initEnum("GhosttyProgramStatusState", terminal.ProgramStatusState, "GHOSTTY_PROGRAM_STATUS_STATE_"),
-    .initEnum("GhosttyRenderStateCursorVisualStyle", render.CursorVisualStyle, "GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_"),
     .initEnum("GhosttyRenderStateData", render.Data, "GHOSTTY_RENDER_STATE_DATA_"),
     .initEnum("GhosttyRenderStateDirty", render.Dirty, "GHOSTTY_RENDER_STATE_DIRTY_"),
     .initEnum("GhosttyRenderStateImageData", render.ImageData, "GHOSTTY_RENDER_STATE_IMAGE_DATA_"),
-    .initEnum("GhosttyRenderStateImageLayer", render.ImageLayer, "GHOSTTY_RENDER_STATE_IMAGE_LAYER_"),
     .initEnum("GhosttyRenderStateKittyPlacementKind", render.KittyPlacementKind, "GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_"),
-    .initEnum("GhosttyRenderStateOption", render.SetOption, "GHOSTTY_RENDER_STATE_OPTION_"),
+    .initEnum("GhosttyRenderStateOption", render.SetOption, "GHOSTTY_RENDER_STATE_OPT_"),
     .initEnum("GhosttyRenderStateRowCellsData", render.RowCellsData, "GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_"),
     .initEnum("GhosttyRenderStateRowData", render.RowData, "GHOSTTY_RENDER_STATE_ROW_DATA_"),
-    .initEnum("GhosttyRenderStateRowOption", render.RowOption, "GHOSTTY_RENDER_STATE_ROW_OPTION_"),
+    .initEnum("GhosttyRenderStateRowOption", render.RowOption, "GHOSTTY_RENDER_STATE_ROW_OPT_"),
     .initEnum("GhosttyRowData", row.RowData, "GHOSTTY_ROW_DATA_"),
     .initEnum("GhosttyRowSemanticPrompt", row.SemanticPrompt, "GHOSTTY_ROW_SEMANTIC_"),
     .initEnum("GhosttySearchData", search.Data, "GHOSTTY_SEARCH_DATA_"),
@@ -480,13 +517,12 @@ pub const type_decls = [_]TypeDecl{
     .initEnum("GhosttyTerminalBoundary", terminal.Boundary, "GHOSTTY_TERMINAL_BOUNDARY_"),
     .initEnum("GhosttyTerminalCompressionMode", terminal.CompressionMode, "GHOSTTY_TERMINAL_COMPRESSION_MODE_"),
     .initEnum("GhosttyTerminalCompressionResult", terminal.CompressionResult, "GHOSTTY_TERMINAL_COMPRESSION_RESULT_"),
-    .initEnum("GhosttyTerminalCursorStyle", terminal.TerminalCursorStyle, "GHOSTTY_TERMINAL_CURSOR_STYLE_"),
     .initEnum("GhosttyTerminalData", terminal.TerminalData, "GHOSTTY_TERMINAL_DATA_"),
     .initEnum("GhosttyTerminalOption", terminal.Option, "GHOSTTY_TERMINAL_OPT_"),
     .initEnum("GhosttyTerminalProgressState", terminal.ProgressState, "GHOSTTY_TERMINAL_PROGRESS_STATE_"),
     .initEnum("GhosttyTerminalScreen", terminal.TerminalScreen, "GHOSTTY_TERMINAL_SCREEN_"),
     .initEnum("GhosttyTerminalResizeWindowTag", terminal.ResizeWindow.Tag, "GHOSTTY_TERMINAL_RESIZE_WINDOW_"),
-    .initEnum("GhosttyTerminalScrollViewportTag", terminal.ZigTerminal.ScrollViewport.Tag, "GHOSTTY_SCROLL_VIEWPORT_"),
+    .initEnum("GhosttyTerminalScrollViewportTag", terminal.ZigTerminal.ScrollViewport.Tag, "GHOSTTY_TERMINAL_SCROLL_VIEWPORT_"),
     .initEnum("GhosttyTerminalStringEnd", terminal.StringEnd, "GHOSTTY_TERMINAL_STRING_END_"),
     .initEnum("GhosttyTerminalStringIntroducer", terminal.StringIntroducer, "GHOSTTY_TERMINAL_STRING_INTRODUCER_"),
     .initEnum("GhosttyTerminalStringKind", terminal.StringKind, "GHOSTTY_TERMINAL_STRING_KIND_"),
@@ -1144,7 +1180,7 @@ test "manifest describes render state overscan types" {
 
     const option_values = manifest_types.get("GhosttyRenderStateOption").?.object
         .get("values").?.object;
-    try std.testing.expectEqual(@as(i64, 1), option_values.get("OVERSCAN").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), option_values.get("OVERSCAN").?.integer);
 }
 
 test "manifest describes the complete packed cell layout" {
@@ -1248,10 +1284,10 @@ test "manifest uses public enum names" {
     try std.testing.expectEqualStrings("bg_8", sgr_arms.get("BG_8").?.string);
 
     const terminal_values = manifest_types.get("GhosttyTerminalOption").?.object.get("values").?.object;
-    try std.testing.expectEqual(@as(i64, 6), terminal_values.get("SIZE").?.integer);
+    try std.testing.expectEqual(@as(i64, 7), terminal_values.get("SIZE").?.integer);
     try std.testing.expect(!terminal_values.contains("SIZE_CB"));
-    try std.testing.expectEqual(@as(i64, 42), terminal_values.get("SEMANTIC_PROMPT").?.integer);
-    try std.testing.expectEqual(@as(i64, 43), terminal_values.get("RESET").?.integer);
+    try std.testing.expectEqual(@as(i64, 43), terminal_values.get("SEMANTIC_PROMPT").?.integer);
+    try std.testing.expectEqual(@as(i64, 44), terminal_values.get("RESET").?.integer);
 
     const semantic_prompt_values = manifest_types.get("GhosttySemanticPromptKind").?.object.get("values").?.object;
     try std.testing.expectEqual(@as(i64, 0), semantic_prompt_values.get("INVALID").?.integer);

@@ -86,8 +86,8 @@ extern "C" {
  *     to the render state's whole list. It tells you when to read the
  *     list again, for example after an image moved because the text
  *     scrolled.
- *   - @ref GHOSTTY_KITTY_IMAGE_DATA_GENERATION belongs to a single image.
- *     It tells you when to upload that image's pixels again. It changes
+ *   - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION belongs to a single
+ *     image. It tells you when to upload that image's pixels again. It changes
  *     when a program sends the image again and on every animation frame.
  *     The render state reports the same value for each entry as
  *     @ref GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION, so you can
@@ -125,9 +125,9 @@ extern "C" {
  * Each call shows whichever frame is due at the time you pass in. When
  * an image moves to a new frame, two things change:
  *
- * - @ref GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns the pixels of the
+ * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns the pixels of the
  *   new frame.
- * - @ref GHOSTTY_KITTY_IMAGE_DATA_GENERATION returns a new value.
+ * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION returns a new value.
  *
  * If you already cache textures by image generation (see "Knowing What
  * Changed" above), new frames appear without any extra work.
@@ -374,47 +374,49 @@ typedef enum GHOSTTY_ENUM_TYPED {
 } GhosttyKittyGraphicsPlacementData;
 
 /**
- * A layer to limit the storage placement iterator to, set with
- * GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER.
- *
- * The Kitty graphics protocol picks a placement's layer from its
- * z-index, as each value below describes. This filter is only for the
- * storage iterator. To draw, use the layer the render state gives each
- * entry (GHOSTTY_RENDER_STATE_IMAGE_DATA_LAYER). It follows the same
- * rules, and it also covers virtual placements, which are always drawn
- * below the text.
- *
- * @ingroup kitty_graphics
- */
-typedef enum GHOSTTY_ENUM_TYPED {
-  /** Every placement. This is the default. */
-  GHOSTTY_KITTY_PLACEMENT_LAYER_ALL = 0,
-
-  /** Placements drawn below the cell backgrounds: z < INT32_MIN / 2. */
-  GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG = 1,
-
-  /** Placements drawn above the cell backgrounds and below the text:
-   *  INT32_MIN / 2 <= z < 0. */
-  GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT = 2,
-
-  /** Placements drawn above the text: z >= 0. */
-  GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT = 3,
-  GHOSTTY_KITTY_PLACEMENT_LAYER_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
-} GhosttyKittyPlacementLayer;
-
-/**
  * Settable options for ghostty_kitty_graphics_placement_iterator_set().
  *
  * @ingroup kitty_graphics
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
-   * Only return placements in one layer. See GhosttyKittyPlacementLayer.
-   *
-   * Input type: GhosttyKittyPlacementLayer *
+   * Not a real option. ghostty_kitty_graphics_placement_iterator_set()
+   * returns GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
    */
-  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER = 0,
-  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_INVALID = 0,
+
+  /**
+   * Only visit placements in the chosen layers.
+   *
+   * The value is a mask with one bit for each GhosttyImageLayer. Combine
+   * the GHOSTTY_IMAGE_LAYER_MASK_* macros with `|` to choose layers. For
+   * example, this visits every placement except the ones drawn below the
+   * cell backgrounds:
+   *
+   * @code{.c}
+   * uint32_t mask = GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT |
+   *                 GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT;
+   * ghostty_kitty_graphics_placement_iterator_set(
+   *     iterator, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER, &mask);
+   * @endcode
+   *
+   * A mask of 0 or a NULL value turns the filter off, and the iterator
+   * visits every placement. This is the default. A mask with a bit that
+   * matches no layer returns GHOSTTY_INVALID_VALUE and keeps the current
+   * filter.
+   *
+   * Each placement's layer comes from its z-index, using the ranges listed
+   * in GhosttyImageLayer. This filter only applies to the storage
+   * iterator. To draw images, use the layer the render state reports for
+   * each entry (GHOSTTY_RENDER_STATE_IMAGE_DATA_LAYER). The render state
+   * uses the same ranges and also includes virtual placements, which are
+   * always drawn below the text.
+   *
+   * Input type: const uint32_t *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER = 1,
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKittyGraphicsPlacementIteratorOption;
 
 /**
@@ -461,35 +463,35 @@ typedef enum GHOSTTY_ENUM_TYPED {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** Invalid / sentinel value. */
-  GHOSTTY_KITTY_IMAGE_DATA_INVALID = 0,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_INVALID = 0,
 
   /**
    * The image ID.
    *
    * Output type: uint32_t *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_ID = 1,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID = 1,
 
   /**
    * The image number.
    *
    * Output type: uint32_t *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_NUMBER = 2,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER = 2,
 
   /**
    * Image width in pixels.
    *
    * Output type: uint32_t *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_WIDTH = 3,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH = 3,
 
   /**
    * Image height in pixels.
    *
    * Output type: uint32_t *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_HEIGHT = 4,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT = 4,
 
   /**
    * Pixel format of the image. Never GHOSTTY_KITTY_IMAGE_FORMAT_PNG;
@@ -497,7 +499,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Output type: GhosttyKittyImageFormat *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_FORMAT = 5,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT = 5,
 
   /**
    * Compression of the image. Always
@@ -506,7 +508,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Output type: GhosttyKittyImageCompression *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_COMPRESSION = 6,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION = 6,
 
   /**
    * Borrowed pointer to the raw pixel data. Valid as long as the
@@ -514,20 +516,20 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * the image metadata is resident but its pixel payload is pending.
    *
    * The data is always fully decoded, uncompressed pixels in the
-   * format reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT: zlib payloads
+   * format reported by GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT: zlib payloads
    * are inflated and PNG payloads are decoded to RGBA at transmission
    * time, before the image is stored. Consumers can upload this
    * directly to the GPU without any decode step.
    *
    * For an animated image (Kitty graphics animation, actions a=f/a=a)
    * this is the pixel data of the current animation frame. The
-   * image's GHOSTTY_KITTY_IMAGE_DATA_GENERATION changes whenever the
+   * image's GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION changes whenever the
    * current frame changes, so generation-keyed caches remain
    * coherent.
    *
    * Output type: const uint8_t **
    */
-  GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR = 7,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR = 7,
 
   /**
    * Length of the raw pixel data in bytes. Always equal to
@@ -537,7 +539,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Output type: size_t *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN = 8,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_LEN = 8,
 
   /**
    * A value that changes whenever this image's pixels may have changed:
@@ -556,15 +558,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * One case doesn't change this value. When a program finishes sending
    * an image whose pixels were still on the way, the image keeps its
-   * value, and GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR starts returning the
+   * value, and GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR starts returning the
    * pixels. GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes when that
    * happens, so read DATA_PTR again then.
    *
    * Output type: uint64_t *
    */
-  GHOSTTY_KITTY_IMAGE_DATA_GENERATION = 9,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION = 9,
 
-  GHOSTTY_KITTY_IMAGE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKittyGraphicsImageData;
 
 /**
@@ -656,8 +658,9 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  * arrive late, playback slows down rather than skipping frames.
  *
  * Images that moved to a new frame get a new
- * @ref GHOSTTY_KITTY_IMAGE_DATA_GENERATION, and their
- * @ref GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns the new frame's pixels.
+ * @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, and their
+ * @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns the new frame's
+ * pixels.
  *
  * Time is measured in milliseconds on a clock you choose, such as the
  * time since your application started. The clock must only move
@@ -793,19 +796,17 @@ GHOSTTY_API void ghostty_kitty_graphics_placement_iterator_free(
 /**
  * Set an option on a placement iterator.
  *
- * Use GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER with a
- * GhosttyKittyPlacementLayer value to filter placements by z-layer.
- * The filter is applied during iteration: ghostty_kitty_graphics_placement_next()
- * will skip placements that do not match the configured layer.
- *
- * The default layer is GHOSTTY_KITTY_PLACEMENT_LAYER_ALL (no filtering).
+ * Use GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER to visit only
+ * the placements in some layers. ghostty_kitty_graphics_placement_next()
+ * then skips every placement outside those layers. By default, the
+ * iterator visits every placement.
  *
  * @param iterator The iterator handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
- * @param value Pointer to the value (type depends on option; NULL returns
- *              GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `value` is NULL
- *         or out of range, GHOSTTY_UNSUPPORTED if `option` is not known to
+ * @param value Pointer to the value. Its type depends on the option. NULL
+ *              resets the option to its default.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the value is
+ *         out of range, GHOSTTY_UNSUPPORTED if `option` is not known to
  *         this version of the library, or GHOSTTY_NO_VALUE if Kitty graphics
  *         support was disabled when the library was built
  *

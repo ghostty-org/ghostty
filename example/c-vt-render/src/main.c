@@ -118,16 +118,16 @@ int main(void) {
   if (cursor.visible && cursor.viewport_has_value) {
     const char* style_name = "unknown";
     switch (cursor.visual_style) {
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR:
+      case GHOSTTY_CURSOR_STYLE_BAR:
         style_name = "bar";
         break;
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK:
+      case GHOSTTY_CURSOR_STYLE_BLOCK:
         style_name = "block";
         break;
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE:
+      case GHOSTTY_CURSOR_STYLE_UNDERLINE:
         style_name = "underline";
         break;
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW:
+      case GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW:
         style_name = "hollow";
         break;
     }

@@ -69,11 +69,12 @@ pub const Size = extern struct {
 
 /// C: GhosttyMouseEncoderOption
 pub const Option = enum(c_int) {
-    event = 0,
-    format = 1,
-    size = 2,
-    any_button_pressed = 3,
-    track_last_cell = 4,
+    invalid = 0,
+    event = 1,
+    format = 2,
+    size = 3,
+    any_button_pressed = 4,
+    track_last_cell = 5,
 
     _,
 
@@ -86,7 +87,7 @@ pub const Option = enum(c_int) {
             .any_button_pressed,
             .track_last_cell,
             => bool,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -118,6 +119,7 @@ pub fn setopt(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| {
             const encoder = encoder_ orelse return .invalid_value;
@@ -154,7 +156,7 @@ fn resetTyped(wrapper: *MouseEncoderWrapper, comptime option: Option) Result {
             wrapper.last_cell = null;
         },
 
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -203,7 +205,7 @@ fn setoptTyped(
             if (!value.*) wrapper.last_cell = null;
         },
 
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;

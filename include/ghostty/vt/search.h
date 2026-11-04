@@ -174,8 +174,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup search
  */
 typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Not a real data type. ghostty_search_get() returns GHOSTTY_INVALID_VALUE
+   * for it. Its value is 0, so a zeroed or uninitialized variable is never
+   * mistaken for a real data type.
+   */
+  GHOSTTY_SEARCH_DATA_INVALID = 0,
+
   /** Current search status: GhosttySearchStatus*. */
-  GHOSTTY_SEARCH_DATA_STATUS = 0,
+  GHOSTTY_SEARCH_DATA_STATUS = 1,
 
   /**
    * The needle this search is looking for: GhosttyString*. The bytes
@@ -183,13 +190,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * changed or the search is freed. Returns GHOSTTY_NO_VALUE when no
    * needle is set.
    */
-  GHOSTTY_SEARCH_DATA_NEEDLE = 1,
+  GHOSTTY_SEARCH_DATA_NEEDLE = 2,
 
   /**
    * Total matches found so far on the active screen: size_t*. Zero
    * until the first feed.
    */
-  GHOSTTY_SEARCH_DATA_TOTAL_MATCHES = 2,
+  GHOSTTY_SEARCH_DATA_TOTAL_MATCHES = 3,
 
   /**
    * Index of the selected match: size_t*. This indexes the newest to
@@ -198,14 +205,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * GHOSTTY_SEARCH_DATA_TOTAL_MATCHES. Returns GHOSTTY_NO_VALUE when
    * nothing is selected.
    */
-  GHOSTTY_SEARCH_DATA_SELECTED_INDEX = 3,
+  GHOSTTY_SEARCH_DATA_SELECTED_INDEX = 4,
 
   /**
    * The selected match: GhosttySelection*. This is an untracked
    * snapshot with standard GhosttySelection lifetime rules. Returns
    * GHOSTTY_NO_VALUE when nothing is selected.
    */
-  GHOSTTY_SEARCH_DATA_SELECTED_MATCH = 4,
+  GHOSTTY_SEARCH_DATA_SELECTED_MATCH = 5,
 
   /**
    * All matches on the active screen, ordered newest to oldest, from
@@ -214,7 +221,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * required capacity. An undersized buffer returns
    * GHOSTTY_OUT_OF_SPACE with the required capacity in len.
    */
-  GHOSTTY_SEARCH_DATA_MATCHES = 5,
+  GHOSTTY_SEARCH_DATA_MATCHES = 6,
 
   /**
    * Matches on the pages covering the viewport, for drawing highlight
@@ -230,10 +237,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * matches that fail the conversion or whose row is beyond the
    * visible row count.
    */
-  GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES = 6,
+  GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES = 7,
 
   /** Current scroll policy: GhosttySearchScroll*. */
-  GHOSTTY_SEARCH_DATA_SELECT_SCROLL = 7,
+  GHOSTTY_SEARCH_DATA_SELECT_SCROLL = 8,
 
   GHOSTTY_SEARCH_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySearchData;
@@ -245,6 +252,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup search
  */
 typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Not a real option. ghostty_search_set() returns GHOSTTY_INVALID_VALUE for
+   * it. Its value is 0, so a zeroed or uninitialized variable is never
+   * mistaken for a real option.
+   */
+  GHOSTTY_SEARCH_OPT_INVALID = 0,
+
   /**
    * Set the needle to search for: const GhosttyString*. The bytes are
    * copied, so the caller's memory does not need to outlive the call.
@@ -262,7 +276,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * other access to the same terminal. Returns GHOSTTY_INVALID_VALUE
    * after the terminal was freed.
    */
-  GHOSTTY_SEARCH_OPT_NEEDLE = 0,
+  GHOSTTY_SEARCH_OPT_NEEDLE = 1,
 
   /**
    * Select the next match, moving toward older content: from the
@@ -279,14 +293,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * other access to the same terminal. Returns GHOSTTY_NO_VALUE when
    * there are no matches.
    */
-  GHOSTTY_SEARCH_OPT_SELECT_NEXT = 1,
+  GHOSTTY_SEARCH_OPT_SELECT_NEXT = 2,
 
   /**
    * Select the previous match, moving toward newer content, wrapping
    * around past the newest match. Otherwise identical to
    * GHOSTTY_SEARCH_OPT_SELECT_NEXT.
    */
-  GHOSTTY_SEARCH_OPT_SELECT_PREV = 2,
+  GHOSTTY_SEARCH_OPT_SELECT_PREV = 3,
 
   /**
    * Set the scroll policy applied by the select options: const
@@ -294,7 +308,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * value resets it to GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only
    * modifies search-owned state and never reads the terminal.
    */
-  GHOSTTY_SEARCH_OPT_SELECT_SCROLL = 3,
+  GHOSTTY_SEARCH_OPT_SELECT_SCROLL = 4,
 
   GHOSTTY_SEARCH_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySearchOption;

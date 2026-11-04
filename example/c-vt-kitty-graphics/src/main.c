@@ -101,9 +101,9 @@ void print_image(GhosttyKittyGraphics graphics, uint32_t image_id) {
       ghostty_kitty_graphics_image(graphics, image_id);
   const uint8_t* pixels = NULL;
   uint64_t generation = 0;
-  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR,
+  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR,
                                    &pixels);
-  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_GENERATION,
+  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION,
                                    &generation);
   printf("pixel=(%u,%u,%u) generation=%llu", pixels[0], pixels[1], pixels[2],
          (unsigned long long)generation);
@@ -185,11 +185,11 @@ const char* kind_name(GhosttyRenderStateKittyPlacementKind kind) {
 }
 
 /** A short name for each image layer, for printing. */
-const char* layer_name(GhosttyRenderStateImageLayer layer) {
+const char* layer_name(GhosttyImageLayer layer) {
   switch (layer) {
-  case GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_BACKGROUND: return "below-bg";
-  case GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_TEXT: return "below-text";
-  case GHOSTTY_RENDER_STATE_IMAGE_LAYER_ABOVE_TEXT: return "above-text";
+  case GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND: return "below-bg";
+  case GHOSTTY_IMAGE_LAYER_BELOW_TEXT: return "below-text";
+  case GHOSTTY_IMAGE_LAYER_ABOVE_TEXT: return "above-text";
   default: return "unknown";
   }
 }
@@ -234,7 +234,7 @@ int draw_images(GhosttyRenderState state,
     if (protocol != GHOSTTY_IMAGE_PROTOCOL_KITTY) continue;
 
     GhosttyRenderStateKittyPlacementKind kind;
-    GhosttyRenderStateImageLayer layer;
+    GhosttyImageLayer layer;
     uint32_t image_id, placement_id, cols, rows, offset_x, offset_y;
     uint32_t width, height, src_x, src_y, src_width, src_height;
     uint64_t generation;
@@ -296,11 +296,11 @@ int draw_images(GhosttyRenderState state,
     size_t data_len = 0;
     ghostty_kitty_graphics_image_get_multi(image, 5,
         (GhosttyKittyGraphicsImageData[]){
-            GHOSTTY_KITTY_IMAGE_DATA_WIDTH,
-            GHOSTTY_KITTY_IMAGE_DATA_HEIGHT,
-            GHOSTTY_KITTY_IMAGE_DATA_FORMAT,
-            GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR,
-            GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN,
+            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH,
+            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT,
+            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT,
+            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR,
+            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_LEN,
         },
         (void*[]){ &image_width, &image_height, &format, &pixels, &data_len },
         NULL);

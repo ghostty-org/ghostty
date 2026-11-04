@@ -85,39 +85,46 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup key
  */
 typedef enum GHOSTTY_ENUM_TYPED {
+    /**
+     * Not a real option. ghostty_key_encoder_setopt() returns
+     * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+     * uninitialized variable is never mistaken for a real option.
+     */
+    GHOSTTY_KEY_ENCODER_OPT_INVALID = 0,
+
     /** Terminal DEC mode 1: cursor key application mode (value: bool,
      *  default: false) */
-    GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION = 0,
+    GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION = 1,
 
     /** Terminal DEC mode 66: keypad key application mode (value: bool,
      *  default: false) */
-    GHOSTTY_KEY_ENCODER_OPT_KEYPAD_KEY_APPLICATION = 1,
+    GHOSTTY_KEY_ENCODER_OPT_KEYPAD_KEY_APPLICATION = 2,
 
     /** Terminal DEC mode 1035: ignore keypad with numlock (value: bool,
      *  default: false) */
-    GHOSTTY_KEY_ENCODER_OPT_IGNORE_KEYPAD_WITH_NUMLOCK = 2,
+    GHOSTTY_KEY_ENCODER_OPT_IGNORE_KEYPAD_WITH_NUMLOCK = 3,
 
     /** Terminal DEC mode 1036: alt sends escape prefix (value: bool,
      *  default: false) */
-    GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX = 3,
+    GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX = 4,
 
     /** xterm modifyOtherKeys mode 2 (value: bool, default: false) */
-    GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2 = 4,
+    GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2 = 5,
 
     /** Kitty keyboard protocol flags (value: GhosttyKittyKeyFlags bitmask,
      *  default: GHOSTTY_KITTY_KEY_DISABLED) */
-    GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS = 5,
+    GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS = 6,
 
     /** macOS option-as-alt setting (value: GhosttyOptionAsAlt,
      *  default: GHOSTTY_OPTION_AS_ALT_FALSE) */
-    GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT = 6,
+    GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT = 7,
 
     /** Backarrow key mode (value: bool)
      * See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
      * If `false` (the default), `backspace` emits 0x7f
      * If `true`, `backspace` emits 0x08
      */
-    GHOSTTY_KEY_ENCODER_OPT_BACKARROW_KEY_MODE = 7,
+    GHOSTTY_KEY_ENCODER_OPT_BACKARROW_KEY_MODE = 8,
 
     GHOSTTY_KEY_ENCODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKeyEncoderOption;

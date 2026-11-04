@@ -127,9 +127,9 @@ extern "C" {
  *
  * Images are restored at READY with their pixels pending, and the pixels
  * arrive later through ghostty_snapshot_decoder_next(). A pending image can
- * be placed and queried, but GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns
+ * be placed and queried, but GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns
  * GHOSTTY_NO_VALUE for it until its pixels arrive. When they do, the
- * image keeps its GHOSTTY_KITTY_IMAGE_DATA_GENERATION, but
+ * image keeps its GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, but
  * GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes, so a renderer that
  * watches that value picks up the new pixels on its next frame.
  *
@@ -150,6 +150,13 @@ extern "C" {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
+   * Not a real option. ghostty_snapshot_decoder_set() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
+   */
+  GHOSTTY_SNAPSHOT_DECODER_OPT_INVALID = 0,
+
+  /**
    * Largest non-ground continuation the decoder will accept.
    *
    * A value of zero accepts only snapshots whose VT parser is in the ground
@@ -162,7 +169,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: size_t *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 1,
 
   /**
    * Retain the decoded continuation on the returned terminal.
@@ -182,7 +189,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: bool *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 1,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 2,
 
   /**
    * Compress scrollback history while it is restored.
@@ -215,7 +222,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: bool *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY = 2,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY = 3,
 
   /**
    * Kitty graphics image storage limit, in bytes, for each restored screen.
@@ -233,7 +240,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: uint64_t *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT = 3,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT = 4,
 
   GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySnapshotDecoderOption;
@@ -430,7 +437,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * These images can be placed and queried right away, but their pixels
    * arrive later through ghostty_snapshot_decoder_next(). Until then,
-   * GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns GHOSTTY_NO_VALUE for them.
+   * GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns GHOSTTY_NO_VALUE for
+   * them.
    * This value becomes available after READY validates, and is zero in a
    * library built without Kitty graphics.
    *

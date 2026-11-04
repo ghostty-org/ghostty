@@ -45,18 +45,19 @@ pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
 
 /// C: GhosttyKeyEncoderOption
 pub const Option = enum(c_int) {
-    cursor_key_application = 0,
-    keypad_key_application = 1,
-    ignore_keypad_with_numlock = 2,
-    alt_esc_prefix = 3,
-    modify_other_keys_state_2 = 4,
-    kitty_flags = 5,
-    macos_option_as_alt = 6,
+    invalid = 0,
+    cursor_key_application = 1,
+    keypad_key_application = 2,
+    ignore_keypad_with_numlock = 3,
+    alt_esc_prefix = 4,
+    modify_other_keys_state_2 = 5,
+    kitty_flags = 6,
+    macos_option_as_alt = 7,
     /// DEC Backarrow Key Mode (DECBKM)
     /// See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
     /// If `false` (the default), `backspace` emits 0x7f
     /// If `true`, `backspace` emits 0x08
-    backarrow_key_mode = 7,
+    backarrow_key_mode = 8,
 
     _,
 
@@ -72,7 +73,7 @@ pub const Option = enum(c_int) {
             => bool,
             .kitty_flags => u8,
             .macos_option_as_alt => OptionAsAlt,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -83,6 +84,7 @@ pub fn setopt(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| {
             const encoder = encoder_ orelse return .invalid_value;
@@ -120,7 +122,7 @@ fn setoptTyped(
         .macos_option_as_alt => opts.macos_option_as_alt =
             lib.enumFromPtr(OptionAsAlt, value) orelse return .invalid_value,
         .backarrow_key_mode => opts.backarrow_key_mode = value.*,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;

@@ -400,6 +400,92 @@ test "unknown keys return unsupported in every family" {
     try testing.expect(!osc.commandData(null, @fromBackingInt(@intCast(unknown)), &out));
 }
 
+test "INVALID keys return invalid_value with a live handle" {
+    const testing = std.testing;
+    const alloc = &lib.alloc.test_allocator;
+
+    // A real handle and a non-NULL value for every family, so the result
+    // can only come from the INVALID key.
+    var out: [256]u8 align(16) = @splat(0);
+    var values: [1]?*anyopaque = .{&out};
+    var written: usize = 99;
+
+    var term: terminal.Terminal = null;
+    try testing.expectEqual(Result.success, terminal.new(alloc, &term, 10, 3));
+    defer terminal.free(term);
+    var key_enc: key_encode.Encoder = undefined;
+    try testing.expectEqual(Result.success, key_encode.new(alloc, &key_enc));
+    defer key_encode.free(key_enc);
+    var mouse_enc: mouse_encode.Encoder = undefined;
+    try testing.expectEqual(Result.success, mouse_encode.new(alloc, &mouse_enc));
+    defer mouse_encode.free(mouse_enc);
+    var parser: osc.Parser = undefined;
+    try testing.expectEqual(Result.success, osc.new(alloc, &parser));
+    defer osc.free(parser);
+    var search_: search.Search = null;
+    try testing.expectEqual(Result.success, search.new(alloc, &search_, term));
+    defer search.free(search_);
+    var gesture: selection_gesture.Gesture = null;
+    try testing.expectEqual(Result.success, selection_gesture.new(alloc, &gesture));
+    defer selection_gesture.free(gesture, term);
+    var gesture_ev: selection_gesture.Event = null;
+    try testing.expectEqual(Result.success, selection_gesture.event_new(alloc, &gesture_ev, .press));
+    defer selection_gesture.event_free(gesture_ev);
+    const NoReader = struct {
+        fn read(_: ?*anyopaque, _: [*]u8, _: usize, _: *usize) callconv(lib.calling_conv) bool {
+            return false;
+        }
+    };
+    var decoder: snapshot.Decoder = null;
+    try testing.expectEqual(Result.success, snapshot.decoder_new(alloc, &decoder, .{ .read = &NoReader.read }));
+    defer snapshot.decoder_free(decoder);
+    var placements: kitty_graphics.PlacementIterator = null;
+    try testing.expectEqual(Result.success, kitty_graphics.placement_iterator_new(alloc, &placements));
+    defer kitty_graphics.placement_iterator_free(placements);
+    var state: render.RenderState = null;
+    try testing.expectEqual(Result.success, render.new(alloc, &state));
+    defer render.free(state);
+    try testing.expectEqual(Result.success, render.update(state, term));
+    var rows: render.RowIterator = null;
+    try testing.expectEqual(Result.success, render.row_iterator_new(alloc, &rows));
+    defer render.row_iterator_free(rows);
+    try testing.expectEqual(Result.success, render.get(state, .row_iterator, @ptrCast(&rows)));
+    try testing.expect(render.row_iterator_next(rows));
+
+    // Kitty graphics setters report no_value when the feature is compiled
+    // out, before looking at the key.
+    const kitty: Result = if (build_options.kitty_graphics) .invalid_value else .no_value;
+
+    const cases = .{
+        .{ "key_encoder_setopt", Result.invalid_value, key_encode.setopt(key_enc, .invalid, &out) },
+        .{ "mouse_encoder_setopt", Result.invalid_value, mouse_encode.setopt(mouse_enc, .invalid, &out) },
+        .{ "osc_set", Result.invalid_value, osc.set(parser, .invalid, &out) },
+        .{ "search_set", Result.invalid_value, search.set(search_, .invalid, &out) },
+        .{ "search_get", Result.invalid_value, search.get(search_, .invalid, &out) },
+        .{ "search_get_multi", Result.invalid_value, search.get_multi(search_, 1, &.{.invalid}, &values, &written) },
+        .{ "selection_gesture_get", Result.invalid_value, selection_gesture.get(gesture, term, .invalid, &out) },
+        .{ "selection_gesture_event_set", Result.invalid_value, selection_gesture.event_set(gesture_ev, .invalid, &out) },
+        .{ "snapshot_decoder_set", Result.invalid_value, snapshot.decoder_set(decoder, .invalid, &out) },
+        .{ "sys_set", Result.invalid_value, sys.set(.invalid, &out) },
+        .{ "terminal_set", Result.invalid_value, terminal.set(term, .invalid, &out) },
+        .{ "kitty_graphics_placement_iterator_set", kitty, kitty_graphics.placement_iterator_set(placements, .invalid, &out) },
+        .{ "render_state_set", Result.invalid_value, render.set(state, .invalid, &out) },
+        .{ "render_state_row_set", Result.invalid_value, render.row_set(rows, .invalid, &out) },
+    };
+
+    var failed = false;
+    inline for (cases) |case| {
+        if (case[1] != case[2]) {
+            std.log.err("family={s} got={t}", .{ case[0], case[2] });
+            failed = true;
+        }
+    }
+    try testing.expect(!failed);
+
+    // An INVALID first key in a _get_multi call writes nothing.
+    try testing.expectEqual(@as(usize, 0), written);
+}
+
 test "out-of-range enum values passed as data return invalid_value" {
     const testing = std.testing;
     const bad = std.math.maxInt(c_int) - 1;
@@ -512,8 +598,9 @@ test "null value resets encoder options to their defaults" {
             .{ key_encode.Option.macos_option_as_alt, &option_as_alt },
             .{ key_encode.Option.backarrow_key_mode, &yes },
         };
+        // Every option except invalid.
         comptime std.debug.assert(cases.len ==
-            @typeInfo(key_encode.Option).@"enum".field_names.len);
+            @typeInfo(key_encode.Option).@"enum".field_names.len - 1);
 
         inline for (cases) |case| {
             try testing.expectEqual(Result.success, key_encode.setopt(enc, case[0], case[1]));
@@ -553,8 +640,9 @@ test "null value resets encoder options to their defaults" {
             .{ mouse_encode.Option.any_button_pressed, &yes },
             .{ mouse_encode.Option.track_last_cell, &yes },
         };
+        // Every option except invalid.
         comptime std.debug.assert(cases.len ==
-            @typeInfo(mouse_encode.Option).@"enum".field_names.len);
+            @typeInfo(mouse_encode.Option).@"enum".field_names.len - 1);
 
         inline for (cases) |case| {
             try testing.expectEqual(Result.success, mouse_encode.setopt(enc, case[0], case[1]));
