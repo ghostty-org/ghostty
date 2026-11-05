@@ -57,8 +57,10 @@ final class GlobalHotkeys {
     private var nextID: UInt32 = 0
     private var fallback: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
+    private let enableFallback: () -> Void
 
-    init() {
+    init(enableFallback: @escaping () -> Void = { GlobalEventTap.shared.enable() }) {
+        self.enableFallback = enableFallback
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(NotificationCenter.default.addObserver(
                 forName: name, object: NSApp, queue: .main
@@ -95,7 +97,7 @@ final class GlobalHotkeys {
             self.keys = nil
         }
 
-        let work = DispatchWorkItem { GlobalEventTap.shared.enable() }
+        let work = DispatchWorkItem(block: enableFallback)
         fallback = work
         if permissionDelay > 0 {
             DispatchQueue.main.asyncAfter(deadline: .now() + permissionDelay, execute: work)

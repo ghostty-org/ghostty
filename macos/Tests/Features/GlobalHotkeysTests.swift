@@ -93,7 +93,7 @@ struct GlobalHotkeysTests {
         #expect(probe(keyCode: kVK_F20) == noErr)
     }
 
-    @Test func partialFailureReleasesEarlierRegistrationsAndReloadCancelsFallback() throws {
+    @Test func partialFailureReleasesEarlierRegistrations() throws {
         try #require(probe(keyCode: kVK_F19) == noErr)
         var blocked: EventHotKeyRef?
         try #require(RegisterEventHotKey(UInt32(kVK_F20), modifiers,
@@ -112,6 +112,32 @@ struct GlobalHotkeysTests {
         try config.reload("")
         controller.update(config: config)
         #expect(probe(keyCode: kVK_F19) == noErr)
+    }
+
+    @Test func reloadCancelsDeferredFallback() async throws {
+        var enabled = 0
+        let controller = GlobalHotkeys(enableFallback: { enabled += 1 })
+        let unsupported = try TemporaryConfig("keybind = global:ctrl+λ=ignore")
+
+        // Establish that the real main-queue timer invokes the fallback.
+        controller.update(config: unsupported, permissionDelay: 0.01)
+        await afterFallbackDeadline()
+        #expect(enabled == 1)
+
+        for replacement in ["", "keybind = global:ctrl+alt+shift+super+f20=ignore"] {
+            controller.update(config: unsupported, permissionDelay: 0.01)
+            let config = try TemporaryConfig(replacement)
+            controller.update(config: config)
+            await afterFallbackDeadline()
+            #expect(enabled == 1)
+        }
+        withExtendedLifetime(controller) {}
+    }
+
+    private func afterFallbackDeadline() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { continuation.resume() }
+        }
     }
 
     private var modifiers: UInt32 { UInt32(controlKey | optionKey | shiftKey | cmdKey) }
