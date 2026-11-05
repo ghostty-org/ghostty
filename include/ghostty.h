@@ -433,6 +433,11 @@ typedef struct {
 } ghostty_input_trigger_s;
 
 typedef struct {
+  ghostty_input_trigger_s trigger;
+  ghostty_binding_flags_e flags;
+} ghostty_input_binding_s;
+
+typedef struct {
   const char* action_key;
   const char* action;
   const char* title;
@@ -1171,6 +1176,11 @@ GHOSTTY_API ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
                                                               const char*,
                                                               uintptr_t);
 GHOSTTY_API bool ghostty_config_key_is_binding(ghostty_config_t, ghostty_input_key_s);
+// Returns the number of global bindings, writing up to capacity entries.
+// Pass NULL and zero capacity to query the required buffer size.
+GHOSTTY_API uintptr_t ghostty_config_global_keybinds(ghostty_config_t,
+                                                   ghostty_input_binding_s* GHOSTTY_NULLABLE,
+                                                   uintptr_t capacity);
 GHOSTTY_API uint32_t ghostty_config_diagnostics_count(ghostty_config_t);
 GHOSTTY_API ghostty_diagnostic_s ghostty_config_get_diagnostic(ghostty_config_t, uint32_t);
 GHOSTTY_API ghostty_string_s ghostty_config_open_path(void);

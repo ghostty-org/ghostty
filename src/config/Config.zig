@@ -1807,12 +1807,13 @@ class: ?[:0]const u8 = null,
 /// `global:unconsumed:ctrl+a=reload_config` will make the keybind global
 /// and not consume the input to reload the config.
 ///
-/// On macOS, this feature requires accessibility permissions to be granted
-/// to Ghostty. When a `global:` keybind is specified and Ghostty is launched
-/// or reloaded, Ghostty will attempt to request these permissions.
-/// If the permissions are not granted, the keybind will not work. On macOS,
-/// you can find these permissions in System Preferences -> Privacy & Security
-/// -> Accessibility.
+/// On macOS, consumed physical-key bindings with ordinary modifiers use native
+/// hotkey registration without Accessibility permissions. If any global binding
+/// cannot be represented or registered (for example a Unicode, `catch_all`,
+/// `unconsumed:`, or `performable:` binding), the configuration uses an event tap
+/// instead. This fallback requires Accessibility permissions; Ghostty will request
+/// them when needed. Without permission, fallback global bindings will not work.
+/// These permissions are in System Settings -> Privacy & Security -> Accessibility.
 ///
 /// Since Ghostty 1.4.0, global shortcuts on Linux are primarily supported
 /// through the [`vicinae-hotkey-v1`](https://github.com/vicinaehq/vicinae-wayland-protocols/tree/main/staging/vicinae-hotkey)

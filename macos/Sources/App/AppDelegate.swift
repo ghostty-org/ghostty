@@ -876,24 +876,8 @@ class AppDelegate: NSObject,
             }
         }
 
-        // We need to handle our global event tap depending on if there are global
-        // events that we care about in Ghostty.
-        if ghostty_app_has_global_keybinds(ghostty.app!) {
-            if timeSinceLaunch > 5 {
-                // If the process has been running for awhile we enable right away
-                // because no windows are likely to pop up.
-                GlobalEventTap.shared.enable()
-            } else {
-                // If the process just started, we wait a couple seconds to allow
-                // the initial windows and so on to load so our permissions dialog
-                // doesn't get buried.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) {
-                    GlobalEventTap.shared.enable()
-                }
-            }
-        } else {
-            GlobalEventTap.shared.disable()
-        }
+        // Delay a fallback permission prompt until initial windows are visible.
+        GlobalHotkeys.shared.update(config: config, permissionDelay: timeSinceLaunch > 5 ? 0 : 2)
 
         updateAppIcon(from: config)
     }

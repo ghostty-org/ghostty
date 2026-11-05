@@ -121,6 +121,37 @@ fn config_trigger_(
     return trigger.cval();
 }
 
+/// Sync with ghostty_input_binding_s. Values are copied, not borrowed.
+const GlobalKeybind = extern struct {
+    trigger: inputpkg.Binding.Trigger.C,
+    flags: c_uint,
+};
+
+/// Returns the required count, including entries that do not fit in the buffer.
+export fn ghostty_config_global_keybinds(
+    self: *const Config,
+    out: ?[*]GlobalKeybind,
+    capacity: usize,
+) usize {
+    var count: usize = 0;
+    var it = self.keybind.set.bindings.iterator();
+    while (it.next()) |entry| {
+        const flags = switch (entry.value_ptr.*) {
+            .leader => continue,
+            inline .leaf, .leaf_chained => |leaf| leaf.flags,
+        };
+        if (!flags.global) continue;
+        if (out) |buffer| {
+            if (count < capacity) buffer[count] = .{
+                .trigger = entry.key_ptr.cval(),
+                .flags = flags.cval(),
+            };
+        }
+        count += 1;
+    }
+    return count;
+}
+
 export fn ghostty_config_diagnostics_count(self: *Config) u32 {
     return @intCast(self._diagnostics.items().len);
 }
@@ -277,4 +308,37 @@ test "ghostty_config_trigger: default keybind" {
         try testing.expectEqual(.physical, trigger.tag);
         try testing.expectEqual(.unidentified, trigger.key.physical);
     }
+}
+
+test "ghostty_config_global_keybinds: current global triggers and flags" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const alloc = cfg._arena.?.allocator();
+
+    try testing.expectEqual(@as(usize, 0), ghostty_config_global_keybinds(&cfg, null, 0));
+    try cfg.keybind.parseCLI(alloc, "global:f1=toggle_visibility");
+    try cfg.keybind.parseCLI(alloc, "chain=toggle_quick_terminal");
+    try cfg.keybind.parseCLI(alloc, "global:unconsumed:ctrl+f2=toggle_visibility");
+    try cfg.keybind.parseCLI(alloc, "f3=toggle_visibility");
+    try testing.expectEqual(@as(usize, 2), ghostty_config_global_keybinds(&cfg, null, 0));
+
+    var bindings: [2]GlobalKeybind = undefined;
+    try testing.expectEqual(@as(usize, 2), ghostty_config_global_keybinds(&cfg, &bindings, bindings.len));
+    try testing.expectEqual(.physical, bindings[0].trigger.tag);
+    try testing.expectEqual(.f1, bindings[0].trigger.key.physical);
+    try testing.expectEqual(@as(c_uint, 5), bindings[0].flags);
+    try testing.expectEqual(.f2, bindings[1].trigger.key.physical);
+    try testing.expect(bindings[1].trigger.mods.ctrl);
+    try testing.expectEqual(@as(c_uint, 4), bindings[1].flags);
+
+    // A short buffer reports the required count without touching its tail.
+    bindings[1].flags = 123;
+    try testing.expectEqual(@as(usize, 2), ghostty_config_global_keybinds(&cfg, &bindings, 1));
+    try testing.expectEqual(@as(c_uint, 123), bindings[1].flags);
+
+    // A local replacement and an unbind must not leave stale registrations.
+    try cfg.keybind.parseCLI(alloc, "f1=toggle_visibility");
+    try cfg.keybind.parseCLI(alloc, "ctrl+f2=unbind");
+    try testing.expectEqual(@as(usize, 0), ghostty_config_global_keybinds(&cfg, null, 0));
 }

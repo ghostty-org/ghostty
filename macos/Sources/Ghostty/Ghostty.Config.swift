@@ -121,6 +121,16 @@ extension Ghostty {
             return ghostty_config_trigger(config, action, UInt(action.lengthOfBytes(using: .utf8)))
         }
 
+        var globalKeybinds: [ghostty_input_binding_s] {
+            guard let config else { return [] }
+            let count = Int(ghostty_config_global_keybinds(config, nil, 0))
+            var bindings = Array(repeating: ghostty_input_binding_s(), count: count)
+            _ = bindings.withUnsafeMutableBufferPointer {
+                ghostty_config_global_keybinds(config, $0.baseAddress, UInt($0.count))
+            }
+            return bindings
+        }
+
         // MARK: - Configuration Values
 
         /// For all of the configuration values below, see the associated Ghostty documentation for
