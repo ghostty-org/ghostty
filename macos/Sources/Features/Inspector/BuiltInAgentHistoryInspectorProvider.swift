@@ -434,7 +434,7 @@ final class BuiltInAgentHistoryInspectorProvider {
                 from: parent,
                 withBaseConfig: configuration
             ), let surface = controller.surfaceTree.first else { return }
-            controller.adoptAgentResumeDescriptor(descriptor, for: surface)
+            controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: session.title)
             return
         }
 
@@ -462,7 +462,7 @@ final class BuiltInAgentHistoryInspectorProvider {
             from: parent,
             withBaseConfig: configuration
         ), let surface = controller.surfaceTree.first else { return }
-        controller.adoptAgentResumeDescriptor(descriptor, for: surface)
+        controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: session.title)
     }
 
     private static func fork(

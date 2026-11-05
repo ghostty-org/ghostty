@@ -145,6 +145,8 @@ bound content to 8 MiB, skip individual records over 4 MiB, and report truncatio
 Deep search can stop at its first match without a full-file pre-scan. Remote
 reads retain their final complete line and explicitly detect a byte cutoff.
 The metadata cache is versioned so previously generated titles are refreshed.
+Explicit Agent History resume actions retain the selected session's title as
+the new tab/window title, for both local and SSH sessions.
 
 Folder and time scopes narrow the list before the Agent filter. `This Folder`
 matches the presented pane's working directory and every subfolder, so a

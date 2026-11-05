@@ -483,11 +483,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Agent History resume action, before the resumed Agent emits its hook.
     func adoptAgentResumeDescriptor(
         _ descriptor: AgentResumeDescriptor,
-        for surface: Ghostty.SurfaceView
+        for surface: Ghostty.SurfaceView,
+        title: String? = nil
     ) {
         guard descriptor.isValid, surfaceTree.contains(surface) else { return }
         agentResumeDescriptors[surface.id] = descriptor
         surface.agentResumeDescriptor = descriptor
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            titleOverride = title
+        }
         enableRestorationForResumableSession()
         invalidateRestorableState()
     }

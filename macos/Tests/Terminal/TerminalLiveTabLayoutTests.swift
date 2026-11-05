@@ -199,6 +199,28 @@ struct TerminalLiveTabLayoutTests {
         }
     }
 
+    @Test func historyResumeKeepsItsTitleForLocalAndRemoteTabs() throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        for scope in [AgentExecutionScope.local, .remote] {
+            let controller = try fixture.tab()
+            let surface = try #require(controller.surfaceTree.first)
+            let descriptor = AgentResumeDescriptor(
+                agent: .codex, conversationID: AgentConversationID("history-title"),
+                scope: scope, workingDirectory: "/tmp/project"
+            )
+            controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "History request")
+            #expect(controller.titleOverride == "History request")
+            #expect(controller.window?.title == "History request")
+            let presentation = try #require(TerminalTabPresentationResolver.resolve(
+                controller, index: 0, selected: true, activities: nil
+            ))
+            #expect(presentation.title == "History request")
+            controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "  ")
+            #expect(controller.titleOverride == "History request")
+        }
+    }
+
     @Test func horizontalTabsUseNativeAgentStatusAndSharedPresentation() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
