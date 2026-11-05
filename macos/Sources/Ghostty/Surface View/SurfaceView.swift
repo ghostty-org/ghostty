@@ -25,6 +25,7 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
         @Environment(\.ghosttyLastFocusedSurface) private var lastFocusedSurface
+        @Environment(\.suppressUnfocusedSplitDimming) private var suppressUnfocusedSplitDimming
 
         private var isFocusedSurface: Bool {
             surfaceFocus || lastFocusedSurface?.value === surfaceView
@@ -156,10 +157,9 @@ extension Ghostty {
                     }
                 }
 
-                // If we're part of a split view and don't have focus, we put a semi-transparent
-                // rectangle above our view to make it look unfocused. We include the last
-                // focused surface so this still works while SwiftUI focus is temporarily nil.
-                if isSplit && !isFocusedSurface {
+                // OMG's top marker replaces Ghostty's dimming overlay while enabled.
+                // Otherwise keep Ghostty's configured split dimming.
+                if isSplit && !isFocusedSurface && !suppressUnfocusedSplitDimming {
                     let overlayOpacity = ghostty.config.unfocusedSplitOpacity
                     if overlayOpacity > 0 {
                         Rectangle()

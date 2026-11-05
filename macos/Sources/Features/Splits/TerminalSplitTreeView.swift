@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct SuppressUnfocusedSplitDimmingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var suppressUnfocusedSplitDimming: Bool {
+        get { self[SuppressUnfocusedSplitDimmingKey.self] }
+        set { self[SuppressUnfocusedSplitDimmingKey.self] = newValue }
+    }
+}
+
 /// A single operation within the split tree.
 ///
 /// Rather than binding the split tree (which is immutable), any mutable operations are
@@ -28,6 +39,7 @@ enum TerminalSplitOperation {
 }
 
 struct TerminalSplitTreeView: View {
+    @ObservedObject private var settings = OhMyGhosttySettings.shared
     let tree: SplitTree<Ghostty.SurfaceView>
     let presentationLease: SurfacePresentationLease
     let action: (TerminalSplitOperation) -> Void
@@ -44,6 +56,7 @@ struct TerminalSplitTreeView: View {
             // the tree structure of splits it could result in bad behaviors.
             // See: https://github.com/ghostty-org/ghostty/issues/7546
             .id(node.structuralIdentity)
+            .environment(\.suppressUnfocusedSplitDimming, settings.focusedSplitBorder)
         }
     }
 }
@@ -100,6 +113,7 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ghosttyLastFocusedSurface) private var focusedSurface
     @ObservedObject private var settings = OhMyGhosttySettings.shared
     let surfaceView: Ghostty.SurfaceView
@@ -138,11 +152,16 @@ private struct TerminalSplitLeaf: View {
                         .allowsHitTesting(false)
                 }
             }
-            .overlay {
-                if isSplit, settings.focusedSplitBorder, focusedSurface?.value === surfaceView {
-                    Rectangle()
-                        .strokeBorder(Color.accentColor, lineWidth: settings.focusedSplitBorderWidth)
+            .overlay(alignment: .top) {
+                if isSplit {
+                    Capsule()
+                        .fill(Color.accentColor.opacity(0.85))
+                        .frame(height: settings.focusedSplitBorderWidth)
+                        .opacity(settings.focusedSplitBorder && focusedSurface?.value === surfaceView ? 1 : 0)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.12),
+                                   value: focusedSurface?.value === surfaceView)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in

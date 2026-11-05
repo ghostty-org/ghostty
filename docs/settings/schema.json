@@ -489,13 +489,13 @@
     "terminal.focusedSplitBorder": {
       "category": "terminal",
       "default": true,
-      "description": "Outline the selected split pane using the system accent color.",
+      "description": "Mark the selected split with an accent-colored line at its top.",
       "type": "boolean"
     },
     "terminal.focusedSplitBorderWidth": {
       "category": "terminal",
-      "default": 1,
-      "description": "Selected split outline width in points.",
+      "default": 2,
+      "description": "Selected split marker thickness in points.",
       "minimum": 1,
       "maximum": 2,
       "type": "number"

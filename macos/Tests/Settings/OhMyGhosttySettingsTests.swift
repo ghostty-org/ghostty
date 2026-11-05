@@ -136,12 +136,16 @@ struct OhMyGhosttySettingsTests {
         let (settings, url) = temporarySettings()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         #expect(settings.focusedSplitBorder)
-        #expect(settings.focusedSplitBorderWidth == 1)
+        #expect(settings.focusedSplitBorderWidth == 2)
         settings.focusedSplitBorder = false
+        settings.focusedSplitBorderWidth = 1.5
+        #expect(OhMyGhosttySettings(fileURL: url).focusedSplitBorderWidth == 1.5)
         settings.focusedSplitBorderWidth = 4
         let restored = OhMyGhosttySettings(fileURL: url)
         #expect(!restored.focusedSplitBorder)
         #expect(restored.focusedSplitBorderWidth == 2)
+        settings.focusedSplitBorderWidth = 0
+        #expect(settings.focusedSplitBorderWidth == 1)
     }
 
     @Test func typedSettingsRoundTripThroughHumanReadableFile() throws {

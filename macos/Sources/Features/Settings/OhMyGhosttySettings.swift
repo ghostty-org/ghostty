@@ -464,12 +464,12 @@ final class OhMyGhosttySettings: ObservableObject {
         .init(
             id: "terminal.focusedSplitBorder", type: .boolean, defaultValue: "true",
             allowedValues: nil, minimum: nil, maximum: nil,
-            description: "Outline the selected split pane using the system accent color.",
+            description: "Mark the selected split with an accent-colored line at its top.",
             requiresNewWindow: false, category: "terminal"),
         .init(
-            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "1",
+            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "2",
             allowedValues: nil, minimum: 1, maximum: 2,
-            description: "Selected split outline width in points.",
+            description: "Selected split marker thickness in points.",
             requiresNewWindow: false, category: "terminal"),
         .init(
             id: "terminal.resizeRendering", type: .enumeration,
@@ -859,9 +859,9 @@ final class OhMyGhosttySettings: ObservableObject {
     @Published var focusedSplitBorder = true {
         didSet { persist("terminal.focusedSplitBorder", focusedSplitBorder) }
     }
-    @Published var focusedSplitBorderWidth: Double = 1 {
+    @Published var focusedSplitBorderWidth: Double = 2 {
         didSet {
-            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 2) : 1
+            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 2) : 2
             if focusedSplitBorderWidth != value {
                 focusedSplitBorderWidth = value
             } else {
@@ -1280,7 +1280,7 @@ final class OhMyGhosttySettings: ObservableObject {
             ).rounded()
             quickInputHistoryKeepAfterQuit = boolValue("keyboard.quickInputHistoryKeepAfterQuit", fallback: true)
             focusedSplitBorder = boolValue("terminal.focusedSplitBorder", fallback: true)
-            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 1, range: 1...2)
+            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 2, range: 1...2)
             terminalResizeRendering = enumValue(
                 "terminal.resizeRendering",
                 fallback: .onRelease

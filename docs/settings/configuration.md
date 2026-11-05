@@ -209,10 +209,16 @@ Window UI state is intentionally separate: `InspectorPresentationStore` owns las
 | `keyboard.quickInputHistoryKeepAfterQuit` | boolean | `true` | `true`, `false` | Settings > Editor > Quick Input | Runtime |
 | `keyboard.quickInputControlJNewline` | boolean | `false` | `true`, `false` | Settings > Controls > Quick Input | Runtime |
 | `terminal.focusedSplitBorder` | boolean | `true` | `true`, `false` | Settings > Appearance > Splits | Runtime |
-| `terminal.focusedSplitBorderWidth` | number | `1` | 1–2 points | Settings > Appearance > Splits | Runtime |
+| `terminal.focusedSplitBorderWidth` | number | `2` | 1–2 points | Settings > Appearance > Splits | Runtime |
 | `sessions.startupMode`            | enum    | `restoreSessions`             | `newTerminal`, `restoreTabs`, `restoreSessions`                                                        | Settings > General                 | Next launch                  |
 | `general.language`                | enum    | `system`                      | `system`, `en`, `zh-Hans`                                                                              | Settings > General                 | Live (Settings UI)           |
 | `general.quitWithoutConfirmation` | boolean | Release: `false`; Dev: `true` | `true`, `false`                                                                                        | Settings > General                 | Next app quit                |
+
+The selected split marker is a rounded, 85%-opacity system accent line at the
+top of the pane. With the marker enabled, OMG suppresses Ghostty's unfocused
+split overlay so text and ANSI colors remain unchanged. Turning the marker off
+restores Ghostty's `unfocused-split-opacity` and `unfocused-split-fill` behavior.
+The terminal's own focused and unfocused cursor styles are unchanged.
 
 Appearance controls resolve each value as `OMG override > Ghostty config > built-in default`. The UI reports the effective value and source, and **Reset to Ghostty** removes only OMG Appearance keys. The app writes a generated `appearance.ghostty` overlay beside `settings.json`; it never edits the user's Ghostty config. The overlay is loaded last and applied with Ghostty's existing live config update API, so current surfaces keep their PTY, shell, and scrollback.
 
