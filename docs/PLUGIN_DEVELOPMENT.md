@@ -731,6 +731,8 @@ read session state while painting. Native selection changes replace the complete
 snapshot synchronously. Activity colors take precedence over focus tint, and
 hover remains independent. Visibility and reduced motion gate animation at paint
 time without changing the semantic snapshot.
+Immediate selection updates use AppKit's old/new window pair, so only the
+outgoing and incoming icons replace their snapshots during the native event.
 
 ### Experimental protocol components
 

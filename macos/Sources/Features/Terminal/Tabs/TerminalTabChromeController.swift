@@ -137,9 +137,14 @@ final class TerminalTabChromeController {
             observedGroup = group
             if let group {
                 groupObservations = [
-                    group.observe(\.selectedWindow, options: []) { [weak self] group, _ in
-                        self?.refreshIconSelection(in: group)
-                        self?.schedule()
+                    group.observe(\.selectedWindow, options: [.old, .new]) { [weak self] group, change in
+                        guard let self else { return }
+                        let previous = change.oldValue ?? nil
+                        let current = change.newValue ?? nil
+                        if let window = self.window, previous === window || current === window {
+                            self.refreshIconSelection(in: group)
+                        }
+                        self.schedule()
                     },
                     group.observe(\.windows, options: []) { [weak self] _, _ in self?.schedule() },
                     group.observe(\.isTabBarVisible, options: []) { [weak self] _, _ in self?.schedule() },
