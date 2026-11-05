@@ -525,7 +525,7 @@ final class AgentHistoryCopyButton: NSButton {
     private func updateTitle(animated: Bool = false) {
         attributedTitle = NSAttributedString(string: isCopied ? copied : display, attributes: [
             .font: textFont,
-            .foregroundColor: isCopied ? NSColor.systemGreen : normalColor,
+            .foregroundColor: normalColor,
         ])
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         let fade = CABasicAnimation(keyPath: "opacity")
