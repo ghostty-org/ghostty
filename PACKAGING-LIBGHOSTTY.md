@@ -196,9 +196,10 @@ other Unix systems:
 
 On macOS, the shared library files are named `libghostty-vt.X.Y.Z.dylib`,
 `libghostty-vt.X.dylib` and `libghostty-vt.dylib`, and programs load it as
-`@rpath/libghostty-vt.X.dylib`. On Windows, the DLL is installed to `bin/`
-instead, and `lib/` holds the import library `ghostty-vt.lib` and the
-static library `ghostty-vt-static.lib`.
+`@rpath/libghostty-vt.X.dylib`. On Windows, the DLL `ghostty-vt.dll` and
+its debug information `ghostty-vt.pdb` are installed to `bin/` instead,
+and `lib/` holds the import library `ghostty-vt.lib` and the static
+library `ghostty-vt-static.lib`.
 
 Most distributions split these into a runtime package with the versioned
 shared library and its SONAME symlink, and a development package with
@@ -427,11 +428,15 @@ headers 0.1.0, library 0.1.0
 
 ## Platform Support
 
-| Tier | Meaning                    | Platforms                                                                                                                               |
-| ---- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Built and tested in CI     | Linux x86_64 and aarch64 (glibc and musl), macOS 13+, iOS 13+, FreeBSD x86_64 and aarch64, Windows x86_64, wasm32-freestanding, Android |
-| 2    | Built in CI but not tested | riscv32 and thumb freestanding                                                                                                          |
-| 3    | Best effort, not in CI     | wasm32-wasi, illumos, Windows arm64, 32-bit x86                                                                                         |
+| Tier | Meaning                    | Platforms                                                                                                                                         |
+| ---- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Built and tested in CI     | Linux x86_64 and aarch64 (glibc and musl), macOS 13+, iOS 13+, FreeBSD x86_64 and aarch64, Windows x86_64 (gnu ABI), wasm32-freestanding, Android |
+| 2    | Built in CI but not tested | riscv32 and thumb freestanding                                                                                                                    |
+| 3    | Best effort, not in CI     | wasm32-wasi, illumos, Windows arm64, 32-bit x86                                                                                                   |
+
+On Windows, the library is built for the gnu ABI, which is what Zig picks
+by default. Programs built with MSVC can still link it through the import
+library, and CI does this for the CMake examples.
 
 ## WebAssembly
 
