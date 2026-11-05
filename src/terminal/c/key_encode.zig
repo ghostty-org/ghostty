@@ -26,6 +26,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     result: *Encoder,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(KeyEncoderWrapper) catch
         return .out_of_memory;
@@ -38,6 +42,7 @@ pub fn new(
 }
 
 pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.input_encode)) return;
     const wrapper = encoder_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -83,6 +88,7 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -131,10 +137,12 @@ fn setTyped(
 pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
-) callconv(lib.calling_conv) void {
-    const wrapper = encoder_ orelse return;
-    const t: *ZigTerminal = (terminal_ orelse return).terminal;
+) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
+    const wrapper = encoder_ orelse return .invalid_value;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     wrapper.opts = .fromTerminal(t);
+    return .success;
 }
 
 pub fn encode(
@@ -144,6 +152,7 @@ pub fn encode(
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     // Attempt to write to this buffer
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     key_encode.encode(
@@ -267,7 +276,7 @@ test "set_from_terminal" {
     defer terminal_c.free(t);
 
     // Apply terminal state to encoder
-    set_from_terminal(e, t);
+    try testing.expectEqual(Result.success, set_from_terminal(e, t));
 
     // Options should reflect defaults from a fresh terminal
     try testing.expect(!e.?.opts.cursor_key_application);
@@ -277,10 +286,9 @@ test "set_from_terminal" {
 }
 
 test "set_from_terminal null" {
-    // Both null should be no-ops
-    set_from_terminal(null, null);
-
     const testing = std.testing;
+
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(null, null));
 
     // Encoder null with valid terminal
     const terminal_c = @import("terminal.zig");
@@ -292,16 +300,19 @@ test "set_from_terminal null" {
         24,
     ));
     defer terminal_c.free(t);
-    set_from_terminal(null, t);
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(null, t));
 
-    // Valid encoder with null terminal
+    // Valid encoder with null terminal leaves the options unchanged
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &e,
     ));
     defer free(e);
-    set_from_terminal(e, null);
+    const opt_true: OptionAsAlt = .true;
+    try testing.expectEqual(Result.success, set(e, .macos_option_as_alt, &opt_true));
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(e, null));
+    try testing.expectEqual(OptionAsAlt.true, e.?.opts.macos_option_as_alt);
 }
 
 test "encode: kitty ctrl release with ctrl mod set" {
@@ -339,7 +350,7 @@ test "encode: kitty ctrl release with ctrl mod set" {
     // Set event properties: release action, ctrl key, ctrl modifier
     try testing.expectEqual(Result.success, key_event.set_action(event, .release));
     try testing.expectEqual(Result.success, key_event.set_key(event, .control_left));
-    key_event.set_mods(event, .{ .ctrl = true });
+    try testing.expectEqual(Result.success, key_event.set_mods(event, .{ .ctrl = true }));
 
     // Encode null should give us the length required
     var required: usize = 0;

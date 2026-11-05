@@ -410,6 +410,46 @@ pub fn build(b: *std.Build) !void {
         };
         test_lib_vt_step.dependOn(&b.addRunArtifact(version_h_test).step);
 
+        // The public headers must compile without warnings in every
+        // language standard we support, so compile a file that includes
+        // vt.h once per standard with strict warnings as errors.
+        {
+            const wf = b.addWriteFiles();
+            const c_src = wf.add("vt_h_test.c", "#include <ghostty/vt.h>\n");
+            const cpp_src = wf.add("vt_h_test.cpp", "#include <ghostty/vt.h>\n");
+            const warnings: []const []const u8 = &.{
+                "-Wall",
+                "-Wextra",
+                "-Wpedantic",
+                "-Werror",
+            };
+            const Case = struct { std: []const u8, src: std.Build.LazyPath };
+            const cases: []const Case = &.{
+                .{ .std = "c11", .src = c_src },
+                .{ .std = "c23", .src = c_src },
+                .{ .std = "c++17", .src = cpp_src },
+            };
+            for (cases) |case| {
+                const flags = std.mem.concat(b.allocator, []const u8, &.{
+                    &.{b.fmt("-std={s}", .{case.std})},
+                    warnings,
+                }) catch @panic("OOM");
+                const obj_mod = b.createModule(.{
+                    .target = b.graph.host,
+                    .optimize = .debug,
+                    .link_libc = true,
+                    .link_libcpp = std.mem.startsWith(u8, case.std, "c++"),
+                });
+                obj_mod.addIncludePath(b.path("include"));
+                obj_mod.addCSourceFile(.{ .file = case.src, .flags = flags });
+                const obj = b.addObject(.{
+                    .name = b.fmt("vt-h-{s}", .{case.std}),
+                    .root_module = obj_mod,
+                });
+                test_lib_vt_step.dependOn(&obj.step);
+            }
+        }
+
         if (config.emit_test_exe) {
             // With -Demit-test-exe, test-lib-vt-build builds only the C API
             // test binary and installs it to zig-out/bin, so it can run on

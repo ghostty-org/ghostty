@@ -34,20 +34,67 @@
 #endif
 
 /**
+ * Mark a function or type as deprecated.
+ *
+ * A deprecated declaration still works, but it will be removed in a future
+ * major release. Code that uses it gets a compiler warning that includes
+ * @p msg, so the message should say what to use instead.
+ *
+ * Put the macro before GHOSTTY_API on the declaration:
+ *
+ * @code
+ * GHOSTTY_DEPRECATED("use ghostty_foo_new() instead")
+ * GHOSTTY_API GhosttyResult ghostty_foo_create(GhosttyFoo* out);
+ * @endcode
+ *
+ * A program that calls ghostty_foo_create() then gets a warning like this
+ * one from GCC or Clang:
+ *
+ * @code{.unparsed}
+ * warning: 'ghostty_foo_create' is deprecated: use ghostty_foo_new() instead
+ * @endcode
+ *
+ * The macro uses `__attribute__((deprecated))` on GCC and Clang and
+ * `__declspec(deprecated)` on MSVC. On other compilers it does nothing.
+ *
+ * To turn the warnings off while you migrate, pass
+ * `-Wno-deprecated-declarations` to GCC or Clang. You can also define
+ * GHOSTTY_DEPRECATED yourself before including any libghostty-vt header,
+ * and the header keeps your definition:
+ *
+ * @code
+ * #define GHOSTTY_DEPRECATED(msg)
+ * #include <ghostty/vt.h>
+ * @endcode
+ */
+#ifndef GHOSTTY_DEPRECATED
+#if defined(__GNUC__) || defined(__clang__)
+  #define GHOSTTY_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#elif defined(_MSC_VER)
+  #define GHOSTTY_DEPRECATED(msg) __declspec(deprecated(msg))
+#else
+  #define GHOSTTY_DEPRECATED(msg)
+#endif
+#endif
+
+/**
  * Enum int-sizing helpers.
  *
  * The Zig side backs all C enums with c_int, so the C declarations
  * must use int as their underlying type to maintain ABI compatibility.
  *
- * C++11 and C23 support explicit enum underlying types with
- * `enum : int { ... }`. Clang and GCC 13+ also support this syntax as
- * an extension in older C language modes, so use it when available.
+ * In C++11 and later and in C23, GHOSTTY_ENUM_TYPED expands to `: int`,
+ * which sets the enum's type to int directly.
  *
- * Other pre-C23 C compilers are free to choose any type that can
- * represent all values (C11 §6.7.2.2). For those compilers, we add an
- * INT_MAX sentinel as the last entry so the compatible type must be
- * able to represent INT_MAX. The exact compatible type and its
- * signedness remain implementation-defined in this fallback.
+ * C before C23 has no way to set an enum's type. Clang and GCC 13+ accept
+ * `: int` there as an extension, but `-Wpedantic` warns about it, so the
+ * macro expands to nothing in these modes. This keeps the headers free of
+ * warnings under `-std=c11 -Wpedantic`.
+ *
+ * Without `: int`, the C compiler picks a type that can hold every value
+ * of the enum (C11 §6.7.2.2). To make sure that type is as large as int,
+ * every enum ends with a sentinel set to INT_MAX. The compiler still
+ * chooses the exact type, and whether it is signed.
  *
  * INT_MAX is used rather than a fixed constant like 0xFFFFFFFF
  * because enum constants must have type int in pre-C23 C. Values above
@@ -69,14 +116,6 @@
 #define GHOSTTY_ENUM_TYPED : int
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
 #define GHOSTTY_ENUM_TYPED : int
-#elif defined(__clang__)
-  #if __has_extension(c_fixed_enum)
-    #define GHOSTTY_ENUM_TYPED : int
-  #else
-    #define GHOSTTY_ENUM_TYPED
-  #endif
-#elif defined(__GNUC__) && __GNUC__ >= 13
-#define GHOSTTY_ENUM_TYPED : int
 #else
 #define GHOSTTY_ENUM_TYPED
 #endif
@@ -91,7 +130,9 @@
  * Functions that read or write values by key, such as
  * ghostty_terminal_get(), return GHOSTTY_UNSUPPORTED for a key that this
  * version of the library does not know. See @ref keys_sec for how to use
- * that to support older versions of the library.
+ * that to support older versions of the library. Functions of an
+ * optional feature that this build leaves out return it too. See
+ * @ref features_sec.
  */
 typedef enum GHOSTTY_ENUM_TYPED {
     /** Operation completed successfully */
@@ -122,13 +163,18 @@ typedef enum GHOSTTY_ENUM_TYPED {
      */
     GHOSTTY_REJECTED = -7,
     /**
-     * The key is not known to this version of the library.
+     * This library cannot do what was asked.
      *
      * Returned by the functions that read or write values by key when the
      * key is newer than the library. Nothing is read or written. This
      * usually means the program was built with a newer header than the
      * library it is running with. Check for it to fall back gracefully, as
      * shown in @ref keys_compat_sec.
+     *
+     * Also returned by every function of an optional feature that this
+     * build leaves out. For example, ghostty_snapshot_encode() returns it
+     * when the library was built without the `%snapshot` feature. See
+     * @ref features_sec.
      */
     GHOSTTY_UNSUPPORTED = -8,
     GHOSTTY_RESULT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,

@@ -56,6 +56,7 @@ pub fn grid_ref_cell(
     ref: *const CGridRef,
     out: ?*cell_c.CCell,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const p = ref.toPin() orelse return .invalid_value;
     if (out) |o| o.* = @bitCast(p.rowAndCell().cell.*);
     return .success;
@@ -65,6 +66,7 @@ pub fn grid_ref_row(
     ref: *const CGridRef,
     out: ?*row_c.CRow,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const p = ref.toPin() orelse return .invalid_value;
     if (out) |o| o.* = @bitCast(p.rowAndCell().row.*);
     return .success;
@@ -76,6 +78,7 @@ pub fn grid_ref_graphemes(
     buf_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const p = ref.toPin() orelse return .invalid_value;
     const cell = p.rowAndCell().cell;
 
@@ -109,6 +112,7 @@ pub fn grid_ref_hyperlink_uri(
     buf_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const p = ref.toPin() orelse return .invalid_value;
     const terminal_page = p.node.page();
     const rac = terminal_page.getRowAndCell(p.x, p.y);
@@ -143,6 +147,7 @@ pub fn grid_ref_style(
     ref: *const CGridRef,
     out: ?*style_c.Style,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const p = ref.toPin() orelse return .invalid_value;
     if (out) |o| {
         const cell = p.rowAndCell().cell;

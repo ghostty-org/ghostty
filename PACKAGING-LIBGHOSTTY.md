@@ -220,10 +220,11 @@ particularly relevant to package maintainers:
   Ghostty app.
 
 - `-Dvt-features`: Leave out optional parts of the library. See
-  [WebAssembly](#webassembly) for how to use it. A library built with
-  fewer features has fewer functions, so programs built against the full
-  library may not work with it. System packages should keep the default,
-  which includes every feature.
+  [WebAssembly](#webassembly) for how to use it. Every function is still
+  exported, so programs link and load against any build, but the
+  functions of a left-out feature return `GHOSTTY_UNSUPPORTED`. Programs
+  built against the full library may therefore lose functionality.
+  System packages should keep the default, which includes every feature.
 
 ## Versioning and ABI
 
@@ -249,6 +250,13 @@ tell 0.1 and 0.2 apart, which is why the rebuild is needed. Programs can
 also check the version themselves, with the macros in
 `<ghostty/vt/version.h>` when they are compiled and with
 `ghostty_version()` when they run.
+
+On Linux and FreeBSD, the shared library exports only the `ghostty_*`
+functions, and each one carries the symbol version `GHOSTTY_VT_0`. You can
+see it with `readelf --dyn-syms`, which lists names such as
+`ghostty_terminal_new@@GHOSTTY_VT_0`. At 1.0 the version becomes
+`GHOSTTY_VT_1.0`, so the loader refuses to run a program built against 0.x
+with a 1.0 library instead of letting it fail later.
 
 **From 1.0, libghostty-vt follows semantic versioning.** A release that
 breaks compatibility gets a new major version and a new SONAME, such as
@@ -410,9 +418,10 @@ Some notes for packaging the wasm module:
   This roughly halves the compressed module size versus the default
   build. An interactive terminal typically wants
   `-Dvt-features=-all,+render-state,+input-encode,+selection,+color`.
-  Disabled features drop both their C API exports and any escape
-  sequence handling (the sequences are still consumed and safely
-  ignored). See the `Features` struct in `src/terminal/build_options.zig`
+  Disabled features drop their implementation and any escape sequence
+  handling (the sequences are still consumed and safely ignored). Their
+  C API functions stay exported and return `GHOSTTY_UNSUPPORTED`, and
+  programs can check for a feature with `ghostty_build_info`. See the `Features` struct in `src/terminal/build_options.zig`
   for the full list of features and what each one covers.
 
 - `ReleaseSmall` is the recommended optimization mode for the web. Running

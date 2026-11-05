@@ -920,6 +920,15 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Functions of a compiled-out feature must return
+      # GHOSTTY_UNSUPPORTED. Most module tests assume their feature is
+      # on, so only this one test runs with every feature off.
+      - name: Test compiled-out features
+        run: |
+          nix develop -c zig build test-lib-vt \
+            -Dvt-features=-all \
+            "-Dtest-filter=compiled-out features return unsupported"
+
   # lib-vt requires macOS runner for macOS/iOS builds because it requires the `apple_sdk` path
   build-libghostty-vt-macos:
     strategy:

@@ -29,10 +29,13 @@ int main() {
   GhosttyMouseEvent event;
   result = ghostty_mouse_event_new(NULL, &event);
   assert(result == GHOSTTY_SUCCESS);
-  ghostty_mouse_event_set_action(event, GHOSTTY_MOUSE_ACTION_PRESS);
-  ghostty_mouse_event_set_button(event, GHOSTTY_MOUSE_BUTTON_LEFT);
-  ghostty_mouse_event_set_position(event,
+  result = ghostty_mouse_event_set_action(event, GHOSTTY_MOUSE_ACTION_PRESS);
+  assert(result == GHOSTTY_SUCCESS);
+  result = ghostty_mouse_event_set_button(event, GHOSTTY_MOUSE_BUTTON_LEFT);
+  assert(result == GHOSTTY_SUCCESS);
+  result = ghostty_mouse_event_set_position(event,
       (GhosttyMousePosition){.x = 50.0f, .y = 40.0f});
+  assert(result == GHOSTTY_SUCCESS);
 
   // Encode the mouse event
   uint8_t buf[128];

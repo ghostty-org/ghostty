@@ -1,0 +1,46 @@
+/*
+ * Symbol version script for the libghostty-vt shared library on ELF
+ * platforms (Linux and FreeBSD).
+ *
+ * The script does two things:
+ *
+ * 1. It exports only the public ghostty_* functions. Everything else the
+ *    library contains, such as simdutf, highway, wuffs, the C++ runtime
+ *    and compiler-rt, stays private, so it can't clash with another copy
+ *    of those libraries in the same program.
+ *
+ * 2. It tags each exported symbol with a version, GHOSTTY_VT_0. A program
+ *    linked against the library records that tag for each function it
+ *    uses, and the loader checks it when the program starts.
+ *
+ * The tag names only the major version because 0.x releases make no
+ * compatibility promise. A program built against 0.x looks for
+ * GHOSTTY_VT_0, which a 1.0 library won't have, so the loader refuses to
+ * start it instead of letting it call functions that may have changed.
+ *
+ * At 1.0 this node is renamed to GHOSTTY_VT_1.0. After that, each minor
+ * release adds a new node that lists only the functions it added and
+ * builds on the previous node. For example, if 1.1 adds
+ * ghostty_new_function:
+ *
+ *     GHOSTTY_VT_1.0 {
+ *         global:
+ *             ghostty_*;
+ *         local:
+ *             *;
+ *     };
+ *
+ *     GHOSTTY_VT_1.1 {
+ *         global:
+ *             ghostty_new_function;
+ *     } GHOSTTY_VT_1.0;
+ *
+ * A program that uses ghostty_new_function then needs a 1.1 or newer
+ * library, and the loader says so by name if it gets an older one.
+ */
+GHOSTTY_VT_0 {
+    global:
+        ghostty_*;
+    local:
+        *;
+};

@@ -111,7 +111,7 @@ pub fn get(
     data: Data,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     return switch (data) {
         .invalid => .invalid_value,
@@ -215,7 +215,7 @@ pub fn animation_tick(
     now_ms: u64,
     next_ms: ?*u64,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const out = next_ms orelse return .invalid_value;
     const storage = graphics_;
@@ -238,7 +238,7 @@ pub fn image_get_handle(
     graphics_: KittyGraphics,
     image_id: u32,
 ) callconv(lib.calling_conv) ImageHandle {
-    if (comptime !build_options.kitty_graphics) return null;
+    if (comptime !lib.feature(.kitty_graphics)) return null;
 
     const storage = graphics_;
     return storage.images.getPtr(image_id);
@@ -249,7 +249,7 @@ pub fn image_get(
     data: ImageData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     return switch (data) {
         .invalid => .invalid_value,
@@ -269,7 +269,7 @@ pub fn image_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
@@ -316,9 +316,9 @@ pub fn placement_iterator_new(
     alloc_: ?*const CAllocator,
     out: *PlacementIterator,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) {
+    if (comptime !lib.feature(.kitty_graphics)) {
         out.* = null;
-        return .no_value;
+        return .unsupported;
     }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(PlacementIteratorWrapper) catch {
@@ -331,7 +331,7 @@ pub fn placement_iterator_new(
 }
 
 pub fn placement_iterator_free(iter_: PlacementIterator) callconv(lib.calling_conv) void {
-    if (comptime !build_options.kitty_graphics) return;
+    if (comptime !lib.feature(.kitty_graphics)) return;
     const iter = iter_ orelse return;
     iter.alloc.destroy(iter);
 }
@@ -341,7 +341,7 @@ pub fn placement_iterator_set(
     option: PlacementIteratorOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     return switch (option) {
         .invalid => .invalid_value,
@@ -373,7 +373,7 @@ fn placementIteratorSetTyped(
 }
 
 pub fn placement_iterator_next(iter_: PlacementIterator) callconv(lib.calling_conv) bool {
-    if (comptime !build_options.kitty_graphics) return false;
+    if (comptime !lib.feature(.kitty_graphics)) return false;
 
     const iter = iter_ orelse return false;
     while (iter.inner.next()) |entry| {
@@ -390,7 +390,7 @@ pub fn placement_get(
     data: PlacementData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     return switch (data) {
         .invalid => .invalid_value,
@@ -410,7 +410,7 @@ pub fn placement_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
@@ -463,7 +463,7 @@ pub fn placement_rect(
     terminal_: terminal_c.Terminal,
     out: *selection_c.CSelection,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -490,7 +490,7 @@ pub fn placement_pixel_size(
     out_width: *u32,
     out_height: *u32,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -511,7 +511,7 @@ pub fn placement_grid_size(
     out_cols: *u32,
     out_rows: *u32,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -532,7 +532,7 @@ pub fn placement_viewport_pos(
     out_col: *i32,
     out_row: *i32,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -556,7 +556,7 @@ pub fn placement_source_rect(
     out_width: *u32,
     out_height: *u32,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const image = image_ orelse return .invalid_value;
     const iter = iter_ orelse return .invalid_value;
@@ -597,7 +597,7 @@ pub fn placement_render_info(
     terminal_: terminal_c.Terminal,
     out_: ?*PlacementRenderInfo,
 ) callconv(lib.calling_conv) Result {
-    if (comptime !build_options.kitty_graphics) return .no_value;
+    if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;

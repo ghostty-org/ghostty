@@ -255,6 +255,17 @@ fn initLib(
         // 1.0.0, so only the install name can follow SharedVersion here.
         lib.install_name = SharedVersion.init(b, zig.version).install_name;
     }
+    if (kind == .shared and target.result.ofmt == .elf) {
+        // Export only the ghostty_* functions and tag them with a version
+        // that the loader checks. The map file explains the versioning.
+        lib.version_script = b.path("src/terminal/c/ghostty-vt.map");
+
+        // Zig's own ELF linker, which Debug builds on x86_64 use by
+        // default, silently ignores the version script. LLD applies it,
+        // and Zig can only link with LLD when it compiles with LLVM.
+        lib.use_llvm = true;
+        lib.use_lld = true;
+    }
     lib.installHeadersDirectory(
         b.path("include/ghostty"),
         "ghostty",

@@ -1682,7 +1682,7 @@ fn setTyped(
             wrapper.terminal.flags.dirty.palette = true;
         },
         .kitty_image_storage_limit => {
-            if (comptime !build_options.kitty_graphics) return .success;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             const limit: usize = if (value) |v|
                 std.math.cast(usize, v.*) orelse std.math.maxInt(usize)
             else
@@ -1696,7 +1696,7 @@ fn setTyped(
         .kitty_image_medium_file,
         .kitty_image_medium_shared_mem,
         => {
-            if (comptime !build_options.kitty_graphics) return .success;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             const val = if (value) |v| v.* else switch (option) {
                 .kitty_image_medium_file => default_options.kitty_image_loading_limits.file,
                 .kitty_image_medium_shared_mem => default_options.kitty_image_loading_limits.shared_memory,
@@ -1713,7 +1713,7 @@ fn setTyped(
             }
         },
         .kitty_image_medium_temp_file => {
-            if (comptime !build_options.kitty_graphics) return .success;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             const alloc = wrapper.terminal.gpa();
             if (value) |v| {
                 if (v.len > max_path_bytes) return .out_of_memory;
@@ -2122,15 +2122,15 @@ fn getTyped(
         .color_palette => out.* = color.paletteCval(&t.colors.palette.current),
         .color_palette_default => out.* = color.paletteCval(t.colors.palette.original),
         .kitty_image_storage_limit => {
-            if (comptime !build_options.kitty_graphics) return .no_value;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             out.* = @intCast(t.screens.active.kitty_images.total_limit);
         },
         .kitty_image_medium_file => {
-            if (comptime !build_options.kitty_graphics) return .no_value;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             out.* = t.screens.active.kitty_images.image_limits.file;
         },
         .kitty_image_medium_temp_file => {
-            if (comptime !build_options.kitty_graphics) return .no_value;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             const dir = switch (t.screens.active.kitty_images.image_limits.temporary_file) {
                 .enabled => |d| d.directory,
                 .disabled => "",
@@ -2138,11 +2138,11 @@ fn getTyped(
             out.* = .init(dir);
         },
         .kitty_image_medium_shared_mem => {
-            if (comptime !build_options.kitty_graphics) return .no_value;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             out.* = t.screens.active.kitty_images.image_limits.shared_memory;
         },
         .kitty_graphics => {
-            if (comptime !build_options.kitty_graphics) return .no_value;
+            if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
             out.* = &t.screens.active.kitty_images;
         },
         .selection => out.* = selection_c.CSelection.fromZig(
@@ -2183,6 +2183,7 @@ pub fn grid_ref(
     pt: point.Point.C,
     out_ref: ?*grid_ref_c.CGridRef,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.grid_introspection) or lib.feature(.selection))) return .unsupported;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     const zig_pt = point.Point.fromC(pt) orelse return .invalid_value;
     const p = t.screens.active.pages.pin(zig_pt) orelse
@@ -2196,6 +2197,10 @@ pub fn grid_ref_track(
     pt: point.Point.C,
     out_ref: ?*grid_ref_tracked_c.CTrackedGridRef,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) {
+        if (out_ref) |o| o.* = null;
+        return .unsupported;
+    }
     const wrapper = terminal_ orelse return .invalid_value;
     const out = out_ref orelse return .invalid_value;
     out.* = null;
@@ -2241,6 +2246,7 @@ pub fn point_from_grid_ref(
     tag: point.Tag,
     out: ?*point.Coordinate,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.grid_introspection) or lib.feature(.selection))) return .unsupported;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     const p = ref.toPin() orelse return .invalid_value;
     const pt = t.screens.active.pages.pointFromPin(tag, p) orelse
@@ -2667,9 +2673,18 @@ test "set null restores the defaults new starts with" {
             => true,
             else => false,
         };
-        if (comptime kitty_option and !build_options.kitty_graphics) continue;
-
         const T = @TypeOf(case[2]);
+
+        // Kitty options are unsupported when the feature is compiled out.
+        if (comptime kitty_option and !lib.feature(.kitty_graphics)) {
+            var got: T = undefined;
+            const value: T = case[2];
+            try testing.expectEqual(Result.unsupported, get(t, case[1], @ptrCast(&got)));
+            try testing.expectEqual(Result.unsupported, set(t, case[0], @ptrCast(&value)));
+            try testing.expectEqual(Result.unsupported, set(t, case[0], null));
+            continue;
+        }
+
         var default: T = undefined;
         try testing.expectEqual(Result.success, get(t, case[1], @ptrCast(&default)));
         try testing.expect(default != case[2]);

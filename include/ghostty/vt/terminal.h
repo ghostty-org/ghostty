@@ -2382,8 +2382,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * deleting all stored images and placements. The default is 10 MB
    * (10,000,000 bytes), and a NULL value pointer restores it. Values too
    * large for the platform's address space are treated as the largest
-   * possible limit. Has no effect when Kitty graphics are disabled at
-   * build time.
+   * possible limit. ghostty_terminal_set() returns GHOSTTY_UNSUPPORTED
+   * for this option when Kitty graphics are disabled at build time.
    *
    * Input type: uint64_t*
    */
@@ -2392,8 +2392,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Enable or disable Kitty image loading via the file medium.
    *
-   * Disabled by default, and a NULL value pointer disables it again. Has
-   * no effect when Kitty graphics are disabled at build time.
+   * Disabled by default, and a NULL value pointer disables it again.
+   * ghostty_terminal_set() returns GHOSTTY_UNSUPPORTED for this option
+   * when Kitty graphics are disabled at build time.
    *
    * Input type: bool*
    */
@@ -2403,8 +2404,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Enable Kitty image loading via the temporary file medium, restricted to
    * the provided directory. The string data is copied into the terminal.
    *
-   * Disabled by default, and a NULL value pointer disables it again. Has
-   * no effect when Kitty graphics are disabled at build time.
+   * Disabled by default, and a NULL value pointer disables it again.
+   * ghostty_terminal_set() returns GHOSTTY_UNSUPPORTED for this option
+   * when Kitty graphics are disabled at build time.
    *
    * Input type: GhosttyString*
    */
@@ -2413,8 +2415,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Enable or disable Kitty image loading via the shared memory medium.
    *
-   * Disabled by default, and a NULL value pointer disables it again. Has
-   * no effect when Kitty graphics are disabled at build time.
+   * Disabled by default, and a NULL value pointer disables it again.
+   * ghostty_terminal_set() returns GHOSTTY_UNSUPPORTED for this option
+   * when Kitty graphics are disabled at build time.
    *
    * Input type: bool*
    */
@@ -3083,7 +3086,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * The Kitty image storage limit in bytes for the active screen.
    *
    * A value of zero means the Kitty graphics protocol is disabled.
-   * Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.
+   * ghostty_terminal_get() returns GHOSTTY_UNSUPPORTED for this data when
+   * Kitty graphics are disabled at build time.
    *
    * Output type: uint64_t *
    */
@@ -3093,7 +3097,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Whether the file medium is enabled for Kitty image loading on the
    * active screen.
    *
-   * Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.
+   * ghostty_terminal_get() returns GHOSTTY_UNSUPPORTED for this data when
+   * Kitty graphics are disabled at build time.
    *
    * Output type: bool *
    */
@@ -3104,7 +3109,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * medium on the active screen. The string is empty when the medium is
    * disabled.
    *
-   * Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.
+   * ghostty_terminal_get() returns GHOSTTY_UNSUPPORTED for this data when
+   * Kitty graphics are disabled at build time.
    *
    * Output type: GhosttyString *
    */
@@ -3114,7 +3120,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Whether the shared memory medium is enabled for Kitty image loading
    * on the active screen.
    *
-   * Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.
+   * ghostty_terminal_get() returns GHOSTTY_UNSUPPORTED for this data when
+   * Kitty graphics are disabled at build time.
    *
    * Output type: bool *
    */
@@ -3127,7 +3134,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * until the next mutating terminal call (e.g. ghostty_terminal_vt_write()
    * or ghostty_terminal_reset()).
    *
-   * Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.
+   * ghostty_terminal_get() returns GHOSTTY_UNSUPPORTED for this data when
+   * Kitty graphics are disabled at build time.
    *
    * Output type: GhosttyKittyGraphics *
    */

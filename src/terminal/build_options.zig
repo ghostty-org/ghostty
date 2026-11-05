@@ -43,10 +43,11 @@ pub const Options = struct {
     version: std.SemanticVersion,
 
     /// Optional features for lib artifacts. Disabling a feature removes
-    /// its C API exports and any stream-integrated handling from the
+    /// its implementation and any stream-integrated handling from the
     /// build, primarily so size-conscious embedders (e.g. wasm) can trim
-    /// the binary. The Ghostty application itself always builds with
-    /// every feature enabled.
+    /// the binary. Its C API functions are still exported, but they
+    /// return `GHOSTTY_UNSUPPORTED`. The Ghostty application itself
+    /// always builds with every feature enabled.
     ///
     /// Field names are the accepted tokens for `-Dvt-features`, which
     /// acts like `-Dcpu`: comma-separated modifications applied on top

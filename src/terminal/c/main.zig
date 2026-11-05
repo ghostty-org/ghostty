@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_options = @import("terminal_options");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 const Result = @import("result.zig").Result;
@@ -322,9 +321,9 @@ test "unknown keys return unsupported in every family" {
     var values: [1]?*anyopaque = .{&out};
     var written: usize = 99;
 
-    // Kitty graphics getters report no_value when the feature is compiled
-    // out, before looking at the key.
-    const kitty: Result = if (build_options.kitty_graphics) .unsupported else .no_value;
+    // Kitty graphics getters return unsupported for the unknown key, and
+    // also when the feature is compiled out.
+    const kitty: Result = .unsupported;
 
     // The render getters check the handle and row/cell position before the
     // key, so they need real handles.
@@ -441,7 +440,10 @@ test "INVALID keys return invalid_value with a live handle" {
     try testing.expectEqual(Result.success, snapshot.decoder_new(alloc, &decoder, .{ .read = &NoReader.read }));
     defer snapshot.decoder_free(decoder);
     var placements: kitty_graphics.PlacementIterator = null;
-    try testing.expectEqual(Result.success, kitty_graphics.placement_iterator_new(alloc, &placements));
+    try testing.expectEqual(
+        if (lib.feature(.kitty_graphics)) Result.success else Result.unsupported,
+        kitty_graphics.placement_iterator_new(alloc, &placements),
+    );
     defer kitty_graphics.placement_iterator_free(placements);
     var state: render.RenderState = null;
     try testing.expectEqual(Result.success, render.new(alloc, &state));
@@ -453,9 +455,9 @@ test "INVALID keys return invalid_value with a live handle" {
     try testing.expectEqual(Result.success, render.get(state, .row_iterator, @ptrCast(&rows)));
     try testing.expect(render.row_iterator_next(rows));
 
-    // Kitty graphics setters report no_value when the feature is compiled
+    // Kitty graphics setters are unsupported when the feature is compiled
     // out, before looking at the key.
-    const kitty: Result = if (build_options.kitty_graphics) .invalid_value else .no_value;
+    const kitty: Result = if (lib.feature(.kitty_graphics)) .invalid_value else .unsupported;
 
     const cases = .{
         .{ "key_encoder_set", Result.invalid_value, key_encode.set(key_enc, .invalid, &out) },
@@ -572,6 +574,143 @@ test "out-of-range enum values passed as data return invalid_value" {
         terminal.vt_write(t, query, query.len);
         try testing.expectEqual(@as(usize, 1), S.replies);
         try testing.expectEqualStrings("\x1B[?997;2n", S.reply[0..S.reply_len]);
+    }
+}
+
+test "compiled-out features return unsupported" {
+    const testing = std.testing;
+    const alloc = &lib.alloc.test_allocator;
+
+    var term: terminal.Terminal = null;
+    try testing.expectEqual(Result.success, terminal.new(alloc, &term, 10, 3));
+    defer terminal.free(term);
+
+    // Handles start non-NULL so each case can check that `_new` set them
+    // to NULL. The address is never dereferenced.
+    const not_null: usize = 0x1000;
+    const pt = comptime std.mem.zeroes(@import("../point.zig").Point.C);
+    var buf: [64]u8 = undefined;
+
+    // One case per function family. A case runs only when its feature is
+    // compiled out, so a build with every feature runs none of them.
+    const cases = .{
+        .{ lib.feature(.snapshot), struct {
+            fn run(t: terminal.Terminal, b: []u8) !void {
+                var dec: snapshot.Decoder = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, snapshot.decoder_new_buf(alloc, &dec, b.ptr, 0));
+                try testing.expectEqual(null, dec);
+                var written: usize = 0;
+                try testing.expectEqual(Result.unsupported, snapshot.encode_buf(t, b.ptr, b.len, &written));
+            }
+        } },
+        .{ lib.feature(.formatter), struct {
+            fn run(t: terminal.Terminal, _: []u8) !void {
+                var f: formatter.Formatter = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, formatter.terminal_new(alloc, &f, t));
+                try testing.expectEqual(null, f);
+            }
+        } },
+        .{ lib.feature(.selection), struct {
+            fn run(t: terminal.Terminal, _: []u8) !void {
+                var sel: selection.CSelection = undefined;
+                try testing.expectEqual(Result.unsupported, selection.all(t, &sel));
+                var g: selection_gesture.Gesture = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, selection_gesture.new(alloc, &g));
+                try testing.expectEqual(null, g);
+                var ev: selection_gesture.Event = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, selection_gesture.event_new(alloc, &ev, .press));
+                try testing.expectEqual(null, ev);
+            }
+        } },
+        .{ lib.feature(.formatter) and lib.feature(.selection), struct {
+            fn run(t: terminal.Terminal, b: []u8) !void {
+                var written: usize = 0;
+                try testing.expectEqual(Result.unsupported, selection.format_buf(t, null, b.ptr, b.len, &written));
+            }
+        } },
+        .{ lib.feature(.search), struct {
+            fn run(t: terminal.Terminal, _: []u8) !void {
+                var s_: search.Search = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, search.new(alloc, &s_, t));
+                try testing.expectEqual(null, s_);
+            }
+        } },
+        .{ lib.feature(.render_state), struct {
+            fn run(_: terminal.Terminal, _: []u8) !void {
+                var state: render.RenderState = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, render.new(alloc, &state));
+                try testing.expectEqual(null, state);
+                try testing.expect(!render.row_iterator_next(null));
+            }
+        } },
+        .{ lib.feature(.input_encode), struct {
+            fn run(_: terminal.Terminal, b: []u8) !void {
+                var ke: key_event.Event = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, key_event.new(alloc, &ke));
+                try testing.expectEqual(null, ke);
+                var kenc: key_encode.Encoder = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, key_encode.new(alloc, &kenc));
+                try testing.expectEqual(null, kenc);
+                var me: mouse_event.Event = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, mouse_event.new(alloc, &me));
+                try testing.expectEqual(null, me);
+                var menc: mouse_encode.Encoder = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, mouse_encode.new(alloc, &menc));
+                try testing.expectEqual(null, menc);
+                var written: usize = 0;
+                try testing.expectEqual(Result.unsupported, focus.encode(.gained, b.ptr, b.len, &written));
+                try testing.expect(!paste.is_safe("a", 1));
+            }
+        } },
+        .{ lib.feature(.color), struct {
+            fn run(_: terminal.Terminal, _: []u8) !void {
+                var rgb: @import("../color.zig").RGB.C = undefined;
+                try testing.expectEqual(Result.unsupported, color.parse("#ffffff", 7, &rgb));
+                try testing.expectEqual(@as(usize, 0), color.x11_name_count());
+                var palette: @import("../color.zig").PaletteC = undefined;
+                color.palette_default(&palette);
+                try testing.expectEqual(std.mem.zeroes(@TypeOf(palette)), palette);
+            }
+        } },
+        .{ lib.feature(.grid_introspection), struct {
+            fn run(t: terminal.Terminal, b: []u8) !void {
+                try testing.expectEqual(Result.unsupported, cell.get(0, .codepoint, b.ptr));
+                try testing.expectEqual(Result.unsupported, row.get(0, .wrap, b.ptr));
+                const ref = std.mem.zeroes(grid_ref.CGridRef);
+                var c: cell.CCell = 0;
+                try testing.expectEqual(Result.unsupported, grid_ref.grid_ref_cell(&ref, &c));
+                try testing.expect(!grid_ref_tracked.tracked_grid_ref_has_value(null));
+                var tracked: grid_ref_tracked.CTrackedGridRef = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, terminal.grid_ref_track(t, pt, &tracked));
+                try testing.expectEqual(null, tracked);
+            }
+        } },
+        .{ lib.feature(.grid_introspection) or lib.feature(.selection), struct {
+            fn run(t: terminal.Terminal, _: []u8) !void {
+                var ref: grid_ref.CGridRef = undefined;
+                try testing.expectEqual(Result.unsupported, terminal.grid_ref(t, pt, &ref));
+            }
+        } },
+        .{ lib.feature(.grid_introspection) and lib.feature(.snapshot), struct {
+            fn run(_: terminal.Terminal, _: []u8) !void {
+                var ref: grid_ref.CGridRef = undefined;
+                try testing.expectEqual(Result.unsupported, grid_ref_tracked.tracked_grid_ref_snapshot(null, &ref));
+            }
+        } },
+        .{ lib.feature(.kitty_graphics), struct {
+            fn run(t: terminal.Terminal, _: []u8) !void {
+                var it: kitty_graphics.PlacementIterator = @ptrFromInt(not_null);
+                try testing.expectEqual(Result.unsupported, kitty_graphics.placement_iterator_new(alloc, &it));
+                try testing.expectEqual(null, it);
+                try testing.expectEqual(null, kitty_graphics.image_get_handle(undefined, 1));
+                var graphics: kitty_graphics.KittyGraphics = undefined;
+                try testing.expectEqual(Result.unsupported, terminal.get(t, .kitty_graphics, @ptrCast(&graphics)));
+            }
+        } },
+    };
+
+    inline for (cases) |case| {
+        if (comptime !case[0]) try case[1].run(term, &buf);
     }
 }
 

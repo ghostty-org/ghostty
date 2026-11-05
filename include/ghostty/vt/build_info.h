@@ -63,7 +63,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_BUILD_INFO_SIMD = 1,
 
   /**
-   * Whether Kitty graphics protocol support is available.
+   * Whether this build includes the `%kitty_graphics` feature, which
+   * provides the Kitty graphics protocol and the `ghostty_kitty_graphics_*`
+   * functions. It is always false on targets without an operating system,
+   * such as wasm32-freestanding. See @ref features_sec.
    *
    * Output type: bool *
    */
@@ -126,6 +129,83 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: GhosttyString *
    */
   GHOSTTY_BUILD_INFO_VERSION_BUILD = 10,
+
+  /**
+   * Whether this build includes the `%snapshot` feature, which provides
+   * the `ghostty_snapshot_*` functions. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_SNAPSHOT = 11,
+
+  /**
+   * Whether this build includes the `%formatter` feature, which provides
+   * the `ghostty_formatter_*` functions. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_FORMATTER = 12,
+
+  /**
+   * Whether this build includes the `%selection` feature, which provides
+   * the `ghostty_terminal_select_*`, `ghostty_terminal_selection_*` and
+   * `ghostty_selection_gesture_*` functions. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_SELECTION = 13,
+
+  /**
+   * Whether this build includes the `%search` feature, which provides the
+   * `ghostty_search_*` functions. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_SEARCH = 14,
+
+  /**
+   * Whether this build includes the `%render_state` feature, which provides
+   * the `ghostty_render_state_*` functions. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_RENDER_STATE = 15,
+
+  /**
+   * Whether this build includes the `%input_encode` feature, which provides
+   * the key, mouse, focus and paste encoding functions. See
+   * @ref features_sec for the full list.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_INPUT_ENCODE = 16,
+
+  /**
+   * Whether this build includes the `%color` feature, which provides the
+   * `ghostty_color_*` functions. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_COLOR = 17,
+
+  /**
+   * Whether this build includes the `%grid_introspection` feature, which
+   * provides the `ghostty_grid_ref_*`, `ghostty_tracked_grid_ref_*`,
+   * `ghostty_cell_get*` and `ghostty_row_get*` functions. See
+   * @ref features_sec for the full list.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_GRID_INTROSPECTION = 18,
+
+  /**
+   * Whether this build includes the `%glyph_protocol` feature, which lets
+   * applications register custom glyphs with Ghostty's glyph protocol. It
+   * has no functions of its own. See @ref features_sec.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_BUILD_INFO_FEATURE_GLYPH_PROTOCOL = 19,
   GHOSTTY_BUILD_INFO_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyBuildInfo;
 

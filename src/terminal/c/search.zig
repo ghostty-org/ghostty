@@ -133,6 +133,10 @@ pub fn new(
     out_search: ?*Search,
     terminal: terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) {
+        if (out_search) |o| o.* = null;
+        return .unsupported;
+    }
     const out = out_search orelse return .invalid_value;
     out.* = null;
 
@@ -160,6 +164,7 @@ pub fn new(
 }
 
 pub fn free(search_: Search) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.search)) return;
     const wrapper = search_ orelse return;
     if (wrapper.terminal) |terminal_wrapper| {
         _ = terminal_wrapper.searches.swapRemove(wrapper);
@@ -177,6 +182,7 @@ pub fn tick(
     search_: Search,
     out_status: ?*Status,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const wrapper = search_ orelse return .invalid_value;
     // History ticks read a pin tracked in the terminal's page list.
     _ = wrapper.zigTerminal() orelse return .invalid_value;
@@ -186,6 +192,7 @@ pub fn tick(
 }
 
 pub fn feed(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const wrapper = search_ orelse return .invalid_value;
     const t = wrapper.zigTerminal() orelse return .invalid_value;
     const s = if (wrapper.search) |*s| s else return .success;
@@ -199,6 +206,7 @@ pub fn feed(search_: Search) callconv(lib.calling_conv) Result {
 }
 
 pub fn run(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const wrapper = search_ orelse return .invalid_value;
     const t = wrapper.zigTerminal() orelse return .invalid_value;
     const s = if (wrapper.search) |*s| s else return .success;
@@ -221,6 +229,7 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -288,10 +297,12 @@ fn setTyped(
 }
 
 pub fn select_next(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     return selectMatch(search_, .next);
 }
 
 pub fn select_prev(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     return selectMatch(search_, .prev);
 }
 
@@ -324,6 +335,7 @@ pub fn get(
     data: Data,
     value: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const out_ptr = value orelse return .invalid_value;
     return switch (data) {
         .invalid => .invalid_value,
@@ -343,6 +355,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 

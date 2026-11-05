@@ -229,6 +229,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     out_gesture: ?*Gesture,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) {
+        if (out_gesture) |o| o.* = null;
+        return .unsupported;
+    }
     const out = out_gesture orelse return .invalid_value;
 
     const alloc = lib.alloc.default(alloc_);
@@ -248,6 +252,10 @@ pub fn event_new(
     out_event: ?*Event,
     event_type_: lib.CEnum(EventType),
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) {
+        if (out_event) |o| o.* = null;
+        return .unsupported;
+    }
     const out = out_event orelse return .invalid_value;
     const event_type = lib.enumFromC(EventType, event_type_) orelse
         return .invalid_value;
@@ -270,6 +278,7 @@ pub fn free(
     gesture_: Gesture,
     terminal: terminal_c.Terminal,
 ) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.selection)) return;
     const wrapper = gesture_ orelse return;
     if (terminal_c.zigTerminal(terminal)) |t| {
         wrapper.gesture.deinit(t);
@@ -279,6 +288,7 @@ pub fn free(
 }
 
 pub fn event_free(event_: Event) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.selection)) return;
     const event = event_ orelse return;
     event.deinit();
     const alloc = event.alloc;
@@ -289,6 +299,7 @@ pub fn reset(
     gesture_: Gesture,
     terminal: terminal_c.Terminal,
 ) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.selection)) return;
     const wrapper = gesture_ orelse return;
     const t = terminal_c.zigTerminal(terminal) orelse return;
     wrapper.gesture.reset(t);
@@ -300,6 +311,7 @@ pub fn handle_event(
     event_: Event,
     out_selection: ?*selection_c.CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const wrapper = gesture_ orelse return .invalid_value;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const event_wrapper = event_ orelse return .invalid_value;
@@ -350,6 +362,7 @@ pub fn event_set(
     option: EventOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -367,6 +380,7 @@ pub fn get(
     data: Data,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const out_ptr = out orelse return .invalid_value;
     return switch (data) {
         .invalid => .invalid_value,
@@ -388,6 +402,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 

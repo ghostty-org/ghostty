@@ -329,7 +329,7 @@ GHOSTTY_API void ghostty_key_event_free(GhosttyKeyEvent event);
 /**
  * Set the key action (press, release, repeat).
  *
- * @param event The key event handle, must not be NULL
+ * @param event The key event handle
  * @param action The action to set
  * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
  *         NULL or `action` is not a GhosttyKeyAction value this version of the
@@ -342,8 +342,8 @@ GHOSTTY_API GhosttyResult ghostty_key_event_set_action(GhosttyKeyEvent event, Gh
 /**
  * Get the key action (press, release, repeat).
  *
- * @param event The key event handle, must not be NULL
- * @return The key action
+ * @param event The key event handle
+ * @return The key action, or GHOSTTY_KEY_ACTION_RELEASE if `event` is NULL
  *
  * @ingroup key
  */
@@ -352,7 +352,7 @@ GHOSTTY_API GhosttyKeyAction ghostty_key_event_get_action(GhosttyKeyEvent event)
 /**
  * Set the physical key code.
  *
- * @param event The key event handle, must not be NULL
+ * @param event The key event handle
  * @param key The physical key code to set
  * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
  *         NULL or `key` is not a GhosttyKey value this version of the
@@ -365,8 +365,9 @@ GHOSTTY_API GhosttyResult ghostty_key_event_set_key(GhosttyKeyEvent event, Ghost
 /**
  * Get the physical key code.
  *
- * @param event The key event handle, must not be NULL
- * @return The physical key code
+ * @param event The key event handle
+ * @return The physical key code, or GHOSTTY_KEY_UNIDENTIFIED if `event` is
+ *         NULL
  *
  * @ingroup key
  */
@@ -375,18 +376,20 @@ GHOSTTY_API GhosttyKey ghostty_key_event_get_key(GhosttyKeyEvent event);
 /**
  * Set the modifier keys bitmask.
  *
- * @param event The key event handle, must not be NULL
+ * @param event The key event handle
  * @param mods The modifier keys bitmask to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_mods(GhosttyKeyEvent event, GhosttyMods mods);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_mods(GhosttyKeyEvent event, GhosttyMods mods);
 
 /**
  * Get the modifier keys bitmask.
  *
- * @param event The key event handle, must not be NULL
- * @return The modifier keys bitmask
+ * @param event The key event handle
+ * @return The modifier keys bitmask, or 0 (no modifiers) if `event` is NULL
  *
  * @ingroup key
  */
@@ -395,18 +398,21 @@ GHOSTTY_API GhosttyMods ghostty_key_event_get_mods(GhosttyKeyEvent event);
 /**
  * Set the consumed modifiers bitmask.
  *
- * @param event The key event handle, must not be NULL
+ * @param event The key event handle
  * @param consumed_mods The consumed modifiers bitmask to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_consumed_mods(GhosttyKeyEvent event, GhosttyMods consumed_mods);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_consumed_mods(GhosttyKeyEvent event, GhosttyMods consumed_mods);
 
 /**
  * Get the consumed modifiers bitmask.
  *
- * @param event The key event handle, must not be NULL
- * @return The consumed modifiers bitmask
+ * @param event The key event handle
+ * @return The consumed modifiers bitmask, or 0 (no modifiers) if `event` is
+ *         NULL
  *
  * @ingroup key
  */
@@ -415,18 +421,21 @@ GHOSTTY_API GhosttyMods ghostty_key_event_get_consumed_mods(GhosttyKeyEvent even
 /**
  * Set whether the key event is part of a composition sequence.
  *
- * @param event The key event handle, must not be NULL
+ * @param event The key event handle
  * @param composing Whether the key event is part of a composition sequence
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_composing(GhosttyKeyEvent event, bool composing);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_composing(GhosttyKeyEvent event, bool composing);
 
 /**
  * Get whether the key event is part of a composition sequence.
  *
- * @param event The key event handle, must not be NULL
- * @return Whether the key event is part of a composition sequence
+ * @param event The key event handle
+ * @return Whether the key event is part of a composition sequence, or false
+ *         if `event` is NULL
  *
  * @ingroup key
  */
@@ -439,18 +448,37 @@ GHOSTTY_API bool ghostty_key_event_get_composing(GhosttyKeyEvent event);
  * The encoder derives modifier sequences from the logical key and mods
  * bitmask, not from this text. Do not pass C0 control characters
  * (U+0000-U+001F, U+007F) or platform function key codes (e.g. macOS PUA
- * U+F700-U+F8FF); pass NULL instead and let the encoder use the logical key.
+ * U+F700-U+F8FF). For those keys, pass an empty string and the encoder will
+ * use the logical key instead.
  *
- * The key event does NOT take ownership of the text pointer. The caller
- * must ensure the string remains valid for the lifetime needed by the event.
+ * A string with a length of zero clears the text. The library does not read
+ * its pointer, so the pointer may be NULL.
  *
- * @param event The key event handle, must not be NULL
- * @param utf8 The UTF-8 text to set (or NULL for empty)
- * @param len Length of the UTF-8 text in bytes
+ * The key event does not copy the text. The bytes must stay valid until the
+ * event is freed or its text is set again. String literals and buffers that
+ * outlive the event are both fine.
+ *
+ * @code{.c}
+ * // Set the text for a key that produced "a".
+ * const char *text = "a";
+ * GhosttyString utf8 = {
+ *     .ptr = (const uint8_t *)text,
+ *     .len = strlen(text),
+ * };
+ * GhosttyResult result = ghostty_key_event_set_utf8(event, utf8);
+ *
+ * // Clear the text, for example for a function key.
+ * result = ghostty_key_event_set_utf8(event, (GhosttyString){0});
+ * @endcode
+ *
+ * @param event The key event handle
+ * @param utf8 The UTF-8 text to set. It does not need to be null-terminated.
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_utf8(GhosttyKeyEvent event, const char *utf8, size_t len);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_utf8(GhosttyKeyEvent event, GhosttyString utf8);
 
 /**
  * Get the UTF-8 text generated by the key event.
@@ -467,9 +495,9 @@ GHOSTTY_API void ghostty_key_event_set_utf8(GhosttyKeyEvent event, const char *u
  * printf("%.*s\n", (int)text.len, (const char *)text.ptr);
  * @endcode
  *
- * @param event The key event handle, must not be NULL
- * @return The UTF-8 text. If the event has no text, the string has a
- *         length of zero.
+ * @param event The key event handle
+ * @return The UTF-8 text. If the event has no text or `event` is NULL, the
+ *         string has a length of zero.
  *
  * @ingroup key
  */
@@ -478,18 +506,20 @@ GHOSTTY_API GhosttyString ghostty_key_event_get_utf8(GhosttyKeyEvent event);
 /**
  * Set the unshifted Unicode codepoint.
  *
- * @param event The key event handle, must not be NULL
+ * @param event The key event handle
  * @param codepoint The unshifted Unicode codepoint to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_unshifted_codepoint(GhosttyKeyEvent event, uint32_t codepoint);
+GHOSTTY_API GhosttyResult ghostty_key_event_set_unshifted_codepoint(GhosttyKeyEvent event, uint32_t codepoint);
 
 /**
  * Get the unshifted Unicode codepoint.
  *
- * @param event The key event handle, must not be NULL
- * @return The unshifted Unicode codepoint
+ * @param event The key event handle
+ * @return The unshifted Unicode codepoint, or 0 if `event` is NULL
  *
  * @ingroup key
  */
