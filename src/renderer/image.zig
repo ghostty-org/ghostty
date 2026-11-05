@@ -11,6 +11,7 @@ const Texture = GraphicsAPI.Texture;
 const Overlay = @import("Overlay.zig");
 
 pub const ArcImage = terminal.ArcImage;
+const ArcPixels = terminal.ArcPixels;
 
 const log = std.log.scoped(.renderer_image);
 
@@ -423,7 +424,7 @@ pub const State = struct {
         }
 
         // Store it in the map
-        const new_image: Image = .{ .pending = pending.clone() };
+        const new_image: Image = .{ .pending = Image.Pending.fromImage(pending.clone()) };
         // Transfer the new reference into the map. No fallible work remains.
 
         if (!gop.found_existing) {
@@ -445,21 +446,14 @@ pub const State = struct {
         alloc: Allocator,
         image: *const terminal.kitty.graphics.KittyImage,
     ) PrepImageError!void {
-        const data = image.renderData().bytes() orelse return;
+        const pixels = image.renderPixels() orelse return;
         const gop = try self.images.getOrPut(alloc, .{ .kitty = image.id });
         if (gop.found_existing and gop.value_ptr.generation == image.generation) {
             gop.value_ptr.image.cancelUnload();
             return;
         }
-        errdefer {
-            if (!gop.found_existing) _ = self.images.remove(.{ .kitty = image.id });
-        }
-        const pixels = if (image.renderImage()) |shared|
-            shared.clone()
-        else pixels: {
-            const copy = try alloc.dupe(u8, data);
-            errdefer alloc.free(copy);
-            break :pixels try ArcImage.init(alloc, .{
+        const next: Image = .{ .pending = .{
+            .value = .{
                 .width = image.width,
                 .height = image.height,
                 .format = switch (image.format) {
@@ -469,10 +463,10 @@ pub const State = struct {
                     .rgba => .rgba,
                     .png => unreachable,
                 },
-                .data = copy,
-            });
-        };
-        const next: Image = .{ .pending = pixels };
+                .data = pixels.value,
+            },
+            .owner = .{ .pixels = pixels.clone() },
+        } };
         if (gop.found_existing) {
             gop.value_ptr.image.markForReplace(self.image_allocator, next);
         } else {
@@ -592,11 +586,28 @@ pub const Image = union(enum) {
         pending: Pending,
     };
 
-    pub const Pending = *const ArcImage;
+    pub const Pending = struct {
+        value: terminal.Image,
+        owner: union(enum) {
+            image: *const ArcImage,
+            pixels: *const ArcPixels,
+        },
+
+        pub fn fromImage(image: *const ArcImage) Pending {
+            return .{ .value = image.value, .owner = .{ .image = image } };
+        }
+
+        fn release(self: Pending, alloc: Allocator) void {
+            switch (self.owner) {
+                .image => |image| image.release(alloc),
+                .pixels => |pixels| pixels.release(alloc),
+            }
+        }
+    };
 
     /// Convert layouts without native backend support into RGBA.
     /// A Graphics API may accept more than the shared format of RGBA
-    fn convertForUpload(alloc: Allocator, shared: *const ArcImage) wuffs.Error!*const ArcImage {
+    fn convertForUpload(alloc: Allocator, shared: Pending) wuffs.Error!Pending {
         const source = &shared.value;
         const rgba = try switch (source.format) {
             .gray => wuffs.swizzle.gToRgba(alloc, source.data),
@@ -606,12 +617,12 @@ pub const Image = union(enum) {
             .rgba, .bgra => unreachable, // both backends upload these directly
         };
         errdefer alloc.free(rgba);
-        return ArcImage.init(alloc, .{
+        return Pending.fromImage(try ArcImage.init(alloc, .{
             .width = source.width,
             .height = source.height,
             .format = .rgba,
             .data = rgba,
-        });
+        }));
     }
 
     /// Prepare the pending image data for upload to the GPU. This doesn't
@@ -726,7 +737,8 @@ pub const Image = union(enum) {
         // Get our pending info
         const p = self.getPendingPointer().?;
 
-        // This allocates a copy of the image data, and converts the pixel format
+        // This allocates a copy if the graphics API cannot upload the source format and needs
+        // to convert between formats.
         try self.prepForUpload(alloc);
 
         // Create our texture
@@ -884,12 +896,7 @@ test "kitty renderer uses the intersected source rectangle" {
         .width = 4,
         .height = 3,
         .format = .rgb,
-        .data = .{ .ready = try ArcImage.init(alloc, .{
-            .width = 4,
-            .height = 3,
-            .format = .rgb,
-            .data = pixels,
-        }) },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     const pin = try t.screens.active.pages.trackPin(
         t.screens.active.cursor.page_pin.*,
@@ -936,12 +943,7 @@ test "kitty renderer positions relative placements from the parent pin" {
         .width = 1,
         .height = 1,
         .format = .rgb,
-        .data = .{ .ready = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgb,
-            .data = pixels,
-        }) },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
 
     // Parent at (2, 1).
@@ -1011,12 +1013,7 @@ test "kitty renderer relative placement with negative offsets" {
         .width = 1,
         .height = 1,
         .format = .rgb,
-        .data = .{ .ready = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgb,
-            .data = pixels,
-        }) },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
 
     const pin = try t.screens.active.pages.trackPin(
@@ -1090,12 +1087,7 @@ test "kitty renderer positions relative placements from virtual parent placehold
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .ready = try ArcImage.init(alloc, .{
-            .width = 10,
-            .height = 10,
-            .format = .rgb,
-            .data = pixels,
-        }) },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .virtual = {} },
@@ -1163,7 +1155,7 @@ test "kitty renderer skips updates for rows without placeholder cells" {
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .virtual = {} },
@@ -1221,7 +1213,7 @@ test "kitty renderer skips updates for rows without placeholder cells with fixed
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
 
     // A virtual placement shown with placeholder cells on row 1, and a
@@ -1279,7 +1271,7 @@ test "kitty renderer unloads the texture of a deleted image without placements" 
         .width = 1,
         .height = 1,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     const pin = try t.screens.active.pages.trackPin(
         t.screens.active.cursor.page_pin.*,
@@ -1336,12 +1328,7 @@ test "kitty renderer uploads the current animation frame" {
         .width = 1,
         .height = 1,
         .format = .rgba,
-        .data = .{ .ready = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .rgba,
-            .data = try alloc.dupe(u8, &.{ 255, 0, 0, 255 }),
-        }) },
+        .data = .{ .ready = try ArcPixels.init(alloc, try alloc.dupe(u8, &.{ 255, 0, 0, 255 })) },
     });
     const pin = try t.screens.active.pages.trackPin(
         t.screens.active.cursor.page_pin.*,
@@ -1368,7 +1355,7 @@ test "kitty renderer uploads the current animation frame" {
     anim.* = .{};
     img.animation = anim;
     try anim.frames.append(alloc, .{
-        .data = try alloc.dupe(u8, &.{ 0, 0, 255, 255 }),
+        .data = try ArcPixels.init(alloc, try alloc.dupe(u8, &.{ 0, 0, 255, 255 })),
         .gap_ms = 40,
     });
     anim.current_index = 1;
@@ -1380,7 +1367,7 @@ test "kitty renderer uploads the current animation frame" {
     state.kittyUpdate(alloc, &t, &render_state);
     const entry = state.images.get(.{ .kitty = 1 }).?;
     try testing.expect(entry.generation > gen1);
-    try testing.expect(anim.frames.items[0].data.ptr != entry.image.pending.value.data.ptr);
+    try testing.expectEqual(anim.frames.items[0].data, entry.image.pending.owner.pixels);
     try testing.expectEqualSlices(
         u8,
         &.{ 0, 0, 255, 255 },
@@ -1401,21 +1388,16 @@ test "kitty renderer retains pixels and converts outside storage" {
         .width = 1,
         .height = 1,
         .format = .gray_alpha,
-        .data = .{ .ready = try ArcImage.init(alloc, .{
-            .width = 1,
-            .height = 1,
-            .format = .gray_alpha,
-            .data = pixels,
-        }) },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     const source = storage.imageById(1).?;
-    const retained = source.renderImage().?.clone();
+    const retained = source.renderPixels().?.clone();
     defer retained.release(alloc);
     var state: State = .init(alloc);
     defer state.deinit(alloc);
     try state.prepKittyImage(alloc, &source);
     const entry = state.images.getPtr(.{ .kitty = 1 }).?;
-    try testing.expectEqual(retained, entry.image.pending);
+    try testing.expectEqual(retained, entry.image.pending.owner.pixels);
     try testing.expectEqual(pixels.ptr, entry.image.pending.value.data.ptr);
     // Removing storage cannot invalidate the pending upload.
     storage.setLimit(io, alloc, t.screens.active, 0);
@@ -1423,18 +1405,18 @@ test "kitty renderer retains pixels and converts outside storage" {
     for (0..2) |fail_index| {
         var failing_conversion = testing.FailingAllocator.init(alloc, .{ .fail_index = fail_index });
         try testing.expectError(error.OutOfMemory, entry.image.prepForUpload(failing_conversion.allocator()));
-        try testing.expectEqual(retained, entry.image.pending);
+        try testing.expectEqual(retained, entry.image.pending.owner.pixels);
     }
     try entry.image.prepForUpload(alloc);
     try testing.expectEqual(terminal.Image.Format.rgba, entry.image.pending.value.format);
     try testing.expectEqualSlices(u8, &.{ 1, 1, 1, 2 }, entry.image.pending.value.data);
-    try testing.expectEqualSlices(u8, &.{ 1, 2 }, retained.value.data);
-    const converted = entry.image.pending;
+    try testing.expectEqualSlices(u8, &.{ 1, 2 }, retained.value);
+    const converted = entry.image.pending.owner.image;
     // Already-RGBA conversion requires no allocator and preserves identity.
     var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
     try entry.image.prepForUpload(failing.allocator());
     try testing.expect(!failing.has_induced_failure);
-    try testing.expectEqual(converted, entry.image.pending);
+    try testing.expectEqual(converted, entry.image.pending.owner.image);
 }
 
 test "kitty renderer releases pending replacement and canceled unload" {
@@ -1447,19 +1429,19 @@ test "kitty renderer releases pending replacement and canceled unload" {
         .data = try alloc.dupe(u8, "1234"),
     });
     defer first.release(alloc);
-    var image: Image = .{ .pending = first.clone() };
+    var image: Image = .{ .pending = Image.Pending.fromImage(first.clone()) };
     defer image.deinit(alloc);
     image.markForUnload();
     image.cancelUnload();
-    try testing.expectEqual(first, image.pending);
+    try testing.expectEqual(first, image.pending.owner.image);
     const second = try ArcImage.init(alloc, .{
         .width = 1,
         .height = 1,
         .format = .rgba,
         .data = try alloc.dupe(u8, "5678"),
     });
-    image.markForReplace(alloc, .{ .pending = second });
-    try testing.expectEqual(second, image.pending);
+    image.markForReplace(alloc, .{ .pending = Image.Pending.fromImage(second) });
+    try testing.expectEqual(second, image.pending.owner.image);
     try testing.expectEqualSlices(u8, "1234", first.value.data);
 }
 
@@ -1487,7 +1469,7 @@ test "kitty renderer overlay snapshot survives drawing and teardown" {
     var state: State = .init(alloc);
     defer state.deinit(alloc);
     try state.prepImage(alloc, .overlay, 1, snapshot);
-    try testing.expectEqual(snapshot, state.images.get(.overlay).?.image.pending);
+    try testing.expectEqual(snapshot, state.images.get(.overlay).?.image.pending.owner.image);
 }
 
 test "kitty renderer uploads native formats without copying" {
@@ -1502,12 +1484,12 @@ test "kitty renderer uploads native formats without copying" {
             .data = try alloc.alloc(u8, 3 * 2 * format.bpp()),
         });
         defer shared.release(alloc);
-        var image: Image = .{ .pending = shared.clone() };
+        var image: Image = .{ .pending = Image.Pending.fromImage(shared.clone()) };
         defer image.deinit(alloc);
         var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
         try image.prepForUpload(failing.allocator());
         try testing.expect(!failing.has_induced_failure);
-        try testing.expectEqual(shared, image.pending);
+        try testing.expectEqual(shared, image.pending.owner.image);
         try testing.expectEqual(shared.value.data.ptr, image.pending.value.data.ptr);
         try testing.expectEqual(format, image.pending.value.format);
     }

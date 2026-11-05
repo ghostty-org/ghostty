@@ -300,13 +300,20 @@ fn addFixedPlacements(self: *ScreenClone, span: usize) !void {
     const height = 16;
     const pixels = try alloc.alloc(u8, width * height * 4);
     @memset(pixels, 0x80);
-    try storage.addImage(io, alloc, screen, .{
+    const shared = terminalpkg.ArcPixels.init(alloc, pixels) catch |err| {
+        alloc.free(pixels);
+        return err;
+    };
+    storage.addImage(io, alloc, screen, .{
         .id = 1,
         .width = width,
         .height = height,
         .format = .rgba,
-        .data = .{ .complete = pixels },
-    });
+        .data = .{ .ready = shared },
+    }) catch |err| {
+        shared.release(alloc);
+        return err;
+    };
 
     const bottom = screen.pages.getBottomRight(.screen).?;
     const step = span / bench_fixed_count;

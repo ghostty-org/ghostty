@@ -1,19 +1,29 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// Shared ownership of a value with a deinit(Allocator) method. Implemented by
-/// atomic reference-counting to defer deinit to the last reference.
+/// Shared ownership of an allocated slice or value with a `.deinit(alloc)`
+/// method. Implemented by atomic reference-counting to defer deinit to the
+/// last reference.
 ///
 /// The allocator used to initialize the control block must be the same as the
-/// allocator of the value so that .deinit(alloc) can free inner allocations.
+/// allocator of the value so that `.deinit(alloc)` can free the inner
+/// allocation correctly.
 ///
-/// Like Rust's Arc, clone shares ownership and makeMut clones the inner value
-/// only when it is shared. .makeMut() requires T.dupe(Allocator) for deep
-/// copying. https://doc.rust-lang.org/std/sync/struct.Arc.html#method.make_mut
+/// Like Rust's `Arc<T>`, clone shares ownership and `.makeMut()` clones the
+/// inner value only when it is shared. `.makeMut()` requires `T.dupe(alloc)`
+/// (for non-slices) for deep copying.
+/// https://doc.rust-lang.org/std/sync/struct.Arc.html#method.make_mut
 ///
 /// The allocator used must outlive all references and support cross-thread
 /// frees when references are transferred between threads.
 pub fn AtomicRefCounted(comptime T: type) type {
+    const is_slice = switch (@typeInfo(T)) {
+        .pointer => |pointer| pointer.size == .slice,
+        else => false,
+    };
+    if (!is_slice and !std.meta.hasFn(T, "deinit"))
+        @compileError("AtomicRefCounted(" ++ @typeName(T) ++ "): trivial types are unsupported; non-slice payloads must provide pub fn deinit(*T, Allocator) void and, for makeMut, pub fn dupe(*const T, Allocator) Allocator.Error!T");
+
     return struct {
         const Self = @This();
 
@@ -50,30 +60,39 @@ pub fn AtomicRefCounted(comptime T: type) type {
             std.debug.assert(previous > 0);
             if (previous == 1) {
                 _ = mutable.refs.load(.acquire);
-                mutable.value.deinit(alloc);
+                deinitValue(&mutable.value, alloc);
                 alloc.destroy(mutable);
             }
         }
 
-        /// Return an owned value safe for mutation, replacing this handle with
-        /// a clone of the value if other owners exist. Failure leaves the
+        /// Return a pointer to a value safe for mutation, replacing this handle with
+        /// an independent copy of the value if other owners exist. Failure leaves the
         /// handle unchanged.
         pub fn makeMut(handle: *(*const Self), alloc: Allocator) Allocator.Error!*T {
             comptime {
-                if (!std.meta.hasFn(T, "dupe"))
-                    @compileError("AtomicRefCounted(" ++ @typeName(T) ++ ").makeMut requires pub fn dupe(*const T, Allocator) Allocator.Error!T");
-                _ = @as(*const fn (*const T, Allocator) Allocator.Error!T, &T.dupe);
+                if (!is_slice) {
+                    if (!std.meta.hasFn(T, "dupe"))
+                        @compileError("AtomicRefCounted(" ++ @typeName(T) ++ ").makeMut requires pub fn dupe(*const T, Allocator) Allocator.Error!T");
+                    _ = @as(*const fn (*const T, Allocator) Allocator.Error!T, &T.dupe);
+                }
             }
             const current = handle.*;
             // Acquire synchronizes with prior owners' releases before mutation.
             if (current.refs.load(.acquire) == 1) return &@constCast(current).value;
 
-            var copy = try current.value.dupe(alloc);
-            errdefer copy.deinit(alloc);
+            var copy: T = if (is_slice)
+                try alloc.dupe(@typeInfo(T).pointer.child, current.value)
+            else
+                try current.value.dupe(alloc);
+            errdefer deinitValue(&copy, alloc);
             const replacement = try Self.init(alloc, copy);
             handle.* = replacement;
             current.release(alloc);
             return &@constCast(replacement).value;
+        }
+
+        fn deinitValue(value: *T, alloc: Allocator) void {
+            if (is_slice) alloc.free(value.*) else value.deinit(alloc);
         }
     };
 }
@@ -104,4 +123,43 @@ test "AtomicRefCounted releases the inner value only on final release" {
     try std.testing.expectEqual(1, destroyed);
     unique.release(alloc);
     try std.testing.expectEqual(2, destroyed);
+}
+
+test "AtomicRefCounted slices preserve ownership through mutable copies and allocation failures" {
+    const testing = std.testing;
+    var failing = testing.FailingAllocator.init(testing.allocator, .{});
+    const alloc = failing.allocator();
+    const Arc = AtomicRefCounted([]u8);
+    const pixels = try alloc.dupe(u8, "rgba");
+    var shared = try Arc.init(alloc, pixels);
+    defer shared.release(alloc);
+    try testing.expectEqual(1, shared.refs.load(.monotonic));
+    try testing.expectEqual(pixels.ptr, shared.value.ptr);
+
+    failing.fail_index = failing.alloc_index;
+    const unique = try Arc.makeMut(&shared, alloc);
+    try testing.expect(!failing.has_induced_failure);
+    try testing.expectEqual(pixels.ptr, unique.ptr);
+    unique.*[0] = 'R';
+
+    const retained = shared.clone();
+    defer retained.release(alloc);
+    try testing.expectEqual(2, shared.refs.load(.monotonic));
+    for (0..2) |offset| {
+        failing.fail_index = failing.alloc_index + offset;
+        try testing.expectError(error.OutOfMemory, Arc.makeMut(&shared, alloc));
+        try testing.expectEqual(retained, shared);
+        try testing.expectEqual(pixels.ptr, shared.value.ptr);
+        try testing.expectEqual(2, shared.refs.load(.monotonic));
+        try testing.expectEqualSlices(u8, "Rgba", shared.value);
+    }
+    failing.fail_index = std.math.maxInt(usize);
+    const mutable = try Arc.makeMut(&shared, alloc);
+    try testing.expect(shared != retained);
+    try testing.expect(mutable.ptr != retained.value.ptr);
+    try testing.expectEqual(1, shared.refs.load(.monotonic));
+    try testing.expectEqual(1, retained.refs.load(.monotonic));
+    mutable.*[1] = 'G';
+    try testing.expectEqualSlices(u8, "Rgba", retained.value);
+    try testing.expectEqualSlices(u8, "RGba", shared.value);
 }

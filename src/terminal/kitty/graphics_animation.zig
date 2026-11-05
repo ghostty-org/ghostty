@@ -22,6 +22,7 @@
 //! graphics_pixel.zig.
 
 const std = @import("std");
+const ArcPixels = @import("../image.zig").ArcPixels;
 const Allocator = std.mem.Allocator;
 
 /// The gap assigned to a newly created frame when the command doesn't
@@ -83,7 +84,7 @@ pub const Animation = struct {
     ///
     /// ```zig
     /// // A pending frame for a 2x2 image: 2 * 2 * 4 bytes of RGBA.
-    /// const frame: Frame = .{ .data = &.{}, .gap_ms = 40, .pending_len = 16 };
+    /// const frame: Frame = .{ .data = try ArcPixels.init(alloc, &.{}), .gap_ms = 40, .pending_len = 16 };
     /// frame.isPending(); // true
     /// frame.storageSize(); // 16
     /// ```
@@ -93,7 +94,7 @@ pub const Animation = struct {
     pub const Frame = struct {
         /// Fully composed pixel data, always image width * height * 4
         /// bytes of RGBA. Empty while the frame is pending.
-        data: []u8,
+        data: *const ArcPixels,
 
         /// Milliseconds this frame is displayed before advancing.
         /// Zero means gapless: skipped during playback.
@@ -113,12 +114,12 @@ pub const Animation = struct {
         /// pixels arrive. This is what the frame counts against the
         /// storage limit.
         pub fn storageSize(self: Frame) usize {
-            return if (self.isPending()) self.pending_len else self.data.len;
+            return if (self.isPending()) self.pending_len else self.data.value.len;
         }
     };
 
     pub fn deinit(self: *Animation, alloc: Allocator) void {
-        for (self.frames.items) |frame| alloc.free(frame.data);
+        for (self.frames.items) |frame| frame.data.release(alloc);
         self.frames.deinit(alloc);
     }
 
@@ -178,7 +179,7 @@ test "animation gap helpers" {
     var anim: Animation = .{};
     defer anim.deinit(alloc);
     try anim.frames.append(alloc, .{
-        .data = try alloc.alloc(u8, 4),
+        .data = try ArcPixels.init(alloc, try alloc.alloc(u8, 4)),
         .gap_ms = 100,
     });
 

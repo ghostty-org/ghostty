@@ -2134,7 +2134,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 const image: imagepkg.Image = .{
-                    .pending = imagepkg.ArcImage.init(self.images.image_allocator, .{
+                    .pending = imagepkg.Image.Pending.fromImage(imagepkg.ArcImage.init(self.images.image_allocator, .{
                         .width = image_data.width,
                         .height = image_data.height,
                         .format = .rgba,
@@ -2142,7 +2142,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     }) catch |err| {
                         self.images.image_allocator.free(image_data.data);
                         return err;
-                    },
+                    }),
                 };
 
                 // If we have an existing background image, replace it.

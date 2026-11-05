@@ -17,6 +17,7 @@ const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
 const Terminal = @import("Terminal.zig");
+const ArcPixels = @import("image.zig").ArcPixels;
 const kitty_gfx = @import("kitty.zig").graphics;
 
 const log = std.log.scoped(.render_state);
@@ -4642,7 +4643,7 @@ test "placeholders: resolved virtual placements" {
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .virtual = {} },
@@ -4708,7 +4709,7 @@ test "placeholders: only dirty rows are resolved again" {
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .virtual = {} },
@@ -4779,7 +4780,7 @@ test "placeholders: relative placement rooted at a virtual placement" {
         .width = 10,
         .height = 10,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
     try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
         .location = .{ .virtual = {} },
@@ -4863,7 +4864,7 @@ fn testFixedImage(t: *Terminal, image_id: u32) !void {
         .width = 1,
         .height = 1,
         .format = .rgb,
-        .data = .{ .complete = pixels },
+        .data = .{ .ready = try ArcPixels.init(alloc, pixels) },
     });
 }
 

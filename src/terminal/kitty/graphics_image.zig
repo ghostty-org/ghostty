@@ -8,7 +8,8 @@ const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const animation = @import("graphics_animation.zig");
-const ArcImage = @import("../image.zig").ArcImage;
+const pixel = @import("graphics_pixel.zig");
+const ArcPixels = @import("../image.zig").ArcPixels;
 const Image = @import("../image.zig").Image;
 const command = @import("graphics_command.zig");
 const kitty_windows = @import("windows.zig");
@@ -831,9 +832,8 @@ pub const KittyImage = struct {
     };
 
     pub const Data = union(enum) {
-        complete: []const u8,
         /// Completed decoded pixels, always reference-counted.
-        ready: *const ArcImage,
+        ready: *const ArcPixels,
 
         /// Expected decoded byte length for a payload that has not arrived.
         pending: usize,
@@ -841,8 +841,7 @@ pub const KittyImage = struct {
         /// Bytes reserved against the storage limit.
         pub fn len(self: Data) usize {
             return switch (self) {
-                .complete => |data| data.len,
-                .ready => |image| image.value.data.len,
+                .ready => |image| image.value.len,
                 .pending => |expected_len| expected_len,
             };
         }
@@ -850,8 +849,7 @@ pub const KittyImage = struct {
         /// Returns decoded bytes when the payload is complete.
         pub fn bytes(self: Data) ?[]const u8 {
             return switch (self) {
-                .complete => |data| data,
-                .ready => |image| image.value.data,
+                .ready => |image| image.value,
                 .pending => null,
             };
         }
@@ -862,7 +860,6 @@ pub const KittyImage = struct {
 
         pub fn deinit(self: *Data, alloc: Allocator) void {
             switch (self.*) {
-                .complete => |data| alloc.free(data),
                 .ready => |image| image.release(alloc),
                 .pending => {},
             }
@@ -884,17 +881,76 @@ pub const KittyImage = struct {
                 .bgr, .bgra => unreachable,
             },
             .metadata = info.metadata,
-            .data = .{ .ready = try ArcImage.init(alloc, pixels) },
+            .data = .{ .ready = try ArcPixels.init(alloc, pixels.data) },
         };
     }
 
     /// Borrow the immutable displayed frame while terminal state is locked.
     /// Without incrementing the ref-count.
-    pub fn renderImage(self: *const KittyImage) ?*const ArcImage {
+    pub fn renderPixels(self: *const KittyImage) ?*const ArcPixels {
         return switch (self.renderData()) {
             .ready => |image| image,
-            .complete, .pending => null,
+            .pending => null,
         };
+    }
+
+    const Edit = struct {
+        source: ?[]const u8,
+        width: u32,
+        height: u32,
+        x: u32,
+        y: u32,
+        composition_mode: command.CompositionMode,
+        operation: union(enum) {
+            rectangle,
+            canvas: struct { x: u32, y: u32 },
+        },
+
+        fn compose(ctx: @This(), dst: *Image) void {
+            switch (ctx.operation) {
+                .rectangle => pixel.composeRect(
+                    dst.data,
+                    dst.width,
+                    dst.height,
+                    ctx.source.?,
+                    ctx.width,
+                    ctx.height,
+                    ctx.x,
+                    ctx.y,
+                    ctx.composition_mode,
+                ),
+                .canvas => |source| pixel.composeCanvasRect(
+                    dst.data,
+                    ctx.source orelse dst.data,
+                    dst.width,
+                    ctx.width,
+                    ctx.height,
+                    source.x,
+                    source.y,
+                    ctx.x,
+                    ctx.y,
+                    ctx.composition_mode,
+                ),
+            }
+        }
+    };
+    /// Sometimes allocates a new deep copy of the image bytes in order for the
+    /// KittyImage to be mutable. The context must not alias the destination
+    /// frame's bytes.
+    pub fn editFrame(
+        self: *KittyImage,
+        alloc: Allocator,
+        number: u32,
+        context: Edit,
+    ) Allocator.Error!void {
+        const data = if (number == 1) &self.data.ready else &self.animation.?.frames.items[number - 2].data;
+        var image: Image = .{
+            .width = self.width,
+            .height = self.height,
+            .format = .rgba,
+            .data = (try ArcPixels.makeMut(data, alloc)).*,
+        };
+        context.compose(&image);
     }
 
     pub fn deinit(self: *KittyImage, alloc: Allocator) void {
@@ -924,7 +980,7 @@ pub const KittyImage = struct {
             if (anim.current_index > 0) {
                 const frame = anim.frames.items[anim.current_index - 1];
                 if (frame.isPending()) return .{ .pending = frame.pending_len };
-                return .{ .complete = frame.data };
+                return .{ .ready = frame.data };
             }
         }
 
@@ -950,7 +1006,7 @@ pub const KittyImage = struct {
                 if (idx >= anim.frames.items.len) return null;
                 const frame = anim.frames.items[idx];
                 if (frame.isPending()) return null;
-                return frame.data;
+                return frame.data.value;
             },
         }
     }

@@ -41,6 +41,8 @@ pub const Image = struct {
     }
 };
 
+pub const ArcPixels = @import("../datastruct/main.zig").AtomicRefCounted([]u8);
+
 pub const ArcImage = @import("../datastruct/main.zig").AtomicRefCounted(Image);
 
 test "CPU image makeMut reuses unique pixels without allocating" {
