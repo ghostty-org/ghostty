@@ -94,7 +94,7 @@ GHOSTTY_API void ghostty_mouse_event_free(GhosttyMouseEvent event);
 /**
  * Set the event action.
  *
- * @param event The event handle, must not be NULL
+ * @param event The event handle
  * @param action The action to set
  * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
  *         NULL or `action` is not a GhosttyMouseAction value this version of the
@@ -108,8 +108,8 @@ GHOSTTY_API GhosttyResult ghostty_mouse_event_set_action(GhosttyMouseEvent event
 /**
  * Get the event action.
  *
- * @param event The event handle, must not be NULL
- * @return The event action
+ * @param event The event handle
+ * @return The event action, or GHOSTTY_MOUSE_ACTION_PRESS if `event` is NULL
  *
  * @ingroup mouse
  */
@@ -122,7 +122,7 @@ GHOSTTY_API GhosttyMouseAction ghostty_mouse_event_get_action(GhosttyMouseEvent 
  * To represent "no button" (for motion events), use
  * ghostty_mouse_event_clear_button().
  *
- * @param event The event handle, must not be NULL
+ * @param event The event handle
  * @param button The button to set
  * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event` is
  *         NULL or `button` is not a GhosttyMouseButton value this version of the
@@ -138,40 +138,66 @@ GHOSTTY_API GhosttyResult ghostty_mouse_event_set_button(GhosttyMouseEvent event
  *
  * This sets the event button to "none".
  *
- * @param event The event handle, must not be NULL
+ * @param event The event handle
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_event_clear_button(GhosttyMouseEvent event);
+GHOSTTY_API GhosttyResult ghostty_mouse_event_clear_button(GhosttyMouseEvent event);
 
 /**
  * Get the event button.
  *
- * @param event The event handle, must not be NULL
- * @param out_button Output pointer for the button value (may be NULL)
- * @return true if a button is set, false if no button is set
+ * A new event has no button, and ghostty_mouse_event_clear_button() removes
+ * the button from an event. Having no button is normal, for example when
+ * the mouse moves with no button held. It is not an error, so check for
+ * GHOSTTY_NO_VALUE separately:
+ *
+ * @code{.c}
+ * GhosttyMouseButton button;
+ * switch (ghostty_mouse_event_get_button(event, &button)) {
+ * case GHOSTTY_SUCCESS:
+ *     // `button` holds the event's button.
+ *     break;
+ * case GHOSTTY_NO_VALUE:
+ *     // The event has no button. `button` was not written.
+ *     break;
+ * default:
+ *     // `event` or the output pointer was NULL.
+ *     break;
+ * }
+ * @endcode
+ *
+ * @param event The event handle
+ * @param out_button Where to write the button. Must not be NULL.
+ * @return GHOSTTY_SUCCESS if the event has a button, GHOSTTY_NO_VALUE if it
+ *         has none, or GHOSTTY_INVALID_VALUE if `event` or `out_button` is
+ *         NULL. `out_button` is written only on GHOSTTY_SUCCESS.
  *
  * @ingroup mouse
  */
-GHOSTTY_API bool ghostty_mouse_event_get_button(GhosttyMouseEvent event,
+GHOSTTY_API GhosttyResult ghostty_mouse_event_get_button(GhosttyMouseEvent event,
                                     GhosttyMouseButton *out_button);
 
 /**
  * Set keyboard modifiers held during the event.
  *
- * @param event The event handle, must not be NULL
+ * @param event The event handle
  * @param mods Modifier bitmask
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_event_set_mods(GhosttyMouseEvent event,
+GHOSTTY_API GhosttyResult ghostty_mouse_event_set_mods(GhosttyMouseEvent event,
                                   GhosttyMods mods);
 
 /**
  * Get keyboard modifiers held during the event.
  *
- * @param event The event handle, must not be NULL
- * @return Modifier bitmask
+ * @param event The event handle
+ * @return Modifier bitmask, or 0 (no modifiers) if `event` is NULL
  *
  * @ingroup mouse
  */
@@ -180,19 +206,21 @@ GHOSTTY_API GhosttyMods ghostty_mouse_event_get_mods(GhosttyMouseEvent event);
 /**
  * Set the event position in surface-space pixels.
  *
- * @param event The event handle, must not be NULL
+ * @param event The event handle
  * @param position The position to set
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `event`
+ *         is NULL. On error the event is not changed.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_event_set_position(GhosttyMouseEvent event,
+GHOSTTY_API GhosttyResult ghostty_mouse_event_set_position(GhosttyMouseEvent event,
                                       GhosttyMousePosition position);
 
 /**
  * Get the event position in surface-space pixels.
  *
- * @param event The event handle, must not be NULL
- * @return The current event position
+ * @param event The event handle
+ * @return The current event position, or (0, 0) if `event` is NULL
  *
  * @ingroup mouse
  */

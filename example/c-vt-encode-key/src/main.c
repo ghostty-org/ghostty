@@ -19,9 +19,12 @@ int main() {
   GhosttyKeyEvent event;
   result = ghostty_key_event_new(NULL, &event);
   assert(result == GHOSTTY_SUCCESS);
-  ghostty_key_event_set_action(event, GHOSTTY_KEY_ACTION_PRESS);
-  ghostty_key_event_set_key(event, GHOSTTY_KEY_C);
-  ghostty_key_event_set_mods(event, GHOSTTY_MODS_CTRL);
+  result = ghostty_key_event_set_action(event, GHOSTTY_KEY_ACTION_PRESS);
+  assert(result == GHOSTTY_SUCCESS);
+  result = ghostty_key_event_set_key(event, GHOSTTY_KEY_C);
+  assert(result == GHOSTTY_SUCCESS);
+  result = ghostty_key_event_set_mods(event, GHOSTTY_MODS_CTRL);
+  assert(result == GHOSTTY_SUCCESS);
 
   // Encode the key event
   uint8_t buf[128];

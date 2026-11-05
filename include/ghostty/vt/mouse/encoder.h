@@ -196,12 +196,14 @@ GHOSTTY_API GhosttyResult ghostty_mouse_encoder_set(GhosttyMouseEncoder encoder,
  * This sets tracking mode and output format from terminal state.
  * It does not modify size or any-button state.
  *
- * @param encoder The encoder handle, must not be NULL
- * @param terminal The terminal handle, must not be NULL
+ * @param encoder The encoder handle
+ * @param terminal The terminal handle
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `encoder`
+ *         or `terminal` is NULL. On error the encoder is not changed.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_encoder_set_from_terminal(GhosttyMouseEncoder encoder,
+GHOSTTY_API GhosttyResult ghostty_mouse_encoder_set_from_terminal(GhosttyMouseEncoder encoder,
                                                 GhosttyTerminal terminal);
 
 /**
@@ -209,11 +211,13 @@ GHOSTTY_API void ghostty_mouse_encoder_set_from_terminal(GhosttyMouseEncoder enc
  *
  * This clears motion deduplication state (last tracked cell).
  *
- * @param encoder The encoder handle (may be NULL)
+ * @param encoder The encoder handle
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `encoder`
+ *         is NULL.
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
+GHOSTTY_API GhosttyResult ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
 
 /**
  * Encode a mouse event into a terminal escape sequence.

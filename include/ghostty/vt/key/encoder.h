@@ -207,12 +207,14 @@ GHOSTTY_API GhosttyResult ghostty_key_encoder_set(GhosttyKeyEncoder encoder, Gho
  * terminal state and is reset to `GHOSTTY_OPTION_AS_ALT_FALSE` by this
  * call. Use ghostty_key_encoder_set() to set it afterward if needed.
  *
- * @param encoder The encoder handle, must not be NULL
- * @param terminal The terminal handle, must not be NULL
+ * @param encoder The encoder handle
+ * @param terminal The terminal handle
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if `encoder`
+ *         or `terminal` is NULL. On error the encoder is not changed.
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_encoder_set_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_set_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
 
 /**
  * Encode a key event into a terminal escape sequence.

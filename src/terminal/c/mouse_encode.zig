@@ -214,17 +214,19 @@ fn setTyped(
 pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
-) callconv(lib.calling_conv) void {
-    const wrapper = encoder_ orelse return;
-    const t: *ZigTerminal = (terminal_ orelse return).terminal;
+) callconv(lib.calling_conv) Result {
+    const wrapper = encoder_ orelse return .invalid_value;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     wrapper.opts.event = t.flags.mouse_event;
     wrapper.opts.format = t.flags.mouse_format;
     wrapper.last_cell = null;
+    return .success;
 }
 
-pub fn reset(encoder_: Encoder) callconv(lib.calling_conv) void {
-    const wrapper = encoder_ orelse return;
+pub fn reset(encoder_: Encoder) callconv(lib.calling_conv) Result {
+    const wrapper = encoder_ orelse return .invalid_value;
     wrapper.last_cell = null;
+    return .success;
 }
 
 pub fn encode(
@@ -380,13 +382,13 @@ test "set_from_terminal" {
     const format_mode: Format = .sgr;
     try testing.expectEqual(Result.success, set(e, .format, &format_mode));
 
-    set_from_terminal(e, t);
+    try testing.expectEqual(Result.success, set_from_terminal(e, t));
     try testing.expectEqual(TrackingMode.none, e.?.opts.event);
     try testing.expectEqual(Format.x10, e.?.opts.format);
 }
 
 test "set_from_terminal null" {
-    set_from_terminal(null, null);
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(null, null));
 
     const terminal_c = @import("terminal.zig");
     var t: Terminal = undefined;
@@ -397,7 +399,23 @@ test "set_from_terminal null" {
         24,
     ));
     defer terminal_c.free(t);
-    set_from_terminal(null, t);
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(null, t));
+
+    // Valid encoder with null terminal leaves the options unchanged
+    var e: Encoder = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &e,
+    ));
+    defer free(e);
+    const format_mode: Format = .sgr;
+    try testing.expectEqual(Result.success, set(e, .format, &format_mode));
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(e, null));
+    try testing.expectEqual(Format.sgr, e.?.opts.format);
+}
+
+test "reset" {
+    try testing.expectEqual(Result.invalid_value, reset(null));
 
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -405,7 +423,7 @@ test "set_from_terminal null" {
         &e,
     ));
     defer free(e);
-    set_from_terminal(e, null);
+    try testing.expectEqual(Result.success, reset(e));
 }
 
 test "encode: sgr press left" {
@@ -432,7 +450,7 @@ test "encode: sgr press left" {
 
     try testing.expectEqual(Result.success, mouse_event.set_action(event, .press));
     try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
-    mouse_event.set_position(event, .{ .x = 0, .y = 0 });
+    try testing.expectEqual(Result.success, mouse_event.set_position(event, .{ .x = 0, .y = 0 }));
 
     var required: usize = 0;
     try testing.expectEqual(Result.out_of_space, encode(
@@ -494,7 +512,7 @@ test "encode: motion dedupe and reset" {
 
     try testing.expectEqual(Result.success, mouse_event.set_action(event, .motion));
     try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
-    mouse_event.set_position(event, .{ .x = 5, .y = 6 });
+    try testing.expectEqual(Result.success, mouse_event.set_position(event, .{ .x = 5, .y = 6 }));
 
     {
         var buf: [32]u8 = undefined;
@@ -522,7 +540,7 @@ test "encode: motion dedupe and reset" {
         try testing.expectEqual(@as(usize, 0), written);
     }
 
-    reset(encoder);
+    try testing.expectEqual(Result.success, reset(encoder));
 
     {
         var buf: [32]u8 = undefined;
@@ -564,7 +582,7 @@ test "encode: querying required size doesn't update dedupe state" {
 
     try testing.expectEqual(Result.success, mouse_event.set_action(event, .motion));
     try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
-    mouse_event.set_position(event, .{ .x = 5, .y = 6 });
+    try testing.expectEqual(Result.success, mouse_event.set_position(event, .{ .x = 5, .y = 6 }));
 
     var required: usize = 0;
     try testing.expectEqual(Result.out_of_space, encode(

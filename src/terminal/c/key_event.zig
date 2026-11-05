@@ -47,8 +47,8 @@ pub fn set_action(
 }
 
 pub fn get_action(event_: Event) callconv(lib.calling_conv) key.Action {
-    const event: *key.KeyEvent = &event_.?.event;
-    return event.action;
+    const wrapper = event_ orelse return .release;
+    return wrapper.event.action;
 }
 
 pub fn set_key(
@@ -61,58 +61,72 @@ pub fn set_key(
 }
 
 pub fn get_key(event_: Event) callconv(lib.calling_conv) key.Key {
-    const event: *key.KeyEvent = &event_.?.event;
-    return event.key;
+    const wrapper = event_ orelse return .unidentified;
+    return wrapper.event.key;
 }
 
-pub fn set_mods(event_: Event, mods: key.Mods) callconv(lib.calling_conv) void {
-    const event: *key.KeyEvent = &event_.?.event;
+pub fn set_mods(event_: Event, mods: key.Mods) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.mods = mods;
+    return .success;
 }
 
 pub fn get_mods(event_: Event) callconv(lib.calling_conv) key.Mods {
-    const event: *key.KeyEvent = &event_.?.event;
-    return event.mods;
+    const wrapper = event_ orelse return .{};
+    return wrapper.event.mods;
 }
 
-pub fn set_consumed_mods(event_: Event, consumed_mods: key.Mods) callconv(lib.calling_conv) void {
-    const event: *key.KeyEvent = &event_.?.event;
+pub fn set_consumed_mods(
+    event_: Event,
+    consumed_mods: key.Mods,
+) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.consumed_mods = consumed_mods;
+    return .success;
 }
 
 pub fn get_consumed_mods(event_: Event) callconv(lib.calling_conv) key.Mods {
-    const event: *key.KeyEvent = &event_.?.event;
-    return event.consumed_mods;
+    const wrapper = event_ orelse return .{};
+    return wrapper.event.consumed_mods;
 }
 
-pub fn set_composing(event_: Event, composing: bool) callconv(lib.calling_conv) void {
-    const event: *key.KeyEvent = &event_.?.event;
+pub fn set_composing(event_: Event, composing: bool) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.composing = composing;
+    return .success;
 }
 
 pub fn get_composing(event_: Event) callconv(lib.calling_conv) bool {
-    const event: *key.KeyEvent = &event_.?.event;
-    return event.composing;
+    const wrapper = event_ orelse return false;
+    return wrapper.event.composing;
 }
 
-pub fn set_utf8(event_: Event, utf8: ?[*]const u8, len: usize) callconv(lib.calling_conv) void {
-    const event: *key.KeyEvent = &event_.?.event;
-    event.utf8 = if (utf8) |ptr| ptr[0..len] else "";
+pub fn set_utf8(event_: Event, utf8: lib.String) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
+
+    // A zero-length string clears the text. Don't read the pointer here
+    // because C callers may pass NULL when the length is zero.
+    event.utf8 = if (utf8.len == 0) "" else utf8.ptr[0..utf8.len];
+    return .success;
 }
 
 pub fn get_utf8(event_: Event) callconv(lib.calling_conv) lib.String {
-    const event: *key.KeyEvent = &event_.?.event;
-    return .init(event.utf8);
+    const wrapper = event_ orelse return .init(@as([]const u8, ""));
+    return .init(wrapper.event.utf8);
 }
 
-pub fn set_unshifted_codepoint(event_: Event, codepoint: u32) callconv(lib.calling_conv) void {
-    const event: *key.KeyEvent = &event_.?.event;
+pub fn set_unshifted_codepoint(
+    event_: Event,
+    codepoint: u32,
+) callconv(lib.calling_conv) Result {
+    const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.unshifted_codepoint = @truncate(codepoint);
+    return .success;
 }
 
 pub fn get_unshifted_codepoint(event_: Event) callconv(lib.calling_conv) u32 {
-    const event: *key.KeyEvent = &event_.?.event;
-    return event.unshifted_codepoint;
+    const wrapper = event_ orelse return 0;
+    return wrapper.event.unshifted_codepoint;
 }
 
 test "alloc" {
@@ -144,27 +158,28 @@ test "set" {
 
     // Test mods
     const mods: key.Mods = .{ .shift = true, .ctrl = true };
-    set_mods(e, mods);
+    try testing.expectEqual(Result.success, set_mods(e, mods));
     try testing.expect(e.?.event.mods.shift);
     try testing.expect(e.?.event.mods.ctrl);
 
     // Test consumed mods
     const consumed: key.Mods = .{ .shift = true };
-    set_consumed_mods(e, consumed);
+    try testing.expectEqual(Result.success, set_consumed_mods(e, consumed));
     try testing.expect(e.?.event.consumed_mods.shift);
     try testing.expect(!e.?.event.consumed_mods.ctrl);
 
     // Test composing
-    set_composing(e, true);
+    try testing.expectEqual(Result.success, set_composing(e, true));
     try testing.expect(e.?.event.composing);
 
     // Test UTF-8
     const text = "hello";
-    set_utf8(e, text.ptr, text.len);
+    try testing.expectEqual(Result.success, set_utf8(e, .init(@as([]const u8, text))));
     try testing.expectEqualStrings(text, e.?.event.utf8);
 
-    // Test UTF-8 null
-    set_utf8(e, null, 0);
+    // A zero-length string clears the text.
+    try testing.expectEqual(Result.success, set_utf8(e, .init(@as([]const u8, text))));
+    try testing.expectEqual(Result.success, set_utf8(e, .{ .ptr = text.ptr, .len = 0 }));
     try testing.expectEqualStrings("", e.?.event.utf8);
 
     // No text is an empty string with a non-NULL pointer.
@@ -173,7 +188,7 @@ test "set" {
     try testing.expect(@intFromPtr(empty.ptr) != 0);
 
     // Test unshifted codepoint
-    set_unshifted_codepoint(e, 'a');
+    try testing.expectEqual(Result.success, set_unshifted_codepoint(e, 'a'));
     try testing.expectEqual(@as(u21, 'a'), e.?.event.unshifted_codepoint);
 }
 
@@ -191,17 +206,17 @@ test "get" {
     try testing.expectEqual(Result.success, set_key(e, .key_z));
 
     const mods: key.Mods = .{ .alt = true, .super = true };
-    set_mods(e, mods);
+    try testing.expectEqual(Result.success, set_mods(e, mods));
 
     const consumed: key.Mods = .{ .alt = true };
-    set_consumed_mods(e, consumed);
+    try testing.expectEqual(Result.success, set_consumed_mods(e, consumed));
 
-    set_composing(e, true);
+    try testing.expectEqual(Result.success, set_composing(e, true));
 
     const text = "test";
-    set_utf8(e, text.ptr, text.len);
+    try testing.expectEqual(Result.success, set_utf8(e, .init(@as([]const u8, text))));
 
-    set_unshifted_codepoint(e, 'z');
+    try testing.expectEqual(Result.success, set_unshifted_codepoint(e, 'z'));
 
     // Get them back
     try testing.expectEqual(key.Action.repeat, get_action(e));
@@ -237,15 +252,15 @@ test "complete key event" {
     try testing.expectEqual(Result.success, set_key(e, .key_a));
 
     const mods: key.Mods = .{ .shift = true };
-    set_mods(e, mods);
+    try testing.expectEqual(Result.success, set_mods(e, mods));
 
     const consumed: key.Mods = .{ .shift = true };
-    set_consumed_mods(e, consumed);
+    try testing.expectEqual(Result.success, set_consumed_mods(e, consumed));
 
     const text = "A";
-    set_utf8(e, text.ptr, text.len);
+    try testing.expectEqual(Result.success, set_utf8(e, .init(@as([]const u8, text))));
 
-    set_unshifted_codepoint(e, 'a');
+    try testing.expectEqual(Result.success, set_unshifted_codepoint(e, 'a'));
 
     // Verify all fields
     try testing.expectEqual(key.Action.press, e.?.event.action);
@@ -258,4 +273,28 @@ test "complete key event" {
     // Also test the getter
     const got_utf8 = get_utf8(e);
     try testing.expectEqualStrings("A", got_utf8.ptr[0..got_utf8.len]);
+}
+
+test "null event" {
+    const testing = std.testing;
+
+    // Setters report a NULL event.
+    try testing.expectEqual(Result.invalid_value, set_action(null, .press));
+    try testing.expectEqual(Result.invalid_value, set_key(null, .key_a));
+    try testing.expectEqual(Result.invalid_value, set_mods(null, .{ .shift = true }));
+    try testing.expectEqual(Result.invalid_value, set_consumed_mods(null, .{ .shift = true }));
+    try testing.expectEqual(Result.invalid_value, set_composing(null, true));
+    try testing.expectEqual(Result.invalid_value, set_utf8(null, .init(@as([]const u8, "a"))));
+    try testing.expectEqual(Result.invalid_value, set_unshifted_codepoint(null, 'a'));
+
+    // Getters return the zero value of their type.
+    try testing.expectEqual(key.Action.release, get_action(null));
+    try testing.expectEqual(key.Key.unidentified, get_key(null));
+    try testing.expectEqual(key.Mods{}, get_mods(null));
+    try testing.expectEqual(key.Mods{}, get_consumed_mods(null));
+    try testing.expect(!get_composing(null));
+    const utf8 = get_utf8(null);
+    try testing.expectEqual(@as(usize, 0), utf8.len);
+    try testing.expect(@intFromPtr(utf8.ptr) != 0);
+    try testing.expectEqual(@as(u32, 0), get_unshifted_codepoint(null));
 }
