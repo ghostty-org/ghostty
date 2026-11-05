@@ -32,6 +32,7 @@ pub const TrackedGridRef = struct {
 };
 
 pub fn tracked_grid_ref_free(ref_: CTrackedGridRef) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.grid_introspection)) return;
     const ref = ref_ orelse return;
     if (ref.terminal) |wrapper| {
         _ = wrapper.tracked_grid_refs.swapRemove(ref);
@@ -41,6 +42,7 @@ pub fn tracked_grid_ref_free(ref_: CTrackedGridRef) callconv(lib.calling_conv) v
 }
 
 pub fn tracked_grid_ref_has_value(ref_: CTrackedGridRef) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.grid_introspection)) return false;
     const ref = ref_ orelse return false;
     _ = ref.pageList() orelse return false;
     return !ref.pin.garbage;
@@ -50,6 +52,7 @@ pub fn tracked_grid_ref_snapshot(
     ref_: CTrackedGridRef,
     out_ref: ?*grid_ref_c.CGridRef,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.grid_introspection) and lib.feature(.snapshot))) return .unsupported;
     const ref = ref_ orelse return .invalid_value;
     _ = ref.pageList() orelse return .no_value;
     if (ref.pin.garbage) return .no_value;
@@ -62,6 +65,7 @@ pub fn tracked_grid_ref_point(
     tag_: lib.CEnum(point.Tag),
     out: ?*point.Coordinate,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const ref = ref_ orelse return .invalid_value;
     const tag = lib.enumFromC(point.Tag, tag_) orelse return .invalid_value;
     const list = ref.pageList() orelse return .no_value;
@@ -76,6 +80,7 @@ pub fn tracked_grid_ref_set(
     terminal_: terminal_c.Terminal,
     pt: point.Point.C,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const ref = ref_ orelse return .invalid_value;
     const wrapper = terminal_ orelse return .invalid_value;
     if (ref.terminal != terminal_) return .invalid_value;

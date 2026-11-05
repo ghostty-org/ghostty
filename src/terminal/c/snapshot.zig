@@ -155,6 +155,10 @@ pub fn decoder_new(
     out_: ?*Decoder,
     reader: io_c.Reader,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) {
+        if (out_) |o| o.* = null;
+        return .unsupported;
+    }
     // Validate C-owned output and callback pointers before allocating anything.
     const out = out_ orelse return .invalid_value;
     out.* = null;
@@ -173,6 +177,10 @@ pub fn decoder_new_buf(
     ptr: ?[*]const u8,
     len: usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) {
+        if (out_) |o| o.* = null;
+        return .unsupported;
+    }
     // Normalize the C pointer and length into a borrowed Zig slice.
     const out = out_ orelse return .invalid_value;
     out.* = null;
@@ -216,6 +224,7 @@ fn decoderNewSource(
 
 /// Destroy a decoder without taking ownership of any returned terminal.
 pub fn decoder_free(decoder_: Decoder) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.snapshot)) return;
     const decoder = decoder_ orelse return;
     const alloc = decoder.alloc;
     alloc.destroy(decoder);
@@ -227,6 +236,7 @@ pub fn decoder_set(
     option: DecoderOption,
     value_: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Check the key first, so an unknown key returns unsupported whatever
     // state the decoder is in. Callers use that to check for a key.
     switch (option) {
@@ -264,6 +274,7 @@ pub fn decoder_get(
     data: DecoderData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Enumerate known keys so each branch recovers the correct output type.
     return switch (data) {
         inline .invalid,
@@ -449,6 +460,7 @@ pub fn decoder_get_multi(
     values_: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Invalid arrays and first-key failures both report zero completed writes.
     if (out_written) |written| written.* = 0;
     const keys = keys_ orelse return .invalid_value;
@@ -471,6 +483,7 @@ pub fn decoder_ready(
     decoder_: Decoder,
     out_: ?*terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Validate the output and require an untouched decoder lifecycle.
     const out = out_ orelse return .invalid_value;
     out.* = null;
@@ -498,6 +511,7 @@ pub fn decoder_ready(
 pub fn decoder_next(
     decoder_: Decoder,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // FINISH is idempotent; every other non-history state rejects `next`.
     const decoder = decoder_ orelse return .invalid_value;
     switch (decoder.state) {
@@ -535,6 +549,7 @@ pub fn decoder_decode(
     decoder_: Decoder,
     out_: ?*terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Validate the output and require an untouched decoder lifecycle.
     const out = out_ orelse return .invalid_value;
     out.* = null;
@@ -678,6 +693,7 @@ pub fn encode(
     terminal: terminal_c.Terminal,
     writer: io_c.Writer,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Validate both handles and preflight the terminal continuation.
     const native = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     if (writer.write == null) return .invalid_value;
@@ -707,6 +723,7 @@ pub fn encode_buf(
     buf_len: usize,
     out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Validate output storage and preflight the terminal continuation.
     const out_written = out_written_ orelse return .invalid_value;
     out_written.* = 0;
@@ -753,6 +770,7 @@ pub fn encode_alloc(
     out_ptr_: ?*?[*]u8,
     out_len_: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.snapshot)) return .unsupported;
     // Initialize outputs before validating terminal state or allocating bytes.
     const out_ptr = out_ptr_ orelse return .invalid_value;
     const out_len = out_len_ orelse return .invalid_value;

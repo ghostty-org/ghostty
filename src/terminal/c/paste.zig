@@ -41,6 +41,7 @@ pub fn terminal_paste(
     req_: ?*const Request,
     out_pasted: ?*bool,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = terminal_ orelse return .invalid_value;
     const req = req_ orelse return .invalid_value;
 
@@ -129,6 +130,7 @@ fn readTrampoline(
 }
 
 pub fn is_safe(data: ?[*]const u8, len: usize) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.input_encode)) return false;
     const slice: []const u8 = if (data) |v| v[0..len] else &.{};
     return paste.isSafe(slice);
 }
@@ -141,6 +143,7 @@ pub fn encode(
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const slice: []u8 = if (data) |v| v[0..data_len] else &.{};
     const result = paste.encode(slice, .{ .bracketed = bracketed });
 

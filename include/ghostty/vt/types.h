@@ -130,7 +130,9 @@
  * Functions that read or write values by key, such as
  * ghostty_terminal_get(), return GHOSTTY_UNSUPPORTED for a key that this
  * version of the library does not know. See @ref keys_sec for how to use
- * that to support older versions of the library.
+ * that to support older versions of the library. Functions of an
+ * optional feature that this build leaves out return it too. See
+ * @ref features_sec.
  */
 typedef enum GHOSTTY_ENUM_TYPED {
     /** Operation completed successfully */
@@ -161,13 +163,18 @@ typedef enum GHOSTTY_ENUM_TYPED {
      */
     GHOSTTY_REJECTED = -7,
     /**
-     * The key is not known to this version of the library.
+     * This library cannot do what was asked.
      *
      * Returned by the functions that read or write values by key when the
      * key is newer than the library. Nothing is read or written. This
      * usually means the program was built with a newer header than the
      * library it is running with. Check for it to fall back gracefully, as
      * shown in @ref keys_compat_sec.
+     *
+     * Also returned by every function of an optional feature that this
+     * build leaves out. For example, ghostty_snapshot_encode() returns it
+     * when the library was built without the `%snapshot` feature. See
+     * @ref features_sec.
      */
     GHOSTTY_UNSUPPORTED = -8,
     GHOSTTY_RESULT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,

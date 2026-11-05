@@ -652,14 +652,14 @@ typedef struct {
  * The output pointer must be of the appropriate type for the requested
  * data kind.
  *
- * Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.
+ * Returns GHOSTTY_UNSUPPORTED when Kitty graphics are disabled at build time.
  *
  * @param graphics The kitty graphics handle
  * @param data The type of data to extract
  * @param[out] out Pointer to store the extracted data
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library, or GHOSTTY_NO_VALUE if Kitty
- *         graphics support was disabled when the library was built
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_UNSUPPORTED if `data` is
+ *         not known to this version of the library or Kitty graphics are
+ *         disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -700,8 +700,9 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  *   milliseconds on the same clock as `now_ms`. Only written when the
  *   function returns GHOSTTY_SUCCESS.
  * @return GHOSTTY_SUCCESS if an animation is playing and `next_ms` was
- *   set, GHOSTTY_NO_VALUE if nothing is playing or Kitty graphics are
- *   disabled at build time, GHOSTTY_INVALID_VALUE if `next_ms` is NULL
+ *   set, GHOSTTY_NO_VALUE if nothing is playing, GHOSTTY_UNSUPPORTED if
+ *   Kitty graphics are disabled at build time, GHOSTTY_INVALID_VALUE if
+ *   `next_ms` is NULL
  *
  * @ingroup kitty_graphics
  */
@@ -735,9 +736,9 @@ GHOSTTY_API GhosttyKittyGraphicsImage ghostty_kitty_graphics_image(
  * @param image The image handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library, or GHOSTTY_NO_VALUE if Kitty
- *         graphics support was disabled when the library was built
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_UNSUPPORTED if `data` is
+ *         not known to this version of the library or Kitty graphics are
+ *         disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -823,9 +824,9 @@ GHOSTTY_API void ghostty_kitty_graphics_placement_iterator_free(
  * @param value Pointer to the value. Its type depends on the option. NULL
  *              resets the option to its default.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the value is
- *         out of range, GHOSTTY_UNSUPPORTED if `option` is not known to
- *         this version of the library, or GHOSTTY_NO_VALUE if Kitty graphics
- *         support was disabled when the library was built
+ *         out of range, or GHOSTTY_UNSUPPORTED if `option` is not known to
+ *         this version of the library or Kitty graphics are disabled at
+ *         build time
  *
  * @ingroup kitty_graphics
  */
@@ -919,7 +920,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_get_multi(
  *             as a selection with rectangle=true
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle
  *         is NULL or the iterator is not positioned, GHOSTTY_NO_VALUE for
- *         virtual placements or when Kitty graphics are disabled
+ *         virtual placements, GHOSTTY_UNSUPPORTED when Kitty graphics are
+ *         disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -942,8 +944,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_rect(
  * @param[out] out_width On success, receives the width in pixels
  * @param[out] out_height On success, receives the height in pixels
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle
- *         is NULL or the iterator is not positioned, GHOSTTY_NO_VALUE when
- *         Kitty graphics are disabled
+ *         is NULL or the iterator is not positioned, GHOSTTY_UNSUPPORTED
+ *         when Kitty graphics are disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -968,8 +970,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_pixel_size(
  * @param[out] out_cols On success, receives the number of columns
  * @param[out] out_rows On success, receives the number of rows
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle
- *         is NULL or the iterator is not positioned, GHOSTTY_NO_VALUE when
- *         Kitty graphics are disabled
+ *         is NULL or the iterator is not positioned, GHOSTTY_UNSUPPORTED
+ *         when Kitty graphics are disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -1003,8 +1005,9 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_grid_size(
  *             negative
  * @return GHOSTTY_SUCCESS if any part of the placement is in the
  *         viewport. GHOSTTY_NO_VALUE if it is entirely outside the
- *         viewport, if it is a virtual placement or relative to one, or
- *         if Kitty graphics are disabled at build time.
+ *         viewport or if it is a virtual placement or relative to one.
+ *         GHOSTTY_UNSUPPORTED if Kitty graphics are disabled at build
+ *         time.
  *         GHOSTTY_INVALID_VALUE if any handle is NULL or the iterator is
  *         not on a placement.
  *
@@ -1068,7 +1071,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_source_rect(
  * @return GHOSTTY_SUCCESS on success. GHOSTTY_INVALID_VALUE if any
  *         handle or `out_info` is NULL, the iterator is not on a
  *         placement, or `out_info->size` is too small.
- *         GHOSTTY_NO_VALUE if Kitty graphics are disabled at build time.
+ *         GHOSTTY_UNSUPPORTED if Kitty graphics are disabled at build
+ *         time.
  *
  * @ingroup kitty_graphics
  */

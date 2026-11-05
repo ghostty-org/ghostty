@@ -35,6 +35,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     result: *Event,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(MouseEventWrapper) catch
         return .out_of_memory;
@@ -44,6 +48,7 @@ pub fn new(
 }
 
 pub fn free(event_: Event) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.input_encode)) return;
     const wrapper = event_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -53,6 +58,7 @@ pub fn set_action(
     event_: Event,
     action: lib.CEnum(Action),
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = event_ orelse return .invalid_value;
     wrapper.event.action = lib.enumFromC(Action, action) orelse
         return .invalid_value;
@@ -60,6 +66,7 @@ pub fn set_action(
 }
 
 pub fn get_action(event_: Event) callconv(lib.calling_conv) Action {
+    if (comptime !lib.feature(.input_encode)) return .press;
     const wrapper = event_ orelse return .press;
     return wrapper.event.action;
 }
@@ -68,6 +75,7 @@ pub fn set_button(
     event_: Event,
     button: lib.CEnum(Button),
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = event_ orelse return .invalid_value;
     wrapper.event.button = lib.enumFromC(Button, button) orelse
         return .invalid_value;
@@ -75,12 +83,14 @@ pub fn set_button(
 }
 
 pub fn clear_button(event_: Event) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = event_ orelse return .invalid_value;
     wrapper.event.button = null;
     return .success;
 }
 
 pub fn get_button(event_: Event, out_: ?*Button) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = event_ orelse return .invalid_value;
     const out = out_ orelse return .invalid_value;
     out.* = wrapper.event.button orelse return .no_value;
@@ -88,23 +98,27 @@ pub fn get_button(event_: Event, out_: ?*Button) callconv(lib.calling_conv) Resu
 }
 
 pub fn set_mods(event_: Event, mods: Mods) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = event_ orelse return .invalid_value;
     wrapper.event.mods = mods;
     return .success;
 }
 
 pub fn get_mods(event_: Event) callconv(lib.calling_conv) Mods {
+    if (comptime !lib.feature(.input_encode)) return .{};
     const wrapper = event_ orelse return .{};
     return wrapper.event.mods;
 }
 
 pub fn set_position(event_: Event, pos: Position) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = event_ orelse return .invalid_value;
     wrapper.event.pos = pos;
     return .success;
 }
 
 pub fn get_position(event_: Event) callconv(lib.calling_conv) Position {
+    if (comptime !lib.feature(.input_encode)) return .{};
     const wrapper = event_ orelse return .{ .x = 0, .y = 0 };
     return wrapper.event.pos;
 }

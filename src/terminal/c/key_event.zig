@@ -22,6 +22,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     result: *Event,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(KeyEventWrapper) catch
         return .out_of_memory;
@@ -31,6 +35,7 @@ pub fn new(
 }
 
 pub fn free(event_: Event) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.input_encode)) return;
     const wrapper = event_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -40,6 +45,7 @@ pub fn set_action(
     event_: Event,
     action: lib.CEnum(key.Action),
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.action = lib.enumFromC(key.Action, action) orelse
         return .invalid_value;
@@ -47,6 +53,7 @@ pub fn set_action(
 }
 
 pub fn get_action(event_: Event) callconv(lib.calling_conv) key.Action {
+    if (comptime !lib.feature(.input_encode)) return .release;
     const wrapper = event_ orelse return .release;
     return wrapper.event.action;
 }
@@ -55,23 +62,27 @@ pub fn set_key(
     event_: Event,
     k: lib.CEnum(key.Key),
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.key = lib.enumFromC(key.Key, k) orelse return .invalid_value;
     return .success;
 }
 
 pub fn get_key(event_: Event) callconv(lib.calling_conv) key.Key {
+    if (comptime !lib.feature(.input_encode)) return .unidentified;
     const wrapper = event_ orelse return .unidentified;
     return wrapper.event.key;
 }
 
 pub fn set_mods(event_: Event, mods: key.Mods) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.mods = mods;
     return .success;
 }
 
 pub fn get_mods(event_: Event) callconv(lib.calling_conv) key.Mods {
+    if (comptime !lib.feature(.input_encode)) return .{};
     const wrapper = event_ orelse return .{};
     return wrapper.event.mods;
 }
@@ -80,28 +91,33 @@ pub fn set_consumed_mods(
     event_: Event,
     consumed_mods: key.Mods,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.consumed_mods = consumed_mods;
     return .success;
 }
 
 pub fn get_consumed_mods(event_: Event) callconv(lib.calling_conv) key.Mods {
+    if (comptime !lib.feature(.input_encode)) return .{};
     const wrapper = event_ orelse return .{};
     return wrapper.event.consumed_mods;
 }
 
 pub fn set_composing(event_: Event, composing: bool) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.composing = composing;
     return .success;
 }
 
 pub fn get_composing(event_: Event) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.input_encode)) return false;
     const wrapper = event_ orelse return false;
     return wrapper.event.composing;
 }
 
 pub fn set_utf8(event_: Event, utf8: lib.String) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
 
     // A zero-length string clears the text. Don't read the pointer here
@@ -111,6 +127,7 @@ pub fn set_utf8(event_: Event, utf8: lib.String) callconv(lib.calling_conv) Resu
 }
 
 pub fn get_utf8(event_: Event) callconv(lib.calling_conv) lib.String {
+    if (comptime !lib.feature(.input_encode)) return .{ .ptr = "", .len = 0 };
     const wrapper = event_ orelse return .init(@as([]const u8, ""));
     return .init(wrapper.event.utf8);
 }
@@ -119,12 +136,14 @@ pub fn set_unshifted_codepoint(
     event_: Event,
     codepoint: u32,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const event: *key.KeyEvent = &(event_ orelse return .invalid_value).event;
     event.unshifted_codepoint = @truncate(codepoint);
     return .success;
 }
 
 pub fn get_unshifted_codepoint(event_: Event) callconv(lib.calling_conv) u32 {
+    if (comptime !lib.feature(.input_encode)) return 0;
     const wrapper = event_ orelse return 0;
     return wrapper.event.unshifted_codepoint;
 }

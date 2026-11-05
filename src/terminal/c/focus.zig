@@ -9,6 +9,7 @@ pub fn encode(
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     terminal_focus.encode(&writer, event) catch |err| switch (err) {
         error.WriteFailed => {

@@ -111,6 +111,7 @@ pub fn word(
     options: ?*const SelectWordOptions,
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const opts = options orelse return .invalid_value;
     if (!lib.sizedCheck(.input, opts)) return .invalid_value;
@@ -136,6 +137,7 @@ pub fn word_between(
     options: ?*const SelectWordBetweenOptions,
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const opts = options orelse return .invalid_value;
     if (!lib.sizedCheck(.input, opts)) return .invalid_value;
@@ -163,6 +165,7 @@ pub fn line(
     options: ?*const SelectLineOptions,
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const opts = options orelse return .invalid_value;
     if (!lib.sizedCheck(.input, opts)) return .invalid_value;
@@ -187,6 +190,7 @@ pub fn all(
     terminal: terminal_c.Terminal,
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const out = out_selection orelse return .invalid_value;
 
@@ -199,6 +203,7 @@ pub fn output(
     ref: grid_ref.CGridRef,
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const out = out_selection orelse return .invalid_value;
 
@@ -215,6 +220,7 @@ pub fn format_buf(
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.formatter) and lib.feature(.selection))) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
 
     if (out_ == null) {
@@ -251,6 +257,7 @@ pub fn format_alloc(
     out_ptr: *?[*]u8,
     out_len: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.formatter) and lib.feature(.selection))) return .unsupported;
     out_ptr.* = null;
     out_len.* = 0;
 
@@ -346,6 +353,7 @@ pub fn adjust(
     selection: ?*CSelection,
     adjustment_: lib.CEnum(Selection.Adjustment),
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const adjustment = lib.enumFromC(Selection.Adjustment, adjustment_) orelse
         return .invalid_value;
 
@@ -362,6 +370,7 @@ pub fn order(
     selection: ?*const CSelection,
     out_order: ?*Selection.Order,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel = (selection orelse return .invalid_value).toZig() orelse
         return .invalid_value;
@@ -377,6 +386,7 @@ pub fn ordered(
     desired_: lib.CEnum(Selection.Order),
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const desired = lib.enumFromC(Selection.Order, desired_) orelse
         return .invalid_value;
 
@@ -395,6 +405,7 @@ pub fn contains(
     pt: point.Point.C,
     out_contains: ?*bool,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel = (selection orelse return .invalid_value).toZig() orelse
         return .invalid_value;
@@ -413,6 +424,7 @@ pub fn equal(
     b: ?*const CSelection,
     out_equal: ?*bool,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.selection)) return .unsupported;
     _ = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel_a = (a orelse return .invalid_value).toZig() orelse
         return .invalid_value;

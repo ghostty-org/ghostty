@@ -96,6 +96,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     result: *Encoder,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(MouseEncoderWrapper) catch
         return .out_of_memory;
@@ -108,6 +112,7 @@ pub fn new(
 }
 
 pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.input_encode)) return;
     const wrapper = encoder_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -118,6 +123,7 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -215,6 +221,7 @@ pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = encoder_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     wrapper.opts.event = t.flags.mouse_event;
@@ -224,6 +231,7 @@ pub fn set_from_terminal(
 }
 
 pub fn reset(encoder_: Encoder) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = encoder_ orelse return .invalid_value;
     wrapper.last_cell = null;
     return .success;
@@ -236,6 +244,7 @@ pub fn encode(
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = encoder_ orelse return .invalid_value;
     const event = event_ orelse return .invalid_value;
 

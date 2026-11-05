@@ -220,10 +220,11 @@ particularly relevant to package maintainers:
   Ghostty app.
 
 - `-Dvt-features`: Leave out optional parts of the library. See
-  [WebAssembly](#webassembly) for how to use it. A library built with
-  fewer features has fewer functions, so programs built against the full
-  library may not work with it. System packages should keep the default,
-  which includes every feature.
+  [WebAssembly](#webassembly) for how to use it. Every function is still
+  exported, so programs link and load against any build, but the
+  functions of a left-out feature return `GHOSTTY_UNSUPPORTED`. Programs
+  built against the full library may therefore lose functionality.
+  System packages should keep the default, which includes every feature.
 
 ## Versioning and ABI
 
@@ -417,9 +418,10 @@ Some notes for packaging the wasm module:
   This roughly halves the compressed module size versus the default
   build. An interactive terminal typically wants
   `-Dvt-features=-all,+render-state,+input-encode,+selection,+color`.
-  Disabled features drop both their C API exports and any escape
-  sequence handling (the sequences are still consumed and safely
-  ignored). See the `Features` struct in `src/terminal/build_options.zig`
+  Disabled features drop their implementation and any escape sequence
+  handling (the sequences are still consumed and safely ignored). Their
+  C API functions stay exported and return `GHOSTTY_UNSUPPORTED`, and
+  programs can check for a feature with `ghostty_build_info`. See the `Features` struct in `src/terminal/build_options.zig`
   for the full list of features and what each one covers.
 
 - `ReleaseSmall` is the recommended optimization mode for the web. Running

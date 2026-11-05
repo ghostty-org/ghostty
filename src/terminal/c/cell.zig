@@ -113,6 +113,7 @@ pub fn get(
     data: CellData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     return switch (data) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -131,6 +132,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 

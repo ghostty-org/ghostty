@@ -267,6 +267,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     result: *RenderState,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        result.* = null;
+        return .unsupported;
+    }
     result.* = new_(alloc_) catch |err| {
         result.* = null;
         return switch (err) {
@@ -286,6 +290,7 @@ fn new_(alloc_: ?*const CAllocator) error{OutOfMemory}!*RenderStateWrapper {
 }
 
 pub fn free(state_: RenderState) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const state = state_ orelse return;
     const alloc = state.alloc;
     state.state.deinit(alloc);
@@ -296,6 +301,7 @@ pub fn update(
     state_: RenderState,
     terminal_: terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
 
@@ -308,6 +314,7 @@ pub fn begin_update(
     state_: RenderState,
     terminal_: terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
 
@@ -319,6 +326,7 @@ pub fn begin_update(
 pub fn end_update(
     state_: RenderState,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     state.state.endUpdate();
     return .success;
@@ -327,6 +335,7 @@ pub fn end_update(
 pub fn clean(
     state_: RenderState,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     state.state.clean();
     return .success;
@@ -337,6 +346,7 @@ pub fn get(
     data: Data,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     return getDispatch(state, data, out);
 }
@@ -348,6 +358,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -467,6 +478,7 @@ pub fn set(
     option: SetOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -554,6 +566,10 @@ pub fn row_iterator_new(
     alloc_: ?*const CAllocator,
     result: *RowIterator,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(RowIteratorWrapper) catch {
         result.* = null;
@@ -577,12 +593,14 @@ pub fn row_iterator_new(
 }
 
 pub fn row_iterator_free(iterator_: RowIterator) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const iterator = iterator_ orelse return;
     const alloc = iterator.alloc;
     alloc.destroy(iterator);
 }
 
 pub fn row_iterator_next(iterator_: RowIterator) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const it = iterator_ orelse return false;
     // The none sentinel wraps to zero.
     const next_y = it.y +% 1;
@@ -595,6 +613,7 @@ pub fn row_iterator_next_dirty(
     iterator_: RowIterator,
     out_y: ?*size.CellCountInt,
 ) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const it = iterator_ orelse return false;
     const y_out = out_y orelse return false;
 
@@ -625,6 +644,10 @@ pub fn row_cells_new(
     alloc_: ?*const CAllocator,
     result: *RowCells,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(RowCellsWrapper) catch {
         result.* = null;
@@ -644,6 +667,7 @@ pub fn row_cells_new(
 }
 
 pub fn row_cells_next(cells_: RowCells) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const cells = cells_ orelse return false;
     // The none sentinel wraps to zero.
     const next_x = cells.x +% 1;
@@ -653,6 +677,7 @@ pub fn row_cells_next(cells_: RowCells) callconv(lib.calling_conv) bool {
 }
 
 pub fn row_cells_select(cells_: RowCells, x: size.CellCountInt) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const cells = cells_ orelse return .invalid_value;
     if (x >= cells.raws.len) return .invalid_value;
     cells.x = x;
@@ -660,6 +685,7 @@ pub fn row_cells_select(cells_: RowCells, x: size.CellCountInt) callconv(lib.cal
 }
 
 pub fn row_cells_free(cells_: RowCells) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const cells = cells_ orelse return;
     const alloc = cells.alloc;
     alloc.destroy(cells);
@@ -701,6 +727,7 @@ pub fn row_cells_get(
     data: RowCellsData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const cells = cells_ orelse return .invalid_value;
     const x = cells.x;
     if (x >= cells.raws.len) return .invalid_value;
@@ -714,6 +741,7 @@ pub fn row_cells_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -950,6 +978,7 @@ pub fn row_get(
     data: RowData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const it = iterator_ orelse return .invalid_value;
     const y = it.y;
     if (y >= it.raws.len) return .invalid_value;
@@ -963,6 +992,7 @@ pub fn row_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -1057,6 +1087,7 @@ pub fn row_set(
     option: RowOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -1149,6 +1180,10 @@ pub fn image_iterator_new(
     alloc_: ?*const CAllocator,
     result: *ImageIterator,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(ImageIteratorWrapper) catch {
         result.* = null;
@@ -1166,6 +1201,7 @@ pub fn image_iterator_new(
 pub fn image_iterator_free(
     iterator_: ImageIterator,
 ) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const iterator = iterator_ orelse return;
     const alloc = iterator.alloc;
     alloc.destroy(iterator);
@@ -1174,6 +1210,7 @@ pub fn image_iterator_free(
 pub fn image_iterator_next(
     iterator_: ImageIterator,
 ) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const it = iterator_ orelse return false;
     it.current = it.inner.next();
     return it.current != null;
@@ -1184,6 +1221,7 @@ pub fn image_get(
     data: ImageData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     return switch (data) {
         _ => .unsupported,
         .invalid => .invalid_value,
@@ -1202,6 +1240,7 @@ pub fn image_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 

@@ -27,6 +27,15 @@ pub const BuildInfo = enum(c_int) {
     version_patch = 8,
     version_pre = 9,
     version_build = 10,
+    feature_snapshot = 11,
+    feature_formatter = 12,
+    feature_selection = 13,
+    feature_search = 14,
+    feature_render_state = 15,
+    feature_input_encode = 16,
+    feature_color = 17,
+    feature_grid_introspection = 18,
+    feature_glyph_protocol = 19,
 
     _,
 
@@ -34,7 +43,19 @@ pub const BuildInfo = enum(c_int) {
     pub fn OutType(comptime self: BuildInfo) type {
         return switch (self) {
             .invalid => void,
-            .simd, .kitty_graphics, .tmux_control_mode => bool,
+            .simd,
+            .kitty_graphics,
+            .tmux_control_mode,
+            .feature_snapshot,
+            .feature_formatter,
+            .feature_selection,
+            .feature_search,
+            .feature_render_state,
+            .feature_input_encode,
+            .feature_color,
+            .feature_grid_introspection,
+            .feature_glyph_protocol,
+            => bool,
             .optimize => OptimizeMode,
             .version_string, .version_pre, .version_build => lib.String,
             .version_major, .version_minor, .version_patch => usize,
@@ -102,6 +123,15 @@ fn getTyped(
                 out.* = .{ .ptr = "", .len = 0 };
             }
         },
+        .feature_snapshot => out.* = lib.feature(.snapshot),
+        .feature_formatter => out.* = lib.feature(.formatter),
+        .feature_selection => out.* = lib.feature(.selection),
+        .feature_search => out.* = lib.feature(.search),
+        .feature_render_state => out.* = lib.feature(.render_state),
+        .feature_input_encode => out.* = lib.feature(.input_encode),
+        .feature_color => out.* = lib.feature(.color),
+        .feature_grid_introspection => out.* = lib.feature(.grid_introspection),
+        .feature_glyph_protocol => out.* = lib.feature(.glyph_protocol),
         _ => comptime unreachable,
     }
 
@@ -120,6 +150,26 @@ test "get kitty_graphics" {
     var value: bool = undefined;
     try testing.expectEqual(Result.success, get(.kitty_graphics, @ptrCast(&value)));
     try testing.expectEqual(build_options.kitty_graphics, value);
+}
+
+test "get feature keys" {
+    const testing = std.testing;
+    inline for (.{
+        .{ BuildInfo.feature_snapshot, build_options.snapshot },
+        .{ BuildInfo.feature_formatter, build_options.formatter },
+        .{ BuildInfo.feature_selection, build_options.selection },
+        .{ BuildInfo.feature_search, build_options.search },
+        .{ BuildInfo.feature_render_state, build_options.render_state },
+        .{ BuildInfo.feature_input_encode, build_options.input_encode },
+        .{ BuildInfo.feature_color, build_options.color },
+        .{ BuildInfo.feature_grid_introspection, build_options.grid_introspection },
+        .{ BuildInfo.feature_glyph_protocol, build_options.glyph_protocol },
+        .{ BuildInfo.kitty_graphics, build_options.kitty_graphics },
+    }) |case| {
+        var value: bool = !case[1];
+        try testing.expectEqual(Result.success, get(case[0], @ptrCast(&value)));
+        try testing.expectEqual(case[1], value);
+    }
 }
 
 test "get tmux_control_mode" {

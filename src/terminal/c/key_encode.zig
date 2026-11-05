@@ -26,6 +26,10 @@ pub fn new(
     alloc_: ?*const CAllocator,
     result: *Encoder,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) {
+        result.* = null;
+        return .unsupported;
+    }
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(KeyEncoderWrapper) catch
         return .out_of_memory;
@@ -38,6 +42,7 @@ pub fn new(
 }
 
 pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.input_encode)) return;
     const wrapper = encoder_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -83,6 +88,7 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     return switch (option) {
         .invalid => .invalid_value,
         _ => .unsupported,
@@ -132,6 +138,7 @@ pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = encoder_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     wrapper.opts = .fromTerminal(t);
@@ -145,6 +152,7 @@ pub fn encode(
     out_len: usize,
     out_written: *usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     // Attempt to write to this buffer
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     key_encode.encode(

@@ -12,6 +12,26 @@ pub const target: lib.Target = if (build_options.c_abi) .c else .zig;
 /// make that possible (change it and see for yourself).
 pub const calling_conv: std.lang.CallingConvention = .c;
 
+/// An optional libghostty-vt feature. See `Options.Features`.
+pub const Feature = std.meta.FieldEnum(@import("build_options.zig").Options.Features);
+
+/// Whether feature `f` is compiled into this build.
+///
+/// Every C API function that belongs to a feature checks this as its
+/// first statement. When the feature is off, the function returns right
+/// away, usually with `.unsupported`:
+///
+/// ```zig
+/// if (comptime !lib.feature(.snapshot)) return .unsupported;
+/// ```
+///
+/// Keep the check `comptime`. Then the compiler skips the rest of the
+/// function body when the feature is off, so the body may use code that
+/// only exists in builds with the feature.
+pub inline fn feature(comptime f: Feature) bool {
+    return @field(build_options, @tagName(f));
+}
+
 /// Forwarded decls from lib that are used.
 pub const alloc = lib.allocator;
 pub const TinyIo = lib.TinyIo;
