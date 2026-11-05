@@ -13,10 +13,41 @@ struct InspectorAgentHistoryListTests {
         let shortRow = InspectorAgentHistoryListRow.session(short, snippet: nil)
         let longRow = InspectorAgentHistoryListRow.session(long, snippet: nil)
         #expect(shortRow.height(for: 320) < longRow.height(for: 320))
-        #expect(shortRow.height(for: 320) < 72)
-        #expect(longRow.height(for: 320) <= 84)
+        #expect(shortRow.height(for: 320) < 90)
+        #expect(longRow.height(for: 320) <= 101)
         #expect(longRow.height(for: 200) >= longRow.height(for: 500))
     }
+    @Test func sessionIDClickCopiesTheAgentsResumeCommandAndNeverOpensTheSession() throws {
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let id = try #require(AgentConversationID("10000000-0000-4000-8000-000000000055"))
+        for (agent, command) in [
+            (SupportedAgent.codex, "codex resume \(id.rawValue)"),
+            (.claude, "claude --resume \(id.rawValue)"),
+            (.pi, "pi --session \(id.rawValue)"),
+            (.omp, "omp --resume=\(id.rawValue)"),
+        ] {
+            let entry = AgentHistorySession(agent: agent, conversationID: id, title: "Session",
+                                           workingDirectory: "/project", updatedAt: Date(),
+                                           sourcePath: "/tmp/session.jsonl", isActive: false)
+            #expect(entry.resumeCommand == command)
+            let cell = InspectorAgentSessionCell()
+            cell.pasteboard = board
+            var opened = false
+            cell.onActivate = { opened = true }
+            cell.configure(.session(entry, snippet: nil), query: "", strings: .init(language: .english))
+            let button = try #require(cell.subviews.compactMap { $0 as? NSButton }.first)
+            #expect(button.title == id.rawValue)
+            #expect(button.toolTip?.contains(command) == true)
+            button.performClick(nil)
+            #expect(board.string(forType: .string) == command)
+            #expect(!opened)
+            cell.configure(.group(id: "group", title: "Group", count: 1, collapsed: false),
+                           query: "", strings: .init(language: .english))
+            #expect(button.isHidden)
+        }
+    }
+
     @Test func vectorAgentLogosFillTheirNativeSlotsInBothAppearances() throws {
         let agents: [SupportedAgent] = [.codex, .pi, .claude]
         let sessions = try agents.enumerated().map { index, agent in

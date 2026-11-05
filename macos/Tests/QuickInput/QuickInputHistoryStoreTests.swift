@@ -8,6 +8,54 @@ import Testing
 struct QuickInputHistoryStoreTests {
     private static var retainedHostingWindows: [NSWindow] = []
 
+    @Test func queueHistorySurvivesEditsCancellationAndPersistenceWithoutDuplicateSends() throws {
+        let file = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = QuickInputHistoryStore(fileURL: file)
+        let model = AgentQuickInputModel(historyStore: store)
+        let pane = UUID()
+        model.present(for: pane)
+        model.draft = "queued text"
+        let first = try #require(model.enqueueDraft())
+        #expect(store.entries.first?.deliveryState == .queued)
+        model.editQueuedItem(first.id, for: pane)
+        model.draft = "edited queued text"
+        #expect(model.confirmQueuedItemEdit(moveToEnd: false))
+        #expect(store.entries.count == 1)
+        #expect(store.entries.first?.text == "edited queued text")
+        model.recordSentText("edited queued text", for: pane, historyID: first.id)
+        model.removeQueuedItem(first.id, for: pane)
+        #expect(store.entries.count == 1)
+        #expect(store.entries.first?.id == first.id)
+        #expect(store.entries.first?.deliveryState == .sent)
+        model.draft = "cancelled text"
+        let cancelled = try #require(model.enqueueDraft())
+        model.removeQueuedItem(cancelled.id, for: pane)
+        #expect(store.entries.last?.deliveryState == .cancelled)
+        store.flushPendingWrites()
+        let restored = QuickInputHistoryStore(fileURL: file)
+        #expect(restored.entries == store.entries)
+        #expect(restored.visibleEntries(paneID: pane, tabID: model.historyTabID, scope: .pane).count == 2)
+        model.draft = "waiting at quit"
+        let pending = try #require(model.enqueueDraft())
+        store.flushPendingWrites()
+        let relaunched = QuickInputHistoryStore(fileURL: file)
+        #expect(relaunched.entries.first(where: { $0.id == pending.id })?.deliveryState == .cancelled)
+        #expect(relaunched.entries.first(where: { $0.id == pending.id })?.text == "waiting at quit")
+    }
+
+    @Test func oldSentHistoryWithoutDeliveryStateStillLoads() throws {
+        let file = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let entry = QuickInputHistoryEntry(id: UUID(), paneID: UUID(), tabID: UUID(), text: "older sent message", sentAt: Date())
+        let encoded = try JSONEncoder().encode(entry)
+        let object = try JSONSerialization.jsonObject(with: encoded)
+        try JSONSerialization.data(withJSONObject: ["version": 1, "entries": [object]]).write(to: file)
+        let restored = QuickInputHistoryStore(fileURL: file)
+        #expect(restored.entries.first?.delivery == nil)
+        #expect(restored.entries.first?.deliveryState == .sent)
+    }
+
     private func temporaryFile() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -59,8 +107,15 @@ struct QuickInputHistoryStoreTests {
         let expandedHeight = hosting.fittingSize.height
         #expect(hosting.fittingSize.width == 400)
         #expect(compactHeight < expandedHeight)
-        #expect(expandedHeight > 480)
-        #expect(expandedHeight < 600)
+        #expect(expandedHeight == 86 + QuickInputHistoryLayout.maximumListHeight)
+        store.clear()
+        store.record("Back to two rows", paneID: pane, tabID: tab)
+        store.record("Another short prompt", paneID: pane, tabID: tab)
+        hosting.layoutSubtreeIfNeeded()
+        hosting.display()
+        try await Task.sleep(for: .milliseconds(100))
+        hosting.layoutSubtreeIfNeeded()
+        #expect(hosting.fittingSize.height == twoRowHeight, "The popup must shrink again after a large history.")
         // Keep an offscreen rendering for human layout review, without showing
         // a window, taking focus, or touching the installed release app.
         let previouslySelected = model.historyPresentation.selectedID

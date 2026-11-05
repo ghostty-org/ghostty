@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 enum QuickInputHistoryLayout {
+    static let minimumListHeight: CGFloat = 48
+    static let maximumListHeight: CGFloat = 360
     static func rowHeight(_ entry: QuickInputHistoryEntry) -> CGFloat {
         let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let paragraph = NSMutableParagraphStyle()
@@ -20,11 +22,14 @@ enum QuickInputHistoryLayout {
         var height: CGFloat = 0
         for entry in entries {
             height += rowHeight(entry)
-            if height >= 480 { return 480 }
+            if height >= maximumListHeight { return maximumListHeight }
         }
-        return max(height, 40)
+        return max(height, minimumListHeight)
     }
 
+    static func popoverHeight(_ entries: [QuickInputHistoryEntry], searching: Bool, storageError: Bool) -> CGFloat {
+        48 + listHeight(entries) + 38 + (searching ? 42 : 0) + (storageError ? 26 : 0)
+    }
 }
 
 struct QuickInputHistoryView: View {
@@ -53,8 +58,9 @@ struct QuickInputHistoryView: View {
         let matches = entries
         QuickInputHistoryNativeView(model: model, store: store, settings: settings,
                                     presentation: presentation, entries: matches, onSelect: onSelect)
-            .frame(width: 400, height: 48 + QuickInputHistoryLayout.listHeight(matches) + 38
-                   + (presentation.isSearching ? 42 : 0) + (store.storageError != nil ? 26 : 0))
+            .frame(width: 400, height: QuickInputHistoryLayout.popoverHeight(
+                matches, searching: presentation.isSearching, storageError: store.storageError != nil))
+            .fixedSize()
             .onAppear {
                 store.pruneExpired()
                 presentation.reconcile(entries: entries)
@@ -169,6 +175,9 @@ final class QuickInputHistoryController: NSViewController, NSTableViewDataSource
     func update(_ next: QuickInputHistoryNativeView) {
         _ = view
         snapshot = next
+        preferredContentSize = NSSize(width: 400, height: QuickInputHistoryLayout.popoverHeight(
+            next.entries, searching: next.presentation.isSearching, storageError: next.store.storageError != nil))
+        root.contentSize = preferredContentSize
         let strings = SettingsStrings(language: next.settings.language)
         let languageChanged = languageCode != strings.languageCode
         languageCode = strings.languageCode
@@ -306,7 +315,14 @@ final class QuickInputHistoryController: NSViewController, NSTableViewDataSource
             ?? QuickInputHistoryCell()
         cell.identifier = identifier
         let entry = entries[row]
-        cell.configure(entry, date: dateFormatter.string(from: entry.sentAt))
+        let strings = SettingsStrings(language: snapshot?.settings.language ?? .system)
+        let delivery: String
+        switch entry.deliveryState {
+        case .sent: delivery = strings.t("Sent", "已发送")
+        case .queued: delivery = strings.t("Queued", "排队中")
+        case .cancelled: delivery = strings.t("Cancelled", "已取消")
+        }
+        cell.configure(entry, date: dateFormatter.string(from: entry.sentAt) + " · " + delivery)
         cell.onChoose = { [weak self] in
             self?.snapshot?.presentation.select(entry.id)
             self?.snapshot?.onSelect(entry.text)
@@ -316,6 +332,10 @@ final class QuickInputHistoryController: NSViewController, NSTableViewDataSource
 }
 
 private final class QuickInputHistoryContainer: NSView {
+    var contentSize = NSSize(width: 400, height: 166) {
+        didSet { if oldValue != contentSize { invalidateIntrinsicContentSize() } }
+    }
+    override var intrinsicContentSize: NSSize { contentSize }
     var onLayout: (() -> Void)?
     override var isFlipped: Bool { true }
     override func layout() { super.layout(); onLayout?() }

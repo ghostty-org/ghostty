@@ -102,21 +102,28 @@ def main(arguments):
     metadata = read_json(directory / "session.json")
     if metadata.get("protocol") != 1:
         raise ValueError("Unsupported OMG remote protocol")
-    if command == "draft-begin":
+    if command in ("draft-begin", "draft-replace"):
         identifier = str(uuid.UUID(rest[0])).upper()
         # Bind requests to the live SSH pane's TTY, not merely its host.
         if metadata["tty"] != rest[1]:
             raise ValueError("Remote session TTY changed")
         if len(rest) > 2 and metadata.get("runtime_generation") != rest[2]:
             raise ValueError("Remote session generation changed")
+        if command == "draft-replace":
+            replacement = sys.stdin.buffer.read(LIMIT + 1)
+            validate(replacement)
+            write_private(directory / (identifier + ".replacement"), replacement)
         write_private(directory / "request.json", json.dumps({
             "id": identifier, "expires": time.time() + 8,
             "generation": metadata.get("runtime_generation"),
+            "action": "replace" if command == "draft-replace" else "import",
         }).encode())
         print("OMG_REMOTE_READY_V1")
     elif command == "draft-read":
         identifier = str(uuid.UUID(rest[0])).upper()
         request = read_json(directory / "request.json")
+        if request.get("id") != identifier:
+            raise ValueError("Remote draft request changed")
         if request.get("generation") != metadata.get("runtime_generation"):
             raise ValueError("Remote session generation changed")
         response = directory / (identifier + ".response")
@@ -140,6 +147,7 @@ def main(arguments):
         except FileNotFoundError:
             pass
         (directory / (identifier + ".response")).unlink(missing_ok=True)
+        (directory / (identifier + ".replacement")).unlink(missing_ok=True)
     elif command == "editor":
         try:
             request = read_json(directory / "request.json")
@@ -152,9 +160,13 @@ def main(arguments):
                                  "omg-editor", *rest])
         if len(rest) != 1:
             raise ValueError("Expected one editor file")
-        with open(rest[0], "rb") as stream:
+        replacing = request.get("action") == "replace"
+        source = directory / (identifier + ".replacement") if replacing else Path(rest[0])
+        with source.open("rb") as stream:
             data = stream.read(LIMIT + 1)
         validate(data)
+        if replacing:
+            write_private(Path(rest[0]), data)
         write_private(directory / (identifier + ".response"), data)
     else:
         raise ValueError("Unknown OMG remote command")

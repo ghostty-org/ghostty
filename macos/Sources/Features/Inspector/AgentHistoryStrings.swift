@@ -49,6 +49,7 @@ struct AgentHistoryStrings: Equatable, Sendable {
     var today: String { t("Today", "今天") }
     var yesterday: String { t("Yesterday", "昨天") }
     var copyMessage: String { t("Copy Message", "复制内容") }
+    var copyResumeCommand: String { t("Copy Resume Command", "复制恢复命令") }
     var copied: String { t("Copied", "已复制") }
     var forkSession: String { t("Fork in New Tab", "分叉到新标签页") }
     var noSessions: String { t("No Agent Sessions", "暂无 Agent 会话") }

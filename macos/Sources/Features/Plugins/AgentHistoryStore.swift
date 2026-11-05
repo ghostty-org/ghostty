@@ -15,6 +15,20 @@ struct AgentHistorySession: Identifiable, Equatable, Codable, Sendable {
     var previewSnippet: String?
 
     var id: String { "\(agent.rawValue):\(conversationID.rawValue)" }
+
+    /// Use the host's verified CLI syntax, without inventing launch flags that
+    /// were not recorded with this session.
+    var resumeCommand: String? {
+        let arguments = agent == .pi ? ["--session", "{id}"] : agent.definition.resume.resumeArguments
+        guard arguments.contains(where: { $0.contains("{id}") }) else { return nil }
+        let argv = [agent.definition.command] + arguments.map {
+            $0.replacingOccurrences(of: "{id}", with: conversationID.rawValue)
+        }
+        return argv.map { value in
+            value.range(of: "^[A-Za-z0-9_./:@+-]+$", options: .regularExpression) != nil
+                ? value : Ghostty.Shell.quote(value)
+        }.joined(separator: " ")
+    }
 }
 
 enum AgentHistoryMessageRole: String, Equatable, Sendable {

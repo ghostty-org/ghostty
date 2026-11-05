@@ -72,7 +72,7 @@ struct AgentQuickInputTests {
         model.recordSentText(" \n", for: surfaceID)
         model.draft = "not yet sent"
         _ = model.enqueueDraft()
-        #expect(model.targetHistory.isEmpty)
+        #expect(model.targetHistory == ["not yet sent"])
         for index in 0..<60 { model.recordSentText("message \(index)", for: surfaceID) }
         model.recordSentText("message 59", for: surfaceID)
         #expect(model.targetHistory.count == AgentQuickInputModel.historyLimit)

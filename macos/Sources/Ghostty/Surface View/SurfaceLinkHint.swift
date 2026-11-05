@@ -13,6 +13,7 @@ struct SurfaceLinkHint: View {
     var body: some View {
         GeometryReader { geo in
             if surfaceView.isHoveringLink,
+               surfaceView.linkHintCommandPressed,
                surfaceView.mouseOverSurface,
                let location = surfaceView.mouseLocationInSurface {
                 chip

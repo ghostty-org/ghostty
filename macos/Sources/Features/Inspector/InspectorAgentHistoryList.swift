@@ -23,7 +23,7 @@ enum InspectorAgentHistoryListRow: Equatable {
         case .more: return 38
         case let .session(session, snippet):
             let titleHeight = Self.titleHeight(session.title, width: width, active: session.isActive)
-            return 8 + titleHeight + 3 + 14 +
+            return 8 + titleHeight + 3 + 14 + 17 +
                 (snippet != nil ? 30 : session.workingDirectory != nil ? 17 : 0) + 9
         }
     }
@@ -216,7 +216,20 @@ final class InspectorAgentHistoryListController: NSViewController, NSTableViewDa
             fork.representedObject = MenuAction(action: .forkAgentHistorySession(id: session.id), perform: snapshot.perform)
             menu.addItem(fork)
         }
+        if let command = session.resumeCommand {
+            let copy = NSMenuItem(title: snapshot.strings.copyResumeCommand,
+                                  action: #selector(copyResumeCommand(_:)), keyEquivalent: "")
+            copy.target = self
+            copy.representedObject = command
+            menu.addItem(.separator())
+            menu.addItem(copy)
+        }
         return menu
+    }
+
+    @objc private func copyResumeCommand(_ sender: NSMenuItem) {
+        guard let command = sender.representedObject as? String else { return }
+        InspectorCopyMenu.copy(command, to: .general)
     }
 
     @objc private func resumeSession(_ sender: NSMenuItem) {
@@ -288,18 +301,31 @@ private final class InspectorAgentSessionTable: NSTableView {
     }
 }
 
-private final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
+final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
     private let icon = NSImageView()
     private let heading = NSTextField(wrappingLabelWithString: "")
     private let metadata = NSTextField(labelWithString: "")
     private let detail = NSTextField(wrappingLabelWithString: "")
     private let status = NSTextField(labelWithString: "")
+    private let sessionID = NSButton()
+    private var resumeCommand: String?
+    var pasteboard = NSPasteboard.general
     private var isSession = false
     var onActivate: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        [icon, heading, metadata, detail, status].forEach(addSubview)
+        [icon, heading, metadata, detail, status, sessionID].forEach(addSubview)
+        sessionID.isBordered = false
+        sessionID.alignment = .left
+        sessionID.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        sessionID.lineBreakMode = .byTruncatingMiddle
+        sessionID.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        sessionID.imagePosition = .imageTrailing
+        sessionID.imageScaling = .scaleProportionallyDown
+        sessionID.contentTintColor = .secondaryLabelColor
+        sessionID.target = self
+        sessionID.action = #selector(copySessionCommand)
         // Vector catalog assets can have a tiny intrinsic size (for example 1em).
         // Match SwiftUI's former resizable/fit behavior, including upscaling.
         icon.imageScaling = .scaleProportionallyUpOrDown
@@ -319,11 +345,18 @@ private final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeAp
     override var isFlipped: Bool { true }
     override func accessibilityPerformPress() -> Bool { onActivate?(); return onActivate != nil }
 
+    @objc private func copySessionCommand() {
+        guard let resumeCommand else { return }
+        InspectorCopyMenu.copy(resumeCommand, to: pasteboard)
+        sessionID.setAccessibilityValue(AgentHistoryStrings.current.copied)
+    }
+
     func applyTheme(_ theme: OMGNativeTheme) {
         let title = NSMutableAttributedString(attributedString: heading.attributedStringValue)
         title.addAttribute(.foregroundColor, value: theme.foreground, range: NSRange(location: 0, length: title.length))
         heading.attributedStringValue = title
         metadata.textColor = theme.secondary
+        sessionID.contentTintColor = theme.secondary
         detail.textColor = theme.foreground.withAlphaComponent(0.42)
         if icon.image?.isTemplate == true { icon.contentTintColor = theme.foreground }
     }
@@ -342,8 +375,9 @@ private final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeAp
             heading.frame = NSRect(x: 41, y: 8, width: max(0, bounds.width - 53 - (status.isHidden ? 0 : 36)), height: titleHeight)
             status.frame = NSRect(x: bounds.width - 47, y: 8, width: 35, height: 15)
             metadata.frame = NSRect(x: 41, y: heading.frame.maxY + 3, width: max(0, bounds.width - 53), height: 14)
-            detail.frame = NSRect(x: 41, y: metadata.frame.maxY + 3, width: max(0, bounds.width - 53),
-                                  height: max(0, bounds.height - metadata.frame.maxY - 9))
+            sessionID.frame = NSRect(x: 41, y: metadata.frame.maxY + 2, width: max(0, bounds.width - 53), height: 15)
+            detail.frame = NSRect(x: 41, y: sessionID.frame.maxY + 3, width: max(0, bounds.width - 53),
+                                  height: max(0, bounds.height - sessionID.frame.maxY - 9))
         } else {
             icon.frame = NSRect(x: 12, y: 8, width: 10, height: 12)
             heading.frame = NSRect(x: 28, y: 6, width: max(0, bounds.width - 72), height: bounds.height - 10)
@@ -354,6 +388,8 @@ private final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeAp
     func configure(_ row: InspectorAgentHistoryListRow, query: String, strings: AgentHistoryStrings) {
         status.isHidden = true
         detail.isHidden = true
+        sessionID.isHidden = true
+        resumeCommand = nil
         metadata.isHidden = false
         heading.font = .systemFont(ofSize: 12.5, weight: .medium)
         switch row {
@@ -365,6 +401,13 @@ private final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeAp
             metadata.stringValue = "\(session.agent.displayName) · \(strings.relativeTime(from: session.updatedAt))"
             status.stringValue = strings.live
             status.isHidden = !session.isActive
+            resumeCommand = session.resumeCommand
+            sessionID.title = session.conversationID.rawValue
+            sessionID.isHidden = false
+            sessionID.isEnabled = resumeCommand != nil
+            sessionID.toolTip = resumeCommand.map { strings.copyResumeCommand + "\n" + $0 }
+            sessionID.setAccessibilityLabel(strings.copyResumeCommand + ": " + session.conversationID.rawValue)
+            sessionID.setAccessibilityValue("")
             if let snippet {
                 detail.attributedStringValue = highlighted(snippet, query: query, size: 10, color: .secondaryLabelColor)
                 detail.isHidden = false

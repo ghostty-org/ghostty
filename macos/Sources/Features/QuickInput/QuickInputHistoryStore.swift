@@ -12,12 +12,22 @@ enum QuickInputHistoryScope: String, CaseIterable, Codable {
     case global
 }
 
+enum QuickInputHistoryDelivery: String, Codable {
+    case queued
+    case sent
+    case cancelled
+}
+
 struct QuickInputHistoryEntry: Identifiable, Codable, Equatable {
     let id: UUID
     let paneID: UUID
     var tabID: UUID
     let text: String
     let sentAt: Date
+    // Missing in version-1 archives written before queue history was added.
+    var delivery: QuickInputHistoryDelivery?
+
+    var deliveryState: QuickInputHistoryDelivery { delivery ?? .sent }
 }
 
 @MainActor
@@ -80,7 +90,13 @@ final class QuickInputHistoryStore: ObservableObject {
                 guard size <= maximumArchiveBytes else { throw HistoryStorageError.invalidArchive }
                 let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: fileURL))
                 guard archive.version == 1 else { throw HistoryStorageError.invalidArchive }
-                entries = bounded(archive.entries)
+                entries = bounded(archive.entries.map { entry in
+                    var entry = entry
+                    // Queues are in-memory pane state. A restored history item
+                    // must not claim it is still waiting in a vanished queue.
+                    if entry.deliveryState == .queued { entry.delivery = .cancelled }
+                    return entry
+                })
             } catch {
                 reportStorageError(error)
                 // Do not destroy an unreadable archive just by launching.
@@ -101,15 +117,26 @@ final class QuickInputHistoryStore: ObservableObject {
         persistSnapshot()
     }
 
-    func record(_ text: String, paneID: UUID, tabID: UUID) {
+    func record(_ text: String, paneID: UUID, tabID: UUID, id: UUID? = nil,
+                delivery: QuickInputHistoryDelivery = .sent) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               text.utf8.count <= Self.maximumEntryBytes else { return }
         var updated = entries
-        if let last = updated.lastIndex(where: { $0.paneID == paneID }), updated[last].text == text {
+        if let id {
+            updated.removeAll { $0.id == id }
+        } else if let last = updated.lastIndex(where: { $0.paneID == paneID && $0.deliveryState == .sent }),
+                  updated[last].text == text {
             updated.remove(at: last)
         }
-        updated.append(.init(id: UUID(), paneID: paneID, tabID: tabID, text: text, sentAt: now()))
+        updated.append(.init(id: id ?? UUID(), paneID: paneID, tabID: tabID, text: text,
+                             sentAt: now(), delivery: delivery))
         entries = bounded(updated)
+        persistSnapshot()
+    }
+
+    func cancelQueuedEntry(_ id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id && $0.deliveryState == .queued }) else { return }
+        entries[index].delivery = .cancelled
         persistSnapshot()
     }
 

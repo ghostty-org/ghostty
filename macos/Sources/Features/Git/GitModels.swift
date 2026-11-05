@@ -10,7 +10,7 @@ struct GitCommitID: Hashable, Sendable, Equatable, CustomStringConvertible {
     var description: String { rawValue }
 
     var shortSHA: String {
-        String(rawValue.prefix(7))
+        String(rawValue.prefix(8))
     }
 }
 

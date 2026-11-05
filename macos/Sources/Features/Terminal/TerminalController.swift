@@ -524,7 +524,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
               quickInputModel.isPresented, quickInputModel.targetSurfaceID == surfaceID,
               let surface = surfaceTree.first(where: { $0.id == surfaceID }) else { return }
         quickInputPendingDraftSurfaceID = nil
-        guard quickInputDraftImportTask == nil else { return }
+        guard quickInputDraftImportTask == nil, quickInputSubmissionTasks[surfaceID] == nil else { return }
         let currentContext = paneSessionContext(for: surface)
         let sshConnecting: Bool
         if case .sshConnecting? = currentContext?.state {
@@ -566,6 +566,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
               let request = try? QuickInputDraftBridge.shared.begin(surfaceID: surface.id) else {
             return
         }
+        let importForegroundPID = terminal.foregroundPID
         let snapshot = QuickInputTerminalSnapshot(surface: surface, maximumDuration: .milliseconds(150))
         quickInputDraftImportTask = Task { @MainActor [weak self, weak surface] in
             defer {
@@ -581,8 +582,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                           self.quickInputModel.targetSurfaceID == surface.id,
                           self.surfaceTree.first(where: { $0.id == surface.id }) != nil else { return }
                     if let text = try QuickInputDraftBridge.shared.receive(request) {
-                        guard !SecureInput.shared.enabled else { return }
-                        self.quickInputModel.importAgentDraft(text)
+                        guard !SecureInput.shared.enabled, terminal.foregroundPID == importForegroundPID else { return }
+                        self.quickInputModel.importAgentDraft(
+                            text, shortcut: QuickInputDraftBridge.shortcut(setting: setting, agent: agent),
+                            processID: importForegroundPID)
                         self.quickInputModel.setStatusMessage(SettingsStrings(language: OhMyGhosttySettings.shared.language).quickInputDraftImported)
                         return
                     }
@@ -620,13 +623,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 return
             }
             if !quickInputModel.isPinned { restoreTerminalFocus(surfaceID: surfaceID) }
+            dispatchNextQuickInput(for: surfaceID)
             return
         }
         let text = quickInputModel.draft
-        guard submitQuickInputText(text, to: surfaceID, restoreFocus: !quickInputModel.isPinned) else {
-            return
+        submitQuickInputText(text, to: surfaceID, restoreFocus: !quickInputModel.isPinned) { [weak self] in
+            self?.quickInputModel.completeSubmittedDraft(text, for: surfaceID)
         }
-        quickInputModel.completeSubmission(clearDraft: true)
     }
 
     func queueQuickInputDraft() {
@@ -636,6 +639,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 return
             }
             if !quickInputModel.isPinned { restoreTerminalFocus(surfaceID: surfaceID) }
+            dispatchNextQuickInput(for: surfaceID)
             return
         }
         guard quickInputModel.enqueueDraft() != nil else { return }
@@ -664,19 +668,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     func sendQueuedQuickInput(_ itemID: UUID, from surfaceID: UUID) {
-        guard let item = quickInputModel.state(for: surfaceID)?.queue
-            .first(where: { $0.id == itemID }),
-              submitQuickInputText(item.text, to: surfaceID, restoreFocus: false) else {
-            return
+        guard quickInputModel.targetSurfaceID != surfaceID || quickInputModel.editingQueueItemID != itemID else { return }
+        guard let item = quickInputModel.state(for: surfaceID)?.queue.first(where: { $0.id == itemID }) else { return }
+        submitQuickInputText(item.text, to: surfaceID, restoreFocus: false, historyID: item.id) { [weak self] in
+            guard self?.quickInputModel.state(for: surfaceID)?.queue.contains(item) == true else { return }
+            self?.quickInputModel.removeQueuedItem(itemID, for: surfaceID)
         }
-        quickInputModel.removeQueuedItem(itemID, for: surfaceID)
     }
 
     func editQueuedQuickInput(_ itemID: UUID, from surfaceID: UUID) {
+        guard quickInputSubmissionTasks[surfaceID] == nil else { return }
         quickInputModel.editQueuedItem(itemID, for: surfaceID)
     }
 
     func removeQueuedQuickInput(_ itemID: UUID, from surfaceID: UUID) {
+        guard quickInputSubmissionTasks[surfaceID] == nil else { return }
         quickInputModel.removeQueuedItem(itemID, for: surfaceID)
     }
 
@@ -788,13 +794,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private func submitQuickInputText(
         _ text: String,
         to surfaceID: UUID,
-        restoreFocus: Bool
+        restoreFocus: Bool,
+        historyID: UUID? = nil,
+        completion: @escaping () -> Void = {}
     ) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             quickInputModel.setStatusMessage("Enter a message first.")
             return false
         }
-        guard text.utf8.count <= PluginProtocolContract.maximumFrameLength else {
+        guard text.utf8.count <= PluginProtocolContract.maximumFrameLength, !text.contains("\0") else {
             quickInputModel.setStatusMessage("Message exceeds the 1 MiB limit.")
             return false
         }
@@ -808,13 +816,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             quickInputModel.removeState(for: surfaceID)
             return false
         }
+        guard !surface.readonly, !surface.processExited,
+              quickInputModel.state(for: surfaceID)?.agentDraftProcessID == nil || terminal.foregroundPID != nil,
+              surface.runtimeDescriptor == nil || surface.runtimeConnectionState == .ready,
+              surface.runtimeInlineSession == nil || surface.runtimeInlineSession?.isRunningInThisBoot == true else {
+            quickInputModel.setStatusMessage("The target terminal is not ready. The message is retained.")
+            return false
+        }
 
         guard quickInputDraftImportTask == nil else {
             quickInputModel.setStatusMessage("Wait for the agent draft to finish importing.")
-            return false
-        }
-        guard let suffix = quickInputModel.submissionSuffix(text, for: surfaceID) else {
-            quickInputModel.setStatusMessage("The imported prefix changed. Clear the agent input and reopen Quick Input before sending.")
             return false
         }
         guard quickInputSubmissionTasks[surfaceID] == nil else {
@@ -822,23 +833,43 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 .t("Wait for the previous message to finish sending.", "请等待上一条消息发送完成。"))
             return false
         }
-        if !suffix.isEmpty { terminal.sendText(suffix) }
         // TUIs often defer bracketed-paste handling. An Enter in the same
         // input batch can be consumed as part of paste instead of submission.
         quickInputSubmissionTasks[surfaceID] = Task { @MainActor [weak self, weak surface] in
             defer { self?.quickInputSubmissionTasks.removeValue(forKey: surfaceID) }
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             guard let self, let surface,
                   self.surfaceTree.contains(where: { $0 === surface }) else { return }
+            do {
+                if let shortcut = self.quickInputModel.agentDraftShortcut(
+                    for: surfaceID, foregroundPID: terminal.foregroundPID) {
+                    try await self.replaceQuickInputAgentDraft(text, for: surface, shortcut: shortcut)
+                } else {
+                    terminal.sendText(text)
+                }
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                self.quickInputModel.setStatusMessage(SettingsStrings(language: OhMyGhosttySettings.shared.language)
+                    .t("Could not send the complete message. Your draft or queued message is retained; retry sending.",
+                       "未能发送完整消息，草稿或排队消息已保留，请重试发送。"))
+                return
+            }
+            guard !Task.isCancelled, !SecureInput.shared.enabled,
+                  self.surfaceTree.contains(where: { $0 === surface }), !surface.processExited,
+                  !surface.readonly,
+                  surface.runtimeDescriptor == nil || surface.runtimeConnectionState == .ready else { return }
+            if let historyID,
+               self.quickInputModel.state(for: surfaceID)?.queue.first(where: { $0.id == historyID })?.text != text {
+                return
+            }
             terminal.sendKeyEvent(.init(key: .enter))
             terminal.sendKeyEvent(.init(key: .enter, action: .release))
             self.acknowledgeTerminalAgentState(for: surface)
-        }
-        quickInputModel.didSubmitAgentDraft(for: surfaceID)
-        quickInputModel.recordSentText(text, for: surfaceID)
-        quickInputModel.setStatusMessage(nil)
-        if restoreFocus {
-            restoreTerminalFocus(surfaceID: surfaceID)
+            self.quickInputModel.recordSentText(text, for: surfaceID, historyID: historyID)
+            self.quickInputModel.setStatusMessage(nil)
+            completion()
+            if restoreFocus, self.quickInputModel.targetSurfaceID == surfaceID, !self.quickInputModel.isPresented {
+                self.restoreTerminalFocus(surfaceID: surfaceID)
+            }
         }
         return true
     }
@@ -881,8 +912,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     return
                 }
             }
-            guard self.submitQuickInputText(item.text, to: surfaceID, restoreFocus: false) else { return }
-            _ = self.quickInputModel.dequeue(for: surfaceID)
+            self.sendQueuedQuickInput(item.id, from: surfaceID)
         }
     }
 

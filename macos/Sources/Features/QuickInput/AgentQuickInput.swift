@@ -289,7 +289,8 @@ struct AgentQuickInputQueueItem: Identifiable, Equatable, Sendable {
 
 struct AgentQuickInputPaneState: Equatable, Sendable {
     var draft = ""
-    var importedAgentPrefix: String?
+    var agentDraftShortcut: String?
+    var agentDraftProcessID: Int?
     var queue: [AgentQuickInputQueueItem] = []
 }
 
@@ -405,9 +406,8 @@ final class AgentQuickInputModel: ObservableObject {
             .reversed().map(\.text)
     }
 
-    /// Record only after submission succeeds, including manual/automatic queue sends.
-    func recordSentText(_ text: String, for surfaceID: UUID) {
-        historyStore.record(text, paneID: surfaceID, tabID: historyTabID)
+    func recordSentText(_ text: String, for surfaceID: UUID, historyID: UUID? = nil) {
+        historyStore.record(text, paneID: surfaceID, tabID: historyTabID, id: historyID)
     }
 
     @discardableResult
@@ -427,28 +427,33 @@ final class AgentQuickInputModel: ObservableObject {
     }
 
     /// Agent imports are snapshots, unlike explicit history insertion.
-    func importAgentDraft(_ text: String) {
+    func importAgentDraft(_ text: String, shortcut: String = "control+g", processID: Int? = nil) {
         guard let targetSurfaceID, !isEditingQueuedItem else { return }
         var state = paneStates[targetSurfaceID] ?? .init()
-        state.importedAgentPrefix = text
+        state.agentDraftShortcut = shortcut
+        state.agentDraftProcessID = processID
         paneStates[targetSurfaceID] = state
         guard !text.isEmpty, !draft.hasPrefix(text), !draft.hasSuffix(text) else { return }
         useHistoryText(text)
     }
 
-    /// The CLI still owns the imported prefix. Append only the new suffix.
-    /// A changed prefix needs a fresh import rather than guessing how to erase
-    /// an arbitrary CLI's multiline input.
-    func submissionSuffix(_ text: String, for surfaceID: UUID) -> String? {
-        guard let prefix = paneStates[surfaceID]?.importedAgentPrefix, !prefix.isEmpty else { return text }
-        guard text.hasPrefix(prefix) else { return nil }
-        return String(text.dropFirst(prefix.count))
+    func agentDraftShortcut(for surfaceID: UUID, foregroundPID: Int?) -> String? {
+        guard let state = paneStates[surfaceID],
+              state.agentDraftProcessID == nil || state.agentDraftProcessID == foregroundPID else { return nil }
+        return state.agentDraftShortcut
     }
 
-    func didSubmitAgentDraft(for surfaceID: UUID) {
-        guard var state = paneStates[surfaceID] else { return }
-        state.importedAgentPrefix = nil
+    /// A send may finish after editing or switching panes. Clear only the
+    /// submitted draft, leaving any newer text available for the next send.
+    func completeSubmittedDraft(_ text: String, for surfaceID: UUID) {
+        if targetSurfaceID == surfaceID, isEditingQueuedItem, draftBeforeEditing == text {
+            draftBeforeEditing = ""
+        }
+        guard var state = paneStates[surfaceID], state.draft == text else { return }
+        state.draft = ""
         paneStates[surfaceID] = state
+        guard targetSurfaceID == surfaceID, draft == text, !isEditingQueuedItem else { return }
+        completeSubmission(clearDraft: true)
     }
 
     func togglePinned() {
@@ -549,6 +554,7 @@ final class AgentQuickInputModel: ObservableObject {
         state.queue.append(item)
         state.draft = ""
         paneStates[targetSurfaceID] = state
+        historyStore.record(item.text, paneID: targetSurfaceID, tabID: historyTabID, id: item.id, delivery: .queued)
         applyDraft("")
         statusMessage = "Queued message \(state.queue.count)."
         return item
@@ -568,6 +574,7 @@ final class AgentQuickInputModel: ObservableObject {
         }
         state.queue.removeAll { $0.id == itemID }
         paneStates[surfaceID] = state
+        historyStore.cancelQueuedEntry(itemID)
     }
 
     func editQueuedItem(_ itemID: UUID, for surfaceID: UUID) {
@@ -609,6 +616,7 @@ final class AgentQuickInputModel: ObservableObject {
         }
         state.draft = draftBeforeEditing ?? ""
         paneStates[surfaceID] = state
+        historyStore.record(updated.text, paneID: surfaceID, tabID: historyTabID, id: updated.id, delivery: .queued)
         finishQueuedItemEdit(restoredDraft: state.draft, automatically: true)
         return true
     }

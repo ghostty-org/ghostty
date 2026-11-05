@@ -122,6 +122,7 @@ extension Ghostty {
         // OMG: true while the core reports a hovered link. Links show a hint
         // chip instead of switching the cursor to a pointing hand.
         @Published private(set) var isHoveringLink: Bool = false
+        @Published private(set) var linkHintCommandPressed = false
 
         // Whether the mouse is currently over this surface
         @Published private(set) var mouseOverSurface: Bool = false
@@ -410,6 +411,11 @@ extension Ghostty {
                 selector: #selector(windowDidChangeScreen),
                 name: NSWindow.didChangeScreenNotification,
                 object: nil)
+            center.addObserver(
+                self,
+                selector: #selector(clearLinkHover),
+                name: NSApplication.didResignActiveNotification,
+                object: nil)
 
             // Listen for local events that we need to know of outside of
             // single surface handlers.
@@ -417,6 +423,7 @@ extension Ghostty {
                 matching: [
                     // We need keyUp because command+key events don't trigger keyUp.
                     .keyUp,
+                    .flagsChanged,
 
                     // We need leftMouseDown to determine if we should focus ourselves
                     // when the app/window isn't in focus. We do this instead of
@@ -793,6 +800,8 @@ extension Ghostty {
 
         private func localEventHandler(_ event: NSEvent) -> NSEvent? {
             return switch event.type {
+            case .flagsChanged:
+                localEventLinkModifiers(event)
             case .keyUp:
                 localEventKeyUp(event)
 
@@ -801,6 +810,35 @@ extension Ghostty {
 
             default:
                 event
+            }
+        }
+
+        private func localEventLinkModifiers(_ event: NSEvent) -> NSEvent? {
+            // Modifier events follow first responder, which may be the composer
+            // or another pane while the pointer remains over this surface.
+            if !event.modifierFlags.contains(.command) || event.window === window {
+                let hovered = mouseOverSurface || isHoveringLink || hoverUrl != nil
+                updateLinkHoverModifiers(event.modifierFlags)
+                if hovered, window?.firstResponder !== self {
+                    let pos = mouseLocationInSurface ?? NSPoint(x: -1, y: -1)
+                    surfaceModel?.sendMousePos(.init(
+                        x: pos.x, y: pos.y >= 0 ? frame.height - pos.y : -1,
+                        mods: .init(nsFlags: event.modifierFlags)))
+                }
+            }
+            return event
+        }
+
+        @objc private func clearLinkHover() {
+            updateLinkHoverModifiers([])
+        }
+
+        func updateLinkHoverModifiers(_ flags: NSEvent.ModifierFlags) {
+            let pressed = flags.contains(.command)
+            if linkHintCommandPressed != pressed { linkHintCommandPressed = pressed }
+            if !pressed {
+                if isHoveringLink { isHoveringLink = false }
+                if hoverUrl != nil { hoverUrl = nil }
             }
         }
 
@@ -1149,6 +1187,7 @@ extension Ghostty {
         }
 
         override func mouseEntered(with event: NSEvent) {
+            linkHintCommandPressed = event.modifierFlags.contains(.command)
             mouseOverSurface = true
             super.mouseEntered(with: event)
 
@@ -1170,6 +1209,7 @@ extension Ghostty {
         }
 
         override func mouseExited(with event: NSEvent) {
+            clearLinkHover()
             mouseOverSurface = false
             mouseLocationInSurface = nil
             guard let surfaceModel else { return }
@@ -1193,6 +1233,9 @@ extension Ghostty {
         }
 
         override func mouseMoved(with event: NSEvent) {
+            if linkHintCommandPressed != event.modifierFlags.contains(.command) {
+                linkHintCommandPressed = event.modifierFlags.contains(.command)
+            }
             let pos = self.convert(event.locationInWindow, from: nil)
             mouseLocationInSurface = pos
 
@@ -1616,6 +1659,7 @@ extension Ghostty {
         }
 
         override func flagsChanged(with event: NSEvent) {
+            updateLinkHoverModifiers(event.modifierFlags)
             let mod: UInt32
             switch event.keyCode {
             case 0x39: mod = GHOSTTY_MODS_CAPS.rawValue

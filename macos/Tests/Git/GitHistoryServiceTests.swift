@@ -3,6 +3,12 @@ import Testing
 @testable import Ghostty
 
 struct GitHistoryServiceTests {
+    @Test func commitLabelsUseEightCharactersAndRetainTheCompleteIdentity() {
+        let id = GitCommitID("0123456789abcdef0123456789abcdef01234567")
+        #expect(id.shortSHA == "01234567")
+        #expect(id.rawValue == "0123456789abcdef0123456789abcdef01234567")
+    }
+
     @Test func searchMatchesFullMessageAuthorAndHashAcrossPages() async throws {
         let directory = createTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

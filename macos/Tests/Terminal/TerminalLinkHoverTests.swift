@@ -79,6 +79,34 @@ struct TerminalLinkHoverTests {
         #expect(styles == 0)
     }
 
+    @Test func modifierReleaseClearsHintWhileComposerOwnsFirstResponder() async throws {
+        let controller = try makeController(split: true)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.focusedSurface)
+        let window = try #require(controller.window)
+        let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 30))
+        window.contentView?.addSubview(composer)
+        window.makeFirstResponder(composer)
+        surface.updateLinkHoverModifiers(.command)
+        surface.setCursorShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+        surface.hoverUrl = "https://example.com"
+        #expect(surface.isHoveringLink && surface.linkHintCommandPressed)
+        let release = try #require(NSEvent.keyEvent(with: .flagsChanged, location: .zero,
+            modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 0x37))
+        NSApp.sendEvent(release)
+        #expect(window.firstResponder === composer)
+        #expect(!surface.linkHintCommandPressed)
+        #expect(!surface.isHoveringLink)
+        #expect(surface.hoverUrl == nil)
+        // A delayed core cursor callback cannot bring the chip back after key-up.
+        surface.setCursorShape(GHOSTTY_MOUSE_SHAPE_POINTER)
+        #expect(!surface.linkHintCommandPressed)
+        surface.updateLinkHoverModifiers(.command)
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        #expect(!surface.linkHintCommandPressed && !surface.isHoveringLink)
+    }
+
     @Test func linkHintStaysInsideSurface() {
         let container = CGSize(width: 400, height: 300)
         let chip = CGSize(width: 90, height: 20)
@@ -192,7 +220,7 @@ struct TerminalLinkHoverTests {
             try await Task.sleep(for: .milliseconds(100))
             if NSApp.isActive && window.isKeyWindow { break }
         }
-        try #require(NSApp.isActive && window.isKeyWindow,
+        try #require(NSApp.isActive && window.isKeyWindow && window.isOnActiveSpace,
             "Desktop hover test needs an unlocked desktop and the test window in foreground")
         let surface = try #require(controller.focusedSurface)
         let point = window.convertPoint(toScreen: surface.convert(NSPoint(x: 30, y: surface.bounds.height - 10), to: nil))
@@ -213,5 +241,11 @@ struct TerminalLinkHoverTests {
             #expect(surface.pointerStyle != .link)
             #expect(surface.mouseOverSurface)
         }
+        let release = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0x37, keyDown: false))
+        release.type = .flagsChanged
+        release.flags = []
+        release.post(tap: .cghidEventTap)
+        try await waitForAppKit { !surface.linkHintCommandPressed && !surface.isHoveringLink }
+        #expect(surface.hoverUrl == nil, "Command release must hide the hint without moving the pointer.")
     }
 }

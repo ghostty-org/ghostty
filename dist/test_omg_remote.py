@@ -1,5 +1,6 @@
 """Exercise the unified remote OMG command without an SSH server."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -42,6 +43,26 @@ class RemoteOMGTests(unittest.TestCase):
         omg.main(["draft-finish", "session", self.request])
         self.assertFalse(response.exists())
         self.assertFalse((self.directory / "request.json").exists())
+
+    def test_replace_writes_and_acknowledges_the_complete_message(self):
+        draft = self.home / "draft.md"
+        draft.write_text("stale CLI input")
+        content = "完整消息 🐱\n前缀已修改\n".encode()
+        with patch("sys.stdin", io.TextIOWrapper(io.BytesIO(content), encoding="utf-8")):
+            omg.main(["draft-replace", "session", self.request, "/dev/pts/42"])
+        self.assertEqual(draft.read_text(), "stale CLI input")
+        omg.main(["editor", "session", str(draft)])
+        self.assertEqual(draft.read_bytes(), content)
+        self.assertEqual((self.directory / (self.request + ".response")).read_bytes(), content)
+        omg.main(["draft-finish", "session", self.request])
+        self.assertFalse((self.directory / (self.request + ".replacement")).exists())
+
+    def test_invalid_replacement_cannot_arm_or_change_editor(self):
+        for content in (b"\0", b"\xff", b"x" * (omg.LIMIT + 1)):
+            with patch("sys.stdin", io.TextIOWrapper(io.BytesIO(content), encoding="utf-8")):
+                with self.assertRaises((ValueError, UnicodeError)):
+                    omg.main(["draft-replace", "session", self.request, "/dev/pts/42"])
+            self.assertFalse((self.directory / "request.json").exists())
 
     def test_shared_execution_entry_preserves_command(self):
         with patch.object(os, "execv", side_effect=RuntimeError("executed")) as execute:

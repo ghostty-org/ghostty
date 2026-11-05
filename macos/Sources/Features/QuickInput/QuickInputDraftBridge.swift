@@ -3,7 +3,8 @@ import Foundation
 
 /// The editor-file protocol is shared by built-in and user-defined agents.
 /// Only an explicit, short-lived request copies a draft; other invocations
-/// delegate to the original editor. The agent's file is never modified.
+/// delegate to the original editor. Imports leave the agent's file unchanged;
+/// explicit submissions replace it with the complete message.
 @MainActor
 final class QuickInputDraftBridge {
     static let shared = QuickInputDraftBridge()
@@ -137,20 +138,33 @@ final class QuickInputDraftBridge {
         let id: String
         let input: URL
         let output: URL
+        let replacement: URL
     }
 
-    func begin(surfaceID: UUID) throws -> Request {
+    func begin(surfaceID: UUID, replacement: String? = nil) throws -> Request {
         guard let directory = configuredSurfaces[surfaceID],
               installedDirectories.contains(directory) else { throw CocoaError(.fileNoSuchFile) }
         let id = UUID().uuidString
         let input = directory.appendingPathComponent("\(surfaceID.uuidString).request")
         let output = directory.appendingPathComponent("\(id).response")
+        let replacementURL = directory.appendingPathComponent("\(id).replacement")
         try? FileManager.default.removeItem(at: input)
-        let data = try JSONSerialization.data(withJSONObject: [
-            "id": id, "expires": Date().timeIntervalSince1970 + 4,
-        ])
-        try data.write(to: input, options: .atomic)
-        return Request(id: id, input: input, output: output)
+        if let replacement {
+            guard replacement.utf8.count <= 1_048_576, !replacement.contains("\0") else {
+                throw CocoaError(.fileWriteInapplicableStringEncoding)
+            }
+            try SessionRuntimeBridgeStorage.writePrivateFile(
+                at: replacementURL, data: Data(replacement.utf8), permissions: 0o600)
+        }
+        var payload: [String: Any] = ["id": id, "expires": Date().timeIntervalSince1970 + 4]
+        if replacement != nil { payload["action"] = "replace" }
+        do {
+            try JSONSerialization.data(withJSONObject: payload).write(to: input, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: replacementURL)
+            throw error
+        }
+        return Request(id: id, input: input, output: output, replacement: replacementURL)
     }
 
     func receive(_ request: Request) throws -> String? {
@@ -167,8 +181,13 @@ final class QuickInputDraftBridge {
     }
 
     func finish(_ request: Request) {
-        try? FileManager.default.removeItem(at: request.input)
+        if let data = try? Data(contentsOf: request.input),
+           let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           payload["id"] as? String == request.id {
+            try? FileManager.default.removeItem(at: request.input)
+        }
         try? FileManager.default.removeItem(at: request.output)
+        try? FileManager.default.removeItem(at: request.replacement)
     }
 
     static func installHelper(in directory: URL, pythonExecutable: String) throws -> URL {
@@ -194,6 +213,7 @@ final class QuickInputDraftBridge {
     import json
     import os
     import sys
+    import tempfile
     import time
     import uuid
     from pathlib import Path
@@ -213,18 +233,30 @@ final class QuickInputDraftBridge {
             os.execv("/bin/sh", ["sh", "-c", 'exec ' + editor + ' "$@"', "omg-editor", *sys.argv[1:]])
         if len(sys.argv) != 2:
             raise ValueError("Expected one editor file")
-        with open(sys.argv[1], "rb") as source:
+        replacing = payload.get("action") == "replace"
+        source_path = root / (identifier + ".replacement") if replacing else Path(sys.argv[1])
+        with open(source_path, "rb") as source:
             content = source.read(1048577)
         if len(content) > 1048576:
             raise ValueError("Draft exceeds 1 MiB")
         content.decode("utf-8")
         if b"\0" in content:
             raise ValueError("Draft contains a NUL character")
+        if replacing:
+            destination = Path(sys.argv[1])
+            with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as edited:
+                edited_path = Path(edited.name)
+                try:
+                    edited.write(content)
+                    edited.flush()
+                    os.replace(edited_path, destination)
+                finally:
+                    edited_path.unlink(missing_ok=True)
         temporary = root / (identifier + ".tmp")
         with open(temporary, "xb") as destination:
             destination.write(content)
         os.replace(temporary, root / (identifier + ".response"))
-        # Returning the unchanged file preserves the agent's original input.
+        # Publish only after replacement succeeds, so the host can send Enter.
 
     try:
         main()

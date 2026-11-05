@@ -270,20 +270,133 @@ struct QuickInputDraftBridgeTests {
         snapshot.remove()
     }
 
-    @Test func sendingImportedPrefixAppendsOnlySuffixAndRecordsFullMessage() {
+    @Test func importedDraftTracksEditorShortcutWithoutOwningASubmissionPrefix() {
         let model = AgentQuickInputModel()
         let pane = UUID()
         model.present(for: pane)
         model.importAgentDraft("你好\noriginal")
-        #expect(model.submissionSuffix("你好\noriginal，继续", for: pane) == "，继续")
-        #expect(model.submissionSuffix("你好\noriginal", for: pane) == "")
-        #expect(model.submissionSuffix("changed prefix", for: pane) == nil)
-        #expect(model.submissionSuffix("independent", for: UUID()) == "independent")
-        model.didSubmitAgentDraft(for: pane)
-        #expect(model.submissionSuffix("next message", for: pane) == "next message")
-        model.importAgentDraft("old")
+        #expect(model.state(for: pane)?.agentDraftShortcut == "control+g")
+        model.draft = "changed prefix"
+        model.completeSubmittedDraft("你好\noriginal", for: pane)
+        #expect(model.draft == "changed prefix")
+        model.completeSubmittedDraft("changed prefix", for: pane)
+        #expect(model.draft.isEmpty)
+        #expect(model.state(for: pane)?.agentDraftShortcut == "control+g")
+        model.importAgentDraft("old", shortcut: "control+x,e")
         model.importAgentDraft("")
-        #expect(model.submissionSuffix("after clearing agent", for: pane) == "after clearing agent")
+        #expect(model.state(for: pane)?.agentDraftShortcut == "control+g")
+        model.importAgentDraft("", processID: 12345)
+        #expect(model.agentDraftShortcut(for: pane, foregroundPID: 12345) == "control+g")
+        #expect(model.agentDraftShortcut(for: pane, foregroundPID: 54321) == nil,
+                "An exited Agent must not send its editor shortcut to the shell.")
+    }
+
+    @Test func queuedAndEditedMessagesReplaceStaleCLIInputWithoutLosingAnyPrefix() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("pi")
+        let original = "提一个issue，quickinput发送消息时，有时会丢消息（消息整个丢失，或是丢部分），但不确定"
+        let full = original + "问题所在，像是偶发；\n第二行 🐱\n"
+        let draftFile = root.appendingPathComponent("draft")
+        let received = root.appendingPathComponent("received")
+        try original.write(to: draftFile, atomically: true, encoding: .utf8)
+        try #"""
+        import os, pathlib, subprocess, tty
+        tty.setraw(0)
+        root = pathlib.Path(__file__).parent
+        os.write(1, b"\x1b[>1u")
+        (root / "ready").touch()
+        data = b""
+        while True:
+            data += os.read(0, 1)
+            if data.endswith(b"\x1b[103;5u"):
+                subprocess.run([os.environ["EDITOR"], str(root / "draft")], check=True)
+                data = b""
+            elif data.endswith(b"\r"):
+                destination = root / "received"
+                temporary = root / "received.tmp"
+                temporary.write_bytes((root / "draft").read_bytes())
+                os.replace(temporary, destination)
+                data = b""
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        let native = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let python = try #require(LocalPythonInterpreter.cached())
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = Ghostty.Shell.quote(python.executablePath) + " " + Ghostty.Shell.quote(script.path)
+        let controller = TerminalController(native, withBaseConfig: config)
+        controller.showWindow(nil)
+        defer {
+            controller.dismissQuickInput()
+            controller.window?.delegate = nil
+            controller.window?.close()
+        }
+        let surface = try #require(controller.focusedSurface)
+        try await waitForAppKit { FileManager.default.fileExists(atPath: root.appendingPathComponent("ready").path) }
+        controller.adoptAgentResumeDescriptor(.init(agent: .pi, scope: .local, workingDirectory: "/tmp"), for: surface)
+        controller.quickInputModel.dismiss()
+        controller.toggleQuickInput()
+        try await waitForAppKit { controller.quickInputDraftImportTask == nil && controller.quickInputModel.draft == original }
+        controller.quickInputModel.draft = full
+        controller.queueQuickInputDraft()
+        let queued = try #require(controller.quickInputModel.state(for: surface.id)?.queue.first)
+        // The CLI no longer has the imported prefix. A prefix-difference send
+        // would silently deliver only the tail, matching issue #51.
+        try "".write(to: draftFile, atomically: true, encoding: .utf8)
+        controller.sendQueuedQuickInput(queued.id, from: surface.id)
+        controller.sendQueuedQuickInput(queued.id, from: surface.id)
+        controller.editQueuedQuickInput(queued.id, from: surface.id)
+        controller.removeQueuedQuickInput(queued.id, from: surface.id)
+        #expect(!controller.quickInputModel.isEditingQueuedItem)
+        #expect(controller.quickInputModel.state(for: surface.id)?.queue == [queued])
+        try await waitForAppKit { FileManager.default.fileExists(atPath: received.path) }
+        #expect(try String(contentsOf: received, encoding: .utf8) == full)
+        #expect(controller.quickInputModel.state(for: surface.id)?.queue.isEmpty == true)
+        let entries = controller.quickInputModel.historyStore.entries.filter { $0.paneID == surface.id }
+        #expect(entries.count == 1)
+        #expect(entries.first?.deliveryState == .sent)
+        try FileManager.default.removeItem(at: received)
+        controller.quickInputModel.present(for: surface.id)
+        controller.quickInputModel.draft = "修改导入的开头\n完整新消息 🐱"
+        controller.sendQuickInputDraft()
+        controller.quickInputModel.draft = "发送期间写的新草稿"
+        try await waitForAppKit { FileManager.default.fileExists(atPath: received.path) }
+        #expect(try String(contentsOf: received, encoding: .utf8) == "修改导入的开头\n完整新消息 🐱")
+        #expect(controller.quickInputModel.draft == "发送期间写的新草稿")
+    }
+
+    @Test func completingASendDoesNotRestoreTheSentDraftAfterEditingAQueuedItem() throws {
+        let model = AgentQuickInputModel()
+        let pane = UUID()
+        model.present(for: pane)
+        model.draft = "queued"
+        let item = try #require(model.enqueueDraft())
+        model.draft = "submitted draft"
+        model.editQueuedItem(item.id, for: pane)
+        model.draft = "editing queued text"
+        model.completeSubmittedDraft("submitted draft", for: pane)
+        #expect(model.draft == "editing queued text")
+        model.cancelQueuedItemEdit()
+        #expect(model.draft.isEmpty)
+        #expect(model.targetQueue == [item])
+    }
+
+    @Test func unacknowledgedReplacementRetainsDraftAndQueue() async throws {
+        let native = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 30"
+        let controller = TerminalController(native, withBaseConfig: config)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        controller.quickInputModel.present(for: surface.id)
+        controller.quickInputModel.importAgentDraft("old input")
+        controller.quickInputModel.draft = "complete queued input"
+        let item = try #require(controller.quickInputModel.enqueueDraft())
+        controller.sendQueuedQuickInput(item.id, from: surface.id)
+        try await Task.sleep(for: .milliseconds(4_600))
+        #expect(controller.quickInputModel.state(for: surface.id)?.queue == [item])
+        #expect(controller.quickInputModel.historyStore.entries.first(where: { $0.id == item.id })?.deliveryState == .queued)
+        #expect(controller.quickInputModel.statusMessage != nil)
     }
 
     @Test func automaticallySelectsKnownAndGenericShortcuts() {
@@ -412,6 +525,37 @@ struct QuickInputDraftBridgeTests {
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
         #expect(FileManager.default.fileExists(atPath: draft.path))
+    }
+
+    @Test func localReplacementAcknowledgesExactBytesAndCleanupKeepsANewerRequest() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bridge = QuickInputDraftBridge(temporaryDirectory: root)
+        let pane = UUID()
+        var config = Ghostty.SurfaceConfiguration()
+        bridge.configure(&config, surfaceID: pane)
+        let original = root.appendingPathComponent("original draft")
+        try "stale prefix".write(to: original, atomically: true, encoding: .utf8)
+        let text = "完整发送 🐱\n修改开头\n\n"
+        let request = try bridge.begin(surfaceID: pane, replacement: text)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try #require(config.environmentVariables["EDITOR"]))
+        process.arguments = [original.path]
+        process.environment = config.environmentVariables
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(try bridge.receive(request) == text)
+        #expect(try String(contentsOf: original, encoding: .utf8) == text)
+        let next = try bridge.begin(surfaceID: pane)
+        bridge.finish(request)
+        #expect(FileManager.default.fileExists(atPath: next.input.path))
+        #expect(!FileManager.default.fileExists(atPath: request.replacement.path))
+        bridge.finish(next)
+        #expect(throws: CocoaError.self) { try bridge.begin(surfaceID: pane, replacement: "\0") }
+        #expect(throws: CocoaError.self) {
+            try bridge.begin(surfaceID: pane, replacement: String(repeating: "x", count: 1_048_577))
+        }
     }
 
     @Test func missingPythonKeepsOriginalEditorAndDisablesDraftRequests() {

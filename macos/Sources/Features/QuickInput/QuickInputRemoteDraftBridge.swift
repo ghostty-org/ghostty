@@ -113,9 +113,11 @@ enum QuickInputRemoteDraftBridge {
     """#
 
     static func begin(connection: GitSSHConnection, session: String, request: String, tty: String, root: String? = nil,
-                      generation: String? = nil) async throws {
+                      generation: String? = nil, replacement: String? = nil) async throws {
         let result = try await SSHSessionTransport.run(
-            connection: connection, command: command("draft-begin", session: session, request: request, tty: tty, root: root, generation: generation),
+            connection: connection, command: command(replacement == nil ? "draft-begin" : "draft-replace",
+                session: session, request: request, tty: tty, root: root, generation: generation),
+            stdin: replacement.map { Data($0.utf8) },
             limit: 8_192, timeout: 10
         )
         guard result.isSuccess,
