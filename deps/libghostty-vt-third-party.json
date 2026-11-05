@@ -6,7 +6,7 @@
       "kind": "zig-package",
       "version": "0.0.0",
       "commit": "d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
-      "url": "git+https://codeberg.org/ziglang/arocc#d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
+      "url": "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
       "hash": "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa",
       "license": "MIT AND Unicode-3.0",
       "use": "build"
@@ -45,8 +45,8 @@
       "name": "uucode",
       "kind": "zig-package",
       "version": "0.2.0",
-      "commit": null,
-      "url": "https://github.com/jacobsandlund/uucode/archive/1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+      "commit": "1fb73433bba5d93366c57f23ff2e9d7939746500",
+      "url": "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
       "hash": "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
       "license": "MIT AND Unicode-3.0",
       "use": "linked"

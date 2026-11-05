@@ -9,6 +9,18 @@
         // Our higher-level C translation helper (this also helps ensure we
         // only need to maintain one external dependency point)
         .translate_c = .{ .path = "./pkg/translate-c" },
+        .aro = .{
+            // ziglang/arocc (via translate_c)
+            //
+            // Only translate_c uses aro, and Ghostty never asks for it
+            // directly. We list it here with the same hash as translate_c's
+            // build.zig.zon so that the generated files in deps/ use this
+            // URL instead of the Codeberg git URL translate_c gives. Keep
+            // the hash in sync with translate_c.
+            .url = "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
+            .hash = "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa",
+            .lazy = true,
+        },
 
         // Zig libs
         .libxev = .{
@@ -19,7 +31,7 @@
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "https://github.com/rockorager/libvaxis/archive/0620b34e091deaa6f64608922be3814147128dfb.tar.gz",
+            .url = "https://deps.files.ghostty.org/vaxis-0620b34e091deaa6f64608922be3814147128dfb.tar.gz",
             .hash = "vaxis-0.6.0-BWNV_LoTDQCQSGhvBbu_-fOf3I2P3TIiGaUzCDniO12E",
             .lazy = true,
         },
@@ -30,13 +42,13 @@
             // We list it here with the same hash as vaxis's build.zig.zon so
             // that the generated files in deps/ use this URL instead of the
             // git URL vaxis gives. Keep the hash in sync with vaxis.
-            .url = "https://github.com/zigimg/zigimg/archive/734fa919fb15b7917d4eb124f53600348f4ffa30.tar.gz",
+            .url = "https://deps.files.ghostty.org/zigimg-734fa919fb15b7917d4eb124f53600348f4ffa30.tar.gz",
             .hash = "zigimg-0.1.0-8_eo2sBLGACBebrhQZUwRliZNSUyDn6szp99eip_6-Rw",
             .lazy = true,
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
+            .url = "https://deps.files.ghostty.org/z2d-8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
             .hash = "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_",
             .lazy = true,
         },
@@ -60,7 +72,7 @@
             // fetches its own. The generated files in deps/ still list every
             // package that any build.zig.zon names. If the hashes differ,
             // they list a second uucode that no build uses.
-            .url = "https://github.com/jacobsandlund/uucode/archive/1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+            .url = "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
             .hash = "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
         },
         .zig_wayland = .{
