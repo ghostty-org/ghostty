@@ -3590,10 +3590,13 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_write(
 /**
  * Copy the terminal's replay-safe VT continuation into a caller buffer.
  *
- * Pass NULL for buf with buf_len zero to query the required size. A size query
- * returns GHOSTTY_OUT_OF_SPACE and stores the required size in out_written,
- * including zero when the stream is at ground. If a non-NULL buffer is too
- * small, the function has the same result and reports the full required size.
+ * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
+ * @p out_written to the size needed. To get the size first, pass NULL for
+ * @p buf and 0 for @p buf_len. When no escape sequence or UTF-8 character
+ * is left unfinished, the continuation is empty and needs no space, so this
+ * returns GHOSTTY_SUCCESS with @p out_written set to 0, even for a size
+ * query.
+ *
  * Continuation tracking must have been enabled by setting
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
  * input that produced the continuation was written.
@@ -3602,14 +3605,15 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_write(
  * terminal.
  *
  * @param terminal Terminal to read from (must not be NULL)
- * @param buf Destination buffer, or NULL when buf_len is zero
- * @param buf_len Destination buffer capacity in bytes
- * @param[out] out_written Bytes written, or required size on
- *             GHOSTTY_OUT_OF_SPACE (must not be NULL)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE for a size query or
- *         insufficient buffer, or GHOSTTY_INVALID_VALUE if an argument is
- *         invalid, tracking is disabled, or the current continuation is
- *         unavailable
+ * @param buf Buffer to write the continuation into. May be NULL if
+ *            @p buf_len is 0.
+ * @param buf_len Size of @p buf in bytes
+ * @param[out] out_written The number of bytes written, or the size needed
+ *             if the result is GHOSTTY_OUT_OF_SPACE. Must not be NULL.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the
+ *         continuation does not fit in @p buf, or GHOSTTY_INVALID_VALUE if an
+ *         argument is invalid, tracking is disabled, or the current
+ *         continuation is unavailable
  *
  * @ingroup terminal
  */

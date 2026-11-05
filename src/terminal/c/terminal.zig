@@ -1327,12 +1327,14 @@ pub fn continuation_buf(
     if (out_ == null) {
         // A null/zero destination is the explicit size-query form. Discarding
         // runs the real exporter, so disabled or unavailable tracking is still
-        // detected before a required length is reported.
+        // detected before a required length is reported. An empty
+        // continuation fits in zero bytes, so it succeeds like every other
+        // buffer function.
         var discarding: std.Io.Writer.Discarding = .init(&.{});
         continuationWriteIo(terminal_, &discarding.writer) catch |err|
             return continuationErrorResult(err);
         out_written.* = @intCast(discarding.count);
-        return .out_of_space;
+        return if (discarding.count == 0) .success else .out_of_space;
     }
 
     // Fixed writers report WriteFailed when capacity is exhausted. The stream
@@ -2372,9 +2374,24 @@ test "continuation buffer and allocator export exact suffix" {
     defer free(t);
     try testEnableContinuation(t);
 
+    // At ground the continuation is empty. It needs no space, so a size
+    // query succeeds with 0, and so does a real buffer.
+    var required: usize = 99;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, null, 0, &required),
+    );
+    try testing.expectEqual(@as(usize, 0), required);
+    var ground_buf: [4]u8 = undefined;
+    required = 99;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, &ground_buf, ground_buf.len, &required),
+    );
+    try testing.expectEqual(@as(usize, 0), required);
+
     vt_write(t, "A\x1b[31", 5);
 
-    var required: usize = 0;
     try testing.expectEqual(
         Result.out_of_space,
         continuation_buf(t, null, 0, &required),
@@ -2410,7 +2427,7 @@ test "continuation buffer and allocator export exact suffix" {
 
     vt_write(t, "m", 1);
     try testing.expectEqual(
-        Result.out_of_space,
+        Result.success,
         continuation_buf(t, null, 0, &required),
     );
     try testing.expectEqual(@as(usize, 0), required);
@@ -2448,7 +2465,7 @@ test "continuation export tracks split UTF-8" {
     const suffix = [_]u8{ 0x98, 0x80 };
     vt_write(t, &suffix, suffix.len);
     try testing.expectEqual(
-        Result.out_of_space,
+        Result.success,
         continuation_buf(t, null, 0, &written),
     );
     try testing.expectEqual(@as(usize, 0), written);
@@ -2570,7 +2587,7 @@ test "continuation runtime reconfiguration recovers safely" {
     // Completing the sequence reaches ground and resets the broken marker.
     vt_write(t, "m", 1);
     try testing.expectEqual(
-        Result.out_of_space,
+        Result.success,
         continuation_buf(t, null, 0, &written),
     );
     try testing.expectEqual(@as(usize, 0), written);
