@@ -4,6 +4,66 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct SessionRuntimeInlineSessionTests {
+    @Test func historyInlineSplitDoesNotRequireALocalRuntimeDescriptor() throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let controller = TerminalController(app, withBaseConfig: config)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        surface.runtimeDescriptor = nil
+        let remote = SessionRuntimeDescriptor(
+            connection: try GitSSHConnection(destination: "cloud", options: ["-J", "jump"],
+                localWorkingDirectory: "/tmp"), revision: "old", policy: .init(),
+            initialWorkingDirectory: "/srv/original"
+        )
+        surface.runtimeInlineSession = SessionRuntimeInlineSession(
+            descriptor: remote, pane: UUID(), connectionID: "omg-ssh-history-split",
+            socket: URL(fileURLWithPath: "/tmp/unused.sock"), helperPID: ProcessInfo.processInfo.processIdentifier,
+            bootID: try #require(SessionRuntimeInlineSession.currentBootID), workingDirectory: "/srv/current"
+        )
+        let result = try #require(try controller.splitConfiguration(
+            inherited: nil, from: surface, runtimeRevision: "current"
+        ))
+        let data = try #require(result.environmentVariables[SessionRuntimeDescriptor.environmentKey]?.data(using: .utf8))
+        let descriptor = try JSONDecoder().decode(SessionRuntimeDescriptor.self, from: data)
+        #expect(descriptor.connection == remote.connection)
+        #expect(descriptor.initialWorkingDirectory == "/srv/current")
+        #expect(descriptor.revision == "current")
+        #expect(result.command == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func historySplitBeforeInlineHandoffReplaysSSHWithoutResumingTheAgent(localRuntime: Bool) throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        config.workingDirectory = "/tmp"
+        let controller = TerminalController(app, withBaseConfig: config)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        surface.runtimeDescriptor = localRuntime
+            ? .init(connection: nil, revision: "old", policy: .init(), localWorkingDirectory: "/tmp") : nil
+        let replay = SSHReplayDescriptor(version: 1, ssh: "/usr/bin/ssh", forwardEnv: false,
+            terminfo: false, cache: false, args: ["-J", "jump", "cloud"])
+        controller.adoptAgentResumeDescriptor(.init(agent: .codex,
+            conversationID: AgentConversationID("history"), scope: .remote,
+            workingDirectory: "/srv/project", sshReplay: replay), for: surface)
+        var inherited = Ghostty.SurfaceConfiguration()
+        inherited.environmentVariables["KEEP"] = "value"
+        inherited.environmentVariables[SessionRuntimeDescriptor.environmentKey] = "stale"
+        inherited.environmentVariables["OMG_RUNTIME_PANE_ID"] = UUID().uuidString
+        let result = try #require(try controller.splitConfiguration(inherited: inherited, from: surface))
+        #expect(result.command?.contains("'+ssh'") == true)
+        #expect(result.command?.contains("'--remote-working-directory=/srv/project'") == true)
+        #expect(result.command?.contains("'cloud'") == true)
+        #expect(result.command?.contains("'jump'") == true)
+        #expect(result.command?.contains("--remote-agent") == false)
+        #expect(result.environmentVariables["KEEP"] == "value")
+        #expect(result.environmentVariables[SessionRuntimeDescriptor.environmentKey] == nil)
+        #expect(result.environmentVariables["OMG_RUNTIME_PANE_ID"] == nil)
+    }
+
     @Test func runtimeSnapshotReplacesAgentStateWithoutCompletionActions() async throws {
         let settings = OhMyGhosttySettings.shared
         let previous = (settings.agentStatusHooksEnabled, settings.openQuickInputOnAgentStart,

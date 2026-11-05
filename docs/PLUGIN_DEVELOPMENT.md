@@ -147,6 +147,10 @@ reads retain their final complete line and explicitly detect a byte cutoff.
 The metadata cache is versioned so previously generated titles are refreshed.
 Explicit Agent History resume actions retain the selected session's title as
 the new tab/window title, for both local and SSH sessions.
+Splitting a resumed SSH pane uses its inline remote session independently of
+whether the host PTY has a local runtime descriptor. Before inline handoff,
+the validated replay opens a new remote shell in the resumed directory without
+starting a second copy of the Agent conversation.
 
 Folder and time scopes narrow the list before the Agent filter. `This Folder`
 matches the presented pane's working directory and every subfolder, so a

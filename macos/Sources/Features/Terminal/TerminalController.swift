@@ -2572,25 +2572,42 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let settings = OhMyGhosttySettings.shared
         let effectiveRuntimePolicy = runtimePolicy ?? settings.runtimePolicy
         let effectiveLocalRuntimeEnabled = localRuntimeEnabled ?? settings.localRuntimeEnabled
-        if let runtime = source.runtimeDescriptor {
-            if let inline = source.runtimeInlineSession, let connection = inline.descriptor.connection {
-                var next = try runtimeRevision.map {
-                    SessionRuntimeDescriptor(connection: connection, revision: $0, policy: effectiveRuntimePolicy)
-                } ?? SessionRuntimeConnections.descriptor(connection: connection, policy: effectiveRuntimePolicy)
-                var directory = inline.workingDirectory ?? inline.descriptor.initialWorkingDirectory
-                if let context = paneSessionContext(for: source),
-                   case .sshReady(_, let remoteDirectory) = context.state {
-                    directory = remoteDirectory
-                }
-                next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(directory)
-                var result = config ?? .init()
-                try next.configure(&result)
-                result.command = nil
-                result.initialInput = nil
-                result.workingDirectory = nil
-                result.waitAfterCommand = false
-                return Self.injectingSessionID(tabSessionID, into: result)
+        if let inline = source.runtimeInlineSession, let connection = inline.descriptor.connection {
+            var next = try runtimeRevision.map {
+                SessionRuntimeDescriptor(connection: connection, revision: $0, policy: effectiveRuntimePolicy)
+            } ?? SessionRuntimeConnections.descriptor(connection: connection, policy: effectiveRuntimePolicy)
+            var directory = inline.workingDirectory ?? inline.descriptor.initialWorkingDirectory
+            if let context = paneSessionContext(for: source),
+               case .sshReady(_, let remoteDirectory) = context.state {
+                directory = remoteDirectory
             }
+            next.initialWorkingDirectory = SessionRuntimeDescriptor.validWorkingDirectory(directory)
+            var result = config ?? .init()
+            try next.configure(&result)
+            result.command = nil
+            result.initialInput = nil
+            result.workingDirectory = nil
+            result.waitAfterCommand = false
+            return Self.injectingSessionID(tabSessionID, into: result)
+        }
+        if let resumed = agentResumeDescriptor(for: source), resumed.scope == .remote,
+           source.runtimeDescriptor?.isLocal != false,
+           let replay = resumed.sshReplay, let executable = Bundle.main.executablePath,
+           let command = replay.command(executablePath: executable, remoteWorkingDirectory: resumed.workingDirectory) {
+            // History starts with a local host PTY. Before inline handoff has
+            // arrived, its validated replay still identifies the remote host.
+            var result = config ?? .init()
+            for key in [SessionRuntimeDescriptor.environmentKey, SessionRuntimeDescriptor.localRuntimeEnvironmentKey,
+                        SessionRuntimeDescriptor.attachExistingEnvironmentKey, "OMG_RUNTIME_SOCKET", "OMG_RUNTIME_PANE_ID"] {
+                result.environmentVariables.removeValue(forKey: key)
+            }
+            result.workingDirectory = replay.localWorkingDirectory ?? paneSessionContext(for: source)?.local.workingDirectory
+            result.command = Self.replaySurvivalCommand(command)
+            result.initialInput = nil
+            result.waitAfterCommand = false
+            return Self.injectingSessionID(tabSessionID, into: result)
+        }
+        if let runtime = source.runtimeDescriptor {
             if runtime.isLocal, !effectiveLocalRuntimeEnabled {
                 var result = config ?? .init()
                 result.environmentVariables.removeValue(forKey: SessionRuntimeDescriptor.environmentKey)
