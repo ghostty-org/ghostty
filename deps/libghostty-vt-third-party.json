@@ -6,7 +6,7 @@
       "kind": "zig-package",
       "version": "0.0.0",
       "commit": "d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
-      "url": "git+https://codeberg.org/ziglang/arocc#d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
+      "url": "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
       "hash": "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa",
       "license": "MIT AND Unicode-3.0",
       "use": "build"
@@ -20,26 +20,6 @@
       "hash": "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
       "license": "Apache-2.0 OR BSD-3-Clause",
       "use": "linked"
-    },
-    {
-      "name": "iterm2_themes",
-      "kind": "zig-package",
-      "version": null,
-      "commit": null,
-      "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz",
-      "hash": "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3",
-      "license": "MIT",
-      "use": "build"
-    },
-    {
-      "name": "pixels",
-      "kind": "zig-package",
-      "version": null,
-      "commit": null,
-      "url": "https://deps.files.ghostty.org/pixels-12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806.tar.gz",
-      "hash": "N-V-__8AADYiAAB_80AWnH1AxXC0tql9thT-R-DYO1gBqTLc",
-      "license": "CC0-1.0",
-      "use": "build"
     },
     {
       "name": "simdutf",
@@ -65,9 +45,9 @@
       "name": "uucode",
       "kind": "zig-package",
       "version": "0.2.0",
-      "commit": "ea62149739404a73c202b48a33bf6dd2af4bd9b0",
-      "url": "https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz",
-      "hash": "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg",
+      "commit": "1fb73433bba5d93366c57f23ff2e9d7939746500",
+      "url": "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+      "hash": "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
       "license": "MIT AND Unicode-3.0",
       "use": "linked"
     },
@@ -80,26 +60,6 @@
       "hash": "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
       "license": "Apache-2.0 OR MIT",
       "use": "linked"
-    },
-    {
-      "name": "zigimg",
-      "kind": "zig-package",
-      "version": "0.1.0",
-      "commit": "c701c9f99779d7ddf594dcc6da8f858fd277d61f",
-      "url": "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
-      "hash": "zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
-      "license": "MIT",
-      "use": "build"
-    },
-    {
-      "name": "zlib",
-      "kind": "zig-package",
-      "version": "1.3.1",
-      "commit": null,
-      "url": "https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz",
-      "hash": "N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o",
-      "license": "Zlib",
-      "use": "build"
     }
   ]
 }

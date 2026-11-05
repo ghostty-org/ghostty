@@ -30,6 +30,20 @@ https://release.files.ghostty.org/libghostty-vt/VERSION/libghostty-vt-VERSION.ta
 https://release.files.ghostty.org/libghostty-vt/VERSION/libghostty-vt-VERSION.tar.gz.minisig
 ```
 
+The build needs a few Zig packages that aren't in the source tarball.
+Rather than have Zig download them during the build, you can download a
+dependency tarball that contains all of them, published next to each
+source tarball:
+
+```
+https://release.files.ghostty.org/libghostty-vt/VERSION/libghostty-vt-VERSION-deps.tar.gz
+https://release.files.ghostty.org/libghostty-vt/VERSION/libghostty-vt-VERSION-deps.tar.gz.minisig
+```
+
+The source tarball and the dependency tarball of one version belong
+together. Don't mix tarballs from different versions. See
+[Building libghostty-vt](#building-libghostty-vt) for how to use them.
+
 This is the only place releases are published. The same directory also
 holds prebuilt files for app developers:
 
@@ -40,7 +54,7 @@ holds prebuilt files for app developers:
 - `libghostty-vt-VERSION-docs.zip`: the C API reference as HTML.
 
 Every file has a `.minisig` signature next to it. `SHA256SUMS` lists the
-checksums of the tarball and the files above, and is signed too, as
+checksums of both tarballs and the files above, and is signed too, as
 `SHA256SUMS.minisig`.
 Signature files are signed with
 [minisign](https://jedisct1.github.io/minisign/)
@@ -58,7 +72,8 @@ minisign -V -P RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV \
   -m libghostty-vt-0.1.0.tar.gz
 ```
 
-The tarball unpacks to a `libghostty-vt-VERSION` directory.
+The source tarball unpacks to a `libghostty-vt-VERSION` directory, and the
+dependency tarball to a `libghostty-vt-VERSION-deps` directory.
 
 **Tip source tarballs** are available on the
 [GitHub releases page](https://github.com/ghostty-org/ghostty/releases/tag/tip).
@@ -97,26 +112,28 @@ works, but Zig 0.16 and Zig 0.18 do not.
 ## Building libghostty-vt
 
 The following is a standard example of how to build libghostty-vt _for
-system packages_. Run these commands from the unpacked source tarball.
+system packages_. The build needs no internet access: Zig finds every
+package it needs in the directory passed with `--system`.
 
-1. First, we fetch our dependencies from the internet into a cached
-   directory. This is the only step that requires internet access.
-   `deps/libghostty-vt.txt` lists only the packages the library needs, so
-   this downloads far less than a Ghostty app build would:
+1. First, download the source tarball and the dependency tarball of the
+   same version, check both signatures as shown in
+   [Source Tarballs](#source-tarballs), and unpack them side by side:
 
 ```sh
-ZIG_GLOBAL_CACHE_DIR=/tmp/offline-cache \
-  ./nix/build-support/fetch-zig-cache.sh deps/libghostty-vt.txt
+tar -xzf libghostty-vt-0.1.0.tar.gz
+tar -xzf libghostty-vt-0.1.0-deps.tar.gz
+cd libghostty-vt-0.1.0
 ```
 
-2. Next, we build libghostty-vt. This step requires no internet access:
+2. Next, build libghostty-vt from the unpacked source tarball, with the
+   unpacked dependency tarball as the `--system` directory:
 
 ```sh
 DESTDIR=/tmp/pkg \
 ZIG_GLOBAL_CACHE_DIR=/tmp/build-cache \
 zig build \
   --prefix /usr \
-  --system /tmp/offline-cache/p \
+  --system ../libghostty-vt-0.1.0-deps \
   -Doptimize=ReleaseFast \
   -Dcpu=baseline
 ```
@@ -127,13 +144,39 @@ library will be in `/tmp/pkg/usr/lib/`). The installed pkg-config and CMake
 files refer to `/usr`, where the files will be once your package is
 installed, and never to `/tmp/pkg`.
 
+The dependency tarball contains exactly the packages that
+`deps/libghostty-vt.txt` lists. Each package is already unpacked into its
+own directory, named by its Zig package hash. This is the layout Zig's own
+package cache uses, which is why `--system` can read it directly:
+
+```
+libghostty-vt-0.1.0-deps/
+  uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv/
+  N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE/
+  ...
+```
+
+**Without the dependency tarball**, for example when building from a Git
+checkout or a tip source tarball, fetch the packages yourself first. This
+step needs internet access and Zig. `deps/libghostty-vt.txt` lists only
+the packages the library needs, so it downloads far less than a Ghostty app
+build would:
+
+```sh
+ZIG_GLOBAL_CACHE_DIR=/tmp/offline-cache \
+  ./nix/build-support/fetch-zig-cache.sh deps/libghostty-vt.txt
+```
+
+Then build as in step 2, with `--system /tmp/offline-cache/p` instead.
+
 > [!IMPORTANT]
 >
 > `ZIG_GLOBAL_CACHE_DIR` in the build step must be a new, empty directory,
-> not the one the fetch step filled. With Zig 0.17, reusing the fetch
-> cache can crash the build with "reached unreachable code" instead of a
-> useful error. An empty cache also proves that the build used only the
-> packages you fetched.
+> not `~/.cache/zig` or the one the fetch step filled. With Zig 0.17, a
+> cache that holds an archive of a package can crash the build with
+> "reached unreachable code" instead of a useful error. An empty cache also
+> proves that the build used only the packages in the `--system`
+> directory.
 
 ## Installed Files
 
@@ -177,8 +220,9 @@ particularly relevant to package maintainers:
   `--prefix-lib-dir lib64` for a distribution that keeps libraries in
   `/usr/lib64`.
 
-- `--system`: The path to the offline cache directory. This disables
-  any package fetching from the internet.
+- `--system`: The directory that holds the Zig packages, such as the
+  unpacked dependency tarball. This disables any package fetching from
+  the internet.
 
 - `-Doptimize=ReleaseFast`: Build with optimizations enabled and safety
   checks disabled. This is the recommended build mode for distribution.
@@ -333,9 +377,10 @@ The license texts are in these places:
 - libghostty-vt: `LICENSE` at the root of the tarball.
 - simdutf: `pkg/simdutf/vendor/`, since simdutf is included in the
   tarball.
-- Every other linked project: in the directory the fetch step unpacked
-  it to, `/tmp/offline-cache/p/<hash>` in the example above, where
-  `<hash>` is the entry's `hash` field.
+- Every other linked project: in its package directory,
+  `libghostty-vt-VERSION-deps/<hash>` in the unpacked dependency tarball
+  (or `/tmp/offline-cache/p/<hash>` if you fetched the packages yourself),
+  where `<hash>` is the entry's `hash` field.
 
 [`deps/README.md`](deps/README.md) describes this file and the other
 generated dependency lists.
@@ -347,7 +392,7 @@ To run the library's tests, use the same offline setup as the build:
 ```sh
 ZIG_GLOBAL_CACHE_DIR=/tmp/build-cache \
 zig build test-lib-vt \
-  --system /tmp/offline-cache/p
+  --system ../libghostty-vt-0.1.0-deps
 ```
 
 To check the installed files, compile and run a small program against

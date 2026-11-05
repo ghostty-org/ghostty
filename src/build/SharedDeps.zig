@@ -18,7 +18,12 @@ options: *std.Build.Step.Options,
 help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
-framedata: GhosttyFrameData,
+/// The animation data for `ghostty +boo`. Building it compiles a helper
+/// program that links zlib, so a libghostty-vt build leaves it null and
+/// never downloads zlib. `add` requires it, and the only artifacts a
+/// libghostty-vt build passes to `add` are the bench tools
+/// (-Demit-bench), so it is kept for those.
+framedata: ?GhosttyFrameData,
 uucode_tables: std.Build.LazyPath,
 
 /// Singleton uucode module, instantiated once in `init` and reused
@@ -87,7 +92,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .config = cfg,
         .help_strings = try .init(b, cfg),
         .unicode_tables = try .init(b, uucode_tables),
-        .framedata = try .init(b),
+        .framedata = if (cfg.emit_lib_vt and !cfg.emit_bench)
+            null
+        else
+            try .init(b),
         .uucode_tables = uucode_tables,
         .uucode_mod = uucode_mod,
 
@@ -696,7 +704,7 @@ pub fn add(
 
     self.help_strings.addImport(step);
     self.unicode_tables.addImport(step);
-    self.framedata.addImport(step);
+    self.framedata.?.addImport(step);
 
     return static_libs;
 }

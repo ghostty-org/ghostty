@@ -81,7 +81,13 @@ pub fn build(b: *std.Build) !void {
     );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
-    const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
+    // Only the app uses them, so a libghostty-vt build skips them, which
+    // also keeps it from downloading the themes package. This is null only
+    // when emit_lib_vt is set, and every use below is in an app-only branch.
+    const resources: ?buildpkg.GhosttyResources = if (config.emit_lib_vt)
+        null
+    else
+        try buildpkg.GhosttyResources.init(b, &config, &deps);
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
 
     // Ghostty executable, the actual runnable Ghostty program.
@@ -119,6 +125,14 @@ pub fn build(b: *std.Build) !void {
         const check_step = b.step("distcheck", "Install and validate the dist tarball");
         check_step.dependOn(dist.check_step);
         check_step.dependOn(dist.install_step);
+        // Only libghostty-vt builds (-Demit-lib-vt) have this step.
+        if (dist.deps_install_step) |deps_install| {
+            const deps_step = b.step(
+                "dist-deps",
+                "Build the libghostty-vt dependency tarball for offline builds (needs network)",
+            );
+            deps_step.dependOn(deps_install);
+        }
     }
 
     // libghostty-vt
@@ -220,7 +234,7 @@ pub fn build(b: *std.Build) !void {
     if (config.app_runtime != .none) {
         if (config.emit_exe) {
             exe.install();
-            resources.install();
+            if (resources) |v| v.install();
             if (i18n) |v| v.install();
         }
     } else if (!config.emit_lib_vt) {
@@ -263,7 +277,7 @@ pub fn build(b: *std.Build) !void {
 
             // The xcframework build always installs resources because our
             // macOS xcode project contains references to them.
-            resources.install();
+            resources.?.install();
             if (i18n) |v| v.install();
         }
 
@@ -275,7 +289,7 @@ pub fn build(b: *std.Build) !void {
                 .xcframework = &xcframework,
                 .docs = &docs,
                 .i18n = if (i18n) |v| &v else null,
-                .resources = &resources,
+                .resources = &resources.?,
             },
         );
         if (config.emit_macos_app) {
@@ -323,7 +337,7 @@ pub fn build(b: *std.Build) !void {
                     .xcframework = &xcframework_native,
                     .docs = &docs,
                     .i18n = if (i18n) |v| &v else null,
-                    .resources = &resources,
+                    .resources = &resources.?,
                 },
             );
 

@@ -9,6 +9,18 @@
         // Our higher-level C translation helper (this also helps ensure we
         // only need to maintain one external dependency point)
         .translate_c = .{ .path = "./pkg/translate-c" },
+        .aro = .{
+            // ziglang/arocc (via translate_c)
+            //
+            // Only translate_c uses aro, and Ghostty never asks for it
+            // directly. We list it here with the same hash as translate_c's
+            // build.zig.zon so that the generated files in deps/ use this
+            // URL instead of the Codeberg git URL translate_c gives. Keep
+            // the hash in sync with translate_c.
+            .url = "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
+            .hash = "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa",
+            .lazy = true,
+        },
 
         // Zig libs
         .libxev = .{
@@ -19,21 +31,24 @@
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "https://deps.files.ghostty.org/vaxis-6fd944a27fb3d6f596e981076381a3131f2448b4.tar.gz",
-            .hash = "vaxis-0.6.0-BWNV_MafDAAEzkVUvrW9NFUqnnMUoeHqrs2mecnD6D7w",
+            .url = "https://deps.files.ghostty.org/vaxis-0620b34e091deaa6f64608922be3814147128dfb.tar.gz",
+            .hash = "vaxis-0.6.0-BWNV_LoTDQCQSGhvBbu_-fOf3I2P3TIiGaUzCDniO12E",
             .lazy = true,
         },
         .zigimg = .{
-            // sergot/zigimg (via vaxis)
-            // The commit vaxis pins is no longer on any upstream branch, so
-            // we pin the same hash to our mirror. Must not be lazy, or Zig
-            // falls back to the git URL in vaxis's build.zig.zon.
-            .url = "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
-            .hash = "zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
+            // zigimg/zigimg (via vaxis)
+            //
+            // Only vaxis uses zigimg, and Ghostty never asks for it directly.
+            // We list it here with the same hash as vaxis's build.zig.zon so
+            // that the generated files in deps/ use this URL instead of the
+            // git URL vaxis gives. Keep the hash in sync with vaxis.
+            .url = "https://deps.files.ghostty.org/zigimg-734fa919fb15b7917d4eb124f53600348f4ffa30.tar.gz",
+            .hash = "zigimg-0.1.0-8_eo2sBLGACBebrhQZUwRliZNSUyDn6szp99eip_6-Rw",
+            .lazy = true,
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
+            .url = "https://deps.files.ghostty.org/z2d-8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
             .hash = "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_",
             .lazy = true,
         },
@@ -51,8 +66,14 @@
         },
         .uucode = .{
             // jacobsandlund/uucode
-            .url = "https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz",
-            .hash = "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg",
+            //
+            // Keep this at the commit vaxis pins. Ghostty builds vaxis with
+            // -Dexternal_uucode=true, so vaxis uses this copy and never
+            // fetches its own. The generated files in deps/ still list every
+            // package that any build.zig.zon names. If the hashes differ,
+            // they list a second uucode that no build uses.
+            .url = "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+            .hash = "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
@@ -64,6 +85,40 @@
             // natecraddock/zf
             .url = "https://deps.files.ghostty.org/zf-87153bb86b75d21fbac897b738f316d449f5d0c9.tar.gz",
             .hash = "zf-0.11.0-OIRy8XCRAAB6FiMwIrtD6FqlagnFwpI6YyOu7bXeYH5J",
+            .lazy = true,
+        },
+        // The three entries below are never fetched by any build. They
+        // exist only for the generated files in deps/.
+        //
+        // zf pins an older vaxis than ours, and that vaxis pins an older
+        // zigimg and uucode. Ghostty builds zf with -Dwith_tui=false, so zf
+        // never asks for its vaxis and Zig never downloads any of the three.
+        //
+        // The generated files list every package that any build.zig.zon
+        // names, whether or not a build uses it. Packages with the same
+        // hash are listed once, under the URL given here. Without these
+        // entries, the files would list zf's git URLs. The vaxis and zigimg
+        // commits are no longer on any upstream branch, so those URLs can't
+        // be fetched, and offline, Nix, and Flatpak builds would fail.
+        //
+        // No build script refers to these names. Remove all three once zf
+        // pins the same vaxis hash as the `vaxis` entry above.
+        .zf_vaxis = .{
+            // rockorager/libvaxis (via zf)
+            .url = "https://deps.files.ghostty.org/vaxis-6fd944a27fb3d6f596e981076381a3131f2448b4.tar.gz",
+            .hash = "vaxis-0.6.0-BWNV_MafDAAEzkVUvrW9NFUqnnMUoeHqrs2mecnD6D7w",
+            .lazy = true,
+        },
+        .zf_vaxis_zigimg = .{
+            // sergot/zigimg (via zf's vaxis)
+            .url = "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
+            .hash = "zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
+            .lazy = true,
+        },
+        .zf_vaxis_uucode = .{
+            // jacobsandlund/uucode (via zf's vaxis)
+            .url = "https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz",
+            .hash = "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg",
             .lazy = true,
         },
         .gobject = .{
