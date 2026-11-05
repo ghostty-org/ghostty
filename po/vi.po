@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-11-03 23:03+0000\n"
 "PO-Revision-Date: 2026-08-13 21:30+0700\n"
 "Last-Translator: Anh Thang <buianhthang89@gmail.com>\n"
 "Language-Team: Vietnamese <translation-team-vi@lists.sourceforge.net>\n"
@@ -206,6 +206,10 @@ msgstr "Về Ghostty"
 msgid "Quit"
 msgstr "Thoát"
 
+#: src/apprt/gtk/ui/1.4/window.blp:346
+msgid "Change Tab Color…"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
@@ -230,6 +234,7 @@ msgstr "Tải lại cấu hình để hiển thị lại thông báo này"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+#: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:9
 #: src/apprt/gtk/class/application.zig:2152
 msgid "Cancel"
 msgstr "Hủy"
@@ -261,6 +266,10 @@ msgstr "Để trống để khôi phục tiêu đề mặc định."
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
 msgstr "Đồng ý"
+
+#: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:5
+msgid "Tab Color"
+msgstr ""
 
 #: src/apprt/gtk/class/application.zig:1736
 msgid "The keybind was revoked by the system."
@@ -368,6 +377,46 @@ msgstr "Lệnh đã thực thi thành công"
 msgid "Command Failed"
 msgstr "Lệnh thực thi thất bại"
 
+#: src/apprt/gtk/class/tab_color_dialog.zig:54
+msgid "None"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:55
+msgid "Blue"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:56
+msgid "Teal"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:57
+msgid "Green"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:58
+msgid "Yellow"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:59
+msgid "Orange"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:60
+msgid "Red"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:61
+msgid "Pink"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:62
+msgid "Purple"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:63
+msgid "Slate"
+msgstr ""
+
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
 msgstr "Đổi tiêu đề Terminal"
@@ -380,19 +429,19 @@ msgstr "Đổi tiêu đề Tab"
 msgid "Change Window Title"
 msgstr "Đổi tiêu đề cửa sổ"
 
-#: src/apprt/gtk/class/window.zig:1184
+#: src/apprt/gtk/class/window.zig:1186
 msgid "Reloaded the configuration"
 msgstr "Đã tải lại cấu hình"
 
-#: src/apprt/gtk/class/window.zig:1887
+#: src/apprt/gtk/class/window.zig:1891
 msgid "Copied to clipboard"
 msgstr "Đã sao chép vào bảng tạm"
 
-#: src/apprt/gtk/class/window.zig:1889
+#: src/apprt/gtk/class/window.zig:1893
 msgid "Cleared clipboard"
 msgstr "Đã xóa sạch bảng tạm"
 
-#: src/apprt/gtk/class/window.zig:2028
+#: src/apprt/gtk/class/window.zig:2032
 msgid "Ghostty Developers"
 msgstr "Các nhà phát triển Ghostty"
 

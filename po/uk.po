@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-11-03 23:03+0000\n"
 "PO-Revision-Date: 2026-08-19 19:34+0100\n"
 "Last-Translator: Volodymyr Chernetskyi "
 "<19735328+chernetskyi@users.noreply.github.com>\n"
@@ -208,6 +208,10 @@ msgstr "Про Ghostty"
 msgid "Quit"
 msgstr "Вийти"
 
+#: src/apprt/gtk/ui/1.4/window.blp:346
+msgid "Change Tab Color…"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:392
@@ -232,6 +236,7 @@ msgstr "Перезавантажте налаштування, щоб показ
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
+#: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:9
 #: src/apprt/gtk/class/application.zig:2152
 msgid "Cancel"
 msgstr "Скасувати"
@@ -263,6 +268,10 @@ msgstr "Залиште порожнім, щоб відновити заголо�
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
 msgstr "ОК"
+
+#: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:5
+msgid "Tab Color"
+msgstr ""
 
 #: src/apprt/gtk/class/application.zig:1736
 msgid "The keybind was revoked by the system."
@@ -370,6 +379,46 @@ msgstr "Команда завершилась успішно"
 msgid "Command Failed"
 msgstr "Команда завершилась з помилкою"
 
+#: src/apprt/gtk/class/tab_color_dialog.zig:54
+msgid "None"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:55
+msgid "Blue"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:56
+msgid "Teal"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:57
+msgid "Green"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:58
+msgid "Yellow"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:59
+msgid "Orange"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:60
+msgid "Red"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:61
+msgid "Pink"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:62
+msgid "Purple"
+msgstr ""
+
+#: src/apprt/gtk/class/tab_color_dialog.zig:63
+msgid "Slate"
+msgstr ""
+
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
 msgstr "Змінити заголовок терміналу"
@@ -382,19 +431,19 @@ msgstr "Змінити заголовок вкладки"
 msgid "Change Window Title"
 msgstr "Змінити заголовок вікна"
 
-#: src/apprt/gtk/class/window.zig:1184
+#: src/apprt/gtk/class/window.zig:1186
 msgid "Reloaded the configuration"
 msgstr "Налаштування перезавантажено"
 
-#: src/apprt/gtk/class/window.zig:1887
+#: src/apprt/gtk/class/window.zig:1891
 msgid "Copied to clipboard"
 msgstr "Скопійовано до буфера обміну"
 
-#: src/apprt/gtk/class/window.zig:1889
+#: src/apprt/gtk/class/window.zig:1893
 msgid "Cleared clipboard"
 msgstr "Буфер обміну очищено"
 
-#: src/apprt/gtk/class/window.zig:2028
+#: src/apprt/gtk/class/window.zig:2032
 msgid "Ghostty Developers"
 msgstr "Розробники Ghostty"
 

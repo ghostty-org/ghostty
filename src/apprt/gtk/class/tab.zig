@@ -1,8 +1,11 @@
 const std = @import("std");
 const adw = @import("adw");
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const graphene = @import("graphene");
+const gsk = @import("gsk");
 const gtk = @import("gtk");
 
 const configpkg = @import("../../../config.zig");
@@ -19,6 +22,147 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Overrides = @import("Overrides.zig");
 
 const log = std.log.scoped(.gtk_ghostty_window);
+
+pub const TabColor = enum {
+    none,
+    blue,
+    teal,
+    green,
+    yellow,
+    orange,
+    red,
+    pink,
+    purple,
+    slate,
+
+    fn accent(self: TabColor) ?adw.AccentColor {
+        return switch (self) {
+            .none => null,
+            .blue => .blue,
+            .teal => .teal,
+            .green => .green,
+            .yellow => .yellow,
+            .orange => .orange,
+            .red => .red,
+            .pink => .pink,
+            .purple => .purple,
+            .slate => .slate,
+        };
+    }
+
+    fn fillRgba(self: TabColor) ?gdk.RGBA {
+        const accent_color = self.accent() orelse return null;
+        var color: gdk.RGBA = undefined;
+        accent_color.toRgba(&color);
+        return color;
+    }
+
+    /// Draw the swatch into `snap` as vector paths (circle, or ring+slash for none).
+    pub fn appendSwatch(self: TabColor, snap: *gtk.Snapshot, size: f32) void {
+        const mid = size / 2.0;
+        const radius = size * 0.3125;
+        const stroke_width = @max(1.0, size * (1.5 / 16.0));
+        const center: graphene.Point = .{ .f_x = mid, .f_y = mid };
+
+        if (self.fillRgba()) |fill| {
+            const builder = gsk.PathBuilder.new();
+            builder.addCircle(&center, radius);
+            const path = builder.freeToPath();
+            defer path.unref();
+            snap.appendFill(path, .winding, &fill);
+        } else {
+            // None: outlined circle with a slash so it reads as "no color".
+            var stroke_color: gdk.RGBA = undefined;
+            adw.AccentColor.slate.toRgba(&stroke_color);
+            const stroke = gsk.Stroke.new(stroke_width);
+            defer stroke.free();
+
+            const circle_builder = gsk.PathBuilder.new();
+            circle_builder.addCircle(&center, radius);
+            const circle = circle_builder.freeToPath();
+            defer circle.unref();
+            snap.appendStroke(circle, stroke, &stroke_color);
+
+            const inset = radius * 0.72;
+            const slash_builder = gsk.PathBuilder.new();
+            slash_builder.moveTo(mid - inset, mid + inset);
+            slash_builder.lineTo(mid + inset, mid - inset);
+            const slash = slash_builder.freeToPath();
+            defer slash.unref();
+            snap.appendStroke(slash, stroke, &stroke_color);
+        }
+    }
+
+    const indicator_px = 48;
+
+    fn emptyIndicatorTexture() *gdk.Texture {
+        const transparent: [indicator_px * indicator_px * 4]u8 = @splat(0);
+        const bytes = glib.Bytes.new(&transparent, transparent.len);
+        defer bytes.unref();
+        return gdk.MemoryTexture.new(
+            indicator_px,
+            indicator_px,
+            .r8g8b8a8_premultiplied,
+            bytes,
+            indicator_px * 4,
+        ).as(gdk.Texture);
+    }
+
+    /// Snapshot vector swatch at 3x (48px) so GTK can scale for HiDPI.
+    pub fn createIndicatorIcon(self: TabColor) *gdk.Texture {
+        const size: f32 = indicator_px;
+
+        const snap = gtk.Snapshot.new();
+        self.appendSwatch(snap, size);
+        const node = snap.freeToNode() orelse return emptyIndicatorTexture();
+        defer node.unref();
+
+        const cairo_renderer = gsk.CairoRenderer.new();
+        defer cairo_renderer.unref();
+        const renderer = cairo_renderer.as(gsk.Renderer);
+        var err: ?*glib.Error = null;
+        if (renderer.realize(null, &err) == 0) {
+            if (err) |e| {
+                defer e.free();
+                log.warn("failed to realize swatch renderer: {s}", .{e.f_message orelse "unknown"});
+            }
+            return emptyIndicatorTexture();
+        }
+        defer renderer.unrealize();
+
+        const viewport: graphene.Rect = .{
+            .f_origin = .{ .f_x = 0, .f_y = 0 },
+            .f_size = .{ .f_width = size, .f_height = size },
+        };
+        return renderer.renderTexture(node, &viewport);
+    }
+};
+
+test "TabColor.accent" {
+    const testing = std.testing;
+    try testing.expect(TabColor.none.accent() == null);
+    try testing.expectEqual(adw.AccentColor.blue, TabColor.blue.accent().?);
+    try testing.expectEqual(adw.AccentColor.teal, TabColor.teal.accent().?);
+    try testing.expectEqual(adw.AccentColor.green, TabColor.green.accent().?);
+    try testing.expectEqual(adw.AccentColor.yellow, TabColor.yellow.accent().?);
+    try testing.expectEqual(adw.AccentColor.orange, TabColor.orange.accent().?);
+    try testing.expectEqual(adw.AccentColor.red, TabColor.red.accent().?);
+    try testing.expectEqual(adw.AccentColor.pink, TabColor.pink.accent().?);
+    try testing.expectEqual(adw.AccentColor.purple, TabColor.purple.accent().?);
+    try testing.expectEqual(adw.AccentColor.slate, TabColor.slate.accent().?);
+}
+
+test "TabColor tags cover Adwaita accents" {
+    const testing = std.testing;
+    const tags = std.meta.tags(TabColor);
+    try testing.expectEqual(@as(usize, 10), tags.len);
+    for (tags) |color| {
+        switch (color) {
+            .none => try testing.expect(color.accent() == null),
+            else => try testing.expect(color.accent() != null),
+        }
+    }
+}
 
 pub const Tab = extern struct {
     const Self = @This();
@@ -169,6 +313,9 @@ pub const Tab = extern struct {
         /// The tooltip of this tab. This is usually bound to the active surface.
         tooltip: ?[:0]const u8 = null,
 
+        /// Color chosen from the tab context menu.
+        tab_color: TabColor = .none,
+
         // Template bindings
         split_tree: *SplitTree,
 
@@ -264,6 +411,28 @@ pub const Tab = extern struct {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
     }
+
+    pub fn getTabColor(self: *Self) TabColor {
+        return self.private().tab_color;
+    }
+
+    pub fn setTabColor(self: *Self, color: TabColor) void {
+        self.private().tab_color = color;
+        self.syncColorIndicator();
+    }
+
+    pub fn syncColorIndicator(self: *Self) void {
+        const page = self.getTabPage() orelse return;
+        const color = self.private().tab_color;
+        if (color == .none) {
+            page.setIndicatorIcon(null);
+            return;
+        }
+        const texture = color.createIndicatorIcon();
+        defer texture.unref();
+        page.setIndicatorIcon(texture.as(gio.Icon));
+    }
+
     pub fn promptTabTitle(self: *Self) void {
         const priv = self.private();
         const dialog = TitleDialog.new(.tab, priv.title_override orelse priv.title);
