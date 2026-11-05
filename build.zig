@@ -125,6 +125,14 @@ pub fn build(b: *std.Build) !void {
         const check_step = b.step("distcheck", "Install and validate the dist tarball");
         check_step.dependOn(dist.check_step);
         check_step.dependOn(dist.install_step);
+        // Only libghostty-vt builds (-Demit-lib-vt) have this step.
+        if (dist.deps_install_step) |deps_install| {
+            const deps_step = b.step(
+                "dist-deps",
+                "Build the libghostty-vt dependency tarball for offline builds (needs network)",
+            );
+            deps_step.dependOn(deps_install);
+        }
     }
 
     // libghostty-vt

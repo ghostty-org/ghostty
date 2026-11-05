@@ -17,6 +17,11 @@ archive_step: *std.Build.Step,
 /// The step to depend on for checking the dist
 check_step: *std.Build.Step,
 
+/// The step to build and install the libghostty-vt dependency tarball,
+/// such as `zig-out/dist/libghostty-vt-0.1.0-deps.tar.gz`. This is null for
+/// app builds, since only libghostty-vt has a dependency tarball.
+deps_install_step: ?*std.Build.Step,
+
 /// Creates the steps that build and check the app source tarball, or with
 /// `-Demit-lib-vt` the libghostty-vt one, such as
 /// `libghostty-vt-0.1.0.tar.gz`. The tarball records its version in a
@@ -186,7 +191,48 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         .install_step = &install.step,
         .archive_step = &git_archive.step,
         .check_step = &check_test.step,
+        .deps_install_step = if (cfg.emit_lib_vt) initDeps(b, prefix) else null,
     };
+}
+
+/// Creates the step that builds the libghostty-vt dependency tarball. It is
+/// named after the source tarball, so `libghostty-vt-0.1.0` gives
+/// `libghostty-vt-0.1.0-deps.tar.gz`, and the two always go together.
+///
+/// The tarball contains the Zig packages that deps/libghostty-vt.txt lists,
+/// already unpacked. With it, the library builds with no network access:
+///
+///   zig build --system ../libghostty-vt-0.1.0-deps
+///
+/// See src/build/dist_deps.zig for the layout and how it is made.
+fn initDeps(b: *std.Build, prefix: []const u8) *std.Build.Step {
+    const tool = b.addExecutable(.{
+        .name = "dist_deps",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/build/dist_deps.zig"),
+            .target = b.graph.host,
+        }),
+    });
+
+    const deps_prefix = b.fmt("{s}-deps", .{prefix});
+    const run = b.addRunArtifact(tool);
+    run.addArg(b.graph.zig_exe);
+    run.addFileArg(b.path("nix/build-support/fetch-zig-cache.sh"));
+    run.addFileArg(b.path("deps/libghostty-vt.txt"));
+    run.addFileArg(b.path("deps/packages.json"));
+    run.addArg(deps_prefix);
+    _ = run.addOutputDirectoryArg("cache");
+    const output = run.addOutputFileArg(b.fmt("{s}.tar.gz", .{deps_prefix}));
+
+    // The step downloads packages, which Zig can't track as inputs. Always
+    // run it, so the tarball is never a stale copy from the build cache.
+    run.has_side_effects = true;
+
+    const install = b.addInstallFile(
+        output,
+        b.fmt("dist/{s}.tar.gz", .{deps_prefix}),
+    );
+    return &install.step;
 }
 
 /// Paths to exclude from the dist archive when building for lib-vt only.
