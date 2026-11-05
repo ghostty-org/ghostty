@@ -250,6 +250,13 @@ also check the version themselves, with the macros in
 `<ghostty/vt/version.h>` when they are compiled and with
 `ghostty_version()` when they run.
 
+On Linux and FreeBSD, the shared library exports only the `ghostty_*`
+functions, and each one carries the symbol version `GHOSTTY_VT_0`. You can
+see it with `readelf --dyn-syms`, which lists names such as
+`ghostty_terminal_new@@GHOSTTY_VT_0`. At 1.0 the version becomes
+`GHOSTTY_VT_1.0`, so the loader refuses to run a program built against 0.x
+with a 1.0 library instead of letting it fail later.
+
 **From 1.0, libghostty-vt follows semantic versioning.** A release that
 breaks compatibility gets a new major version and a new SONAME, such as
 `libghostty-vt.so.2`. Minor and patch releases only add to the library.
