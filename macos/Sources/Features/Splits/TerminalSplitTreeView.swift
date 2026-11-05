@@ -100,6 +100,8 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
+    @Environment(\.ghosttyLastFocusedSurface) private var focusedSurface
+    @ObservedObject private var settings = OhMyGhosttySettings.shared
     let surfaceView: Ghostty.SurfaceView
     let presentationLease: SurfacePresentationLease
     let isSplit: Bool
@@ -133,6 +135,13 @@ private struct TerminalSplitLeaf: View {
             .overlay {
                 if !isSelfDragging, case .dropping(let zone) = dropState {
                     zone.overlay(in: geometry)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay {
+                if isSplit, settings.focusedSplitBorder, focusedSurface?.value === surfaceView {
+                    Rectangle()
+                        .strokeBorder(Color.accentColor, lineWidth: settings.focusedSplitBorderWidth)
                         .allowsHitTesting(false)
                 }
             }

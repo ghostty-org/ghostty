@@ -462,6 +462,16 @@ final class OhMyGhosttySettings: ObservableObject {
             description: "Keep Quick Input history on disk after quitting. Disabling deletes the saved copy.",
             requiresNewWindow: false, category: "keyboard"),
         .init(
+            id: "terminal.focusedSplitBorder", type: .boolean, defaultValue: "true",
+            allowedValues: nil, minimum: nil, maximum: nil,
+            description: "Outline the selected split pane using the system accent color.",
+            requiresNewWindow: false, category: "terminal"),
+        .init(
+            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "1",
+            allowedValues: nil, minimum: 1, maximum: 2,
+            description: "Selected split outline width in points.",
+            requiresNewWindow: false, category: "terminal"),
+        .init(
             id: "terminal.resizeRendering", type: .enumeration,
             defaultValue: TerminalResizeRenderingMode.onRelease.rawValue,
             allowedValues: TerminalResizeRenderingMode.allCases.map(\.rawValue),
@@ -845,6 +855,19 @@ final class OhMyGhosttySettings: ObservableObject {
     }
     @Published var quickInputHistoryKeepAfterQuit = true {
         didSet { persist("keyboard.quickInputHistoryKeepAfterQuit", quickInputHistoryKeepAfterQuit) }
+    }
+    @Published var focusedSplitBorder = true {
+        didSet { persist("terminal.focusedSplitBorder", focusedSplitBorder) }
+    }
+    @Published var focusedSplitBorderWidth: Double = 1 {
+        didSet {
+            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 2) : 1
+            if focusedSplitBorderWidth != value {
+                focusedSplitBorderWidth = value
+            } else {
+                persist("terminal.focusedSplitBorderWidth", value)
+            }
+        }
     }
     @Published var terminalResizeRendering: TerminalResizeRenderingMode = .onRelease {
         didSet { persist("terminal.resizeRendering", terminalResizeRendering.rawValue) }
@@ -1256,6 +1279,8 @@ final class OhMyGhosttySettings: ObservableObject {
                 "keyboard.quickInputHistoryRetentionDays", fallback: 7, range: 1...365
             ).rounded()
             quickInputHistoryKeepAfterQuit = boolValue("keyboard.quickInputHistoryKeepAfterQuit", fallback: true)
+            focusedSplitBorder = boolValue("terminal.focusedSplitBorder", fallback: true)
+            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 1, range: 1...2)
             terminalResizeRendering = enumValue(
                 "terminal.resizeRendering",
                 fallback: .onRelease

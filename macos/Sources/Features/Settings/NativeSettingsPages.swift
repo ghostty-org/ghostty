@@ -144,6 +144,9 @@ extension NativeSettingsController {
     }
 
     private func appearance(_ form: NativeSettingsForm) {
+        form.section(strings.focusedSplitBorderSection)
+        toggle(form, strings.focusedSplitBorderLabel, \.focusedSplitBorder)
+        number(form, text("Outline width (pt)", "描边宽度（pt）"), \.focusedSplitBorderWidth, range: 1...2, step: 0.5)
         form.section(text("Theme", "主题"))
         picker(form, strings.appearancePickerLabel, \.windowThemeOverride, [
             (nil, text("Follow terminal", "跟随终端")), (.system, text("System", "系统")), (.light, text("Light", "浅色")), (.dark, text("Dark", "深色"))

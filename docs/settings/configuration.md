@@ -208,6 +208,8 @@ Window UI state is intentionally separate: `InspectorPresentationStore` owns las
 | `keyboard.quickInputHistoryRetentionDays` | number | `7` | Integer days, `1...365` | Settings > Editor > Quick Input | Runtime |
 | `keyboard.quickInputHistoryKeepAfterQuit` | boolean | `true` | `true`, `false` | Settings > Editor > Quick Input | Runtime |
 | `keyboard.quickInputControlJNewline` | boolean | `false` | `true`, `false` | Settings > Controls > Quick Input | Runtime |
+| `terminal.focusedSplitBorder` | boolean | `true` | `true`, `false` | Settings > Appearance > Splits | Runtime |
+| `terminal.focusedSplitBorderWidth` | number | `1` | 1–2 points | Settings > Appearance > Splits | Runtime |
 | `sessions.startupMode`            | enum    | `restoreSessions`             | `newTerminal`, `restoreTabs`, `restoreSessions`                                                        | Settings > General                 | Next launch                  |
 | `general.language`                | enum    | `system`                      | `system`, `en`, `zh-Hans`                                                                              | Settings > General                 | Live (Settings UI)           |
 | `general.quitWithoutConfirmation` | boolean | Release: `false`; Dev: `true` | `true`, `false`                                                                                        | Settings > General                 | Next app quit                |
