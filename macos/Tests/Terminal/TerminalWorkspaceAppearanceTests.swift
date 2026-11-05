@@ -8,6 +8,36 @@ struct TerminalWorkspaceAppearanceTests {
         (view as? T).map { [$0] } ?? view.subviews.flatMap { find(type, in: $0) }
     }
 
+    @Test func pickerStartsAndReturnsOnTheCurrentWorkspace() throws {
+        let fixture = try TerminalWorkspaceManagementTests.Fixture()
+        defer { fixture.close() }
+        let target = try #require(fixture.coordinator.createWorkspace(
+            name: "Work", symbol: "briefcase", color: "blue", from: fixture.controller
+        ))
+        #expect(fixture.coordinator.previousWorkspaceID(in: target) == fixture.store.defaultID)
+        let model = TerminalWorkspacePickerModel(controller: target, dismiss: { $0() }, reopen: {})
+        #expect(model.selectedID == target.workspaceID)
+        model.step(1)
+        #expect(model.selectedID != target.workspaceID)
+        model.reset()
+        #expect(model.selectedID == target.workspaceID)
+        model.beginMove()
+        #expect(model.selectedID != target.workspaceID)
+        model.back()
+        #expect(model.selectedID == target.workspaceID)
+
+        let picker = TerminalWorkspacePickerController(model: model)
+        let window = NSWindow(contentRect: .init(origin: .zero, size: picker.fittingSize(proposedWidth: nil)),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = picker
+        defer { window.contentViewController = nil; window.close() }
+        picker.view.layoutSubtreeIfNeeded()
+        let table = try #require(find(NSTableView.self, in: picker.view).first)
+        let selected = try #require(model.filtered.firstIndex { $0.id == model.currentID })
+        #expect(table.selectedRow == selected)
+    }
+
     @Test func movePageKeepsSearchAtTheSamePosition() async throws {
         let fixture = try TerminalWorkspaceManagementTests.Fixture()
         defer { fixture.close() }

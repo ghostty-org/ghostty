@@ -13,7 +13,7 @@ control; workspace shortcuts remain available. Horizontal tabs use a compact
 workspace control above the terminal content.
 
 - `Control-Command-W`: open the searchable switcher. It initially selects the
-  current window's previous workspace; Return confirms, arrow keys choose, Escape cancels.
+  current window's active workspace; Return confirms, arrow keys choose, Escape cancels.
 - `Control-Command-1` through `Control-Command-9`: select the corresponding
   workspace in its fixed catalog order.
 - `Control-Command-Left` / `Control-Command-Right`: select the previous or next

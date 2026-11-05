@@ -28,7 +28,7 @@ final class TerminalWorkspacePickerModel: ObservableObject {
         self.coordinator = controller.workspaceCoordinator
         self.dismiss = dismiss
         self.reopen = reopen
-        selectedID = coordinator.previousWorkspaceID(in: controller) ?? controller.workspaceID
+        selectedID = controller.workspaceID
     }
 
     var currentID: UUID? { controller?.workspaceID }
@@ -54,10 +54,10 @@ final class TerminalWorkspacePickerModel: ObservableObject {
         query = ""
         error = nil
         notice = nil
-        if let controller { selectedID = coordinator.previousWorkspaceID(in: controller) ?? controller.workspaceID }
+        selectedID = currentID
     }
 
-    func back() { page = .switcher; error = nil; query = "" }
+    func back() { page = .switcher; error = nil; query = ""; selectedID = currentID }
     func cancel() {
         guard !isPerforming else { return }
         if page == .switcher { controller?.workspaceSwitcherIsPresented = false } else { back() }
