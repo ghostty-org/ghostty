@@ -16,6 +16,8 @@ workspace control above the terminal content.
   current window's previous workspace; Return confirms, arrow keys choose, Escape cancels.
 - `Control-Command-1` through `Control-Command-9`: select the corresponding
   workspace in its fixed catalog order.
+- `Control-Command-Left` / `Control-Command-Right`: select the previous or next
+  workspace in catalog order; the first and last workspace do not wrap.
 - **New** in the header opens a name/icon/color form with a live preview.
   **Create & Open** commits the workspace only after its terminal can be displayed.
   The launch configuration follows normal new-tab directory inheritance settings,

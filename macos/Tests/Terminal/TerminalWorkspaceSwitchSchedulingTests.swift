@@ -4,6 +4,32 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct TerminalWorkspaceSwitchSchedulingTests {
+    @Test func arrowShortcutsFollowWorkspaceOrderAndQueueRapidSwitches() async throws {
+        let fixture = try TerminalWorkspaceManagementTests.Fixture(nativeNotifications: NotificationCenter())
+        defer { fixture.close() }
+        let source = fixture.controller
+        let window = try #require(source.window)
+        _ = try #require(fixture.store.create(name: "First", symbol: "house", color: "blue"))
+        let last = try #require(fixture.store.create(name: "Last", symbol: "house", color: "mint"))
+        func arrow(_ keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [.control, .command]) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "", charactersIgnoringModifiers: "",
+                isARepeat: false, keyCode: keyCode
+            ))
+        }
+        #expect(!fixture.coordinator.handle(try arrow(124, modifiers: [.control, .command, .shift]), in: source))
+        #expect(fixture.coordinator.handle(try arrow(123), in: source))
+        #expect(fixture.coordinator.handle(try arrow(124), in: source))
+        #expect(fixture.coordinator.handle(try arrow(124), in: source))
+        try await waitForAppKit { fixture.store.snapshot.windows?[source.windowSessionID]?.currentWorkspace == last }
+        let selected = try #require(fixture.coordinator.controllers(in: last).first)
+        #expect(fixture.coordinator.handle(try arrow(123), in: selected))
+        try await waitForAppKit { fixture.store.snapshot.windows?[source.windowSessionID]?.currentWorkspace != last }
+        #expect(fixture.store.snapshot.windows?[source.windowSessionID]?.currentWorkspace == fixture.store.workspaces[1].id)
+    }
+
     @Test func keyboardBurstPresentsOnlyTheLatestWorkspace() async throws {
         let fixture = try TerminalWorkspaceManagementTests.Fixture(nativeNotifications: NotificationCenter())
         defer { fixture.close() }

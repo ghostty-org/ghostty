@@ -312,6 +312,18 @@ final class TerminalWorkspaceCoordinator: ObservableObject {
             }
             return true
         }
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.type == .keyDown, modifiers == [.control, .command],
+           event.keyCode == 123 || event.keyCode == 124 {
+            let current = deferredSwitches[controller.windowSessionID] ?? controller.workspaceID
+            if let index = store.workspaces.firstIndex(where: { $0.id == current }) {
+                let next = index + (event.keyCode == 123 ? -1 : 1)
+                if store.workspaces.indices.contains(next) {
+                    requestWorkspaceSwitch(to: store.workspaces[next].id, from: controller) { _ in }
+                }
+            }
+            return true
+        }
         return false
     }
 
