@@ -187,9 +187,9 @@ fn report(b: *std.Build, root: *Module) ![]const u8 {
 
     // Ghostty itself, then every package Zig fetched or found for this
     // build. Zig generates this table into the build runner. It includes
-    // packages no build script loads, such as zigimg, which is declared but
-    // not used. Optional packages this build never asked for are marked
-    // unavailable and skipped.
+    // every required package, even one no build script uses. Optional
+    // (lazy) packages that this build never asked for are marked
+    // unavailable, and we skip them.
     var packages: std.ArrayList(Package) = .empty;
     try packages.append(arena, try package(b, &walk, "", b.root.root_dir.path orelse "."));
     const all = @import("root").dependencies.packages;

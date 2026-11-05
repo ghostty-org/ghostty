@@ -151,9 +151,21 @@
   },
   {
     "type": "archive",
+    "url": "https://github.com/jacobsandlund/uucode/archive/1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
+    "sha256": "9e574f5b72c07f426eb31e2604860f22ba0fc5f9ccb44ef44e3212a5e9001828"
+  },
+  {
+    "type": "archive",
     "url": "https://deps.files.ghostty.org/vaxis-6fd944a27fb3d6f596e981076381a3131f2448b4.tar.gz",
     "dest": "vendor/p/vaxis-0.6.0-BWNV_MafDAAEzkVUvrW9NFUqnnMUoeHqrs2mecnD6D7w",
     "sha256": "39d50c983da3dc952c9449c5ef7aadd49142758376ab09149d6212a49c37e16a"
+  },
+  {
+    "type": "archive",
+    "url": "https://github.com/rockorager/libvaxis/archive/0620b34e091deaa6f64608922be3814147128dfb.tar.gz",
+    "dest": "vendor/p/vaxis-0.6.0-BWNV_LoTDQCQSGhvBbu_-fOf3I2P3TIiGaUzCDniO12E",
+    "sha256": "29ab8319ac75a363716867bc9b3a3dfd973d27f30f4dec414d99a6daa447d6b9"
   },
   {
     "type": "archive",
@@ -193,6 +205,12 @@
   },
   {
     "type": "archive",
+    "url": "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
+    "dest": "vendor/p/zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
+    "sha256": "5e427099ae2f1a52592c947117b1abe25a6e17a26d78c260e21b86fdf46b418f"
+  },
+  {
+    "type": "archive",
     "url": "https://deps.files.ghostty.org/zig_js-3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.tar.gz",
     "dest": "vendor/p/zig_js-0.0.0-rjCAV7-GAADvMTBL7lPMuvDk7xgS9PCMIZWiOUXLZSlj",
     "sha256": "a2ff488a244301f4e59469a5232aad6869b01acc50f7d7ed2647c029a57d4b3b"
@@ -211,9 +229,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
-    "dest": "vendor/p/zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
-    "sha256": "5e427099ae2f1a52592c947117b1abe25a6e17a26d78c260e21b86fdf46b418f"
+    "url": "https://github.com/zigimg/zigimg/archive/734fa919fb15b7917d4eb124f53600348f4ffa30.tar.gz",
+    "dest": "vendor/p/zigimg-0.1.0-8_eo2sBLGACBebrhQZUwRliZNSUyDn6szp99eip_6-Rw",
+    "sha256": "3edf278f2a57d47f7793a252a327f70f1ecc00900a15435fecf3beab59540983"
   },
   {
     "type": "archive",

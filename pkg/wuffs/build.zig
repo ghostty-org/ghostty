@@ -106,6 +106,15 @@ pub fn build(b: *std.Build) !void {
         test_module.addImport("wuffs_c", wuffs_c.mod);
     }
 
+    // The test images come from the pixels package. Only this package's own
+    // tests use them, and those only run when this package is built on its
+    // own:
+    //
+    //   cd pkg/wuffs && zig build test
+    //
+    // When another package depends on this one, as Ghostty does, we stop
+    // here, so pixels is never downloaded.
+    if (!b.isRoot()) return;
     if (b.lazyDependency("pixels", .{})) |pixels_dep| {
         inline for (.{ "000000", "FFFFFF" }) |color| {
             inline for (.{ "gif", "jpg", "png", "ppm" }) |extension| {
