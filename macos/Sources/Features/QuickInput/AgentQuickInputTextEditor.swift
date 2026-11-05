@@ -206,6 +206,7 @@ enum AgentQuickInputMovementCommand: Equatable {
 }
 
 final class ComposerTextView: NSTextView {
+    var controlJNewlineEnabled: () -> Bool = { OhMyGhosttySettings.shared.quickInputControlJNewline }
     var pasteboard = NSPasteboard.general
     var placeholder = "" {
         didSet { needsDisplay = true }
@@ -328,6 +329,12 @@ final class ComposerTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if controlJNewlineEnabled(), !hasMarkedText(),
+           event.keyCode == 38,
+           event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.control] {
+            insertText("\n", replacementRange: selectedRange())
+            return
+        }
         if [UInt16(126), 125].contains(event.keyCode), !hasMarkedText(),
            event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]),
            let onNavigateHistory {

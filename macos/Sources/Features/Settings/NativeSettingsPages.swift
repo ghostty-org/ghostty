@@ -292,6 +292,7 @@ extension NativeSettingsController {
         form.section(strings.quickInputSection)
         number(form, strings.quickInputHeightLabel, \.quickInputHeight,
                range: Double(AgentQuickInputMetrics.minimumHeight)...Double(AgentQuickInputMetrics.maximumHeight))
+        toggle(form, strings.quickInputControlJNewlineLabel, \.quickInputControlJNewline)
         form.toggle(strings.quickInputImportLabel, value: !settings.quickInputImportShortcut.isEmpty) { [weak settings] in
             settings?.quickInputImportShortcut = $0 ? "auto" : ""
         }

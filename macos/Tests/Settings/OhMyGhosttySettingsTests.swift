@@ -124,6 +124,14 @@ struct OhMyGhosttySettingsTests {
         #expect(chinese.quickInputHistoryRetentionValue(7) == "7 天")
     }
 
+    @Test func quickInputControlJNewlineDefaultsOffAndPersists() {
+        let (settings, url) = temporarySettings()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        #expect(!settings.quickInputControlJNewline)
+        settings.quickInputControlJNewline = true
+        #expect(OhMyGhosttySettings(fileURL: url).quickInputControlJNewline)
+    }
+
     @Test func typedSettingsRoundTripThroughHumanReadableFile() throws {
         let (settings, url) = temporarySettings()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

@@ -12,6 +12,9 @@ struct QuickInputSettingsView: View {
                 Text("\(Int(settings.quickInputHeight)) pt").monospacedDigit().frame(width: 52, alignment: .trailing)
             }.frame(width: 200)
         }
+        OMGSettingsRow(strings.quickInputControlJNewlineLabel) {
+            Toggle("", isOn: $settings.quickInputControlJNewline).labelsHidden()
+        }
         OMGSettingsRow(strings.quickInputImportLabel, subtitle: strings.quickInputImportCaption) {
             Toggle("", isOn: Binding(
                 get: { !settings.quickInputImportShortcut.isEmpty },

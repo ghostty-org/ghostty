@@ -248,6 +248,17 @@ struct AgentQuickInputTests {
         ) == nil)
     }
 
+    @Test func controlJInsertsNewlineAtSelectionWhenEnabled() throws {
+        let editor = ComposerTextView()
+        editor.controlJNewlineEnabled = { true }
+        editor.string = "hello world"
+        editor.setSelectedRange(NSRange(location: 5, length: 1))
+        let event = try #require(keyEvent(keyCode: 38, modifiers: [.control]))
+        editor.keyDown(with: event)
+        #expect(editor.string == "hello\nworld")
+        #expect(editor.selectedRange().location == 6)
+    }
+
     @Test func nativeEditorOptionArrowMovesByWord() throws {
         let editor = ComposerTextView()
         editor.string = "hello world"

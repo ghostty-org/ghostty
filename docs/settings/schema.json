@@ -318,6 +318,12 @@
       "description": "Agent draft import: auto selects the external-editor shortcut; empty disables; other values override it. Comma separates chords.",
       "type": "string"
     },
+    "keyboard.quickInputControlJNewline": {
+      "category": "keyboard",
+      "default": false,
+      "description": "Insert a newline with Control-J in Quick Input.",
+      "type": "boolean"
+    },
     "keyboard.quickInputHeight": {
       "category": "keyboard",
       "default": 252,

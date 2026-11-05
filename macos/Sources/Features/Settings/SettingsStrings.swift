@@ -436,6 +436,7 @@ struct SettingsStrings: Equatable, Sendable {
           "草稿已导入。发送时只会追加原有内容之后新增的文字。")
     }
     var quickInputHeightLabel: String { t("Composer Height", "输入框高度") }
+    var quickInputControlJNewlineLabel: String { t("Control-J Inserts Newline", "Control-J 换行") }
     var quickInputHeightCaption: String {
         t(
             "Drag the divider above the composer to resize it. The last committed height is remembered.",

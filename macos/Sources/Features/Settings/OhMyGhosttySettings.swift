@@ -435,6 +435,11 @@ final class OhMyGhosttySettings: ObservableObject {
             description: "Last committed Agent Quick Input dock height in points.",
             requiresNewWindow: false, category: "keyboard"),
         .init(
+            id: "keyboard.quickInputControlJNewline", type: .boolean, defaultValue: "false",
+            allowedValues: nil, minimum: nil, maximum: nil,
+            description: "Insert a newline with Control-J in Quick Input.",
+            requiresNewWindow: false, category: "keyboard"),
+        .init(
             id: "keyboard.quickInputHistoryScope", type: .enumeration,
             defaultValue: QuickInputHistoryScope.tab.rawValue,
             allowedValues: QuickInputHistoryScope.allCases.map(\.rawValue), minimum: nil, maximum: nil,
@@ -807,6 +812,9 @@ final class OhMyGhosttySettings: ObservableObject {
     }
     @Published var quickInputImportShortcut = "auto" {
         didSet { persist("keyboard.quickInputImportShortcut", quickInputImportShortcut) }
+    }
+    @Published var quickInputControlJNewline = false {
+        didSet { persist("keyboard.quickInputControlJNewline", quickInputControlJNewline) }
     }
     @Published var quickInputHeight = Double(AgentQuickInputMetrics.defaultHeight) {
         didSet {
@@ -1236,6 +1244,7 @@ final class OhMyGhosttySettings: ObservableObject {
                 fallback: OMGKeyboardShortcut.defaultInspectorPanel(slot: 4).storageValue
             )
             quickInputImportShortcut = optionalStringValue("keyboard.quickInputImportShortcut") ?? "auto"
+            quickInputControlJNewline = boolValue("keyboard.quickInputControlJNewline", fallback: false)
             quickInputHeight = numberValue(
                 "keyboard.quickInputHeight",
                 fallback: Double(AgentQuickInputMetrics.defaultHeight),
