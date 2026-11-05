@@ -210,6 +210,8 @@ struct TerminalLinkHoverTests {
     }
 
     private func checkCommandHover(split: Bool) async throws {
+        try #require(CGPreflightPostEventAccess(),
+                     "Desktop hover test requires permission to post mouse and keyboard events.")
         let controller = try makeController(split: split,
             command: "/bin/sh -c 'printf \"https://example.com\\n\"; sleep 30'")
         let window = try #require(controller.window)
@@ -223,6 +225,8 @@ struct TerminalLinkHoverTests {
         try #require(NSApp.isActive && window.isKeyWindow && window.isOnActiveSpace,
             "Desktop hover test needs an unlocked desktop and the test window in foreground")
         let surface = try #require(controller.focusedSurface)
+        try await waitForAppKit { surface.cachedScreenContents.get().contains("https://example.com") }
+        window.contentView?.layoutSubtreeIfNeeded()
         let point = window.convertPoint(toScreen: surface.convert(NSPoint(x: 30, y: surface.bounds.height - 10), to: nil))
         let screenHeight = try #require(NSScreen.screens.first).frame.height
         let original = NSEvent.mouseLocation
