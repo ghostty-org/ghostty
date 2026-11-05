@@ -322,7 +322,7 @@ enum AgentHistoryStore {
     }
 
     private struct DiskCache: Codable {
-        static let currentVersion = 4
+        static let currentVersion = 5
         var version: Int = currentVersion
         struct Entry: Codable {
             let session: AgentHistorySession
@@ -652,7 +652,7 @@ enum AgentHistoryStore {
         )
 
         let previewSnippet = records.lazy.compactMap { record -> String? in
-            guard let raw = text(of: record) else { return nil }
+            guard role(of: record) != nil, let raw = text(of: record) else { return nil }
             let cleaned = cleanMeaningfulText(raw)
             return cleaned.isEmpty || cleaned == "[Image/Attachment]" ? nil : String(cleaned.prefix(1_000))
         }.prefix(10).joined(separator: "\n")
@@ -692,7 +692,7 @@ enum AgentHistoryStore {
                   let role = role(of: record),
                   let rawText = text(of: record) else { continue }
             let cleaned = cleanMeaningfulText(rawText)
-            guard !cleaned.isEmpty else { continue }
+            guard !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { continue }
 
             if messages.count >= maximumTranscriptMessages ||
                 characterCount >= maximumTranscriptCharacters {
@@ -721,7 +721,7 @@ enum AgentHistoryStore {
            let role = role(of: record),
            let rawText = text(of: record) {
             let cleaned = cleanMeaningfulText(rawText)
-            if !cleaned.isEmpty {
+            if !cleaned.isEmpty && cleaned != "[Image/Attachment]" {
                 let value = String(cleaned.prefix(maximumMessageCharacters))
                 messages.append(.init(
                     id: "\(session.id):\(messageIndex)",
@@ -778,7 +778,7 @@ enum AgentHistoryStore {
                     continue
                 }
                 let cleaned = cleanMeaningfulText(rawText)
-                guard !cleaned.isEmpty else { continue }
+                guard !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { continue }
 
                 if messages.count >= maximumTranscriptMessages ||
                     characterCount >= maximumTranscriptCharacters {
@@ -811,7 +811,7 @@ enum AgentHistoryStore {
                let role = role(of: record),
                let rawText = text(of: record) {
                 let cleaned = cleanMeaningfulText(rawText)
-                if !cleaned.isEmpty {
+                if !cleaned.isEmpty && cleaned != "[Image/Attachment]" {
                     let value = String(cleaned.prefix(maximumMessageCharacters))
                     messages.append(.init(
                         id: "\(session.id):\(messageIndex)",
@@ -931,7 +931,7 @@ enum AgentHistoryStore {
                 conversationID: conversationID
             )
             let previewSnippet = records.lazy.compactMap { record -> String? in
-                guard let raw = text(of: record) else { return nil }
+                guard role(of: record) != nil, let raw = text(of: record) else { return nil }
                 let cleaned = cleanMeaningfulText(raw)
                 return cleaned.isEmpty || cleaned == "[Image/Attachment]"
                     ? nil
@@ -1149,6 +1149,13 @@ enum AgentHistoryStore {
     nonisolated private static func role(
         of record: [String: Any]
     ) -> AgentHistoryMessageRole? {
+        if record["type"] as? String == "response_item",
+           let payload = record["payload"] as? [String: Any],
+           payload["role"] as? String == "assistant",
+           let phase = payload["phase"] as? String,
+           phase != "final_answer" {
+            return nil
+        }
         let rawRole = (record["message"] as? [String: Any])?["role"] as? String ??
             (record["payload"] as? [String: Any])?["role"] as? String ??
             record["role"] as? String ??
@@ -1288,7 +1295,12 @@ enum AgentHistoryStore {
 
     nonisolated static func cleanMeaningfulText(_ raw: String) -> String {
         var text = raw
-        let blockTags = ["recommended_plugins", "environment_context", "INSTRUCTIONS", "instructions"]
+        let blockTags = [
+            "recommended_plugins", "environment_context", "instructions",
+            "local-command-caveat", "command-name", "command-message",
+            "command-args", "local-command-stdout", "system-reminder",
+            "external_codex_apps_open_page",
+        ]
         for tag in blockTags {
             while let startRange = text.range(of: "<\(tag)>", options: .caseInsensitive),
                   let endRange = text.range(of: "</\(tag)>", options: .caseInsensitive),
@@ -1336,7 +1348,7 @@ enum AgentHistoryStore {
             if isMeaninglessPasteOrSystemLine(fallback) {
                 return "[Image/Attachment]"
             }
-            return fallback
+            return ""
         }
         return result
     }

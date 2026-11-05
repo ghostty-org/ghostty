@@ -930,6 +930,45 @@ struct AgentHistoryInspectorTests {
         #expect(AgentHistoryStore.cleanMeaningfulText(isolatedPath) == "[Image/Attachment]")
     }
 
+    @Test func agentHistoryOmitsInjectedContentAndCodexCommentary() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codexRoot = root.appendingPathComponent("codex")
+        let claudeRoot = root.appendingPathComponent("claude")
+        try writeJSONL([
+            ["type": "session_meta", "payload": ["id": "codex-test", "cwd": "/tmp"]],
+            ["type": "response_item", "payload": ["role": "user",
+                "content": [["type": "input_text", "text": "<external_codex_apps_open_page>{}</external_codex_apps_open_page>"]]]],
+            ["type": "response_item", "payload": ["role": "user",
+                "content": [["type": "input_text", "text": "Real request"]]]],
+            ["type": "response_item", "payload": ["role": "assistant", "phase": "commentary",
+                "content": [["type": "output_text", "text": "Intermediate update"]]]],
+            ["type": "response_item", "payload": ["role": "assistant", "phase": "final_answer",
+                "content": [["type": "output_text", "text": "Final answer"]]]],
+        ], to: codexRoot.appendingPathComponent("2026/01/01/rollout-codex-test.jsonl"))
+        try writeJSONL([
+            ["type": "user", "sessionId": "claude-test",
+                "message": ["role": "user", "content": "<local-command-caveat>injected</local-command-caveat>"]],
+            ["type": "user", "sessionId": "claude-test",
+                "message": ["role": "user", "content": "<system-reminder>secret</system-reminder>Real request"]],
+            ["type": "assistant", "sessionId": "claude-test",
+                "message": ["role": "assistant", "content": "Answer"]],
+        ], to: claudeRoot.appendingPathComponent("project/claude-test.jsonl"))
+        let sessions = await AgentHistoryStore.load(
+            agents: [.codex, .claude], rootURLs: [.codex: codexRoot, .claude: claudeRoot],
+            cacheURL: root.appendingPathComponent("cache.json")
+        )
+        #expect(sessions.count == 2)
+        for session in sessions {
+            #expect(session.title == "Real request")
+            let transcript = await AgentHistoryStore.transcript(for: session)
+            #expect(transcript.messages.map(\.text) == (session.agent == .codex
+                ? ["Real request", "Final answer"] : ["Real request", "Answer"]))
+            #expect(session.previewSnippet?.contains("injected") == false)
+            #expect(session.previewSnippet?.contains("Intermediate update") == false)
+        }
+    }
+
     @Test func remoteSessionEnumerationAndTranscript() async throws {
         let sessionFile = "/home/test/.pi/agent/sessions/--home-test-proj--/2026_remote-123.jsonl"
         let remoteListing = """

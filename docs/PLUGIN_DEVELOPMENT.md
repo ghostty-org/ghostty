@@ -131,6 +131,12 @@ filter, grouping and ordering. The trigger shows the selected Agent's icon plus
 a corner badge (an overlay, so the glyph stays centered) whenever any
 non-default choice is active.
 
+Transcript titles, previews, searches and messages omit known injected
+instruction and local-command blocks. Codex assistant messages with an explicit
+non-final phase are omitted; older records without a phase remain visible.
+Local and SSH history use the same text filtering, and the metadata cache is
+versioned so previously generated titles are refreshed.
+
 Folder and time scopes narrow the list before the Agent filter. `This Folder`
 matches the presented pane's working directory and every subfolder, so a
 session started inside a subproject still counts, while sibling paths such as
