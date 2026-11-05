@@ -59,12 +59,13 @@ enum TerminalTabPresentationResolver {
         let session = controller.paneSessionContext(for: surface) ?? .init(workingDirectory: surface.pwd, terminalTitle: surface.title)
         let activity = controller.focusedAgentActivity() ?? activities?.activity(for: controller.tabSessionID)
         let agent = activity.flatMap { SupportedAgent(rawValue: $0.source) }
-        let base = controller.titleOverride ?? (agent == nil ? session.presentationTitle(pathDisplay: settings.tabPathDisplay)
+        let restoredTitle = controller.restoredTitleFallback(for: surface, terminalTitle: surface.title)
+        let base = controller.titleOverride ?? restoredTitle ?? (agent == nil ? session.presentationTitle(pathDisplay: settings.tabPathDisplay)
             : session.agentPathTitle(pathDisplay: settings.tabPathDisplay))
         let title = agent?.normalizedTitle(base) ?? base
         let context = GhosttyTabIconContext(tabID: controller.tabSessionID, title: title, activity: activity,
                                            defaultIcon: session.workspace?.icon ?? .systemSymbol(session.tabIconSystemName))
-        return .init(title: title, remoteBreadcrumb: controller.titleOverride == nil ? session.remoteTabBreadcrumb : nil,
+        return .init(title: title, remoteBreadcrumb: controller.titleOverride == nil && restoredTitle == nil ? session.remoteTabBreadcrumb : nil,
                      shortcut: settings.showShortcutLabels ? controller.tabShortcutLabel(for: index) : nil,
                      icon: icons.icon(for: context) ?? .systemSymbol("terminal"), activity: activity,
                      selected: selected, hovered: false)

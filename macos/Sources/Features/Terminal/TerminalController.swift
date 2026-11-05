@@ -486,14 +486,31 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         for surface: Ghostty.SurfaceView,
         title: String? = nil
     ) {
+        var descriptor = descriptor
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            descriptor.restoredTitle = title
+        } else if descriptor.restoredTitle == nil,
+                  let previous = agentResumeDescriptors[surface.id],
+                  previous.agent == descriptor.agent, previous.scope == descriptor.scope,
+                  previous.conversationID == descriptor.conversationID,
+                  previous.sshReplay == descriptor.sshReplay {
+            descriptor.restoredTitle = previous.restoredTitle
+        }
         guard descriptor.isValid, surfaceTree.contains(surface) else { return }
         agentResumeDescriptors[surface.id] = descriptor
         surface.agentResumeDescriptor = descriptor
-        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
-            titleOverride = title
-        }
+        refreshPresentedTerminalTitle()
         enableRestorationForResumableSession()
         invalidateRestorableState()
+    }
+
+    func restoredTitleFallback(for surface: Ghostty.SurfaceView, terminalTitle: String) -> String? {
+        let title = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.isEmpty || title == "👻" else { return nil }
+        if let context = paneSessionContext(for: surface), case .sshReady = context.state { return nil }
+        guard let restored = agentResumeDescriptor(for: surface)?.restoredTitle else { return nil }
+        let fallback = restored.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? nil : fallback
     }
 
     func focusedAgentActivity() -> TabActivity? {
@@ -2156,7 +2173,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             conversationID: conversationID,
             scope: session.scope,
             workingDirectory: workingDirectory,
-            sshReplay: sshReplay ?? previous?.sshReplay
+            sshReplay: sshReplay ?? previous?.sshReplay,
+            restoredTitle: conversationID == previous?.conversationID ? previous?.restoredTitle : nil
         )
         guard descriptor.isValid else { return }
         agentResumeContextIDs[surfaceID] = session.contextID
@@ -2460,7 +2478,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         for surface: Ghostty.SurfaceView,
         terminalTitle: String
     ) -> String {
-        paneSessionContext(for: surface)?.presentationTitle ?? terminalTitle
+        restoredTitleFallback(for: surface, terminalTitle: terminalTitle)
+            ?? paneSessionContext(for: surface)?.presentationTitle ?? terminalTitle
     }
 
     func tabConfiguration(
@@ -2591,9 +2610,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return Self.injectingSessionID(tabSessionID, into: result)
         }
         if let resumed = agentResumeDescriptor(for: source), resumed.scope == .remote,
-           source.runtimeDescriptor?.isLocal != false,
-           let replay = resumed.sshReplay, let executable = Bundle.main.executablePath,
-           let command = replay.command(executablePath: executable, remoteWorkingDirectory: resumed.workingDirectory) {
+           source.runtimeDescriptor?.isLocal != false {
+            guard let replay = resumed.sshReplay, replay.transferTarget != nil,
+                  let executable = Bundle.main.executablePath,
+                  let command = replay.command(executablePath: executable, remoteWorkingDirectory: resumed.workingDirectory) else {
+                throw WorkspaceFilesystemError.operationFailed(
+                    "The restored SSH connection is unavailable. Reconnect this pane before splitting it."
+                )
+            }
             // History starts with a local host PTY. Before inline handoff has
             // arrived, its validated replay still identifies the remote host.
             var result = config ?? .init()

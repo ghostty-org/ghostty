@@ -177,6 +177,18 @@ struct AgentStatusPluginTests {
         }
     }
 
+    @Test func restoredTitleMetadataIsOptionalAndSurvivesRoundTrip() throws {
+        let legacy = Data(#"{"version":1,"agent":"codex","scope":"local","workingDirectory":"/tmp"}"#.utf8)
+        var descriptor = try JSONDecoder().decode(AgentResumeDescriptor.self, from: legacy)
+        #expect(descriptor.isValid)
+        #expect(descriptor.restoredTitle == nil)
+        descriptor.restoredTitle = "History title"
+        let data = try JSONEncoder().encode(descriptor)
+        #expect(try JSONDecoder().decode(AgentResumeDescriptor.self, from: data) == descriptor)
+        descriptor.restoredTitle = "invalid\0title"
+        #expect(!descriptor.isValid)
+    }
+
     @Test func buildsOnlyAllowlistedAgentResumeCommands() throws {
         let conversation = try #require(AgentConversationID("019f-test_session"))
         let codex = AgentResumeDescriptor(

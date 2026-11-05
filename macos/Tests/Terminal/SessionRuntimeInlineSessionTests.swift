@@ -64,6 +64,30 @@ struct SessionRuntimeInlineSessionTests {
         #expect(result.environmentVariables["OMG_RUNTIME_PANE_ID"] == nil)
     }
 
+    @Test(arguments: [0, 1, 2])
+    func historyRemoteSplitRejectsMissingOrInvalidReplay(kind: Int) throws {
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let controller = TerminalController(app, withBaseConfig: config)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        let replay: SSHReplayDescriptor? = kind == 0 ? nil : .init(
+            version: kind == 1 ? 99 : 1, ssh: "/usr/bin/ssh", forwardEnv: false,
+            terminfo: false, cache: false, args: kind == 2 ? ["-V"] : ["cloud"]
+        )
+        controller.adoptAgentResumeDescriptor(.init(agent: .codex,
+            conversationID: AgentConversationID("invalid-replay"), scope: .remote,
+            workingDirectory: "/srv/project", sshReplay: replay), for: surface)
+        for localRuntime in [false, true] {
+            surface.runtimeDescriptor = localRuntime
+                ? .init(connection: nil, revision: "local", policy: .init(), localWorkingDirectory: "/tmp") : nil
+            #expect(throws: WorkspaceFilesystemError.self) {
+                _ = try controller.splitConfiguration(inherited: nil, from: surface)
+            }
+        }
+    }
+
     @Test func runtimeSnapshotReplacesAgentStateWithoutCompletionActions() async throws {
         let settings = OhMyGhosttySettings.shared
         let previous = (settings.agentStatusHooksEnabled, settings.openQuickInputOnAgentStart,

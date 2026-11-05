@@ -663,7 +663,8 @@ final class NativeTabCell: NSTableCellView {
     func updateSelection(_ selected: Bool) {
         guard self.selected != selected else { return }
         self.selected = selected
-        refreshNow()
+        guard let tab = configuredTab, let presentation, let value = presentation(tab) else { return }
+        icon.configure(controller: tab.controller, icon: value.icon, selected: selected, activity: value.activity)
     }
 
     func updateHoverAppearance() {
@@ -804,7 +805,6 @@ final class NativeTabCell: NSTableCellView {
               let value = presentation(tab) else { return }
         let selected = self.selected
         label.font = .systemFont(ofSize: 13)
-        label.stringValue = value.title
         shortcut.stringValue = value.shortcut ?? ""
         toolTip = value.remoteBreadcrumb?.title ?? value.title
         icon.configure(controller: tab.controller, icon: value.icon, selected: selected, activity: value.activity)

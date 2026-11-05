@@ -102,13 +102,16 @@ struct AgentResumeDescriptor: Codable, Equatable, Sendable {
     let scope: AgentExecutionScope
     var workingDirectory: String?
     var sshReplay: SSHReplayDescriptor?
+    /// History-provided fallback, independent of a user's explicit tab name.
+    var restoredTitle: String?
 
     init(
         agent: SupportedAgent,
         conversationID: AgentConversationID? = nil,
         scope: AgentExecutionScope,
         workingDirectory: String?,
-        sshReplay: SSHReplayDescriptor? = nil
+        sshReplay: SSHReplayDescriptor? = nil,
+        restoredTitle: String? = nil
     ) {
         self.version = Self.currentVersion
         self.agent = agent
@@ -116,11 +119,13 @@ struct AgentResumeDescriptor: Codable, Equatable, Sendable {
         self.scope = scope
         self.workingDirectory = workingDirectory
         self.sshReplay = sshReplay
+        self.restoredTitle = restoredTitle
     }
 
     var isValid: Bool {
         version == Self.currentVersion &&
-            workingDirectory.map { !$0.contains("\0") && $0.utf8.count <= 4_096 } ?? true
+            (workingDirectory.map { !$0.contains("\0") && $0.utf8.count <= 4_096 } ?? true) &&
+            (restoredTitle.map { !$0.contains("\0") && $0.utf8.count <= 4_096 } ?? true)
     }
 
     func restorationCommand(

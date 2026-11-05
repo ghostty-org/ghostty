@@ -146,11 +146,18 @@ Deep search can stop at its first match without a full-file pre-scan. Remote
 reads retain their final complete line and explicitly detect a byte cutoff.
 The metadata cache is versioned so previously generated titles are refreshed.
 Explicit Agent History resume actions retain the selected session's title as
-the new tab/window title, for both local and SSH sessions.
+an optional per-pane fallback in the resume descriptor. It is distinct from
+the user's tab-name override: live terminal titles and ready SSH breadcrumbs
+supersede the fallback, while explicit user names retain their existing priority.
+The startup placeholder is not considered a live title. Older descriptors
+without the optional title field remain readable.
 Splitting a resumed SSH pane uses its inline remote session independently of
 whether the host PTY has a local runtime descriptor. Before inline handoff,
 the validated replay opens a new remote shell in the resumed directory without
 starting a second copy of the Agent conversation.
+Before a remote runtime connection is available, a remote resume descriptor
+must contain a usable replay; split otherwise fails explicitly rather than
+silently creating a local shell.
 
 Folder and time scopes narrow the list before the Agent filter. `This Folder`
 matches the presented pane's working directory and every subfolder, so a
@@ -733,6 +740,9 @@ hover remains independent. Visibility and reduced motion gate animation at paint
 time without changing the semantic snapshot.
 Immediate selection updates use AppKit's old/new window pair, so only the
 outgoing and incoming icons replace their snapshots during the native event.
+Selection notifications refresh only icon snapshots. Row text, shortcuts and
+status badges, and the rest of horizontal chrome, use their own data/layout
+notifications rather than a second selection-triggered full refresh.
 
 ### Experimental protocol components
 
@@ -2985,11 +2995,13 @@ cwd fields are host/core interfaces, not plugin wire capabilities.
 Hard-wrapped bare relative directory paths, including `.pi/...` and `src/...`,
 are normalized as one target before existence checks, hover decoration and
 opening. TUI padding is excluded from the target just as for absolute paths.
-An enclosed path may also wrap at a directory separator before the physical
-right edge when the next complete filename would not fit. Matching closing
-delimiters and aligned continuation indentation are required; a short directory
-on one line followed by unrelated text is not joined. Existence checks, hover,
-opening and both rows' decorations share the resulting complete target.
+An enclosed path may also wrap at directory separators before the physical
+right edge when the next component would not fit. Bounded lookahead validates
+up to eight continuation rows through the closing delimiter. Every intermediate
+row must continue a directory component with aligned indentation, without
+intervening prose or prompt cells. A component that fits on the previous row
+is not guessed to be a continuation. Existence checks, hover, opening and all
+rows' decorations share the resulting complete target.
 
 Plain long `ls` listings can expose directory and extensionless filenames
 without icon prefixes; metadata columns are not candidates. SSH `itemType`

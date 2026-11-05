@@ -210,15 +210,47 @@ struct TerminalLiveTabLayoutTests {
                 scope: scope, workingDirectory: "/tmp/project"
             )
             controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "History request")
-            #expect(controller.titleOverride == "History request")
+            #expect(controller.titleOverride == nil)
+            #expect(surface.agentResumeDescriptor?.restoredTitle == "History request")
+            #expect(controller.restoredTitleFallback(for: surface, terminalTitle: "👻") == "History request")
             #expect(controller.window?.title == "History request")
             let presentation = try #require(TerminalTabPresentationResolver.resolve(
                 controller, index: 0, selected: true, activities: nil
             ))
             #expect(presentation.title == "History request")
             controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "  ")
-            #expect(controller.titleOverride == "History request")
+            #expect(controller.titleOverride == nil)
+            #expect(surface.agentResumeDescriptor?.restoredTitle == "History request")
+            #expect(controller.restoredTitleFallback(for: surface, terminalTitle: "Live title") == nil)
+            controller.adoptAgentResumeDescriptor(.init(agent: .codex,
+                conversationID: AgentConversationID("different-history"), scope: scope,
+                workingDirectory: "/tmp/project"), for: surface)
+            #expect(surface.agentResumeDescriptor?.restoredTitle == nil)
         }
+    }
+
+    @Test func historyTitleYieldsToLiveTitlesAndKeepsUserRenamesSeparate() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let controller = try fixture.tab()
+        let surface = try #require(controller.surfaceTree.first)
+        let descriptor = AgentResumeDescriptor(agent: .codex,
+            conversationID: AgentConversationID("title-fallback"), scope: .local, workingDirectory: "/tmp")
+        controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "History fallback")
+        #expect(controller.presentedTerminalTitle(for: surface, terminalTitle: "") == "History fallback")
+        surface.setTitle("Live terminal title")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(controller.titleOverride == nil)
+        #expect(controller.window?.title == "Live terminal title")
+        controller.titleOverride = "User name"
+        controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "Another history fallback")
+        surface.setTitle("Another live title")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(controller.window?.title == "User name")
+        let value = try #require(TerminalTabPresentationResolver.resolve(
+            controller, index: 0, selected: true, activities: nil
+        ))
+        #expect(value.title == "User name")
     }
 
     @Test func horizontalTabsUseNativeAgentStatusAndSharedPresentation() async throws {

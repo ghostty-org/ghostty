@@ -5,6 +5,30 @@ import Testing
 
 @MainActor
 struct SplitTabPresentationTests {
+    @Test func nativeSelectionUpdatesTheIconWithoutRewritingCellText() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let controller = try fixture.tab()
+        let cell = NativeTabCell()
+        var title = "Original title"
+        cell.configure(tab: .init(controller: controller, actualIndex: 1), title: nil, presentation: { _ in
+            .init(title: title, remoteBreadcrumb: nil, shortcut: "1", icon: .systemSymbol("terminal"),
+                  activity: nil, selected: false, hovered: false)
+        }, canClose: true, selected: false, select: {}, close: {})
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let label = try #require(descendants(cell).compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Original title" })
+        let icon = try #require(descendants(cell).compactMap { $0 as? NativeTabIconView }.first)
+        let mark = try #require(icon.subviews.compactMap { $0 as? NSImageView }.first)
+        title = "Pending title"
+        cell.updateSelection(true)
+        #expect(label.stringValue == "Original title")
+        #expect(mark.contentTintColor == AgentLogoStyle.selectedColor)
+        controller.titleOverride = "Trigger the normal data refresh"
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(label.stringValue == "Pending title")
+    }
+
     @Test func iconPresentationReplacesFocusAndActivityAsOneSnapshot() {
         let theme = OMGNativeTheme(background: .black, foreground: .white)
         let working = TabActivity(source: "codex", state: .working, label: nil, message: nil,

@@ -111,9 +111,11 @@ pub fn stringMap(alloc: Allocator, screen: *terminal.Screen, line: terminal.Sele
                 const component_wrap = enclosedComponentWrap(
                     bytes.items[start..end],
                     bytes.items[0..start],
-                    source.string[next..],
+                    &source,
+                    next,
                     tail,
                     right_inset,
+                    inset,
                 );
                 if ((tail <= right_inset or component_wrap) and next_pin.x == inset and
                     prev_pin.rowAndCell().cell.semantic_content != .prompt and
@@ -359,6 +361,74 @@ test "OMG enclosed path word wrap keeps its complete target and decorations" {
     }
 }
 
+test "OMG enclosed component wraps span three rows without joining unrelated rows" {
+    const alloc = std.testing.allocator;
+    const mods = @import("input.zig").ctrlOrSuper(.{});
+    const prefix = "  Check progress (";
+    const head = "/tmp/safety-state-week-backfill/";
+    const middle = "another-long-directory-with-many-characters/";
+    const tail = "watch-progress.json";
+    const target = head ++ middle ++ tail;
+    const cases = [_]struct { column: u16 = 3, close: []const u8 = ")", prose: bool = false, joined: bool }{
+        .{ .joined = true },
+        .{ .column = 4, .joined = false },
+        .{ .close = "]", .joined = false },
+        .{ .prose = true, .joined = false },
+    };
+    for (cases) |case| {
+        var t = try terminal.Terminal.init(std.testing.io, alloc, .{
+            .cols = prefix.len + head.len + 6,
+            .rows = 5,
+        });
+        defer t.deinit(alloc);
+        try t.setPwd("/repo");
+        var stream = t.vtStream();
+        defer stream.deinit();
+        stream.nextSlice(prefix ++ head);
+        var position: [32]u8 = undefined;
+        stream.nextSlice(try std.fmt.bufPrint(&position, "\x1b[2;{d}H", .{case.column}));
+        stream.nextSlice(if (case.prose) "unrelated text" else middle);
+        stream.nextSlice("\x1b[3;3H" ++ tail);
+        stream.nextSlice(case.close);
+        var config = try @import("renderer/link.zig").Set.fromConfig(alloc, &.{.{
+            .regex = @import("config/omg_path.zig").regex,
+            .action = .{ .open = {} },
+            .highlight = .{ .hover_mods = mods },
+        }});
+        defer config.deinit(alloc);
+        const screen = t.screens.active;
+        for (0..@as(usize, if (case.joined) 3 else 1)) |y| {
+            const pin = screen.pages.pin(.{ .active = .{
+                .x = @intCast(if (y == 0) prefix.len + 2 else 3),
+                .y = @intCast(y),
+            } }).?;
+            const line = screen.selectLine(.{ .pin = pin, .whitespace = null }).?;
+            const map = try stringMap(alloc, screen, line);
+            defer map.deinit(alloc);
+            var it = map.searchIterator(config.links[0].regex);
+            var match = (try it.next()).?;
+            defer match.deinit();
+            const detected = try Result.fromMatch(alloc, match);
+            defer detected.deinit(alloc);
+            try std.testing.expectEqualStrings(if (case.joined) target else head, detected.target);
+            try std.testing.expectEqual(@as(usize, if (case.joined) 3 else 1), detected.spans.len);
+            try std.testing.expect(detected.contains(screen, pin));
+        }
+        if (!case.joined) continue;
+        var frame: terminal.RenderState = .empty;
+        defer frame.deinit(alloc);
+        try frame.update(alloc, &t);
+        var cache: @import("omg_link_check.zig") = .{};
+        defer cache.deinit(alloc);
+        _ = try cache.putPending(alloc, "/repo", target);
+        try std.testing.expect(cache.resolve("/repo", target, true));
+        var cells = try @import("renderer/omg_link.zig").collect(alloc, alloc, screen, &frame, config.links, &cache, mods);
+        defer cells.deinit(alloc);
+        try std.testing.expectEqual(target.len, cells.count());
+        try std.testing.expect(cells.contains(.{ .x = 3, .y = 2 }));
+    }
+}
+
 test "OMG link result owns soft wrapped Unicode target and spans" {
     const alloc = std.testing.allocator;
     var t = try terminal.Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 8 });
@@ -395,15 +465,17 @@ fn isURLChar(c: u8) bool {
     return c > ' ' and c < 127 and std.mem.indexOfScalar(u8, "<>\"'`()[]{}", c) == null;
 }
 
-/// Markdown/TUI word wrapping may move a complete filename after a slash,
-/// leaving more than the usual padding at the right edge. Require an explicit
-/// matching enclosure and a component that could not fit on the previous row.
+/// Validate the complete enclosure before accepting a component wrap. The
+/// bounded lookahead can cross several directory rows, but never blank lines,
+/// prompt cells, mismatched delimiters or components that fit the prior row.
 fn enclosedComponentWrap(
     head: []const u8,
     before: []const u8,
-    next: []const u8,
+    source: *const terminal.StringMap,
+    next_offset: usize,
     remaining_columns: usize,
     right_inset: usize,
+    inset: usize,
 ) bool {
     if (head.len == 0 or head[head.len - 1] != '/' or before.len == 0) return false;
     const close: u8 = switch (before[before.len - 1]) {
@@ -415,10 +487,31 @@ fn enclosedComponentWrap(
         '`' => '`',
         else => return false,
     };
-    var end: usize = 0;
-    while (end < next.len and isURLChar(next[end])) : (end += 1) {}
-    if (end == 0 or end == next.len or next[end] != close) return false;
-    return remaining_columns < end + 1 + right_inset;
+    var offset = next_offset;
+    var room = remaining_columns;
+    for (0..8) |_| {
+        var end = offset;
+        while (end < source.string.len and isURLChar(source.string[end])) : (end += 1) {}
+        if (end == offset or end == source.string.len) return false;
+        const first = source.map.get(offset) orelse return false;
+        if (first.x != inset) return false;
+        for (offset..end) |index| {
+            const pin = source.map.get(index) orelse return false;
+            if (pin.rowAndCell().cell.semantic_content == .prompt) return false;
+        }
+        const width = end - offset;
+        if (source.string[end] == close) return room < width + 1 + right_inset;
+        if (source.string[end - 1] != '/' or room >= width + right_inset) return false;
+        var next = end;
+        while (next < source.string.len and source.string[next] == ' ') : (next += 1) {}
+        if (next == source.string.len or source.string[next] != '\n') return false;
+        next += 1;
+        while (next < source.string.len and source.string[next] == ' ') : (next += 1) {}
+        const last = source.map.get(end - 1) orelse return false;
+        room = last.node.cols() - 1 - last.x;
+        offset = next;
+    }
+    return false;
 }
 
 fn isCandidate(value: []const u8) bool {

@@ -153,9 +153,12 @@ final class InspectorHostController: NSViewController {
         let session = terminal.paneSessionContext(for: surface) ?? .init(
             workingDirectory: surface?.pwd, terminalTitle: surface?.title ?? "Terminal"
         )
+        let presentedTitle = surface.map {
+            terminal.presentedTerminalTitle(for: $0, terminalTitle: $0.title)
+        } ?? session.presentationTitle
         let context = InspectorPaneContext(
             tabID: terminal.tabSessionID, surfaceID: surface?.id,
-            title: terminal.titleOverride ?? session.presentationTitle,
+            title: terminal.titleOverride ?? presentedTitle,
             workingDirectory: session.workingDirectory, workspace: session.workspace, session: session
         )
         lastContext = context

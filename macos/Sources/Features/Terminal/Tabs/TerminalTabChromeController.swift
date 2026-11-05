@@ -144,7 +144,8 @@ final class TerminalTabChromeController {
                         if let window = self.window, previous === window || current === window {
                             self.refreshIconSelection(in: group)
                         }
-                        self.schedule()
+                        // Titles, geometry and activity have their own observers;
+                        // a selection notification only changes the two icons.
                     },
                     group.observe(\.windows, options: []) { [weak self] _, _ in self?.schedule() },
                     group.observe(\.isTabBarVisible, options: []) { [weak self] _, _ in self?.schedule() },
