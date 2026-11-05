@@ -1051,7 +1051,7 @@ pub const ImageStorage = struct {
         }
     }
 
-    /// Returns the placement that a unicode placeholder cell referencing
+    /// Returns the virtual placement a unicode placeholder cell referencing
     /// this image/placement ID pair targets, or null if there is none. A
     /// zero placement ID targets one of the image's virtual placements,
     /// chosen by PlacementId.preferredOver so the choice is stable (an
@@ -1069,6 +1069,7 @@ pub const ImageStorage = struct {
                 .placement_id = .{ .tag = .external, .id = placement_id },
             };
             const p = self.placements.get(key) orelse return null;
+            if (p.location != .virtual) return null;
             return .{ .key = key, .placement = p };
         }
 
@@ -4798,6 +4799,12 @@ test "storage: placeholderTarget lookup" {
 
     try testing.expect(s.placeholderTarget(1, 9) == null);
     try testing.expect(s.placeholderTarget(2, 0) == null);
+
+    // A non-virtual placement can't be targeted, even by its exact ID.
+    try s.addPlacement(io, alloc, t.screens.active, 1, 7, .{
+        .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) },
+    });
+    try testing.expect(s.placeholderTarget(1, 7) == null);
 
     // With multiple virtual placements, the zero-ID fallback picks
     // deterministically by PlacementId.preferredOver: lowest external.
