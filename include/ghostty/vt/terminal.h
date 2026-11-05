@@ -3774,9 +3774,11 @@ GHOSTTY_API GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
 /**
  * Get multiple data fields from a terminal in a single call.
  *
- * This is an optimization over calling ghostty_terminal_get()
- * repeatedly, particularly useful in environments with high per-call
- * overhead such as FFI or Cgo.
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_terminal_get() once per key, so use
+ * whichever reads better.
  *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.

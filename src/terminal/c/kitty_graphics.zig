@@ -18,7 +18,7 @@ const RenderState = @import("../render.zig").RenderState;
 pub const KittyGraphics = if (build_options.kitty_graphics)
     *kitty_storage.ImageStorage
 else
-    *anyopaque;
+    *DisabledGraphics;
 
 /// C: GhosttyKittyGraphicsImage
 pub const ImageHandle = if (build_options.kitty_graphics)
@@ -30,7 +30,14 @@ else
 pub const PlacementIterator = if (build_options.kitty_graphics)
     ?*PlacementIteratorWrapper
 else
-    ?*anyopaque;
+    ?*DisabledPlacementIterator;
+
+/// Stand-ins for the handle types when Kitty graphics is disabled. Each is
+/// its own opaque type, not `anyopaque`, so the type manifest in types.zig
+/// can tell the handles apart from each other and from userdata pointers
+/// and describe them the same way in every build.
+const DisabledGraphics = opaque {};
+const DisabledPlacementIterator = opaque {};
 
 const PlacementMap = if (build_options.kitty_graphics)
     std.AutoHashMapUnmanaged(

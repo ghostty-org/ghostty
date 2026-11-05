@@ -761,8 +761,13 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_get(
 /**
  * Read multiple data fields from a selection gesture in a single call.
  *
- * This is an optimization over calling ghostty_selection_gesture_get() multiple
- * times. Each entry in values must point to storage of the type documented by
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_selection_gesture_get() once per key, so
+ * use whichever reads better.
+ *
+ * Each entry in values must point to storage of the type documented by
  * the corresponding GhosttySelectionGestureData key.
  *
  * If any individual read fails, the function returns that error and writes the

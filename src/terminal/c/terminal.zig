@@ -337,7 +337,7 @@ pub const ModeConfig = extern struct {
 /// - `clipboard_read`: clipboard reads are denied.
 /// - `program_status`: the OSC 7501 support query gets no reply, so
 ///   programs know not to send reports.
-const Effects = struct {
+pub const Effects = struct {
     userdata: ?*anyopaque = null,
     write_pty: ?WritePtyFn = null,
     bell: ?BellFn = null,

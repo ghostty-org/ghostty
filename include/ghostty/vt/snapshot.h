@@ -835,6 +835,12 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_get(
 /**
  * Get multiple snapshot decoder data fields in a single call.
  *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_snapshot_decoder_get() once per key, so
+ * use whichever reads better.
+ *
  * Each keys element selects a data kind and the corresponding values element
  * points to storage of the documented output type. Processing stops at the
  * first error. On success out_written is set to count; on error it is set to

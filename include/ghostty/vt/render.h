@@ -1198,6 +1198,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_get(GhosttyRenderState state,
 /**
  * Get multiple data fields from a render state in a single call.
  *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_render_state_get() once per key, so use
+ * whichever reads better.
+ *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.
  *
@@ -1357,6 +1363,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_get(
 
 /**
  * Get multiple data fields from the current row in a single call.
+ *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_render_state_row_get() once per key, so
+ * use whichever reads better.
  *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.
@@ -1578,6 +1590,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_cells_get(
 /**
  * Get multiple data fields from the current cell in a single call.
  *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_render_state_row_cells_get() once per
+ * key, so use whichever reads better.
+ *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.
  *
@@ -1698,8 +1716,13 @@ GHOSTTY_API GhosttyResult ghostty_render_state_image_get(
  * Read several values from the current placement of an image iterator in
  * one call.
  *
- * This works like calling ghostty_render_state_image_get() once for each
- * key. `values[i]` receives the value for `keys[i]`. The keys are read in
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_render_state_image_get() once per key,
+ * so use whichever reads better.
+ *
+ * `values[i]` receives the value for `keys[i]`. The keys are read in
  * order, and reading stops at the first error.
  *
  * @param iterator The iterator handle, moved to a placement with

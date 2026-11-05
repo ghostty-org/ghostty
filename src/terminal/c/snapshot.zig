@@ -64,7 +64,7 @@ pub const DecoderData = enum(c_int) {
     _,
 
     /// Return the Zig type stored through the C API output pointer for a key.
-    fn OutType(comptime self: DecoderData) type {
+    pub fn OutType(comptime self: DecoderData) type {
         return switch (self) {
             .invalid => void,
             .max_continuation_bytes, .source_offset => usize,
