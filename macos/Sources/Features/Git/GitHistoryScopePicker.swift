@@ -46,6 +46,7 @@ struct GitHistoryScopePicker: NSViewRepresentable {
             self.content = content
             isEnabled = content.enabled && !content.isBusy
             if !isEnabled { popover?.performClose(nil) }
+            host?.updateContent(content)
             if title != content.title { title = content.title }
             toolTip = content.title
             contentTintColor = content.colors.text
@@ -131,7 +132,7 @@ struct GitHistoryBranchFavorites {
     }
 
     func toggle(_ ref: String) {
-        guard ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/remotes/") else { return }
+        guard ref == "HEAD" || ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/remotes/") else { return }
         var values = refs
         if !values.insert(ref).inserted { values.remove(ref) }
         var repositories = defaults.dictionary(forKey: Self.defaultsKey) ?? [:]

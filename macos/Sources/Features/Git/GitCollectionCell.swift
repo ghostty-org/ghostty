@@ -51,11 +51,17 @@ final class GitCollectionCell: NSTableCellView {
         self.toggleFavorite = favorite?.toggle ?? {}
         let item = row.item
         [checkbox, favoriteButton, progress, disclosure, icon, subtitle, status, badge, rule].forEach { $0.isHidden = true }
-        if case .branch = item.kind, let favorite {
+        let isFavoritable: Bool = switch item.kind {
+        case .branch: true
+        case .ref(let ref): ref.kind == .head && item.id == "HEAD"
+        default: false
+        }
+        if isFavoritable, let favorite {
             favoriteButton.isHidden = false
             favoriteButton.image = NSImage(systemSymbolName: favorite.isFavorite ? "star.fill" : "star", accessibilityDescription: nil)
             favoriteButton.contentTintColor = favorite.isFavorite ? colors.accent : colors.secondary
             favoriteButton.state = favorite.isFavorite ? .on : .off
+            favoriteButton.isFavorite = favorite.isFavorite
             favoriteButton.needsDisplay = true
             favoriteButton.toolTip = GitL10n.text(favorite.isFavorite ? "Remove Favorite" : "Favorite Branch")
             favoriteButton.setAccessibilityLabel(favoriteButton.toolTip)
@@ -192,30 +198,16 @@ final class GitCollectionCell: NSTableCellView {
     }
 }
 
-/// Keep the hit region available while drawing only favorites or a hovered star.
+/// The table owns row hover so the star follows the same lifecycle as its highlight.
 final class GitBranchFavoriteButton: NSButton {
-    private var tracking: NSTrackingArea?
-    private var hovered = false
-    var showsStar: Bool { state == .on || hovered || window?.firstResponder === self }
+    private var rowHovered = false
+    var isFavorite = false { didSet { needsDisplay = true } }
+    var showsStar: Bool { isFavorite || rowHovered || window?.firstResponder === self }
     override var wantsUpdateLayer: Bool { false }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-        hovered = NativePointerLocation.contains(self)
-        needsDisplay = true
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-        needsDisplay = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
+    func setRowHovered(_ value: Bool) {
+        guard rowHovered != value else { return }
+        rowHovered = value
         needsDisplay = true
     }
 

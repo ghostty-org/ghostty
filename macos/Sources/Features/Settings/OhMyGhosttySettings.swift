@@ -925,7 +925,7 @@ final class OhMyGhosttySettings: ObservableObject {
     @Published var editorWordWrap = false {
         didSet { persist("editor.wordWrap", editorWordWrap) }
     }
-    /// Last Git History scope selection ("currentBranch" or "allBranches").
+    /// Last Git History scope selection.
     /// Restored on launch; a deleted branch falls back to the current branch.
     var gitHistoryScope: String? {
         didSet { persistOptional("git.historyScope", gitHistoryScope) }

@@ -27,7 +27,8 @@ struct GitHistoryService: Sendable {
 
     func captureSnapshot(
         for repository: GitRepositoryIdentity,
-        scope: GitHistoryScope
+        scope: GitHistoryScope,
+        favoriteRefs: Set<String> = []
     ) async throws -> GitHistorySnapshot {
         async let refsResult = (executor ?? repository.executor).execute(
             arguments: [
@@ -131,6 +132,14 @@ struct GitHistoryService: Sendable {
         switch scope {
         case .currentBranch:
             tipIDs = headID.map { [$0] } ?? []
+        case .favorites:
+            tipIDs = branchRefs.filter { ref in
+                let prefix = ref.kind == .remoteBranch ? "refs/remotes/" : "refs/heads/"
+                return favoriteRefs.contains(prefix + ref.name)
+            }.sorted { $0.name < $1.name }.map(\.id)
+            if favoriteRefs.contains("HEAD"), let headID {
+                tipIDs.append(headID)
+            }
         case .allBranches:
             tipIDs = branchRefs
                 .sorted { $0.name < $1.name }

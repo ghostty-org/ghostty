@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct GitHistoryPickerTests {
-    @Test func unfavoritedStarsAppearOnlyInsideTheirHitRegionAndFavoritesStayVisible() throws {
+    @Test func unfavoritedStarsFollowRowHoverAndFavoritesStayVisible() throws {
         let cell = GitCollectionCell(frame: .init(x: 0, y: 0, width: 320, height: 26))
         let branch = GitBranchInfo(name: "main", commit: .init("abc1234"), isCurrent: true,
                                    isRemote: false, upstream: "", tracking: "")
@@ -17,18 +17,14 @@ struct GitHistoryPickerTests {
         #expect(!button.isHidden, "The invisible star must keep its clickable hit region")
         #expect(!button.showsStar)
         #expect(cell.hitTest(.init(x: 300, y: 13)) === button)
-        let entered = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
-            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
-        let exited = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero,
-            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
-        button.mouseEntered(with: entered)
+        button.setRowHovered(true)
         #expect(button.showsStar)
-        button.mouseExited(with: exited)
+        button.setRowHovered(false)
         #expect(!button.showsStar)
         cell.configure(row, colors: .init(), toggle: {}, stage: {}, favorite: (true, {}))
         #expect(button.showsStar)
-        button.mouseEntered(with: entered)
-        button.mouseExited(with: exited)
+        button.setRowHovered(true)
+        button.setRowHovered(false)
         #expect(button.showsStar)
         cell.configure(row, colors: .init(), toggle: {}, stage: {}, favorite: (false, { toggles += 1 }))
         #expect(!button.showsStar, "Reused cells must clear the previous branch's filled star")
@@ -46,10 +42,11 @@ struct GitHistoryPickerTests {
         let worktree = GitRepositoryIdentity(worktreePath: "/repo-feature", gitDirPath: "/repo/.git/worktrees/feature", commonGitDirPath: "/repo/.git")
         let other = GitRepositoryIdentity(worktreePath: "/other", gitDirPath: "/other/.git", commonGitDirPath: "/other/.git")
         let store = GitHistoryBranchFavorites(repository: repository, defaults: defaults)
+        store.toggle("HEAD")
         store.toggle("refs/heads/main")
         store.toggle("refs/remotes/origin/main")
         store.toggle("refs/tags/v1")
-        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["refs/heads/main", "refs/remotes/origin/main"])
+        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["HEAD", "refs/heads/main", "refs/remotes/origin/main"])
         #expect(GitHistoryBranchFavorites(repository: worktree, defaults: defaults).refs == store.refs)
         #expect(GitHistoryBranchFavorites(repository: other, defaults: defaults).refs.isEmpty)
         func remote(_ host: String) throws -> GitHistoryBranchFavorites {
@@ -63,8 +60,9 @@ struct GitHistoryPickerTests {
         #expect(secondHost.refs.isEmpty)
         #expect(!store.refs.contains("refs/heads/remote-only"))
         store.toggle("refs/heads/main")
-        #expect(store.refs == ["refs/remotes/origin/main"])
+        #expect(store.refs == ["HEAD", "refs/remotes/origin/main"])
         store.toggle("refs/remotes/origin/main")
+        store.toggle("HEAD")
         #expect(store.refs.isEmpty)
     }
 
@@ -73,10 +71,11 @@ struct GitHistoryPickerTests {
             GitBranchInfo(name: name, commit: .init("abc1234"), isCurrent: name == "main", isRemote: remote, upstream: "", tracking: "")
         }
         let source = GitCollectionSource.refs(branches: branches, worktrees: [], scopes: true, branchesError: nil, worktreesError: nil)
-        let favorites: Set<String> = ["refs/heads/feature/main", "refs/remotes/origin/main", "refs/heads/deleted"]
+        let favorites: Set<String> = ["HEAD", "refs/heads/feature/main", "refs/remotes/origin/main", "refs/heads/deleted"]
         for mode in GitCollectionMode.allCases {
-            let nodes = GitCollectionBuilder.nodes(source: source, mode: mode, favoriteBranchIDs: favorites)
+            let nodes = GitCollectionBuilder.nodes(source: source, mode: mode, favoriteBranchIDs: favorites, includesHead: true)
             let rows = GitCollectionBuilder.rows(nodes)
+            #expect(rows.contains { $0.id == "HEAD" })
             #expect(rows.filter { if case .branch = $0.item.kind { return true }; return false }.map(\.id).sorted()
                 == ["refs/heads/feature/main", "refs/remotes/origin/main"])
             let searched = GitCollectionBuilder.rows(GitCollectionBuilder.nodes(source: source, mode: mode, query: "ORIGIN",
@@ -106,10 +105,11 @@ struct GitHistoryPickerTests {
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         defer { window.contentViewController = nil; window.close() }
+        window.makeKeyAndOrderFront(nil)
         controller.view.layoutSubtreeIfNeeded()
         let table = try #require(find(GitCollectionTableView.self, in: controller.view).first)
         let coordinator = try #require(table.target as? GitCollectionView.Coordinator)
-        func star(_ id: String) throws -> NSButton {
+        func star(_ id: String) throws -> GitBranchFavoriteButton {
             let row = try #require(coordinator.rows.firstIndex { $0.id == id })
             let cell = try #require(table.view(atColumn: 0, row: row, makeIfNecessary: true) as? GitCollectionCell)
             cell.layoutSubtreeIfNeeded()
@@ -117,17 +117,30 @@ struct GitHistoryPickerTests {
             #expect(cell.favoriteButton.frame.width == 24)
             return cell.favoriteButton
         }
+        let mainRow = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/main" })
+        let featureRow = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/feature/demo" })
+        let mainStar = try star("refs/heads/main")
+        let featureStar = try star("refs/heads/feature/demo")
+        table.setHover(at: NSPoint(x: 40, y: table.rect(ofRow: mainRow).midY))
+        #expect(mainStar.showsStar && !featureStar.showsStar)
+        table.setHover(at: NSPoint(x: 40, y: table.rect(ofRow: featureRow).midY))
+        #expect(!mainStar.showsStar && featureStar.showsStar)
+        table.clearHover()
+        #expect(!mainStar.showsStar && !featureStar.showsStar)
+        try star("HEAD").performClick(nil)
         try star("refs/heads/main").performClick(nil)
-        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["refs/heads/main"])
+        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["HEAD", "refs/heads/main"])
         #expect(actions.isEmpty && !closed)
         #expect(controller.scopeControlForTesting.buttonsForTesting.map(\.title)
             == ["Current", "Favorites", "All"].map { GitL10n.text($0) })
         controller.scopeControlForTesting.buttonsForTesting[1].performClick(nil)
+        #expect(actions == [.selectHistoryScope(.favorites)] && !closed)
+        #expect(coordinator.rows.contains { $0.id == "HEAD" })
         #expect(coordinator.rows.contains { $0.id == "refs/heads/main" })
         #expect(!coordinator.rows.contains { $0.id == "refs/heads/feature/demo" })
         let selected = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/main" })
         coordinator.activate(row: selected)
-        #expect(actions == [.browseBranch("refs/heads/main")] && closed)
+        #expect(actions.last == .browseBranch("refs/heads/main") && closed)
         closed = false
         try star("refs/heads/main").performClick(nil)
         #expect(!coordinator.rows.contains { $0.id == "refs/heads/main" })
@@ -135,11 +148,11 @@ struct GitHistoryPickerTests {
         controller.scopeControlForTesting.buttonsForTesting[2].performClick(nil)
         #expect(coordinator.rows.contains { $0.id == "refs/heads/feature/demo" })
         #expect(actions.last == .selectHistoryScope(.allBranches))
-        #expect(closed)
+        #expect(!closed)
         closed = false
         controller.scopeControlForTesting.buttonsForTesting[0].performClick(nil)
         #expect(actions.last == .selectHistoryScope(.currentBranch))
-        #expect(closed)
+        #expect(!closed)
     }
 
     private func find<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
@@ -218,6 +231,21 @@ struct GitHistoryPickerTests {
             #expect(delegate.control(field, textView: editor, doCommandBy: NSSelectorFromString(selector)))
         }
         let (popover, search, table) = try await open()
+        let owner = try #require(popover.contentViewController as? GitHistoryScopePopoverController)
+        owner.scopeControlForTesting.buttonsForTesting[0].performClick(nil)
+        #expect(popover.isShown && actions.last == .selectHistoryScope(.currentBranch))
+        owner.scopeControlForTesting.buttonsForTesting[2].performClick(nil)
+        #expect(popover.isShown && actions.last == .selectHistoryScope(.allBranches))
+        var updated = picker
+        updated.selectedID = "scope:favorites"
+        host.rootView = updated
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(popover.isShown && owner.scopeControlForTesting.buttonsForTesting[1].state == .on)
+        updated.selectedID = "scope:allBranches"
+        host.rootView = updated
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(popover.isShown && owner.scopeControlForTesting.buttonsForTesting[2].state == .on)
+        actions.removeAll()
         try await type("FEATURE/QU", into: search)
         let coordinator = try #require(table.target as? GitCollectionView.Coordinator)
         #expect(coordinator.rows[table.selectedRow].id == "refs/heads/feature/query")

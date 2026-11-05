@@ -237,7 +237,7 @@ final class BuiltInGitInspectorProvider {
         case .selectHistoryScope(let scope):
             let key = currentWorktreeKey(for: action.context)
             var state = state(for: action.context.tabID, worktreeKey: key)
-            guard state.historyScope != scope || state.browsedBranch != nil || state.browsedWorktree != nil else { return }
+            guard scope == .favorites || state.historyScope != scope || state.browsedBranch != nil || state.browsedWorktree != nil else { return }
             state.browsedBranch = nil
             state.unfilteredHistory = nil
             state.browsedWorktree = nil
@@ -600,7 +600,9 @@ final class BuiltInGitInspectorProvider {
     }
 
     private func captureSnapshot(repository: GitRepositoryIdentity, state: WorktreeUIState) async throws -> GitHistorySnapshot {
-        let snapshot = try await historyService.captureSnapshot(for: repository, scope: state.historyScope)
+        let favoriteRefs = state.historyScope == .favorites ? GitHistoryBranchFavorites(repository: repository).refs : []
+        let snapshot = try await historyService.captureSnapshot(for: repository, scope: state.historyScope,
+                                                                favoriteRefs: favoriteRefs)
         if let path = state.browsedWorktree {
             let trees = try await repositoryService.worktrees(for: repository)
             guard let tree = trees.first(where: { $0.path == path && !$0.isBare }) else {

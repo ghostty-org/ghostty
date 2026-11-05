@@ -84,6 +84,36 @@ struct GitHistoryServiceTests {
         #expect(detachedCommit.refDecorations.contains(where: { $0.kind == .head }))
     }
 
+    @Test func favoritesWalkHeadAndSelectedRefsAcrossCheckoutAndDetachedHead() async throws {
+        let directory = createTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try runCommand(["git", "init", "-b", "main"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "base"], in: directory.path)
+        try runCommand(["git", "branch", "feature"], in: directory.path)
+        try runCommand(["git", "branch", "unselected"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "main tip"], in: directory.path)
+        try runCommand(["git", "checkout", "unselected"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "unselected tip"], in: directory.path)
+        try runCommand(["git", "checkout", "feature"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "feature tip"], in: directory.path)
+        try runCommand(["git", "update-ref", "refs/remotes/origin/feature", "HEAD"], in: directory.path)
+        try runCommand(["git", "checkout", "main"], in: directory.path)
+        let repository = try await identity(for: directory)
+        let service = GitHistoryService()
+        let favorites: Set<String> = ["HEAD", "refs/heads/feature", "refs/remotes/origin/feature", "refs/heads/deleted"]
+        let snapshot = try await service.captureSnapshot(for: repository, scope: .favorites, favoriteRefs: favorites)
+        let page = try await service.loadPage(snapshot: snapshot, repository: repository, offset: 0)
+        #expect(snapshot.tipCommitIDs.count == 2)
+        #expect(Set(page.commits.map(\.subject)) == ["base", "main tip", "feature tip"])
+        try runCommand(["git", "checkout", "--detach", "HEAD~1"], in: directory.path)
+        let detached = try await service.captureSnapshot(for: repository, scope: .favorites, favoriteRefs: favorites)
+        #expect(detached.headCommitID != snapshot.headCommitID)
+        let detachedPage = try await service.loadPage(snapshot: detached, repository: repository, offset: 0)
+        #expect(Set(detachedPage.commits.map(\.subject)) == ["base", "feature tip"])
+        let empty = try await service.captureSnapshot(for: repository, scope: .favorites, favoriteRefs: [])
+        #expect(empty.tipCommitIDs.isEmpty)
+    }
+
     @Test func paginationUsesFrozenTipsWhenRefsMove() async throws {
         let directory = createTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

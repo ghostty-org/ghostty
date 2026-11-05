@@ -2,11 +2,13 @@ import Foundation
 
 enum GitHistoryScope: String, CaseIterable, Equatable, Sendable {
     case currentBranch
+    case favorites
     case allBranches
 
     var displayName: String {
         switch self {
         case .currentBranch: GitL10n.text("Current branch")
+        case .favorites: GitL10n.text("Favorite Branches")
         case .allBranches: GitL10n.text("All branches")
         }
     }

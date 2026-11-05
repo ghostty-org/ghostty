@@ -29,6 +29,53 @@ struct BuiltInGitHistoryProviderTests {
         }
     }
 
+    @Test func favoritesScopeLoadsAndRefreshesTheUnionOfSelectedTips() async throws {
+        let directory = createTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try runCommand(["git", "init", "-b", "main"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "base"], in: directory.path)
+        try runCommand(["git", "branch", "feature"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "main tip"], in: directory.path)
+        try runCommand(["git", "checkout", "feature"], in: directory.path)
+        try runCommand(["git", "commit", "--allow-empty", "-m", "feature tip"], in: directory.path)
+        try runCommand(["git", "checkout", "main"], in: directory.path)
+        let registry = InspectorRegistry()
+        let provider = BuiltInGitInspectorProvider(registry: registry)
+        try provider.register()
+        let context = InspectorPaneContext(tabID: UUID(), surfaceID: UUID(), title: "Terminal",
+                                           workingDirectory: directory.path)
+        let oldScope = OhMyGhosttySettings.shared.gitHistoryScope
+        defer {
+            OhMyGhosttySettings.shared.gitHistoryScope = oldScope
+            registry.presentationDidChange(to: nil, context: context)
+        }
+        registry.presentationDidChange(to: BuiltInGitInspectorProvider.paneID, context: context)
+        func waitFor(_ predicate: (InspectorGitContent) -> Bool) async throws -> InspectorGitContent {
+            for _ in 0..<100 {
+                if case .git(let content) = registry.content(for: BuiltInGitInspectorProvider.paneID, context: context),
+                   !content.isLoading, !content.history.isLoading, predicate(content) { return content }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            throw NSError(domain: "GitProviderTimeout", code: 1)
+        }
+        let initial = try await waitFor { $0.repository != nil && $0.history.snapshot != nil }
+        let store = GitHistoryBranchFavorites(repository: try #require(initial.repository))
+        defer { for ref in store.refs { store.toggle(ref) } }
+        store.toggle("HEAD")
+        store.toggle("refs/heads/feature")
+        func selectFavorites() {
+            registry.performAction(paneID: BuiltInGitInspectorProvider.paneID,
+                                   action: .init(context: context, kind: .gitAction(.selectHistoryScope(.favorites))))
+        }
+        selectFavorites()
+        let both = try await waitFor { $0.history.scope == .favorites && $0.history.commits.count == 3 }
+        #expect(Set(both.history.commits.map(\.subject)) == ["base", "main tip", "feature tip"])
+        store.toggle("HEAD")
+        selectFavorites()
+        let feature = try await waitFor { $0.history.scope == .favorites && $0.history.commits.count == 2 }
+        #expect(Set(feature.history.commits.map(\.subject)) == ["base", "feature tip"])
+    }
+
     @Test func checkboxCommitClearsDraftOnlyOnSuccessAndRetainsItOnHookFailure() async throws {
         let directory = createTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

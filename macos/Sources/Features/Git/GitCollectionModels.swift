@@ -106,7 +106,7 @@ enum GitCollectionBuilder {
     }
     static func nodes(source: GitCollectionSource, mode: GitCollectionMode, query: String = "",
                       pending: Set<String> = [], canWrite: Bool = true, extraRefs: [GitRefDecoration] = [],
-                      favoriteBranchIDs: Set<String>? = nil) -> [GitCollectionNode] {
+                      favoriteBranchIDs: Set<String>? = nil, includesHead: Bool = false) -> [GitCollectionNode] {
         switch source {
         case .decorations(let refs): return referenceNodes(refs, mode: mode, query: query)
         case .changes(let staged, let unstaged, let stagedError, let unstagedError):
@@ -151,19 +151,25 @@ enum GitCollectionBuilder {
             return sections
         case .refs(let branches, let worktrees, let scopes, let branchesError, let worktreesError):
             let occupied = Dictionary(grouping: worktrees.compactMap { tree in tree.branchRef.map { ($0, tree.path) } }, by: { $0.0 })
+            let head = GitCollectionNode(.init(id: "HEAD", title: "HEAD",
+                kind: .ref(.init(name: "HEAD", kind: .head)), enabled: branchesError == nil))
             if let favoriteBranchIDs {
                 let favorites = branches.filter { favoriteBranchIDs.contains($0.id) }
                 let entries = favorites.filter { matches(query, text: $0.name) }.map { branch in
                     (branch.name, GitCollectionItem(id: branch.id, title: branch.name,
                         kind: .branch(branch, worktrees: occupied[branch.id, default: []].map(\.1)), enabled: branchesError == nil))
                 }
-                return [category("refs/favorites", title: GitL10n.text("Favorite Branches"), count: favorites.count,
-                    children: grouped(entries, category: "refs/favorites", mode: mode), error: branchesError,
+                let hasHead = includesHead && favoriteBranchIDs.contains("HEAD")
+                var children = grouped(entries, category: "refs/favorites", mode: mode)
+                if hasHead && matches(query, text: "HEAD") { children.insert(head, at: 0) }
+                return [category("refs/favorites", title: GitL10n.text("Favorite Branches"), count: favorites.count + (hasHead ? 1 : 0),
+                    children: children, error: branchesError,
                     empty: query.isEmpty ? GitL10n.text("No favorite branches. Star a branch to add it here.") : GitL10n.text("No matching branches"))]
             }
             var roots = scopes && query.isEmpty ? GitHistoryScope.allCases.map { scope in
                 GitCollectionNode(.init(id: "scope:" + scope.rawValue, title: scope.displayName, kind: .scope(scope)))
             } : []
+            if includesHead && matches(query, text: "HEAD") { roots.append(head) }
             for remote in [false, true] {
                 let key = remote ? "refs/remote" : "refs/local"
                 let all = branches.filter { $0.isRemote == remote }

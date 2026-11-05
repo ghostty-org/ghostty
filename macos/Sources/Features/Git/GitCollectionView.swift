@@ -18,6 +18,13 @@ final class GitCollectionTableView: GitHoverTableView {
     private(set) var clickModifiers: NSEvent.ModifierFlags = []
     private(set) var selectionClickRow: Int?
     private var handledSelectionMouseDown = false
+    override func refreshRowBackgrounds() {
+        super.refreshRowBackgrounds()
+        enumerateAvailableRowViews { _, index in
+            guard let cell = self.view(atColumn: 0, row: index, makeIfNecessary: false) as? GitCollectionCell else { return }
+            cell.favoriteButton.setRowHovered(self.rowIdentity(index) == self.hoveredRowID && self.hoveredRowID != nil)
+        }
+    }
     override func mouseDown(with event: NSEvent) {
         handledSelectionMouseDown = false
         clickModifiers = event.modifierFlags.intersection([.command, .shift])
@@ -70,6 +77,7 @@ struct GitCollectionView: NSViewRepresentable {
     var stateKey = ""
     var selectedID: String?
     var extraRefs: [GitRefDecoration] = []
+    var includesHead = false
     var favoriteBranchIDs: Set<String> = []
     var favoritesOnly = false
     var toggleBranchFavorite: ((String) -> Void)?
@@ -146,7 +154,8 @@ struct GitCollectionView: NSViewRepresentable {
             let changedQuery = old?.query != value.query
             let rebuild = old?.source != value.source || changedMode || changedQuery || changedContext ||
                 old?.favoritesOnly != value.favoritesOnly || (value.favoritesOnly && old?.favoriteBranchIDs != value.favoriteBranchIDs) ||
-                old?.pending != value.pending || old?.canWrite != value.canWrite || old?.extraRefs != value.extraRefs || old?.languageCode != value.languageCode
+                old?.pending != value.pending || old?.canWrite != value.canWrite || old?.extraRefs != value.extraRefs ||
+                old?.includesHead != value.includesHead || old?.languageCode != value.languageCode
             if changedContext || changedMode { saveAnchor() }
             input = value
             guard let table else { return }
@@ -175,7 +184,8 @@ struct GitCollectionView: NSViewRepresentable {
             if rebuild {
                 nodes = GitCollectionBuilder.nodes(source: value.source, mode: value.mode, query: value.query,
                                                    pending: value.pending, canWrite: value.canWrite, extraRefs: value.extraRefs,
-                                                   favoriteBranchIDs: value.favoritesOnly ? value.favoriteBranchIDs : nil)
+                                                   favoriteBranchIDs: value.favoritesOnly ? value.favoriteBranchIDs : nil,
+                                                   includesHead: value.includesHead)
                 let collapsed = value.query.isEmpty ? state.collapsed[value.stateKey, default: []] : filterCollapsed
                 let initial: String?
                 if case .refs(let branches, _, _, _, _) = value.source { initial = branches.first(where: \.isCurrent)?.id } else { initial = nil }
@@ -357,6 +367,7 @@ struct GitCollectionView: NSViewRepresentable {
                            favorite: input?.toggleBranchFavorite.map { toggle in
                                (isFavorite: input?.favoriteBranchIDs.contains(row.id) == true, toggle: { toggle(row.id) })
                            })
+            cell.favoriteButton.setRowHovered(table?.hoveredRowID == row.id)
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !updating, let table, let input else { return }
@@ -478,7 +489,13 @@ struct GitCollectionView: NSViewRepresentable {
             guard item.enabled else { return }
             switch item.kind {
             case .ref(let ref):
-                if input.interaction == .references { input.referenceAction(ref) } else { input.perform(.browseRef(ref.fullRef)) }
+                if input.interaction == .references {
+                    input.referenceAction(ref)
+                } else if ref.kind == .head {
+                    input.perform(.selectHistoryScope(.currentBranch))
+                } else {
+                    input.perform(.browseRef(ref.fullRef))
+                }
             case .folder: toggleFolder(item.id)
             case .file(let file, let section): input.perform(.openDiff(file, section.target))
             case .branch(let branch, _):

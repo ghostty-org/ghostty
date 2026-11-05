@@ -2,13 +2,14 @@ import AppKit
 
 @MainActor
 final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDelegate {
-    private let content: GitHistoryScopePicker
+    private var content: GitHistoryScopePicker
     private let closePopover: () -> Void
     private let searchField = GitCollectionSearchField.Field()
     private var colors: GitCollectionColors
     private let scopeControl = GitPopoverSegments()
     private let modeControl = GitPopoverSegments()
-    private let favorites: GitHistoryBranchFavorites?
+    private let defaults: UserDefaults
+    private var favorites: GitHistoryBranchFavorites?
     private var favoritesOnly = false
     private let collectionCoordinator = GitCollectionView.Coordinator()
     private let collectionController = GitCollectionController()
@@ -22,7 +23,9 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         self.content = content
         self.colors = content.nativeColors
         self.closePopover = close
+        self.defaults = defaults
         self.favorites = content.repository.map { GitHistoryBranchFavorites(repository: $0, defaults: defaults) }
+        self.favoritesOnly = content.selectedID == "scope:favorites"
         super.init(nibName: nil, bundle: nil)
         preferredContentSize = GitRefPopoverStyle.pickerSize(
             branchCount: content.branches.count,
@@ -71,28 +74,13 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         )
         modeControl.onSelect = { [weak self] id in self?.selectMode(id) }
 
-        let selectedScope = content.selectedID.flatMap {
-            $0.hasPrefix("scope:") ? String($0.dropFirst("scope:".count)) : nil
-        }
-        scopeControl.configure(
-            segments: [
-                GitPopoverSegment(id: "currentBranch", title: GitL10n.text("Current"),
-                                  accessibilityLabel: GitL10n.text("Current branch")),
-                GitPopoverSegment(id: "favorites", title: GitL10n.text("Favorites"),
-                                  accessibilityLabel: GitL10n.text("Favorite Branches")),
-                GitPopoverSegment(id: "allBranches", title: GitL10n.text("All"),
-                                  accessibilityLabel: GitL10n.text("All branches"))
-            ],
-            selectedID: selectedScope,
-            colors: colors,
-            widths: Array(repeating: (preferredContentSize.width - 22) / 3, count: 3)
-        )
+        configureScopeControl()
         scopeControl.onSelect = { [weak self] id in
             guard let self else { return }
             self.collectionCoordinator.saveAnchor()
-            self.favoritesOnly = id == "favorites"
+            self.favoritesOnly = id == GitHistoryScope.favorites.rawValue
             self.collectionCoordinator.update(self.makeCollection())
-            if !self.favoritesOnly { self.selectScope(id) }
+            self.selectScope(id)
         }
         let collection = makeCollection()
         let scroll = collection.makeNativeView(coordinator: collectionCoordinator, colors: colors)
@@ -120,6 +108,36 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         ])
         view = root
         root.onThemeChange = { [weak self] theme in self?.applyTheme(theme) }
+    }
+
+    private func configureScopeControl() {
+        let selectedScope = content.selectedID.flatMap {
+            $0.hasPrefix("scope:") ? String($0.dropFirst("scope:".count)) : nil
+        }
+        scopeControl.configure(
+            segments: [
+                GitPopoverSegment(id: "currentBranch", title: GitL10n.text("Current"),
+                                  accessibilityLabel: GitL10n.text("Current branch")),
+                GitPopoverSegment(id: "favorites", title: GitL10n.text("Favorites"),
+                                  accessibilityLabel: GitL10n.text("Favorite Branches")),
+                GitPopoverSegment(id: "allBranches", title: GitL10n.text("All"),
+                                  accessibilityLabel: GitL10n.text("All branches"))
+            ],
+            selectedID: selectedScope,
+            colors: colors,
+            widths: Array(repeating: (preferredContentSize.width - 22) / 3, count: 3)
+        )
+    }
+
+    func updateContent(_ content: GitHistoryScopePicker) {
+        if self.content.repository != content.repository {
+            favorites = content.repository.map { GitHistoryBranchFavorites(repository: $0, defaults: defaults) }
+        }
+        self.content = content
+        guard isViewLoaded else { return }
+        favoritesOnly = content.selectedID == "scope:favorites"
+        configureScopeControl()
+        collectionCoordinator.update(makeCollection())
     }
 
     func bindTheme(to window: NSWindow?) {
@@ -183,7 +201,6 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
 
     private func selectScope(_ id: String) {
         guard let scope = GitHistoryScope(rawValue: id) else { return }
-        closePopover()
         content.perform(.selectHistoryScope(scope))
     }
 
@@ -212,12 +229,14 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
             stateKey: content.stateKey + (favoritesOnly ? "/favorites" : ""),
             selectedID: selected,
             extraRefs: content.tags,
+            includesHead: true,
             favoriteBranchIDs: favorites?.refs ?? [],
             favoritesOnly: favoritesOnly,
             toggleBranchFavorite: favorites.map { store in { [weak self] ref in
                 store.toggle(ref)
                 guard let self else { return }
                 self.collectionCoordinator.update(self.makeCollection())
+                if self.favoritesOnly { self.content.perform(.selectHistoryScope(.favorites)) }
             } },
             controller: collectionController,
             cancel: closePopover,
