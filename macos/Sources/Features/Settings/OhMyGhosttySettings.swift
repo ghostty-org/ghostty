@@ -82,6 +82,16 @@ enum TerminalResizeRenderingMode: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum FocusedSplitBorderPosition: String, CaseIterable, Identifiable, Sendable {
+    case top
+    case bottom
+    case left
+    case right
+
+    var id: String { rawValue }
+    var isHorizontal: Bool { self == .top || self == .bottom }
+}
+
 struct OhMyGhosttySettingDescriptor: Codable, Identifiable, Sendable {
     enum ValueType: String, Codable, Sendable {
         case boolean
@@ -345,6 +355,11 @@ final class OhMyGhosttySettings: ObservableObject {
             description: "Optional terminal and app-shell background opacity override.",
             requiresNewWindow: false, category: "appearance"),
         .init(
+            id: "appearance.unfocusedSplitOpacity", type: .number, defaultValue: "0.9",
+            allowedValues: nil, minimum: 0.15, maximum: 1,
+            description: "Native Ghostty unfocused split opacity; 1 disables dimming.",
+            requiresNewWindow: false, category: "appearance"),
+        .init(
             id: "appearance.backgroundBlur", type: .enumeration, defaultValue: "ghostty-config",
             allowedValues: OhMyGhosttyBackgroundBlur.allCases.map(\.rawValue), minimum: nil, maximum: nil,
             description: "Optional Ghostty background blur override.",
@@ -464,12 +479,17 @@ final class OhMyGhosttySettings: ObservableObject {
         .init(
             id: "terminal.focusedSplitBorder", type: .boolean, defaultValue: "true",
             allowedValues: nil, minimum: nil, maximum: nil,
-            description: "Mark the selected split with an accent-colored line at its top.",
+            description: "Mark the selected split with a system accent-colored edge line.",
             requiresNewWindow: false, category: "terminal"),
         .init(
-            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "2",
-            allowedValues: nil, minimum: 1, maximum: 2,
+            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "2.5",
+            allowedValues: nil, minimum: 1, maximum: 6,
             description: "Selected split marker thickness in points.",
+            requiresNewWindow: false, category: "terminal"),
+        .init(
+            id: "terminal.focusedSplitBorderPosition", type: .enumeration, defaultValue: "top",
+            allowedValues: FocusedSplitBorderPosition.allCases.map(\.rawValue), minimum: nil, maximum: nil,
+            description: "Edge used for the selected split marker.",
             requiresNewWindow: false, category: "terminal"),
         .init(
             id: "terminal.resizeRendering", type: .enumeration,
@@ -704,6 +724,16 @@ final class OhMyGhosttySettings: ObservableObject {
             }
         }
     }
+    @Published var unfocusedSplitOpacity: Double = 0.9 {
+        didSet {
+            let value = unfocusedSplitOpacity.isFinite ? min(max(unfocusedSplitOpacity, 0.15), 1) : 0.9
+            if unfocusedSplitOpacity != value {
+                unfocusedSplitOpacity = value
+            } else {
+                persistOptional("appearance.unfocusedSplitOpacity", value)
+            }
+        }
+    }
     @Published var backgroundBlurOverride: OhMyGhosttyBackgroundBlur? {
         didSet { persistOptional("appearance.backgroundBlur", backgroundBlurOverride?.rawValue) }
     }
@@ -859,15 +889,18 @@ final class OhMyGhosttySettings: ObservableObject {
     @Published var focusedSplitBorder = true {
         didSet { persist("terminal.focusedSplitBorder", focusedSplitBorder) }
     }
-    @Published var focusedSplitBorderWidth: Double = 2 {
+    @Published var focusedSplitBorderWidth: Double = 2.5 {
         didSet {
-            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 2) : 2
+            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 6) : 2.5
             if focusedSplitBorderWidth != value {
                 focusedSplitBorderWidth = value
             } else {
                 persist("terminal.focusedSplitBorderWidth", value)
             }
         }
+    }
+    @Published var focusedSplitBorderPosition: FocusedSplitBorderPosition = .top {
+        didSet { persist("terminal.focusedSplitBorderPosition", focusedSplitBorderPosition.rawValue) }
     }
     @Published var terminalResizeRendering: TerminalResizeRenderingMode = .onRelease {
         didSet { persist("terminal.resizeRendering", terminalResizeRendering.rawValue) }
@@ -1123,7 +1156,7 @@ final class OhMyGhosttySettings: ObservableObject {
 
     func resetAppearance() {
         let keys = chosen.keys.filter {
-            $0.hasPrefix("appearance.") &&
+            ($0.hasPrefix("appearance.") || $0.hasPrefix("terminal.focusedSplitBorder")) &&
                 $0 != "appearance.tabRowDensity" &&
                 $0 != "appearance.tabIconSize"
         }
@@ -1230,6 +1263,7 @@ final class OhMyGhosttySettings: ObservableObject {
                 "appearance.backgroundOpacity",
                 range: 0.05...1
             )
+            unfocusedSplitOpacity = numberValue("appearance.unfocusedSplitOpacity", fallback: 0.9, range: 0.15...1)
             backgroundBlurOverride = optionalEnumValue("appearance.backgroundBlur")
             cursorStyleOverride = optionalEnumValue("appearance.cursorStyle")
             tabRowDensity = enumValue("appearance.tabRowDensity", fallback: .compact)
@@ -1280,7 +1314,8 @@ final class OhMyGhosttySettings: ObservableObject {
             ).rounded()
             quickInputHistoryKeepAfterQuit = boolValue("keyboard.quickInputHistoryKeepAfterQuit", fallback: true)
             focusedSplitBorder = boolValue("terminal.focusedSplitBorder", fallback: true)
-            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 2, range: 1...2)
+            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 2.5, range: 1...6)
+            focusedSplitBorderPosition = enumValue("terminal.focusedSplitBorderPosition", fallback: .top)
             terminalResizeRendering = enumValue(
                 "terminal.resizeRendering",
                 fallback: .onRelease
@@ -1473,6 +1508,7 @@ final class OhMyGhosttySettings: ObservableObject {
             if let backgroundOpacityOverride {
                 lines.append("background-opacity = \(backgroundOpacityOverride)")
             }
+            lines.append("unfocused-split-opacity = \(unfocusedSplitOpacity)")
             if let backgroundBlurOverride {
                 lines.append("background-blur = \(backgroundBlurOverride.ghosttyValue)")
             }

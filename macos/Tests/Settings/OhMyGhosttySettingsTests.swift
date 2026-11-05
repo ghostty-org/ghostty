@@ -136,16 +136,64 @@ struct OhMyGhosttySettingsTests {
         let (settings, url) = temporarySettings()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         #expect(settings.focusedSplitBorder)
-        #expect(settings.focusedSplitBorderWidth == 2)
+        #expect(settings.focusedSplitBorderWidth == 2.5)
+        #expect(settings.focusedSplitBorderPosition == .top)
         settings.focusedSplitBorder = false
         settings.focusedSplitBorderWidth = 1.5
         #expect(OhMyGhosttySettings(fileURL: url).focusedSplitBorderWidth == 1.5)
-        settings.focusedSplitBorderWidth = 4
+        settings.focusedSplitBorderWidth = 3
+        settings.focusedSplitBorderPosition = .right
         let restored = OhMyGhosttySettings(fileURL: url)
         #expect(!restored.focusedSplitBorder)
-        #expect(restored.focusedSplitBorderWidth == 2)
+        #expect(restored.focusedSplitBorderWidth == 3)
+        #expect(restored.focusedSplitBorderPosition == .right)
+        settings.focusedSplitBorderWidth = 10
+        #expect(settings.focusedSplitBorderWidth == 6)
         settings.focusedSplitBorderWidth = 0
         #expect(settings.focusedSplitBorderWidth == 1)
+    }
+
+    @Test func splitOpacityPassesThroughNativeConfigAndResetsWithFocusAppearance() throws {
+        let (settings, url) = temporarySettings()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let overlayURL = url.deletingLastPathComponent().appendingPathComponent("appearance.ghostty")
+        let configURL = url.deletingLastPathComponent().appendingPathComponent("baseline.ghostty")
+        try "background-opacity = 0.8\nunfocused-split-opacity = 0.7\n"
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        #expect(settings.unfocusedSplitOpacity == 0.9)
+        let initial = Ghostty.Config(at: configURL.path, overrideAt: overlayURL.path)
+        #expect(initial.errors.isEmpty)
+        #expect(initial.backgroundOpacity == 0.8)
+        // The Swift accessor returns the native overlay alpha, the inverse of the setting.
+        #expect(abs(initial.unfocusedSplitOpacity - 0.1) < 0.001)
+
+        settings.backgroundOpacityOverride = 0.6
+        settings.unfocusedSplitOpacity = 0.75
+        settings.focusedSplitBorderPosition = .left
+        settings.focusedSplitBorderWidth = 3
+        let restored = OhMyGhosttySettings(fileURL: url)
+        #expect(restored.unfocusedSplitOpacity == 0.75)
+        let custom = Ghostty.Config(at: configURL.path, overrideAt: overlayURL.path)
+        #expect(custom.errors.isEmpty)
+        #expect(custom.backgroundOpacity == 0.6)
+        #expect(custom.unfocusedSplitOpacity == 0.25)
+
+        settings.unfocusedSplitOpacity = 0
+        #expect(settings.unfocusedSplitOpacity == 0.15)
+        settings.unfocusedSplitOpacity = 2
+        #expect(settings.unfocusedSplitOpacity == 1)
+        let opaque = Ghostty.Config(at: configURL.path, overrideAt: overlayURL.path)
+        #expect(opaque.unfocusedSplitOpacity == 0)
+
+        settings.resetAppearance()
+        let reset = OhMyGhosttySettings(fileURL: url)
+        #expect(reset.backgroundOpacityOverride == nil)
+        #expect(reset.unfocusedSplitOpacity == 0.9)
+        #expect(reset.focusedSplitBorderWidth == 2.5)
+        #expect(reset.focusedSplitBorderPosition == .top)
+        let resetConfig = Ghostty.Config(at: configURL.path, overrideAt: overlayURL.path)
+        #expect(resetConfig.backgroundOpacity == 0.8)
+        #expect(abs(resetConfig.unfocusedSplitOpacity - 0.1) < 0.001)
     }
 
     @Test func typedSettingsRoundTripThroughHumanReadableFile() throws {

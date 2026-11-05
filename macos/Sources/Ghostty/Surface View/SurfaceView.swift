@@ -25,7 +25,6 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
         @Environment(\.ghosttyLastFocusedSurface) private var lastFocusedSurface
-        @Environment(\.suppressUnfocusedSplitDimming) private var suppressUnfocusedSplitDimming
 
         private var isFocusedSurface: Bool {
             surfaceFocus || lastFocusedSurface?.value === surfaceView
@@ -157,9 +156,7 @@ extension Ghostty {
                     }
                 }
 
-                // OMG's top marker replaces Ghostty's dimming overlay while enabled.
-                // Otherwise keep Ghostty's configured split dimming.
-                if isSplit && !isFocusedSurface && !suppressUnfocusedSplitDimming {
+                if isSplit && !isFocusedSurface {
                     let overlayOpacity = ghostty.config.unfocusedSplitOpacity
                     if overlayOpacity > 0 {
                         Rectangle()

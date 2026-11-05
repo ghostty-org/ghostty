@@ -94,6 +94,14 @@
       "minimum": 0.05,
       "type": "number"
     },
+    "appearance.unfocusedSplitOpacity": {
+      "category": "appearance",
+      "default": 0.9,
+      "description": "Native Ghostty unfocused split opacity; 1 disables dimming.",
+      "maximum": 1,
+      "minimum": 0.15,
+      "type": "number"
+    },
     "appearance.cursorStyle": {
       "category": "appearance",
       "description": "Optional terminal cursor style override.",
@@ -489,15 +497,22 @@
     "terminal.focusedSplitBorder": {
       "category": "terminal",
       "default": true,
-      "description": "Mark the selected split with an accent-colored line at its top.",
+      "description": "Mark the selected split with a system accent-colored edge line.",
       "type": "boolean"
+    },
+    "terminal.focusedSplitBorderPosition": {
+      "category": "terminal",
+      "default": "top",
+      "description": "Edge used for the selected split marker.",
+      "enum": ["top", "bottom", "left", "right"],
+      "type": "string"
     },
     "terminal.focusedSplitBorderWidth": {
       "category": "terminal",
-      "default": 2,
+      "default": 2.5,
       "description": "Selected split marker thickness in points.",
       "minimum": 1,
-      "maximum": 2,
+      "maximum": 6,
       "type": "number"
     },
     "terminal.resizeRendering": {

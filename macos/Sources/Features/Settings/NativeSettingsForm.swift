@@ -109,12 +109,12 @@ final class SettingsSlider: NSStackView {
     private let slider = NSSlider()
     private let label = NSTextField(labelWithString: "")
     private let change: (Double) -> Void
-    init(value: Double, change: @escaping (Double) -> Void) {
+    init(value: Double, minimum: Double = 0.05, change: @escaping (Double) -> Void) {
         self.change = change
         super.init(frame: .zero)
         orientation = .horizontal
         spacing = 8
-        slider.minValue = 5
+        slider.minValue = minimum * 100
         slider.maxValue = 100
         slider.doubleValue = value * 100
         slider.target = self

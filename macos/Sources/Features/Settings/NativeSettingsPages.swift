@@ -146,7 +146,29 @@ extension NativeSettingsController {
     private func appearance(_ form: NativeSettingsForm) {
         form.section(strings.focusedSplitBorderSection)
         toggle(form, strings.focusedSplitBorderLabel, \.focusedSplitBorder)
-        number(form, text("Marker thickness (pt)", "标记线粗细（pt）"), \.focusedSplitBorderWidth, range: 1...2, step: 0.5)
+        picker(form, text("Marker position", "标记线位置"), \.focusedSplitBorderPosition, [
+            (.top, text("Top", "顶部")), (.bottom, text("Bottom", "底部")),
+            (.left, text("Left", "左侧")), (.right, text("Right", "右侧"))
+        ])
+        number(form, text("Marker thickness (pt)", "标记线粗细（pt）"), \.focusedSplitBorderWidth, range: 1...6, step: 0.5)
+        optionalNumber(form, text("Focused pane background opacity", "聚焦 Pane 背景不透明度"), \.backgroundOpacityOverride, fallback: { [weak self] in
+            guard let self else { return 1 }
+            return self.settings.effectiveAppearance(using: self.inheritedConfig).backgroundOpacity.inheritedValue ?? 1
+        }, range: 0.05...1, step: 0.05)
+        let unfocusedOpacity = SettingsSlider(value: settings.unfocusedSplitOpacity, minimum: 0.15) { [weak settings] in
+            settings?.unfocusedSplitOpacity = $0
+        }
+        let resetOpacity = SettingsActionButton(text("Default", "默认")) { [weak settings] in
+            settings?.unfocusedSplitOpacity = 0.9
+        }
+        form.row(text("Unfocused pane opacity", "非聚焦 Pane 不透明度"), control: NSStackView(views: [unfocusedOpacity, resetOpacity]))
+        form.refreshers.append { [weak settings, weak unfocusedOpacity] in
+            if let settings { unfocusedOpacity?.setValue(settings.unfocusedSplitOpacity) }
+        }
+        form.note(text(
+            "Background opacity also affects sidebars. Unfocused opacity controls native split dimming; 100% disables dimming.",
+            "背景不透明度也影响侧栏等界面。非聚焦不透明度控制原生分屏淡化，100% 表示不淡化。"
+        ))
         form.section(text("Theme", "主题"))
         picker(form, strings.appearancePickerLabel, \.windowThemeOverride, [
             (nil, text("Follow terminal", "跟随终端")), (.system, text("System", "系统")), (.light, text("Light", "浅色")), (.dark, text("Dark", "深色"))
@@ -164,10 +186,6 @@ extension NativeSettingsController {
             return value.inheritedValue ?? value.defaultValue
         }, range: 6...72, step: 0.5)
         form.section(strings.transparencySection)
-        optionalNumber(form, strings.backgroundOpacityLabel, \.backgroundOpacityOverride, fallback: { [weak self] in
-            guard let self else { return 1 }
-            return self.settings.effectiveAppearance(using: self.inheritedConfig).backgroundOpacity.inheritedValue ?? 1
-        }, range: 0.05...1, step: 0.05)
         picker(form, strings.backgroundBlurLabel, \.backgroundBlurOverride,
                [(nil, text("Default", "默认"))] + OhMyGhosttyBackgroundBlur.allCases.map { (Optional($0), strings.blurTitle($0)) })
         core(.cursor, in: form)

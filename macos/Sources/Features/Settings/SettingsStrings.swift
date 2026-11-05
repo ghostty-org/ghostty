@@ -437,7 +437,7 @@ struct SettingsStrings: Equatable, Sendable {
     }
     var quickInputHeightLabel: String { t("Composer Height", "输入框高度") }
     var quickInputControlJNewlineLabel: String { t("Control-J Inserts Newline", "Control-J 换行") }
-    var focusedSplitBorderSection: String { t("Splits", "分屏") }
+    var focusedSplitBorderSection: String { t("Focus", "聚焦") }
     var focusedSplitBorderLabel: String { t("Mark selected split", "标记当前分屏") }
     var quickInputHeightCaption: String {
         t(

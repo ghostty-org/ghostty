@@ -6,6 +6,44 @@ import Testing
 struct NativeSettingsTests {
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
+    @Test func focusControlsChangeMarkerAndNativePaneOpacity() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = OhMyGhosttySettings(fileURL: root.appendingPathComponent("settings.json"))
+        settings.language = .english
+        let controller = NativeSettingsController(settings: settings, initialSelection: .appearance)
+        _ = controller.view
+        let controls = descendants(controller.view)
+        let position = try #require(controls.compactMap { $0 as? SettingsPopup }
+            .first { $0.accessibilityLabel() == "Marker position" })
+        #expect(position.itemTitles == ["Top", "Bottom", "Left", "Right"])
+        for (index, edge) in FocusedSplitBorderPosition.allCases.enumerated() {
+            position.selectItem(at: index)
+            position.sendAction(position.action, to: position.target)
+            #expect(settings.focusedSplitBorderPosition == edge)
+        }
+        let thickness = try #require(controls.compactMap { $0 as? SettingsNumberField }
+            .first { $0.accessibilityLabel() == "Marker thickness (pt)" })
+        thickness.stepper.doubleValue = 3
+        thickness.stepper.sendAction(thickness.stepper.action, to: thickness.stepper.target)
+        #expect(settings.focusedSplitBorderWidth == 3)
+        let sliders = controls.compactMap { $0 as? NSSlider }
+        let unfocused = try #require(sliders.first { $0.minValue == 15 })
+        #expect(unfocused.doubleValue == 90)
+        unfocused.doubleValue = 100
+        unfocused.sendAction(unfocused.action, to: unfocused.target)
+        #expect(settings.unfocusedSplitOpacity == 1)
+        let background = try #require(sliders.first { $0.minValue == 5 })
+        background.doubleValue = 65
+        background.sendAction(background.action, to: background.target)
+        #expect(settings.backgroundOpacityOverride == 0.65)
+        let restored = OhMyGhosttySettings(fileURL: root.appendingPathComponent("settings.json"))
+        #expect(restored.focusedSplitBorderPosition == .right)
+        #expect(restored.focusedSplitBorderWidth == 3)
+        #expect(restored.unfocusedSplitOpacity == 1)
+        #expect(restored.backgroundOpacityOverride == 0.65)
+    }
+
     @Test func themeGalleryPreviewsWithoutApplyingAndCursorRemainsInline() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

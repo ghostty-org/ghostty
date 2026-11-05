@@ -172,7 +172,8 @@ Window UI state is intentionally separate: `InspectorPresentationStore` owns las
 | `appearance.darkTheme`            | string  | Ghostty config                | Ghostty theme name                                                                                     | Settings > Appearance              | Live                         |
 | `appearance.fontFamily`           | string  | Ghostty config                | Installed font family                                                                                  | Settings > Appearance              | Live                         |
 | `appearance.fontSize`             | number  | Ghostty config                | `6...72`                                                                                               | Settings > Appearance              | Live                         |
-| `appearance.backgroundOpacity`    | number  | Ghostty config                | `0.05...1`                                                                                             | Settings > Appearance              | Live                         |
+| `appearance.backgroundOpacity`    | number  | Ghostty config                | `0.05...1`                                                                                             | Settings > Appearance > Focus      | Live                         |
+| `appearance.unfocusedSplitOpacity` | number | `0.9` | `0.15...1`; 1 disables dimming | Settings > Appearance > Focus | Live |
 | `appearance.backgroundBlur`       | enum    | Ghostty config                | `disabled`, `enabled`, `macosGlassRegular`, `macosGlassClear`                                          | Settings > Appearance              | Live                         |
 | `appearance.cursorStyle`          | enum    | Ghostty config                | `block`, `bar`, `underline`, `block_hollow`                                                            | Settings > Appearance              | Live                         |
 | `appearance.tabRowDensity`        | enum    | `compact`                     | `compact`, `comfortable`                                                                               | Settings > Appearance              | Runtime                      |
@@ -208,19 +209,25 @@ Window UI state is intentionally separate: `InspectorPresentationStore` owns las
 | `keyboard.quickInputHistoryRetentionDays` | number | `7` | Integer days, `1...365` | Settings > Editor > Quick Input | Runtime |
 | `keyboard.quickInputHistoryKeepAfterQuit` | boolean | `true` | `true`, `false` | Settings > Editor > Quick Input | Runtime |
 | `keyboard.quickInputControlJNewline` | boolean | `false` | `true`, `false` | Settings > Controls > Quick Input | Runtime |
-| `terminal.focusedSplitBorder` | boolean | `true` | `true`, `false` | Settings > Appearance > Splits | Runtime |
-| `terminal.focusedSplitBorderWidth` | number | `2` | 1–2 points | Settings > Appearance > Splits | Runtime |
+| `terminal.focusedSplitBorder` | boolean | `true` | `true`, `false` | Settings > Appearance > Focus | Runtime |
+| `terminal.focusedSplitBorderWidth` | number | `2.5` | 1–6 points, UI step 0.5 | Settings > Appearance > Focus | Runtime |
+| `terminal.focusedSplitBorderPosition` | enum | `top` | `top`, `bottom`, `left`, `right` | Settings > Appearance > Focus | Runtime |
 | `sessions.startupMode`            | enum    | `restoreSessions`             | `newTerminal`, `restoreTabs`, `restoreSessions`                                                        | Settings > General                 | Next launch                  |
 | `general.language`                | enum    | `system`                      | `system`, `en`, `zh-Hans`                                                                              | Settings > General                 | Live (Settings UI)           |
 | `general.quitWithoutConfirmation` | boolean | Release: `false`; Dev: `true` | `true`, `false`                                                                                        | Settings > General                 | Next app quit                |
 
-The selected split marker is a rounded, 85%-opacity system accent line at the
-top of the pane. With the marker enabled, OMG suppresses Ghostty's unfocused
-split overlay so text and ANSI colors remain unchanged. Turning the marker off
-restores Ghostty's `unfocused-split-opacity` and `unfocused-split-fill` behavior.
-The terminal's own focused and unfocused cursor styles are unchanged.
+The selected split marker defaults to a fully opaque, 2.5pt system accent line
+at the top of the pane, with 5pt end insets and 2pt corner radii. Its edge and
+thickness are adjustable. Existing saved thickness values are preserved.
+The marker and Ghostty's native unfocused split dimming work together.
+Settings > Appearance > Focus exposes `background-opacity` as focused pane
+background opacity (also used by the app shell), and `unfocused-split-opacity`
+as the additional native split opacity, defaulting to 0.90. The latter is
+relative dimming, not an independent pane background alpha: 1 disables dimming.
+Both values pass through the generated Ghostty config overlay and its live
+reload path; `unfocused-split-fill` and native cursor styles are unchanged.
 
-Appearance controls resolve each value as `OMG override > Ghostty config > built-in default`. The UI reports the effective value and source, and **Reset to Ghostty** removes only OMG Appearance keys. The app writes a generated `appearance.ghostty` overlay beside `settings.json`; it never edits the user's Ghostty config. The overlay is loaded last and applied with Ghostty's existing live config update API, so current surfaces keep their PTY, shell, and scrollback.
+Appearance controls resolve each value as `OMG override > Ghostty config > built-in default`. Unfocused split opacity has an OMG default of 0.90. Resetting Appearance removes OMG Appearance and focus marker choices, restoring their defaults and inherited values. The app writes a generated `appearance.ghostty` overlay beside `settings.json`; it never edits the user's Ghostty config. The overlay is loaded last and applied with Ghostty's existing live config update API, so current surfaces keep their PTY, shell, and scrollback.
 
 Vertical tabs and the Right Inspector use the active terminal background color and background opacity. There is no independent Sidebar or Inspector theme. Both sidebars open/close immediately like Quick Input; content width, visibility and right titlebar accessory update together without slide/fade animations or delayed collapse. Inspector native content stays lazily mounted after its first opening, but hidden content cannot receive clicks or appear in accessibility navigation. Transparency is painted only on background layers; window alpha, terminal glyphs, cursors, and icons remain opaque.
 

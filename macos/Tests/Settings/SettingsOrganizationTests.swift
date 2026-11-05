@@ -23,6 +23,12 @@ struct SettingsOrganizationTests {
             #expect(entries.first { $0.settingIDs.contains("keyboard.quickInputHistoryScope") }?.tab == .controls)
             #expect(entries.first { $0.settingIDs.contains("keyboard.quickInput") }?.tab == .keyboard)
             #expect(entries.first { $0.settingIDs.contains("appearance.tabIconSize") }?.tab == .tabs)
+            let focus = entries.first { $0.settingIDs.contains("terminal.focusedSplitBorderPosition") }
+            #expect(focus?.tab == .appearance)
+            #expect(focus?.anchor == SettingsStrings(language: language).focusedSplitBorderSection)
+            #expect(focus?.settingIDs.contains("appearance.backgroundOpacity") == true)
+            #expect(focus?.settingIDs.contains("appearance.unfocusedSplitOpacity") == true)
+            #expect(focus?.matches("unfocused-split-opacity") == true)
             #expect(entries.contains { $0.matches("clipboard paste") && $0.tab == .controls })
             #expect(entries.contains { $0.matches("粘贴") && $0.tab == .controls })
             #expect(entries.contains { $0.matches("Shell 集成") && $0.tab == .terminal })

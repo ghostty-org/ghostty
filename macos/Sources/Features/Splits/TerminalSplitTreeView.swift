@@ -1,13 +1,13 @@
 import SwiftUI
 
-private struct SuppressUnfocusedSplitDimmingKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var suppressUnfocusedSplitDimming: Bool {
-        get { self[SuppressUnfocusedSplitDimmingKey.self] }
-        set { self[SuppressUnfocusedSplitDimmingKey.self] = newValue }
+extension FocusedSplitBorderPosition {
+    var alignment: Alignment {
+        switch self {
+        case .top: .top
+        case .bottom: .bottom
+        case .left: .leading
+        case .right: .trailing
+        }
     }
 }
 
@@ -39,7 +39,6 @@ enum TerminalSplitOperation {
 }
 
 struct TerminalSplitTreeView: View {
-    @ObservedObject private var settings = OhMyGhosttySettings.shared
     let tree: SplitTree<Ghostty.SurfaceView>
     let presentationLease: SurfacePresentationLease
     let action: (TerminalSplitOperation) -> Void
@@ -56,7 +55,6 @@ struct TerminalSplitTreeView: View {
             // the tree structure of splits it could result in bad behaviors.
             // See: https://github.com/ghostty-org/ghostty/issues/7546
             .id(node.structuralIdentity)
-            .environment(\.suppressUnfocusedSplitDimming, settings.focusedSplitBorder)
         }
     }
 }
@@ -152,11 +150,15 @@ private struct TerminalSplitLeaf: View {
                         .allowsHitTesting(false)
                 }
             }
-            .overlay(alignment: .top) {
+            .overlay(alignment: settings.focusedSplitBorderPosition.alignment) {
                 if isSplit {
-                    Capsule()
-                        .fill(Color.accentColor.opacity(0.85))
-                        .frame(height: settings.focusedSplitBorderWidth)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(nsColor: .controlAccentColor))
+                        .frame(
+                            width: settings.focusedSplitBorderPosition.isHorizontal ? nil : settings.focusedSplitBorderWidth,
+                            height: settings.focusedSplitBorderPosition.isHorizontal ? settings.focusedSplitBorderWidth : nil
+                        )
+                        .padding(settings.focusedSplitBorderPosition.isHorizontal ? .horizontal : .vertical, 5)
                         .opacity(settings.focusedSplitBorder && focusedSurface?.value === surfaceView ? 1 : 0)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.12),
                                    value: focusedSurface?.value === surfaceView)
