@@ -15,7 +15,26 @@ int omg_process_cwd(int pid, unsigned char *buffer, size_t capacity) {
 #endif
 
 typedef void (*Reply)(void *, const unsigned char *, size_t);
-typedef struct { GhosttyTerminal terminal; Reply reply; void *context; } Vt;
+typedef void (*Context)(void *, bool, const uint8_t *, size_t, const uint8_t *, size_t);
+typedef struct {
+    GhosttyTerminal terminal;
+    Reply reply;
+    void *context;
+    Context signal;
+    void *signal_context;
+} Vt;
+static void context_signal(GhosttyTerminal terminal, void *context, bool ended,
+                           GhosttyString id, GhosttyString metadata) {
+    (void)terminal;
+    Vt *vt = context;
+    if (vt->signal) vt->signal(vt->signal_context, ended,
+        (const uint8_t *)id.ptr, id.len, (const uint8_t *)metadata.ptr, metadata.len);
+}
+int omg_vt_context(Vt *vt, Context callback, void *context) {
+    vt->signal = callback;
+    vt->signal_context = context;
+    return ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_CONTEXT_SIGNAL, (const void *)context_signal);
+}
 static void reply(GhosttyTerminal terminal, void *context, const uint8_t *bytes, size_t len) {
     (void)terminal;
     Vt *vt = context;
@@ -99,6 +118,7 @@ int omg_vt_restore(Vt *vt, const unsigned char *data, size_t len) {
     ghostty_terminal_free(vt->terminal); vt->terminal = terminal;
     result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, vt);
     if (!result) result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, (const void *)reply);
+    if (!result && vt->signal) result = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_CONTEXT_SIGNAL, (const void *)context_signal);
     return result;
 }
 int omg_vt_continuation(Vt *vt, unsigned char **data, size_t *len) {

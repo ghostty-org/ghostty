@@ -218,6 +218,7 @@ const Effects = struct {
     title_changed: ?TitleChangedFn = null,
     pwd_changed: ?PwdChangedFn = null,
     progress_report: ?ProgressReportFn = null,
+    context_signal: ?ContextSignalFn = null,
     size_cb: ?SizeFn = null,
     clipboard_write: ?ClipboardWriteFn = null,
     unknown_sequence: ?UnknownSequenceFn = null,
@@ -267,6 +268,8 @@ const Effects = struct {
 
     /// C function pointer type for the progress_report callback.
     pub const ProgressReportFn = *const fn (Terminal, ?*anyopaque, *const ProgressReport) callconv(lib.calling_conv) void;
+
+    pub const ContextSignalFn = *const fn (Terminal, ?*anyopaque, bool, lib.String, lib.String) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the unknown_sequence callback. The request
     /// and its content are borrowed for the callback duration.
@@ -456,6 +459,12 @@ const Effects = struct {
         func(@ptrCast(wrapper), wrapper.effects.userdata, &c_report);
     }
 
+    fn contextSignalTrampoline(handler: *Handler, signal: osc.context_signal.Command) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.context_signal orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata, signal.action == .end, .{ .ptr = signal.id.ptr, .len = signal.id.len }, .{ .ptr = signal.metadata.ptr, .len = signal.metadata.len });
+    }
+
     fn unknownSequenceTrampoline(
         handler: *Handler,
         sequence: Handler.UnknownSequence,
@@ -523,6 +532,7 @@ fn wrap(
         .title_changed = &Effects.titleChangedTrampoline,
         .pwd_changed = &Effects.pwdChangedTrampoline,
         .progress_report = &Effects.progressReportTrampoline,
+        .context_signal = &Effects.contextSignalTrampoline,
         .size = &Effects.sizeTrampoline,
         .clipboard_write = &Effects.clipboardWriteTrampoline,
     };
@@ -1021,6 +1031,7 @@ pub const Option = enum(c_int) {
     unknown_sequence = 35,
     unknown_max_bytes = 36,
     terminfo_name = 37,
+    context_signal = 38,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -1036,6 +1047,7 @@ pub const Option = enum(c_int) {
             .title_changed => ?Effects.TitleChangedFn,
             .pwd_changed => ?Effects.PwdChangedFn,
             .progress_report => ?Effects.ProgressReportFn,
+            .context_signal => ?Effects.ContextSignalFn,
             .size_cb => ?Effects.SizeFn,
             .clipboard_write => ?Effects.ClipboardWriteFn,
             .unknown_sequence => ?Effects.UnknownSequenceFn,
@@ -1104,6 +1116,7 @@ fn setTyped(
         .title_changed => wrapper.effects.title_changed = value,
         .pwd_changed => wrapper.effects.pwd_changed = value,
         .progress_report => wrapper.effects.progress_report = value,
+        .context_signal => wrapper.effects.context_signal = value,
         .size_cb => wrapper.effects.size_cb = value,
         .clipboard_write => wrapper.effects.clipboard_write = value,
         .unknown_sequence => {
@@ -4203,6 +4216,40 @@ test "set desktop_notification callback" {
     try testing.expectEqual(Result.success, set(t, .desktop_notification, null));
     vt_write(t, seq_c, seq_c.len);
     try testing.expectEqual(@as(usize, 2), S.count);
+}
+
+test "set context_signal callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 80, 24));
+    defer free(t);
+    const S = struct {
+        var count: usize = 0;
+        var ended: bool = false;
+        var program: bool = false;
+        fn signal(_: Terminal, _: ?*anyopaque, end: bool, id: lib.String, _: lib.String) callconv(lib.calling_conv) void {
+            count += 1;
+            ended = end;
+            program = std.mem.eql(u8, id.ptr[0..id.len], "omg-program-status");
+        }
+    };
+    S.count = 0;
+    try testing.expectEqual(Result.success, set(t, .context_signal, @ptrCast(&S.signal)));
+    const prefix = "\x1b]3008;start=omg-agent-pi-42;type=app;";
+    vt_write(t, prefix, prefix.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+    const tail = "omg_state=working\x07";
+    vt_write(t, tail, tail.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    const end = "\x1b]3008;end=omg-agent-pi-42\x1b\\";
+    vt_write(t, end, end.len);
+    try testing.expect(S.ended);
+    const native = "\x1b]7501;state=working:app=codex\x07";
+    vt_write(t, native, native.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expect(S.program and !S.ended);
+    try testing.expectEqual(Result.success, set(t, .context_signal, null));
+    vt_write(t, native, native.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
 }
 
 test "set progress_report callback" {

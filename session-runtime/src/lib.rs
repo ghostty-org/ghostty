@@ -26,6 +26,7 @@ pub mod supervision;
 pub const CLOSE: u8 = b'K';
 pub const EXIT: u8 = b'X';
 pub const CLAIM: u8 = b'W';
+pub mod activity;
 pub mod client;
 pub mod holder;
 pub mod inline;
@@ -42,6 +43,11 @@ unsafe extern "C" {
         context: *mut c_void,
     ) -> *mut c_void;
     fn omg_vt_free(vt: *mut c_void);
+    fn omg_vt_context(
+        vt: *mut c_void,
+        callback: extern "C" fn(*mut c_void, bool, *const u8, usize, *const u8, usize),
+        context: *mut c_void,
+    ) -> i32;
     fn omg_vt_write(vt: *mut c_void, data: *const u8, len: usize);
     fn omg_vt_resize(vt: *mut c_void, cols: u16, rows: u16) -> i32;
     fn omg_vt_resize_pixels(
@@ -72,7 +78,29 @@ unsafe extern "C" {
     ) -> i32;
     fn omg_vt_buffer_free(data: *mut u8, len: usize);
 }
-pub struct Vt(*mut c_void);
+pub struct Vt(*mut c_void, Box<activity::State>);
+
+extern "C" fn context_signal(
+    context: *mut c_void,
+    ended: bool,
+    id: *const u8,
+    id_len: usize,
+    metadata: *const u8,
+    metadata_len: usize,
+) {
+    if id_len > 64 || metadata_len > 4096 {
+        return;
+    }
+    let (Ok(id), Ok(metadata)) = (unsafe {
+        (
+            std::str::from_utf8(std::slice::from_raw_parts(id, id_len)),
+            std::str::from_utf8(std::slice::from_raw_parts(metadata, metadata_len)),
+        )
+    }) else {
+        return;
+    };
+    unsafe { &mut *context.cast::<activity::State>() }.consume(ended, id, metadata);
+}
 pub(crate) struct ScrollbackLimits {
     pub max_bytes: usize,
     pub max_lines: Option<usize>,
@@ -139,11 +167,28 @@ impl Vt {
         if p.is_null() {
             Err(io::Error::other("VT allocation failed"))
         } else {
-            Ok(Self(p))
+            let mut state = Box::new(activity::State::default());
+            if let Err(error) = check(unsafe {
+                omg_vt_context(
+                    p,
+                    context_signal,
+                    (&mut *state as *mut activity::State).cast(),
+                )
+            }) {
+                unsafe { omg_vt_free(p) };
+                return Err(error);
+            }
+            Ok(Self(p, state))
         }
     }
     pub fn write(&mut self, data: &[u8]) {
         unsafe { omg_vt_write(self.0, data.as_ptr(), data.len()) }
+    }
+    pub fn activity(&self) -> &activity::State {
+        &self.1
+    }
+    pub fn activity_mut(&mut self) -> &mut activity::State {
+        &mut self.1
     }
     pub fn resize(&mut self, cols: u16, rows: u16) -> io::Result<()> {
         check(unsafe { omg_vt_resize(self.0, cols, rows) })

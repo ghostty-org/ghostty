@@ -470,6 +470,7 @@ pub fn serve_managed(
         Some(reply),
         (&mut *input as *mut ReplyBuffer).cast(),
     )?;
+    vt.activity_mut().local = local_mode;
     let mut output = crate::terminal_output::Relay::default();
     let mut peers: Vec<Peer> = vec![];
     let mut close_after_flush = HashSet::new();
@@ -527,6 +528,12 @@ pub fn serve_managed(
             closing = Some(Instant::now());
         }
         if exited.is_none() && cwd_checked.elapsed() >= Duration::from_millis(500) {
+            if vt.activity_mut().prune(child.id() as i32) {
+                let state = serde_json::to_vec(&vt.activity().snapshot())?;
+                for peer in &mut peers {
+                    peer.push(Frame::new(crate::activity::FRAME, seq, &state));
+                }
+            }
             let cwd = crate::location::session_cwd(master, child.id());
             let foreground = local_mode
                 .then(|| foreground_session_group(master, child.id()))
@@ -648,6 +655,11 @@ pub fn serve_managed(
                     });
                     peer.push(Frame::new(INFO, seq, info.to_string().as_bytes()));
                     if queue_snapshot(&mut peer, seq, vt.snapshot()) {
+                        peer.push(Frame::new(
+                            crate::activity::FRAME,
+                            seq,
+                            &serde_json::to_vec(&vt.activity().snapshot())?,
+                        ));
                         peer.push(Frame::new(
                             b'M',
                             seq,
@@ -776,6 +788,8 @@ pub fn serve_managed(
         }
         // Never gate this read on the number or speed of attachments.
         if !eof {
+            vt.activity_mut().foreground = foreground_session_group(master, child.id())
+                .and_then(|pid| i32::try_from(pid).ok());
             let mut bytes = [0; 65536];
             match pty.read(&mut bytes) {
                 Ok(0) => eof = true,

@@ -260,6 +260,7 @@ fn view_loop(
     let mut pending_password = None;
     let mut pending_cwd = None;
     let mut pending_output = Vec::new();
+    let mut pending_activity = false;
     let mut size = dimensions();
     let mut screen = Screen::new(
         u16::from_be_bytes([size[0], size[1]]),
@@ -383,6 +384,16 @@ fn view_loop(
                     screen.take_responses();
                     sequence = Some(frame.seq);
                 }
+                crate::activity::FRAME => {
+                    if sequence != Some(frame.seq) {
+                        return Err(io::Error::other("activity snapshot sequence mismatch"));
+                    }
+                    screen
+                        .vt
+                        .activity_mut()
+                        .replace(crate::activity::Snapshot::decode(&frame.data)?);
+                    pending_activity = true;
+                }
                 b'R' if frame.data.len() == 4 || frame.data.len() == 8 => {
                     screen.vt.resize(
                         u16::from_be_bytes([frame.data[0], frame.data[1]]),
@@ -427,6 +438,10 @@ fn view_loop(
             }
             // Do not splice host metadata into a split CSI/OSC/image sequence.
             if ready && screen.continuation().is_ok_and(|bytes| bytes.is_empty()) {
+                if pending_activity {
+                    stdout.write_all(&screen.vt.activity().snapshot().inline_bytes())?;
+                    pending_activity = false;
+                }
                 if let Some(password) = pending_password.take() {
                     if password != password_input {
                         stdout.write_all(if password {

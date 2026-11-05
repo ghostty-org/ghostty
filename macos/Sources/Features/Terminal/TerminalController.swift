@@ -436,6 +436,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var paneSessionObservers: [UUID: Set<AnyCancellable>] = [:]
     private var agentReducers: [UUID: AgentContextSignalReducer] = [:]
     private var agentProgramStatuses: [UUID: AgentProgramStatus] = [:]
+    private var agentRuntimeSnapshots: [UUID: [Ghostty.ContextSignal]] = [:]
     /// Title observations per surface, used to clear a stale "working" state
     /// when an Agent hook never delivered its terminal event.
     private var agentTitleWatchers: [UUID: AgentTitleIdleWatcher] = [:]
@@ -1275,6 +1276,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         agentReducers = agentReducers.filter { activeIDs.contains($0.key) }
         agentProgramStatuses = agentProgramStatuses.filter { activeIDs.contains($0.key) }
+        agentRuntimeSnapshots = agentRuntimeSnapshots.filter { activeIDs.contains($0.key) }
         agentTitleWatchers = agentTitleWatchers.filter { activeIDs.contains($0.key) }
         typedAgentHookContextIDs = typedAgentHookContextIDs.filter {
             activeIDs.contains($0.key)
@@ -1365,6 +1367,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 .compactMap { $0 }
                 .sink { [weak self, weak surface] signal in
                     guard let self, let surface else { return }
+                    if consumeAgentRuntimeSnapshot(signal, for: surface) { return }
                     if signal.id == "omg-program-status" {
                         consumeProgramStatus(signal.metadata, for: surface)
                         return
@@ -2193,7 +2196,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private func applyAgentActivityUpdate(
         _ update: AgentActivityUpdate,
-        for surfaceID: UUID
+        for surfaceID: UUID,
+        restoring: Bool = false
     ) {
         let update = agentProgramStatuses[surfaceID]?.activity.map(AgentActivityUpdate.set) ?? update
         let previousActivity = agentActivities[surfaceID]
@@ -2207,6 +2211,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         guard next != agentActivities else { return }
         agentActivities = next
+        // Hydration changes presentation only. It must never dispatch queued
+        // input or repeat completion notifications and composer actions.
+        guard !restoring else { return }
         if let surface = surfaceTree.first(where: { $0.id == surfaceID }) {
             AgentActivityNotification.deliver(previous: previousActivity, next: next[surfaceID], surface: surface)
         }
@@ -2234,6 +2241,62 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ) {
             dispatchNextQuickInput(for: surfaceID)
         }
+    }
+
+    private func consumeAgentRuntimeSnapshot(
+        _ signal: Ghostty.ContextSignal, for surface: Ghostty.SurfaceView
+    ) -> Bool {
+        let id = surface.id
+        if signal.id == "omg-agent-sync" {
+            if signal.action == .start, signal.metadata == "begin" {
+                agentRuntimeSnapshots[id] = []
+            } else if signal.action == .start, signal.metadata == "end",
+                      let signals = agentRuntimeSnapshots.removeValue(forKey: id),
+                      AgentStatusPlugin.isEnabled {
+                var reducer = AgentContextSignalReducer()
+                var status = AgentProgramStatus()
+                status.isRemote = paneSessionContexts[id]?.isSSHSession == true ||
+                    surface.runtimeInlineSession != nil || surface.runtimeDescriptor?.isLocal == false
+                status.foregroundProcessGroup = status.isRemote ? nil : surface.surfaceModel?.foregroundPID
+                clearAgentResumeDescriptor(for: id)
+                typedAgentHookContextIDs.removeValue(forKey: id)
+                agentTitleWatchers.removeValue(forKey: id)
+                for item in signals {
+                    if item.id == "omg-program-status" {
+                        _ = status.consume(item.metadata)
+                    } else {
+                        _ = reducer.consume(item)
+                        registerTypedAgentHookSignal(item, for: id)
+                        updateAgentResumeDescriptor(item, for: id)
+                    }
+                }
+                agentReducers[id] = reducer
+                agentProgramStatuses[id] = status.records.isEmpty ? nil : status
+                let activity = status.activity ?? reducer.currentActivity
+                applyAgentActivityUpdate(activity.map(AgentActivityUpdate.set) ?? .clear, for: id, restoring: true)
+                scheduleAgentValidation(for: id)
+            }
+            return true
+        }
+        guard var pending = agentRuntimeSnapshots[id] else { return false }
+        guard signal.id.hasPrefix("omg-agent-") || signal.id == "omg-program-status" else {
+            let isPrompt = signal.id.hasPrefix("omg-ssh-") &&
+                surface.runtimeInlineSession?.connectionID != signal.id &&
+                signal.metadata.split(separator: ";").contains {
+                    $0.hasPrefix("cwd=") || $0.hasPrefix("cwdhex=")
+                }
+            if signal.id.hasPrefix("omg-ssh-"), signal.action == .end || isPrompt {
+                agentRuntimeSnapshots.removeValue(forKey: id)
+            }
+            return false
+        }
+        guard pending.count < 64, signal.metadata.utf8.count <= 4_096 else {
+            agentRuntimeSnapshots.removeValue(forKey: id)
+            return true
+        }
+        pending.append(signal)
+        agentRuntimeSnapshots[id] = pending
+        return true
     }
 
     private func consumeProgramStatus(_ body: String, for surface: Ghostty.SurfaceView) {

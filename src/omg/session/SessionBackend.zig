@@ -792,6 +792,10 @@ fn readLoop(self: *Self, io: *HostIO, epoch: u64, attached: *bool, connected_onc
                 const req = try Message.WriteReq.init(self.alloc, path);
                 if (!self.publishSurface(io, .{ .pwd_change = req })) req.deinit();
             },
+            'G' => {
+                if (sequence == null or sequence.? != seq) return error.OutputGap;
+                try self.publishActivitySnapshot(io, bytes);
+            },
             'B' => {
                 self.invalidateStartupInput();
                 try self.publishState(io, "{\"state\":\"attention\",\"attempt\":0,\"message\":\"This session is attached in another terminal. It is available here as read-only.\"}");
@@ -826,6 +830,44 @@ fn readLoop(self: *Self, io: *HostIO, epoch: u64, attached: *bool, connected_onc
             else => return error.InvalidFrame,
         }
     }
+}
+
+fn publishActivitySnapshot(self: *Self, io: *HostIO, bytes: []const u8) !void {
+    const Signal = struct { id: []const u8, metadata: []const u8 };
+    const Snapshot = struct { version: u32, revision: u64, records: []const Signal, pending: ?[]const Signal = null };
+    if (bytes.len > 2 * 1024 * 1024) return error.InvalidMetadata;
+    const parsed = try std.json.parseFromSlice(Snapshot, self.alloc, bytes, .{});
+    defer parsed.deinit();
+    if (parsed.value.version != 1 or parsed.value.records.len > 64) return error.InvalidMetadata;
+    const groups = [_][]const Signal{ parsed.value.records, parsed.value.pending orelse &.{} };
+    for (groups) |records| {
+        if (records.len > 64) return error.InvalidMetadata;
+        for (records) |signal| {
+            if (signal.id.len > 64 or signal.metadata.len > 4096 or
+                (!std.mem.startsWith(u8, signal.id, "omg-agent-") and
+                    !std.mem.eql(u8, signal.id, "omg-program-status")) or
+                std.mem.eql(u8, signal.id, "omg-agent-sync") or
+                std.mem.indexOfScalar(u8, signal.id, 0) != null or
+                std.mem.indexOfScalar(u8, signal.metadata, 0) != null or
+                !std.unicode.utf8ValidateSlice(signal.metadata)) return error.InvalidMetadata;
+        }
+    }
+    try self.publishContext(io, "omg-agent-sync", "begin");
+    for (parsed.value.records) |signal| try self.publishContext(io, signal.id, signal.metadata);
+    try self.publishContext(io, "omg-agent-sync", "end");
+    if (parsed.value.pending) |records| {
+        try self.publishContext(io, "omg-agent-sync", "begin");
+        for (records) |signal| try self.publishContext(io, signal.id, signal.metadata);
+    }
+}
+
+fn publishContext(self: *Self, io: *HostIO, id: []const u8, metadata: []const u8) !void {
+    const signal = try apprt.surface.Message.ContextSignal.init(self.alloc, .{
+        .action = .start,
+        .id = id,
+        .metadata = metadata,
+    });
+    if (!self.publishSurface(io, .{ .context_signal = signal })) signal.deinit();
 }
 
 fn reattachRequest(alloc: std.mem.Allocator, original: []const u8) ![]u8 {

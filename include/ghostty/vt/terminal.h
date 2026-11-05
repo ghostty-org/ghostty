@@ -98,6 +98,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE`  | `GhosttyTerminalClipboardWriteFn` | Clipboard write via OSC 52 / OSC 1337     |
  * | `GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION`| `GhosttyTerminalDesktopNotificationFn` | Desktop notification via OSC 9 / OSC 777 |
  * | `GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT`  | `GhosttyTerminalProgressReportFn` | Progress report via OSC 9;4               |
+ * | `GHOSTTY_TERMINAL_OPT_CONTEXT_SIGNAL`   | `GhosttyTerminalContextSignalFn`  | Context / program status via OSC 3008/7501 |
  * | `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` | `GhosttyTerminalUnknownSequenceFn` | Unsupported sequence identifier          |
  *
  * ### Defining a write_pty callback
@@ -630,6 +631,15 @@ typedef void (*GhosttyTerminalProgressReportFn)(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyTerminalProgressReport* report);
+
+/**
+ * Context strings are borrowed for the duration of the callback.
+ * `ended` is true for an end signal. OSC 7501 reports use the normalized
+ * id "omg-program-status"; its metadata is the validated report body.
+ */
+typedef void (*GhosttyTerminalContextSignalFn)(
+    GhosttyTerminal terminal, void *userdata, bool ended,
+    GhosttyString id, GhosttyString metadata);
 
 /**
  * Callback function type for color scheme queries (CSI ? 996 n).
@@ -1230,6 +1240,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyString*
    */
   GHOSTTY_TERMINAL_OPT_TERMINFO_NAME = 37,
+
+  /**
+   * Borrowed OSC 3008 context or normalized OSC 7501 program status.
+   * Runs synchronously during VT writes. Does not grant process authority.
+   * Input type: GhosttyTerminalContextSignalFn
+   */
+  GHOSTTY_TERMINAL_OPT_CONTEXT_SIGNAL = 38,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 

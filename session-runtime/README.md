@@ -21,6 +21,14 @@ See [TEST_RELEASE_PATH.md](TEST_RELEASE_PATH.md) for current acceptance steps an
 
 ## Runtime architecture
 
+Agent presentation follows the session rather than the GUI connection. New
+`agent-state/1` runtimes retain the latest OSC 3008/7501 contexts while detached,
+send their bounded state alongside attachment snapshots, and remove ended
+contexts. Inline SSH viewers also transfer this state into the outer local
+holder, so reopening the GUI does not require restarting the remote Agent.
+Restoring state updates icons/status without repeating completion actions.
+Existing sessions on pinned older helpers keep their original behavior.
+
 One remote host daemon manages multiple session actors/PTYs. Locally, a broker
 connects independent holders that own each PTY, child and VT state; losing the
 broker does not kill those sessions. A new broker authenticates and adopts the

@@ -16,6 +16,101 @@ private final class SessionRuntimeRetryRecorder: SessionRuntimeRetrying {
 
 struct SessionRuntimeConnectionTests {
     @MainActor
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath:
+        Bundle.main.resourceURL!.appendingPathComponent("session-runtime/omgd").path),
+        "Requires the bundled Session Runtime helper"))
+    func nativeBackendAppliesAgentSnapshotFramesAndEmptyState() async throws {
+        let root = URL(fileURLWithPath: "/tmp/omg-state-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socket = root.appendingPathComponent("s")
+        let clear = root.appendingPathComponent("clear")
+        let server = Process()
+        let python = try #require(LocalPythonInterpreter.cached())
+        let helper = Bundle.main.resourceURL!.appendingPathComponent("session-runtime/omgd")
+        server.executableURL = URL(fileURLWithPath: python.executablePath)
+        server.arguments = ["-c", """
+        import json,os,pathlib,signal,socket,struct,subprocess,sys,time,uuid
+        root=pathlib.Path(sys.argv[1]); state=root/'host'; state.mkdir(mode=0o700)
+        host=subprocess.Popen([sys.argv[2],'host',str(state),'--','/bin/sleep','30'])
+        def stop(*args): raise SystemExit()
+        signal.signal(signal.SIGTERM,stop)
+        def packet(kind,seq,data=b''): return struct.pack('>cQI',kind,seq,len(data))+data
+        def exact(s,n):
+            data=b''
+            while len(data)<n:
+                chunk=s.recv(n-len(data))
+                if not chunk: raise EOFError()
+                data+=chunk
+            return data
+        def frame(s):
+            kind,seq,size=struct.unpack('>cQI',exact(s,13))
+            return kind,seq,exact(s,size)
+        try:
+            for _ in range(200):
+                if (state/'host.sock').exists(): break
+                time.sleep(.01)
+            with socket.socket(socket.AF_UNIX) as upstream, socket.socket(socket.AF_UNIX) as listener:
+                upstream.settimeout(5)
+                upstream.connect(str(state/'host.sock'))
+                upstream.sendall(packet(b'H',1,str(uuid.uuid4()).encode()))
+                listener.bind(str(root/'s')); listener.listen(1)
+                client,_=listener.accept(); client.settimeout(5); frame(client)
+                while True:
+                    kind,_,data=frame(upstream)
+                    if kind!=b'D': continue
+                    inner,seq,size=struct.unpack('>cQI',data[:13])
+                    if inner==b'J': client.sendall(data)
+                    if inner==b'S':
+                        client.sendall(data)
+                        break
+                def snapshot(records):
+                    body=json.dumps(dict(version=1,revision=1,records=records,pending=None)).encode()
+                    client.sendall(packet(b'G',seq,body))
+                snapshot([dict(id='omg-program-status',metadata='state=blocked:app=codex:kind=permission')])
+                for _ in range(300):
+                    if (root/'clear').exists(): break
+                    time.sleep(.01)
+                snapshot([])
+                time.sleep(.3)
+                client.close()
+        finally:
+            host.terminate(); host.wait(timeout=5)
+        """, root.path, helper.path]
+        try server.run()
+        defer {
+            if server.isRunning {
+                server.terminate()
+                server.waitUntilExit()
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: socket.path) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let native = try #require(app.app)
+        var config = Ghostty.SurfaceConfiguration()
+        config.environmentVariables["OMG_RUNTIME_SOCKET"] = socket.path
+        config.environmentVariables["OMG_RUNTIME_PANE_ID"] = UUID().uuidString.lowercased()
+        let view = Ghostty.SurfaceView(native, baseConfig: config)
+        view.runtimeDescriptor = .init(connection: try GitSSHConnection(destination: "fixture"), revision: "test", policy: .init())
+        let controller = TerminalController(app, withSurfaceTree: .init(view: view))
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        for _ in 0..<150 where controller.agentActivities[view.id]?.state != .needsAttention {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(controller.agentActivities[view.id]?.source == "codex")
+        #expect(controller.agentActivities[view.id]?.attentionKind == .permission)
+        try Data().write(to: clear)
+        for _ in 0..<150 where controller.agentActivities[view.id] != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(controller.agentActivities[view.id] == nil)
+        #expect(controller.surfaceTree.first === view)
+        #expect(controller.agentResumeDescriptor(for: view) == nil)
+    }
+
+    @MainActor
     @Test func missingRuntimeClearsInheritedHandoffCapability() {
         var config = Ghostty.SurfaceConfiguration()
         let keys = ["OMG_SSH_HANDOFF_HELPER", "OMG_SSH_HANDOFF_DIRECTORY", "OMG_SSH_HANDOFF_TOKEN"]

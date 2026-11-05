@@ -137,6 +137,9 @@ pub const Handler = struct {
         /// Called when the running program reports progress via OSC 9;4.
         progress_report: ?*const fn (*Handler, osc.Command.ProgressReport) void,
 
+        /// Borrowed application context, including normalized program status.
+        context_signal: ?*const fn (*Handler, osc.context_signal.Command) void = null,
+
         /// Called when the running program writes to a clipboard. The write
         /// has a normalized destination and one or more decoded MIME
         /// representations. All request, MIME, and data memory is borrowed
@@ -377,6 +380,7 @@ pub const Handler = struct {
             .window_title => try self.windowTitle(value.title),
             .report_pwd => try self.reportPwd(value.url),
             .progress_report => self.progressReport(value),
+            .context_signal => if (self.effects.context_signal) |func| func(self, value),
             .xtversion => self.reportXtversion(),
             .clipboard_contents => self.clipboardContents(
                 value.kind,
@@ -393,7 +397,6 @@ pub const Handler = struct {
             // Have no terminal-modifying effect
             .title_push,
             .title_pop,
-            .context_signal,
             => {},
         }
     }

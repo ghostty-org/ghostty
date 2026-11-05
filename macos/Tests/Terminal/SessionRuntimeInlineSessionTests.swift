@@ -4,6 +4,60 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct SessionRuntimeInlineSessionTests {
+    @Test func runtimeSnapshotReplacesAgentStateWithoutCompletionActions() async throws {
+        let settings = OhMyGhosttySettings.shared
+        let previous = (settings.agentStatusHooksEnabled, settings.openQuickInputOnAgentStart,
+                        settings.openQuickInputOnAgentComplete)
+        settings.agentStatusHooksEnabled = true
+        settings.openQuickInputOnAgentStart = false
+        settings.openQuickInputOnAgentComplete = true
+        defer {
+            settings.agentStatusHooksEnabled = previous.0
+            settings.openQuickInputOnAgentStart = previous.1
+            settings.openQuickInputOnAgentComplete = previous.2
+        }
+        let app = try #require(NSApp.delegate as? AppDelegate).ghostty
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let controller = TerminalController(app, withBaseConfig: config)
+        _ = controller.window
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        surface.contextSignal = .init(action: .start, id: "omg-ssh-snapshot-test",
+                                      metadata: "type=remote;targethost=cloud;cwd=/srv")
+        surface.contextSignal = .init(action: .start, id: "omg-agent-pi-42",
+                                      metadata: "type=app;omg_agent=pi;omg_scope=remote;omg_state=working")
+        controller.quickInputModel.present(for: surface.id, requestFocus: false)
+        controller.quickInputModel.draft = "must remain queued"
+        #expect(controller.quickInputModel.enqueueDraft() != nil)
+        controller.quickInputModel.dismiss()
+        for state in ["needsAttention", "working", "done"] {
+            surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "begin")
+            // Hydration is atomic: do not display partial snapshots.
+            let old = controller.agentActivities[surface.id]
+            surface.contextSignal = .init(action: .start, id: "omg-agent-omp-43",
+                metadata: "type=app;omg_agent=omp;omg_scope=remote;omg_state=\(state)")
+            surface.contextSignal = .init(action: .start, id: "omg-inline-password", metadata: "0")
+            #expect(controller.agentActivities[surface.id] == old)
+            surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "end")
+            #expect(controller.agentActivities[surface.id]?.source == "omp")
+            #expect(controller.agentActivities[surface.id]?.state.rawValue == state)
+        }
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(controller.quickInputModel.state(for: surface.id)?.queue.count == 1)
+        #expect(!controller.quickInputModel.isPresented)
+        surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "begin")
+        surface.contextSignal = .init(action: .start, id: "omg-program-status",
+                                      metadata: "state=blocked:app=codex:kind=permission")
+        surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "end")
+        #expect(controller.agentActivities[surface.id]?.source == "codex")
+        #expect(controller.agentActivities[surface.id]?.attentionKind == .permission)
+        surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "begin")
+        surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "end")
+        #expect(controller.agentActivities[surface.id] == nil)
+        #expect(controller.agentResumeDescriptor(for: surface) == nil)
+    }
+
     @Test func runtimeDirectoryUpdatesDoNotClearRemoteCodexStatus() throws {
         let settings = OhMyGhosttySettings.shared
         let enabled = settings.agentStatusHooksEnabled

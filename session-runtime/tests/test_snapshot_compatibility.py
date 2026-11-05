@@ -72,6 +72,8 @@ class SnapshotCompatibilityTests(unittest.TestCase):
             (b"\x1b[?1049halternate\x1b[3;5Hposition", b"\x1b[?1049lmain"),
             (b"\x1b]7501;state=working:app=codex\x07visible", b" next"),
             (b"before\x1b]7501;state=working:app=co", b"dex\x07after"),
+            (b"before\x1b]3008;start=omg-agent-omp-42;type=app;omg_sta",
+             b"te=working\x07after"),
             (b"wide\xe4\xb8", b"\xad after"),
             (b"\x1b[38;2;20;", b"40;60mcolor"),
         ]

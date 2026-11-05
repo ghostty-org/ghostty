@@ -21,6 +21,28 @@ runtime yet. There is no public SDK, socket listener, or hot reload command.
 
 ## Native Session Runtime lifecycle
 
+Hosts advertising `agent-state/1` retain bounded Agent presentation contexts in
+the session actor/holder, even without viewers. The existing Ghostty parser
+supplies OSC 3008 and normalized OSC 7501 facts; these never authorize process
+cleanup or conversation recovery. Attach sends an inner `G` frame after `S`,
+at the same output byte offset, with version 1, revision, at most 64 current
+records and an optional in-progress inline snapshot transaction (also bounded
+to 64). The complete JSON is capped at 2 MiB (including JSON escaping). Subsequent output remains in
+the same ordered stream. Process-owned contexts are pruned on their owning
+machine; local holders never interpret remote PIDs as local PIDs.
+
+Inline viewers carry this state through `omg-agent-sync` begin/end context
+transactions at parser ground boundaries. The outer local holder retains these
+transactions too, covering GUI-only restarts without a remote reattach. Native
+backends deliver the equivalent transaction directly to the surface mailbox.
+An empty snapshot clears stale Agent presentation. Hydration is atomic and
+suppresses completion notifications, automatic composer presentation and queued
+input dispatch; future live events retain their normal behavior. Native status
+clear namespaces and matching SSH exits clear their owned contexts. Runtime
+attachment cwd/password metadata is not a remote shell prompt. Existing pinned
+hosts keep their protocol and running processes; they do not gain this capability
+until a new runtime session is created.
+
 The remote runtime keeps a single `omgd` host with per-session actor threads.
 Local sessions use a broker and independent PTY/VT holders. A restarted broker
 adopts a holder only after verifying its UUID, generation and private capability;

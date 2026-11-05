@@ -36,7 +36,10 @@ class InlineSSHTests(unittest.TestCase):
     def test_resize_queries_use_the_outer_terminals_cursor(self):
         self.exercise(False, resize=True)
 
-    def exercise(self, disconnect, resize=False):
+    def test_inline_reconnect_restores_agent_changes_made_during_transport_loss(self):
+        self.exercise(True, agent_changes=True)
+
+    def exercise(self, disconnect, resize=False, agent_changes=False):
         with tempfile.TemporaryDirectory(prefix="omg-inline-", dir="/tmp") as directory:
             root = Path(directory)
             host = root / "host"
@@ -101,9 +104,15 @@ class InlineSSHTests(unittest.TestCase):
                     "tty.setraw(0)\n"
                     "signal.signal(signal.SIGWINCH,lambda *args:os.write(1,b'\\x1b[6n'))\n"
                     "os.write(1,b'REMOTE_READY\\r\\n\\x1b[6n')\n"
+                    "def status(value):\n"
+                    " os.write(1,('\\x1b]3008;start=omg-agent-omp-%d;type=app;omg_agent=omp;"
+                    "omg_scope=remote;omg_liveness=pid;omg_state=%s\\x07'%(os.getpid(),value)).encode())\n"
+                    "status('working'); changed=False\n"
                     "data=b''; deadline=time.monotonic()+12; announced=False\n"
                     f"while (b'hello' not in data or data.count(b'R')<{2 if resize else 1}) and time.monotonic()<deadline:\n"
                     " if select.select([0],[],[],.1)[0]: data+=os.read(0,4096)\n"
+                    f" if not changed and os.path.exists({str(root / 'agent-change')!r}):\n"
+                    "  status('needsAttention'); changed=True\n"
                     " if not announced and b'R' in data:\n"
                     "  os.write(1,b'REMOTE_QUERY_ACCEPTED\\r\\n'); announced=True\n"
                     "count=data.count(b'R')\n"
@@ -134,8 +143,11 @@ class InlineSSHTests(unittest.TestCase):
                     wait_until(lambda: replies == 2)
                 if disconnect:
                     generation = json.loads(active.read_text())["attachmentGeneration"]
+                    before_reconnect = len(output)
                     daemon.terminate()
                     daemon.wait(timeout=5)
+                    if agent_changes:
+                        (root / "agent-change").touch()
                     wait_until(lambda: active.exists() and
                                json.loads(active.read_text()).get("phase") != "ready")
                     os.write(master, b"STALE\n")
@@ -144,6 +156,9 @@ class InlineSSHTests(unittest.TestCase):
                                json.loads(active.read_text()).get("attachmentGeneration", 0) > generation)
                     self.assertEqual(int(remote_pid.read_text()), original_pid)
                     os.kill(original_pid, 0)
+                    if agent_changes:
+                        wait_until(lambda: b"omg_state=needsAttention" in output[before_reconnect:]
+                                   and b"start=omg-agent-sync;begin" in output[before_reconnect:])
                 os.write(master, b"hello\n")
                 wait_until(lambda: b"LOCAL_AFTER:" in output)
                 for _ in range(50):
