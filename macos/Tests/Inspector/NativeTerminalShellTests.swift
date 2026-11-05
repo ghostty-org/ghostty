@@ -5,6 +5,30 @@ import Testing
 
 @MainActor
 struct NativeTerminalShellTests {
+    @Test func oneNativeBackdropPaintsOnlyVisibleSidebars() throws {
+        let shell = TerminalShellNativeView(frame: .init(x: 0, y: 0, width: 1_000, height: 600))
+        let fill = NSColor(displayP3Red: 26 / 217, green: 26 / 217, blue: 38 / 217, alpha: 217 / 255)
+        func update(_ left: Bool, _ right: Bool) {
+            shell.update(leading: AnyView(Color.clear), center: AnyView(Color.clear), trailing: AnyView(Color.clear),
+                         layout: .init(leadingWidth: 201, trailingWidth: 320,
+                                       leadingVisible: left, trailingVisible: right), background: fill)
+            shell.layoutSubtreeIfNeeded()
+        }
+        update(true, true)
+        let path = try #require(shell.chromeBackdrop.path)
+        #expect(shell.chromeBackdrop.fillColor == fill.cgColor)
+        #expect(path.contains(.init(x: 100, y: 300)))
+        #expect(path.contains(.init(x: 900, y: 300)))
+        #expect(!path.contains(.init(x: 500, y: 300)), "The terminal must not receive a second background fill")
+        update(false, true)
+        let rightOnly = try #require(shell.chromeBackdrop.path)
+        #expect(!rightOnly.contains(.init(x: 100, y: 300)))
+        #expect(rightOnly.contains(.init(x: 900, y: 300)))
+        update(false, false)
+        #expect(shell.chromeBackdrop.isHidden)
+        #expect(shell.chromeBackdrop.path?.isEmpty == true)
+    }
+
     private struct InputProbe: NSViewRepresentable {
         let input: NSTextView
         func makeNSView(context: Context) -> NSTextView { input }

@@ -445,6 +445,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
             trailingWidth: preferredInspectorWidth,
             leadingVisible: leftVisible,
             trailingVisible: rightVisible,
+            chromeBackground: chromeBackground,
             leading: AnyView(HStack(spacing: 0) {
                 SharedTerminalTabSidebar(
                     controller: controller, layoutState: layoutState,
@@ -455,7 +456,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
                     controller: controller, layoutState: layoutState,
                     color: controller.sidebarDividerColor, background: .clear
                 )
-            }.background(chromeBackground)),
+            }),
             center: AnyView(AgentQuickInputDock(
                 controller: controller, model: controller.quickInputModel,
                 backgroundColor: backgroundColor, backgroundOpacity: backgroundOpacity
@@ -486,7 +487,7 @@ struct TerminalShellLayoutContainer<Content: View>: View {
                     registry: inspectorRegistry, isPresented: rightVisible,
                     backgroundColor: backgroundColor, backgroundOpacity: 0
                 )
-            }.background(chromeBackground))
+            })
         )
     }
 

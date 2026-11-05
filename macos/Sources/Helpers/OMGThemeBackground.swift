@@ -8,14 +8,20 @@ enum OMGThemeBackground {
         color: Color,
         opacity: Double,
         windowIsOpaque: Bool,
-        colorspaceIsDisplayP3: Bool
+        colorspaceIsDisplayP3: Bool,
+        linearBlending: Bool = false
     ) -> Color {
         if windowIsOpaque || opacity >= 1 {
             return TerminalRenderColorQuantizer.matchingRenderedColor(
                 color, colorspaceIsDisplayP3: colorspaceIsDisplayP3
             ).opacity(1)
         }
-        return color.opacity(max(0, min(1, opacity)))
+        // The premultiplied-byte matcher models native (gamma) blending.
+        // Keep the existing fill policy for explicitly selected linear modes.
+        if linearBlending { return color.opacity(max(0, min(1, opacity))) }
+        return TerminalRenderColorQuantizer.matchingTranslucentColor(
+            color, opacity: opacity, colorspaceIsDisplayP3: colorspaceIsDisplayP3
+        )
     }
 
     @MainActor
@@ -47,6 +53,16 @@ enum OMGThemeBackground {
 
     @MainActor
     static func sidebarBackground() -> NSColor { palette().sidebar }
+}
+
+extension Ghostty.Config {
+    var usesLinearAlphaBlending: Bool {
+        guard let config else { return false }
+        var value: UnsafePointer<Int8>?
+        let key = "alpha-blending"
+        guard ghostty_config_get(config, &value, key, UInt(key.utf8.count)), let value else { return false }
+        return ["linear", "linear-corrected"].contains(String(cString: value))
+    }
 }
 
 struct OMGThemePalette {

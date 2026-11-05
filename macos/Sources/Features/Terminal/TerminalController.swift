@@ -1036,7 +1036,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             color: initialBackgroundColor,
             opacity: ghostty.config.backgroundOpacity,
             windowIsOpaque: false,
-            colorspaceIsDisplayP3: ghostty.config.windowColorspaceIsDisplayP3
+            colorspaceIsDisplayP3: ghostty.config.windowColorspaceIsDisplayP3,
+            linearBlending: ghostty.config.usesLinearAlphaBlending
         )
         self.sidebarDividerColor = ghostty.config.splitDividerColor(
             for: initialBackgroundColor
@@ -4269,7 +4270,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             color: backgroundColor,
             opacity: backgroundOpacity,
             windowIsOpaque: windowIsOpaque,
-            colorspaceIsDisplayP3: ghostty.config.windowColorspaceIsDisplayP3
+            colorspaceIsDisplayP3: ghostty.config.windowColorspaceIsDisplayP3,
+            linearBlending: ghostty.config.usesLinearAlphaBlending
         )
         let dividerColor = ghostty.config.splitDividerColor(for: backgroundColor)
         chromeAppearanceGeneration &+= 1
@@ -4333,17 +4335,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// and quantizes to the 8-bit IOSurface, while SwiftUI would otherwise
     /// paint the un-quantized sRGB value (a visible sub-1/255 mismatch in
     /// the blue channel, e.g. Catppuccin Mocha's #1e1e2e).
+    /// Translucent native-blending fills match the renderer's premultiplied
+    /// RGB and alpha bytes, retaining transparency rather than pre-blending
+    /// against a guessed desktop color.
     static func chromeBackground(
         color: Color,
         opacity: Double,
         windowIsOpaque: Bool,
-        colorspaceIsDisplayP3: Bool = false
+        colorspaceIsDisplayP3: Bool = false,
+        linearBlending: Bool = false
     ) -> Color {
         OMGThemeBackground.matchingChrome(
             color: color,
             opacity: opacity,
             windowIsOpaque: windowIsOpaque,
-            colorspaceIsDisplayP3: colorspaceIsDisplayP3
+            colorspaceIsDisplayP3: colorspaceIsDisplayP3,
+            linearBlending: linearBlending
         )
     }
 

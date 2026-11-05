@@ -14,14 +14,16 @@ struct OMGThemeBackgroundTests {
                 Int((c.blueComponent * 255).rounded()))
     }
 
-    @Test func translucentChromeStaysTranslucent() {
-        // The sidebar/QuickInput chrome keeps the theme color at the configured
-        // opacity (translucent, preserving blur), NOT an opaque blend.
-        let bg = NSColor(red: 0x21 / 255, green: 0x25 / 255, blue: 0x2b / 255, alpha: 1)
+    @Test func translucentChromeMatchesThePremultipliedRendererTarget() throws {
+        let bg = Color(.sRGB, red: 33 / 255, green: 37 / 255, blue: 43 / 255, opacity: 1)
         let chrome = OMGThemeBackground.matchingChrome(
-            color: Color(bg), opacity: 0.85, windowIsOpaque: false, colorspaceIsDisplayP3: false)
-        #expect(abs(NSColor(chrome).alphaComponent - 0.85) < 0.001)
-        #expect(components(chrome) == components(Color(bg)))
+            color: bg, opacity: 0.85, windowIsOpaque: false, colorspaceIsDisplayP3: true)
+        let color = try #require(NSColor(chrome).usingColorSpace(.displayP3))
+        #expect(color.alphaComponent < 1)
+        #expect(Int((color.alphaComponent * 255).rounded()) == 217)
+        #expect(Int((color.redComponent * color.alphaComponent * 255).rounded()) == 28)
+        #expect(Int((color.greenComponent * color.alphaComponent * 255).rounded()) == 31)
+        #expect(Int((color.blueComponent * color.alphaComponent * 255).rounded()) == 37)
     }
 
     @Test func auxiliaryPaletteRetainsThemeHueAndAppearance() {

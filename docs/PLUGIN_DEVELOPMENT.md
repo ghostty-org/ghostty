@@ -642,12 +642,20 @@ inline viewers. Disabled deployment allows an already-running matching daemon,
 but rejects missing-runtime installation. Explicit installation is bounded,
 app-owned, canceled on shutdown, and never replaces pinned session identities.
 
-Terminal chrome (tab sidebar, Inspector, QuickInput) matches the Zig surface
-bit-for-bit: opaque windows paint the P3-quantized theme background; translucent
-windows paint the P3-quantized color WITH the configured alpha so both stacks
-composite over the same blurred backing identically. Using the raw sRGB color for
-translucent chrome drifted by one code value (e.g. 73,76,81 vs 73,75,80). Chrome
-colors follow the focused surface's background (per-surface/OSC dynamic colors).
+Terminal chrome colors follow the focused surface's background, including
+per-surface/OSC dynamic colors. Opaque fills use the P3-quantized renderer color.
+For translucent native alpha blending, quantize alpha before premultiplication,
+then quantize the converted P3 RGB, matching the renderer's stored bytes rather
+than applying opacity to an already rounded opaque color. The recovered straight
+color stays translucent and does not guess a desktop color. Explicit linear
+blending modes retain their existing fill policy.
+
+The native terminal shell owns one shared background layer for the tab sidebar
+and Inspector rectangles. Their SwiftUI hosts and inner native roots remain
+transparent, avoiding separate background compositing paths or duplicate fills.
+The layer excludes the terminal's center rectangle, follows sidebar visibility
+and resize geometry, and updates without implicit animations. It never paints
+behind the terminal IOSurface, which continues to own its own background alpha.
 
 Split reconstruction retains each terminal Surface while moving it into a new
 native scroll wrapper. The terminal controller issues a presentation lease when

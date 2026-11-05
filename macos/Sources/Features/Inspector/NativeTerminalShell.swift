@@ -8,6 +8,7 @@ struct NativeTerminalShell: NSViewControllerRepresentable {
     let trailingWidth: CGFloat
     let leadingVisible: Bool
     let trailingVisible: Bool
+    let chromeBackground: Color
     let leading: AnyView
     let center: AnyView
     let trailing: AnyView
@@ -22,7 +23,8 @@ struct NativeTerminalShell: NSViewControllerRepresentable {
             center: AnyView(center.environment(\.self, context.environment)),
             trailing: AnyView(trailing.environment(\.self, context.environment)),
             layout: .init(leadingWidth: leadingWidth, trailingWidth: trailingWidth,
-                          leadingVisible: leadingVisible, trailingVisible: trailingVisible)
+                          leadingVisible: leadingVisible, trailingVisible: trailingVisible),
+            background: NSColor(chromeBackground)
         )
     }
 
@@ -45,14 +47,15 @@ final class TerminalShellController: NSViewController {
     override func loadView() { view = container }
 
     func update(leading: AnyView, center: AnyView, trailing: AnyView,
-                layout: TerminalShellGeometry) {
+                layout: TerminalShellGeometry, background: NSColor = .clear) {
         _ = view
         container.update(leading: leading, center: center, trailing: trailing,
-                         layout: layout)
+                         layout: layout, background: background)
     }
 }
 
 final class TerminalShellNativeView: NSView {
+    let chromeBackdrop = CAShapeLayer()
     private(set) var leadingHost: NSHostingView<AnyView>?
     private(set) var trailingHost: NSHostingView<AnyView>?
     let centerHost = NSHostingView(rootView: AnyView(EmptyView()))
@@ -67,6 +70,10 @@ final class TerminalShellNativeView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = true
+        chromeBackdrop.name = "omg.terminal.chrome.background"
+        chromeBackdrop.zPosition = -1
+        chromeBackdrop.fillColor = NSColor.clear.cgColor
+        layer?.insertSublayer(chromeBackdrop, at: 0)
         centerHost.sizingOptions = []
         addSubview(centerHost)
     }
@@ -76,6 +83,7 @@ final class TerminalShellNativeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        chromeBackdrop.contentsScale = window?.backingScaleFactor ?? 1
         if let windowObservation { NotificationCenter.default.removeObserver(windowObservation) }
         windowObservation = nil
         lastContentResponder = nil
@@ -91,6 +99,11 @@ final class TerminalShellNativeView: NSView {
         if let windowObservation { NotificationCenter.default.removeObserver(windowObservation) }
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        chromeBackdrop.contentsScale = window?.backingScaleFactor ?? 1
+    }
+
     private func rememberContentResponder() {
         if let responder = window?.firstResponder as? NSView,
            responder.isDescendant(of: centerHost), !responder.isHiddenOrHasHiddenAncestor {
@@ -99,11 +112,15 @@ final class TerminalShellNativeView: NSView {
     }
 
     func update(leading: AnyView, center: AnyView, trailing: AnyView,
-                layout: TerminalShellGeometry) {
+                layout: TerminalShellGeometry, background: NSColor = .clear) {
         self.leadingWidth = layout.leadingWidth
         self.trailingWidth = layout.trailingWidth
         self.leadingVisible = layout.leadingVisible
         self.trailingVisible = layout.trailingVisible
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chromeBackdrop.fillColor = background.cgColor
+        CATransaction.commit()
         rememberContentResponder()
         centerHost.rootView = center
         updateHost(&leadingHost, content: leading, visible: layout.leadingVisible)
@@ -155,6 +172,19 @@ final class TerminalShellNativeView: NSView {
         if trailingVisible {
             setFrame(NSRect(x: width - right, y: 0, width: right, height: bounds.height), on: trailingHost)
         }
+        // One color/compositing owner for both sidebars. The center stays empty
+        // so the terminal's own translucent IOSurface is never painted twice.
+        let path = CGMutablePath()
+        if leadingVisible && left > 0 { path.addRect(.init(x: 0, y: 0, width: left, height: bounds.height)) }
+        if trailingVisible && right > 0 {
+            path.addRect(.init(x: width - right, y: 0, width: right, height: bounds.height))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chromeBackdrop.frame = bounds
+        chromeBackdrop.path = path
+        chromeBackdrop.isHidden = path.isEmpty
+        CATransaction.commit()
     }
 
     private func setFrame(_ frame: NSRect, on view: NSView?) {

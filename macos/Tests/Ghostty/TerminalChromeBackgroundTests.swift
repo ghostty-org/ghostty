@@ -38,11 +38,23 @@ struct TerminalChromeBackgroundTests {
                 NSColor(expected).usingColorSpace(.displayP3))
     }
 
-    @Test func transparentWindowKeepsConfiguredOpacity() {
+    @Test func transparentWindowMatchesRendererOpacityAndPremultipliedBytes() throws {
         let chrome = TerminalController.chromeBackground(
             color: background,
             opacity: 0.85,
-            windowIsOpaque: false
+            windowIsOpaque: false,
+            colorspaceIsDisplayP3: true
+        )
+        let color = try #require(NSColor(chrome).usingColorSpace(.displayP3))
+        #expect(Int((color.alphaComponent * 255).rounded()) == 217)
+        #expect(Int((color.redComponent * color.alphaComponent * 255).rounded()) == 43)
+        #expect(Int((color.greenComponent * color.alphaComponent * 255).rounded()) == 87)
+        #expect(Int((color.blueComponent * color.alphaComponent * 255).rounded()) == 130)
+    }
+
+    @Test func explicitLinearBlendingRetainsItsExistingFillPolicy() {
+        let chrome = TerminalController.chromeBackground(
+            color: background, opacity: 0.85, windowIsOpaque: false, linearBlending: true
         )
         #expect(chrome == background.opacity(0.85))
     }
@@ -62,13 +74,13 @@ struct TerminalChromeBackgroundTests {
             opacity: -0.5,
             windowIsOpaque: false
         )
-        #expect(low == background.opacity(0))
+        #expect(NSColor(low).alphaComponent == 0)
 
         let high = TerminalController.chromeBackground(
             color: background,
             opacity: 0.7,
             windowIsOpaque: false
         )
-        #expect(high == background.opacity(0.7))
+        #expect(Int((NSColor(high).alphaComponent * 255).rounded()) == 179)
     }
 }
