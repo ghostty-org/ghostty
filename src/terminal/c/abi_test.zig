@@ -17,11 +17,13 @@
 //!     sentinel that every C enum ends with.
 //!   - packed structs and aliases are the same integer type.
 //!   - opaque handles are pointers to an incomplete C struct.
+//!   - callback typedefs take the same parameters and return the same type,
+//!     compared by size, alignment, and pointer constness.
 //!
 //! A second test runs the other way and checks that every struct, union,
-//! enum, and opaque handle in the headers is in `type_decls`. Adding a type
-//! to a header without registering it fails the build, so new types are
-//! always covered.
+//! enum, opaque handle, and callback typedef in the headers is in
+//! `type_decls`. Adding a type to a header without registering it fails the
+//! build, so new types are always covered.
 //!
 //! Each failure is logged on its own line and names both sides, so one run
 //! reports every mismatch. For example, changing `GHOSTTY_CELL_WIDE_WIDE`
@@ -132,6 +134,7 @@ test "C headers match Zig ABI types" {
             .@"packed" => checkInteger(decl.name, decl.T.Backing, decl.T.Zig),
             .alias => checkInteger(decl.name, decl.T, decl.T),
             .@"opaque" => checkOpaque(decl.name),
+            .callback => checkCallback(decl),
         };
     }
 
@@ -146,9 +149,8 @@ test "C header types are all in the type registry" {
         if (comptime !std.mem.startsWith(u8, name, "Ghostty")) continue;
         if (comptime @TypeOf(@field(c, name)) != type) continue;
 
-        // Callback typedefs and integer typedefs are skipped here. The
-        // registry has no kind for callbacks, and an integer typedef cannot
-        // be told apart from an enum without the enumerators before it.
+        // Integer typedefs are skipped here. An integer typedef cannot be
+        // told apart from an enum without the enumerators before it.
         const expected = comptime headerKind(name);
         if (comptime expected) |kind| {
             const found = comptime findDecl(name);
@@ -180,7 +182,11 @@ fn headerKind(comptime name: []const u8) ?TypeDecl.Kind {
         .@"struct" => |info| if (info.layout == .@"extern") .@"struct" else null,
         .@"union" => |info| if (info.layout == .@"extern") .@"union" else null,
         .optional => |info| switch (@typeInfo(info.child)) {
-            .pointer => |ptr| if (@typeInfo(ptr.child) == .@"opaque") .@"opaque" else null,
+            .pointer => |ptr| switch (@typeInfo(ptr.child)) {
+                .@"opaque" => .@"opaque",
+                .@"fn" => .callback,
+                else => null,
+            },
             else => null,
         },
         else => null,
@@ -363,6 +369,119 @@ fn checkOpaque(comptime name: []const u8) usize {
         return 1;
     }
     return 0;
+}
+
+/// Check a callback typedef, which translate-c declares as an optional
+/// function pointer. Parameter types are compared by layout, not by type.
+/// translate-c makes its own copies of the header structs and turns
+/// pointers into C pointers, so the types themselves never match.
+fn checkCallback(comptime decl: TypeDecl) usize {
+    const C = @field(c, decl.name);
+    const c_fn = comptime fnInfo(C) orelse {
+        std.log.err("{s}: must be a function pointer, but is {s}", .{ decl.name, @typeName(C) });
+        return 1;
+    };
+    const zig_fn = @typeInfo(@typeInfo(decl.T).pointer.child).@"fn";
+
+    if (c_fn.param_types.len != zig_fn.param_types.len) {
+        std.log.err("{s}: the header has {d} parameters, Zig has {d}", .{
+            decl.name,
+            c_fn.param_types.len,
+            zig_fn.param_types.len,
+        });
+        return 1;
+    }
+
+    var failures: usize = 0;
+    inline for (c_fn.param_types, zig_fn.param_types, 0..) |c_param, zig_param, i| {
+        const what = std.fmt.comptimePrint("{s} parameter {d}", .{ decl.name, i });
+        failures += checkValue(what, c_param.?, zig_param.?);
+    }
+    failures += checkValue(decl.name ++ " return", c_fn.return_type.?, zig_fn.return_type.?);
+    return failures;
+}
+
+/// Check that a C and a Zig value type have the same layout. Pointers must
+/// agree on constness and point at types of the same layout.
+fn checkValue(comptime what: []const u8, comptime C: type, comptime Zig: type) usize {
+    // A registered handle must be the header's typedef of the same name.
+    if (comptime findHandle(Zig)) |name| {
+        if (C == @field(c, name)) return 0;
+        std.log.err("{s}: the header has {s}, Zig has the {s} handle", .{
+            what,
+            @typeName(C),
+            name,
+        });
+        return 1;
+    }
+
+    const c_ptr = comptime pointerInfo(C);
+    const zig_ptr = comptime pointerInfo(Zig);
+    if ((c_ptr == null) != (zig_ptr == null)) {
+        std.log.err("{s}: the header has {s}, Zig has {s}", .{
+            what,
+            @typeName(C),
+            @typeName(Zig),
+        });
+        return 1;
+    }
+    if (c_ptr == null) {
+        if (C == void and Zig == void) return 0;
+        return checkSizeAlign(what, C, Zig);
+    }
+
+    const c_info = c_ptr.?;
+    const zig_info = zig_ptr.?;
+    if (c_info.attrs.@"const" != zig_info.attrs.@"const") {
+        std.log.err("{s}: the header pointer is {s}const, the Zig pointer is {s}const", .{
+            what,
+            if (c_info.attrs.@"const") "" else "not ",
+            if (zig_info.attrs.@"const") "" else "not ",
+        });
+        return 1;
+    }
+
+    // An opaque pointee, such as void or a handle's incomplete struct, has
+    // no layout to compare.
+    const c_opaque = @typeInfo(c_info.child) == .@"opaque";
+    const zig_opaque = @typeInfo(zig_info.child) == .@"opaque";
+    if (c_opaque or zig_opaque) {
+        if (c_opaque == zig_opaque) return 0;
+        std.log.err("{s}: the header points at {s}, Zig points at {s}", .{
+            what,
+            @typeName(c_info.child),
+            @typeName(zig_info.child),
+        });
+        return 1;
+    }
+    return checkSizeAlign(what ++ " pointee", c_info.child, zig_info.child);
+}
+
+/// The registered name of a handle type, or null if `T` is not one.
+fn findHandle(comptime T: type) ?[]const u8 {
+    for (types.type_decls) |decl| {
+        if (decl.kind == .@"opaque" and decl.T != *anyopaque and decl.T == T) return decl.name;
+    }
+    return null;
+}
+
+fn fnInfo(comptime T: type) ?std.lang.Type.Fn {
+    const ptr = pointerInfo(T) orelse return null;
+    return switch (@typeInfo(ptr.child)) {
+        .@"fn" => |info| info,
+        else => null,
+    };
+}
+
+fn pointerInfo(comptime T: type) ?std.lang.Type.Pointer {
+    return switch (@typeInfo(T)) {
+        .pointer => |info| info,
+        .optional => |info| switch (@typeInfo(info.child)) {
+            .pointer => |ptr| ptr,
+            else => null,
+        },
+        else => null,
+    };
 }
 
 fn checkSizeAlign(comptime name: []const u8, comptime C: type, comptime Zig: type) usize {

@@ -313,7 +313,14 @@ macOS loader doesn't check them, so follow the same rebuild rule there.
 
 Our CI compares the ABI of every change to a baseline, so that the ABI
 doesn't break by accident. See [`test/abi/`](test/abi/README.md) for how
-the check works.
+the check works. CI also runs `zig build test-lib-vt-abi` for Linux, macOS
+and WebAssembly. It compares the library to reference files, called goldens,
+in `src/terminal/c/abi/`: one manifest of the public types per target, and
+`symbols.txt`, the list of public functions. The check fails on anything
+that isn't an addition, such as a new function, a new type, a new enum value
+or a new field at the end of a sized struct. Maintainers record an intentional
+addition with `zig build update-lib-vt-abi`. You don't need to run either
+step to package the library.
 
 ## Package Names
 

@@ -184,7 +184,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * The style ID for the cell (for use with style lookups).
    *
-   * Output type: uint16_t *
+   * Output type: GhosttyStyleId * (uint16_t *)
    */
   GHOSTTY_CELL_DATA_STYLE_ID = 6,
 
@@ -341,6 +341,12 @@ GHOSTTY_API GhosttyResult ghostty_cell_get(GhosttyCell cell,
 /**
  * Get multiple data fields from a cell in a single call.
  *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_cell_get() once per key, so use
+ * whichever reads better.
+ *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.
  *
@@ -390,6 +396,12 @@ GHOSTTY_API GhosttyResult ghostty_row_get(GhosttyRow row,
 
 /**
  * Get multiple data fields from a row in a single call.
+ *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_row_get() once per key, so use whichever
+ * reads better.
  *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.

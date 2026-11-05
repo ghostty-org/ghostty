@@ -212,8 +212,6 @@ pub const terminal_select_word_between = selection.word_between;
 pub const terminal_select_line = selection.line;
 pub const terminal_select_all = selection.all;
 pub const terminal_select_output = selection.output;
-pub const terminal_selection_format_buf = selection.format_buf;
-pub const terminal_selection_format_alloc = selection.format_alloc;
 pub const terminal_selection_adjust = selection.adjust;
 pub const terminal_selection_order = selection.order;
 pub const terminal_selection_ordered = selection.ordered;
@@ -620,12 +618,6 @@ test "compiled-out features return unsupported" {
                 var ev: selection_gesture.Event = @ptrFromInt(not_null);
                 try testing.expectEqual(Result.unsupported, selection_gesture.event_new(alloc, &ev, .press));
                 try testing.expectEqual(null, ev);
-            }
-        } },
-        .{ lib.feature(.formatter) and lib.feature(.selection), struct {
-            fn run(t: terminal.Terminal, b: []u8) !void {
-                var written: usize = 0;
-                try testing.expectEqual(Result.unsupported, selection.format_buf(t, null, b.ptr, b.len, &written));
             }
         } },
         .{ lib.feature(.search), struct {

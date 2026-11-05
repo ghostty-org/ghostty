@@ -23,6 +23,9 @@ website/.next
 # shaders
 *.frag
 
+# written by `zig build update-lib-vt-abi`, reformatting would only add noise
+src/terminal/c/abi/*.json
+
 # fuzz corpus files
 test/fuzz-libghostty/corpus/
 test/fuzz-libghostty/afl-out/

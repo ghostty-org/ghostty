@@ -1023,9 +1023,9 @@ typedef void (*GhosttyClipboardWriteReplyFn)(
 /**
  * A synchronous request to write clipboard contents.
  *
- * This is a sized struct. The callback must only access fields present in the
- * size reported by `size`. The request, contents array, MIME strings, and
- * data strings are all borrowed and valid only for the callback duration.
+ * The request and everything it points to, including the contents array
+ * and its strings, are borrowed. They are only valid until the callback
+ * returns.
  *
  * All entries in `contents` are representations of the same logical value
  * and must be committed atomically. A `contents_len` of zero requests that
@@ -1038,12 +1038,14 @@ typedef void (*GhosttyClipboardWriteReplyFn)(
  * `reply` more than once is safely ignored. Returning without replying 
  * denies the write.
  *
+ * This struct has a frozen layout and will never gain fields. It is 64 bytes
+ * on 64-bit targets and 32 bytes on wasm32. If a later version of
+ * libghostty-vt has more to report, it will add a new option with a new
+ * struct, and this callback will keep receiving this struct unchanged.
+ *
  * @ingroup terminal
  */
 struct GhosttyClipboardWrite {
-  /** Size of this struct in bytes. */
-  size_t size;
-
   /** Clipboard destination. */
   GhosttyClipboardLocation location;
 
@@ -1203,9 +1205,7 @@ typedef void (*GhosttyClipboardReadReplyFn)(
 /**
  * A synchronous request to read clipboard contents.
  *
- * This is a sized struct. The callback must only access fields present in the
- * size reported by `size`. The request is borrowed and valid only for the
- * callback duration.
+ * The request is borrowed and only valid until the callback returns.
  *
  * The read is answered by calling `reply` with this request and a
  * GhosttyClipboardReadReply. This must happen before the callback returns;
@@ -1213,12 +1213,14 @@ typedef void (*GhosttyClipboardReadReplyFn)(
  * ignored. Returning without replying answers the program with an empty
  * clipboard (OSC 52) or EPERM (OSC 5522).
  *
+ * This struct has a frozen layout and will never gain fields. It is 72 bytes
+ * on 64-bit targets and 36 bytes on wasm32. If a later version of
+ * libghostty-vt has more to report, it will add a new option with a new
+ * struct, and this callback will keep receiving this struct unchanged.
+ *
  * @ingroup terminal
  */
 struct GhosttyClipboardRead {
-  /** Size of this struct in bytes. */
-  size_t size;
-
   /** Clipboard to read. */
   GhosttyClipboardLocation location;
 
@@ -1311,16 +1313,17 @@ typedef void (*GhosttyTerminalClipboardReadFn)(
 /**
  * A request to show a desktop notification.
  *
- * This is a sized struct. The callback must only access fields present in the
- * size reported by `size`. Both strings are borrowed and valid only for the
- * duration of the callback.
+ * Both strings are borrowed and only valid until the callback returns.
+ * Copy them if you need them later.
+ *
+ * This struct has a frozen layout and will never gain fields. It is 32 bytes
+ * on 64-bit targets and 16 bytes on wasm32. If a later version of
+ * libghostty-vt has more to report, it will add a new option with a new
+ * struct, and this callback will keep receiving this struct unchanged.
  *
  * @ingroup terminal
  */
 typedef struct {
-  /** Size of this struct in bytes. */
-  size_t size;
-
   /** Notification title, or an empty string when the protocol omits it. */
   GhosttyString title;
 
@@ -1370,15 +1373,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * A progress report emitted by the running program.
  *
- * This is a sized struct. The callback must only access fields present in the
- * size reported by `size`.
+ * This struct has a frozen layout and will never gain fields. It is 8 bytes
+ * on every target. If a later version of libghostty-vt has more to report,
+ * it will add a new option with a new struct, and this callback will keep
+ * receiving this struct unchanged.
  *
  * @ingroup terminal
  */
 typedef struct {
-  /** Size of this struct in bytes. */
-  size_t size;
-
   /** Literal progress state reported by the running program. */
   GhosttyTerminalProgressState state;
 
@@ -1493,16 +1495,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * never NULL. All strings are only valid during the callback, so copy any
  * you want to keep.
  *
- * This is a sized struct. Later versions may add fields at the end, and
- * `size` tells you which fields are present. Every field below has been
- * present since this struct was introduced.
+ * This struct has a frozen layout and will never gain fields. It is 80 bytes
+ * on 64-bit targets and 44 bytes on wasm32. If a later version of
+ * libghostty-vt has more to report, it will add a new option with a new
+ * struct, and this callback will keep receiving this struct unchanged.
  *
  * @ingroup terminal
  */
 typedef struct {
-  /** Size of this struct in bytes. */
-  size_t size;
-
   /** What the program is doing. */
   GhosttyProgramStatusState state;
 
@@ -1697,11 +1697,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Strings are only valid during the callback. Copy them if you need them
  * later.
  *
- * This is a sized struct. Later versions may add fields at the end, and
- * `size` tells you which fields are present. Every field below has been
- * present since this struct was introduced, so you only need to check
- * `size` before reading fields added later. Two fields are likely to be
- * added in the future:
+ * This struct has a frozen layout and will never gain fields. It is 48 bytes
+ * on 64-bit targets and 32 bytes on wasm32. If a later version of
+ * libghostty-vt has more to report, it will add a new option with a new
+ * struct, and this callback will keep receiving this struct unchanged.
+ *
+ * Two fields are likely to be added this way in the future:
  *
  * - An identifier the shell assigns to each command.
  * - A flag on `GHOSTTY_SEMANTIC_PROMPT_PROMPT_START` that says the shell
@@ -1712,9 +1713,6 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup terminal
  */
 typedef struct {
-  /** Size of this struct in bytes. */
-  size_t size;
-
   /** Which step of the command this event reports. */
   GhosttySemanticPromptKind kind;
 
@@ -3776,9 +3774,11 @@ GHOSTTY_API GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
 /**
  * Get multiple data fields from a terminal in a single call.
  *
- * This is an optimization over calling ghostty_terminal_get()
- * repeatedly, particularly useful in environments with high per-call
- * overhead such as FFI or Cgo.
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_terminal_get() once per key, so use
+ * whichever reads better.
  *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.

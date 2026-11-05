@@ -58,8 +58,8 @@ extern "C" {
  *
  * Every match is returned as a GhosttySelection snapshot with
  * rectangle set to false, so the existing selection APIs all work on
- * matches: ghostty_terminal_selection_format_buf() to copy the
- * matched text, ghostty_terminal_point_from_grid_ref() with
+ * matches: a GhosttyFormatter with GHOSTTY_FORMATTER_OPT_SELECTION to
+ * copy the matched text, ghostty_terminal_point_from_grid_ref() with
  * GHOSTTY_POINT_TAG_VIEWPORT to position highlight rectangles,
  * ghostty_terminal_selection_contains() for hit testing, and
  * ghostty_terminal_set() with GHOSTTY_TERMINAL_OPT_SELECTION to make
@@ -512,8 +512,13 @@ GHOSTTY_API GhosttyResult ghostty_search_get(
 /**
  * Read multiple data fields from a search in a single call.
  *
- * This is an optimization over calling ghostty_search_get() multiple
- * times. Each entry in values must point to storage of the type
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_search_get() once per key, so use
+ * whichever reads better.
+ *
+ * Each entry in values must point to storage of the type
  * documented by the corresponding GhosttySearchData key.
  *
  * If any individual read fails, the function returns that error and

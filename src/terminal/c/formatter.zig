@@ -115,7 +115,7 @@ pub const Option = enum(c_int) {
     _,
 
     /// The type that a `set` value or a `get` output points to.
-    pub fn Type(comptime self: Option) type {
+    pub fn InType(comptime self: Option) type {
         return switch (self) {
             .invalid => void,
             .emit => Format,
@@ -199,7 +199,7 @@ pub fn set(
 fn setTyped(
     f: *formatterpkg.TerminalFormatter,
     comptime option: Option,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     switch (option) {
         .invalid => comptime unreachable,
@@ -249,7 +249,7 @@ pub fn get(
 fn getTyped(
     f: *const formatterpkg.TerminalFormatter,
     comptime option: Option,
-    out: *option.Type(),
+    out: *option.InType(),
 ) Result {
     switch (option) {
         .invalid => comptime unreachable,

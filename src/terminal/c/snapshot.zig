@@ -27,6 +27,16 @@ pub const DecoderOption = enum(c_int) {
     compress_history = 3,
     kitty_image_storage_limit = 4,
     _,
+
+    /// The type that a `decoder_set` value points to.
+    pub fn InType(comptime self: DecoderOption) type {
+        return switch (self) {
+            .max_continuation_bytes => usize,
+            .retain_continuation, .compress_history => bool,
+            .kitty_image_storage_limit => u64,
+            .invalid, _ => void,
+        };
+    }
 };
 
 /// C: GhosttySnapshotDecoderProgressKind.
@@ -64,7 +74,7 @@ pub const DecoderData = enum(c_int) {
     _,
 
     /// Return the Zig type stored through the C API output pointer for a key.
-    fn OutType(comptime self: DecoderData) type {
+    pub fn OutType(comptime self: DecoderData) type {
         return switch (self) {
             .invalid => void,
             .max_continuation_bytes, .source_offset => usize,
@@ -256,13 +266,13 @@ pub fn decoder_set(
     // NULL value restores the default decoder_new_buf starts with.
     switch (option) {
         .max_continuation_bytes => decoder.max_continuation_bytes =
-            if (value_) |v| @as(*const usize, @ptrCast(@alignCast(v))).* else default_max_continuation_bytes,
+            if (value_) |v| @as(*const DecoderOption.max_continuation_bytes.InType(), @ptrCast(@alignCast(v))).* else default_max_continuation_bytes,
         .retain_continuation => decoder.retain_continuation =
-            if (value_) |v| @as(*const bool, @ptrCast(@alignCast(v))).* else false,
+            if (value_) |v| @as(*const DecoderOption.retain_continuation.InType(), @ptrCast(@alignCast(v))).* else false,
         .compress_history => decoder.compress_history =
-            if (value_) |v| @as(*const bool, @ptrCast(@alignCast(v))).* else false,
+            if (value_) |v| @as(*const DecoderOption.compress_history.InType(), @ptrCast(@alignCast(v))).* else false,
         .kitty_image_storage_limit => decoder.kitty_image_storage_limit =
-            if (value_) |v| @as(*const u64, @ptrCast(@alignCast(v))).* else null,
+            if (value_) |v| @as(*const DecoderOption.kitty_image_storage_limit.InType(), @ptrCast(@alignCast(v))).* else null,
         .invalid, _ => unreachable,
     }
     return .success;

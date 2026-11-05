@@ -23,6 +23,11 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
         .linkage = .static,
+
+        // Zig's own x86_64 code generator, which Debug builds use, ignores
+        // symbol visibility. Without LLVM, shared libraries that include
+        // this would export ghostty_hwy_detect_targets.
+        .use_llvm = true,
     });
 
     lib.root_module.addIncludePath(b.path("src/cpp"));

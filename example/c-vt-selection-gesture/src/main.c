@@ -25,16 +25,26 @@ static void print_selection(
     GhosttyTerminal terminal,
     const char *label,
     const GhosttySelection *selection) {
-  GhosttyTerminalSelectionFormatOptions opts =
-      GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
-  opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  opts.trim = true;
-  opts.selection = selection;
+  GhosttyFormatter formatter;
+  GhosttyResult result = ghostty_formatter_terminal_new(
+      NULL, &formatter, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
+  assert(result == GHOSTTY_SUCCESS);
+
+  result = ghostty_formatter_set(
+      formatter, GHOSTTY_FORMATTER_OPT_SELECTION, selection);
+  assert(result == GHOSTTY_SUCCESS);
 
   uint8_t *buf = NULL;
   size_t len = 0;
-  GhosttyResult result = ghostty_terminal_selection_format_alloc(
-      terminal, NULL, &opts, &buf, &len);
+  result = ghostty_formatter_format_alloc(formatter, NULL, &buf, &len);
   assert(result == GHOSTTY_SUCCESS);
 
   printf("%s: ", label);
@@ -42,6 +52,7 @@ static void print_selection(
   printf("\n");
 
   ghostty_free(NULL, buf, len);
+  ghostty_formatter_free(formatter);
 }
 
 static GhosttySelectionGestureEvent new_event(

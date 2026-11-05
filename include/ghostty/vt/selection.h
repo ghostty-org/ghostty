@@ -238,51 +238,6 @@ typedef struct {
 } GhosttyTerminalSelectLineOptions;
 
 /**
- * Options for one-shot formatting of a terminal selection.
- *
- * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec.
- *
- * If selection is NULL, the terminal's current active selection is used.
- * If selection is non-NULL, that caller-provided snapshot selection is used.
- *
- * The selection is formatted from the terminal's active screen using the same
- * formatting semantics as GhosttyFormatter. For copy/clipboard behavior
- * matching Ghostty's Screen.selectionString(), use plain output with unwrap
- * and trim both set to true.
- *
- * @ingroup selection
- */
-typedef struct {
-  /** Size of this struct in bytes. Must be set to sizeof(GhosttyTerminalSelectionFormatOptions). */
-  size_t size;
-
-  /** Output format to emit. */
-  GhosttyFormatterFormat emit;
-
-  /** Whether to unwrap soft-wrapped lines. */
-  bool unwrap;
-
-  /**
-   * Whether to trim trailing whitespace on non-blank lines. Trailing blank
-   * lines are always trimmed, except in VT output without trimming, where
-   * they are kept as part of the layout.
-   */
-  bool trim;
-
-  /**
-   * Optional selection to format.
-   *
-   * If NULL, the terminal's current active selection is used. If the terminal
-   * has no active selection, formatting returns GHOSTTY_NO_VALUE.
-   *
-   * If non-NULL, the pointed-to selection must be a valid snapshot selection
-   * for this terminal and must obey GhosttySelection lifetime rules.
-   */
-  const GhosttySelection *selection;
-} GhosttyTerminalSelectionFormatOptions;
-
-/**
  * Ordering of a selection's endpoints in terminal coordinates.
  *
  * Mirrored orders are only produced by rectangular selections whose start
@@ -761,8 +716,13 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_get(
 /**
  * Read multiple data fields from a selection gesture in a single call.
  *
- * This is an optimization over calling ghostty_selection_gesture_get() multiple
- * times. Each entry in values must point to storage of the type documented by
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_selection_gesture_get() once per key, so
+ * use whichever reads better.
+ *
+ * Each entry in values must point to storage of the type documented by
  * the corresponding GhosttySelectionGestureData key.
  *
  * If any individual read fails, the function returns that error and writes the
@@ -902,85 +862,6 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_output(
                                     GhosttyTerminal terminal,
                                     GhosttyGridRef ref,
                                     GhosttySelection* out_selection);
-
-/**
- * Format a terminal selection into a caller-provided buffer.
- *
- * This is a one-shot convenience API for formatting either the terminal's
- * active selection or a caller-provided GhosttySelection without explicitly
- * creating a GhosttyFormatter.
- *
- * Pass NULL for buf to query the required output size. In that case,
- * out_written receives the required size and the function returns
- * GHOSTTY_OUT_OF_SPACE.
- *
- * If buf is too small, the function returns GHOSTTY_OUT_OF_SPACE and writes
- * the required size to out_written. The caller can then retry with a larger
- * buffer.
- *
- * Pass NULL for options to use the defaults: plain text, no unwrapping or
- * trimming, and the terminal's active selection. This is the same as
- * passing options initialized with GHOSTTY_INIT_SIZED().
- *
- * If no selection is given and the terminal has no active selection, the
- * function returns GHOSTTY_NO_VALUE.
- *
- * @param terminal The terminal to read from (must not be NULL)
- * @param options Selection formatting options, or NULL for the defaults
- * @param buf Output buffer, or NULL to query required size
- * @param buf_len Length of buf in bytes
- * @param out_written Number of bytes written, or required size on
- *                    GHOSTTY_OUT_OF_SPACE (must not be NULL)
- * @return GHOSTTY_SUCCESS on success, or an error code on failure
- *
- * @ingroup selection
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_buf(
-                                    GhosttyTerminal terminal,
-                                    const GhosttyTerminalSelectionFormatOptions* options,
-                                    uint8_t* buf,
-                                    size_t buf_len,
-                                    size_t* out_written);
-
-/**
- * Format a terminal selection into an allocated buffer.
- *
- * This is a one-shot convenience API for formatting either the terminal's
- * active selection or a caller-provided GhosttySelection without explicitly
- * creating a GhosttyFormatter.
- *
- * The returned buffer is allocated using allocator, or the default allocator
- * if NULL is passed. The caller owns the returned buffer and must free it with
- * ghostty_free(), passing the same allocator and returned length.
- * Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and
- * *out_len set to zero. This result can be passed to ghostty_free().
- *
- * The returned bytes are not NUL-terminated. This supports plain text, VT, and
- * HTML uniformly as byte output.
- *
- * Pass NULL for options to use the defaults: plain text, no unwrapping or
- * trimming, and the terminal's active selection. This is the same as
- * passing options initialized with GHOSTTY_INIT_SIZED().
- *
- * If no selection is given and the terminal has no active selection, the
- * function returns GHOSTTY_NO_VALUE and leaves out_ptr as NULL and out_len
- * as 0.
- *
- * @param terminal The terminal to read from (must not be NULL)
- * @param allocator Allocator used for the returned buffer, or NULL for the default allocator
- * @param options Selection formatting options, or NULL for the defaults
- * @param out_ptr Receives the allocated output buffer (must not be NULL)
- * @param out_len Receives the output length in bytes (must not be NULL)
- * @return GHOSTTY_SUCCESS on success, or an error code on failure
- *
- * @ingroup selection
- */
-GHOSTTY_API GhosttyResult ghostty_terminal_selection_format_alloc(
-                                    GhosttyTerminal terminal,
-                                    const GhosttyAllocator* allocator,
-                                    const GhosttyTerminalSelectionFormatOptions* options,
-                                    uint8_t** out_ptr,
-                                    size_t* out_len);
 
 /**
  * Adjust a selection snapshot using terminal selection semantics.

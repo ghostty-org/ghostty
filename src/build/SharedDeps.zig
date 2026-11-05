@@ -975,6 +975,12 @@ pub fn addSimd(
             "-DSIMDUTF_NO_LIBCXX",
         );
 
+        // Only our own Zig code calls the ghostty_simd_* functions, so they
+        // must not be exported from libghostty-vt. Its version script can't
+        // hide them because they match its ghostty_* pattern, and it doesn't
+        // apply to Mach-O.
+        try flags.append(b.allocator, "-fvisibility=hidden");
+
         // Disable ubsan for Windows C/C++ objects to avoid undefined
         // __ubsan_handle_* references. The Zig libraries on Windows don't
         // currently bundle a matching UBSan runtime for these objects in

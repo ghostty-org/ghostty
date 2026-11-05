@@ -228,6 +228,25 @@
  * }
  * @endcode
  *
+ * @section buffers_sec Output Buffers
+ *
+ * Functions that write bytes for you take a buffer, its length and an
+ * `out_written` pointer. Pass NULL with a length of 0 to learn the size
+ * needed. When there is nothing to write, the call returns
+ * GHOSTTY_SUCCESS and sets `out_written` to 0, even for a size query.
+ * When the buffer is too small, the call returns GHOSTTY_OUT_OF_SPACE and
+ * sets `out_written` to the size needed. The contents of the buffer are
+ * then unspecified unless the function says otherwise, so discard them
+ * and retry with a larger buffer.
+ *
+ * @section threads_sec Threads
+ *
+ * The library creates no threads, and every callback runs on the thread
+ * whose call triggered it. Calls on one handle, and on any handle
+ * borrowed from it, must not run at the same time unless a function's
+ * documentation says otherwise. Handles that share nothing can be used on
+ * different threads.
+ *
  * @section features_sec Optional Features
  *
  * Some parts of libghostty-vt are optional. A program that only draws a
@@ -255,9 +274,6 @@
  *
  * A few functions depend on two features:
  *
- * - ghostty_terminal_selection_format_buf() and
- *   ghostty_terminal_selection_format_alloc() need both `%formatter` and
- *   `%selection`.
  * - ghostty_terminal_grid_ref() and ghostty_terminal_point_from_grid_ref()
  *   need either `%grid_introspection` or `%selection`.
  * - ghostty_tracked_grid_ref_snapshot() needs both `%grid_introspection`

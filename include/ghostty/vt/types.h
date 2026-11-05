@@ -522,10 +522,9 @@ typedef struct {
  *
  * Example:
  * @code
- * GhosttyTerminalSelectionFormatOptions opts =
- *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
- * opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
- * opts.trim = true;
+ * GhosttyTerminalSelectLineOptions opts =
+ *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectLineOptions);
+ * opts.ref = ref;
  * @endcode
  */
 #ifdef __cplusplus
@@ -580,6 +579,25 @@ GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
  * describe the current linked build and are not a cross-version stability
  * promise.
  *
+ * Every key enum also has a `keys` object. A key enum is the enum that a
+ * `_get`, `_set` or `_get_multi` function takes to pick a value, such as
+ * GhosttyTerminalData or GhosttyTerminalOption. Each key lists its
+ * `direction` and the `type` that its `void *` value points at:
+ *
+ * - An `"out"` key is read. Pass a pointer to storage of `type`, and the
+ *   library writes the value there.
+ * - An `"in"` key is set. Pass a pointer to a value of `type`, and the
+ *   library reads it. ghostty_formatter_get() also takes these keys, and
+ *   writes a value of the same `type`.
+ * - A `type` of `opaque` is an untyped pointer, such as userdata. Pass the
+ *   pointer itself.
+ * - A `type` that names a `callback` descriptor sets a callback. Pass the
+ *   function pointer itself, not a pointer to it.
+ *
+ * Callback descriptors, such as GhosttyTerminalBellFn, describe a function
+ * pointer typedef. `params` lists the parameter types in order and `return`
+ * gives the return type. Both use the same type references as struct fields.
+ *
  * The formal format is defined by the
  * <a href="types.schema.json">libghostty-vt ABI manifest JSON Schema</a>.
  *
@@ -596,7 +614,19 @@ GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
  *     "GhosttyRenderStateData": {
  *       "kind": "enum", "size": 4, "align": 4,
  *       "underlying": "i32", "prefix": "GHOSTTY_RENDER_STATE_DATA_",
- *       "values": { "INVALID": 0, "DIRTY": 3, "MAX_VALUE": 2147483647 }
+ *       "values": { "INVALID": 0, "DIRTY": 3, "MAX_VALUE": 2147483647 },
+ *       "keys": {
+ *         "DIRTY": { "direction": "out", "type": "GhosttyRenderStateDirty" }
+ *       }
+ *     },
+ *     "GhosttyTerminalBellFn": {
+ *       "kind": "callback", "size": 4, "align": 4,
+ *       "params": [
+ *         { "type": "GhosttyTerminal" },
+ *         { "type": "pointer", "elem": "opaque", "const": false,
+ *           "nullable": true }
+ *       ],
+ *       "return": { "type": "void" }
  *     },
  *     "GhosttyStyleColor": {
  *       "kind": "struct", "size": 4, "align": 1,
