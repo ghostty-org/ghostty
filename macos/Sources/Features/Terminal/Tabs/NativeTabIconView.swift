@@ -6,14 +6,14 @@ final class NativeTabIconView: NSView {
     var previewEdge: NSRectEdge = .maxX
     private weak var controller: TerminalController?
     private var marks: [NSImageView] = []
-    private var slots: [CGRect] = []
     private var tracking: NSTrackingArea?
     private var previewTask: Task<Void, Never>?
     private var dismissTask: Task<Void, Never>?
     private let preview = NSPopover()
-    private var lastIcon: GhosttyTabIcon = .systemSymbol("terminal")
-    private var lastSelected = false
-    private var lastActivity: TabActivity?
+    private var presentation = TerminalTabIconPresentation(
+        parts: [.init(rect: .init(x: 0, y: 0, width: 1, height: 1),
+                      icon: .systemSymbol("terminal"), activity: nil, focused: false)], paneCount: 1
+    )
     private var windowObservers: [NSObjectProtocol] = []
     override var isFlipped: Bool { true }
 
@@ -30,15 +30,6 @@ final class NativeTabIconView: NSView {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
-    @objc private func refreshPresentation() {
-        configure(controller: controller, icon: lastIcon, selected: lastSelected, activity: lastActivity)
-    }
-
-    func updateSelection(_ selected: Bool) {
-        guard selected != lastSelected else { return }
-        configure(controller: controller, icon: lastIcon, selected: selected, activity: lastActivity)
-    }
-
     static func image(_ icon: GhosttyTabIcon) -> NSImage? {
         switch icon {
         case .systemSymbol(let name): NSImage(systemSymbolName: name, accessibilityDescription: nil)
@@ -48,20 +39,22 @@ final class NativeTabIconView: NSView {
     }
 
     func configure(controller: TerminalController?, icon: GhosttyTabIcon, selected: Bool, activity: TabActivity?) {
+        if self.controller !== controller { closePreview() }
+        self.controller = controller
+        presentation = TerminalTabPresentationResolver.iconPresentation(
+            controller: controller, icon: icon, selected: selected, activity: activity
+        )
+        refreshPresentation()
+    }
+
+    @objc private func refreshPresentation() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if self.controller !== controller { closePreview() }
-        self.controller = controller
-        lastIcon = icon
-        lastSelected = selected
-        lastActivity = activity
         let theme = OMGNativeTheme.resolve(for: self)
-        let composition = controller.map { SplitTabIconLayout.layout(tree: $0.surfaceTree) } ?? []
-        let split = controller?.surfaceTree.isSplit == true
-        slots = split ? composition.map(\.rect) : [CGRect(x: 0, y: 0, width: 1, height: 1)]
-        while marks.count > slots.count { marks.removeLast().removeFromSuperview() }
-        while marks.count < slots.count {
+        let parts = presentation.parts
+        while marks.count > parts.count { marks.removeLast().removeFromSuperview() }
+        while marks.count < parts.count {
             let image = NSImageView()
             image.imageScaling = .scaleProportionallyUpOrDown
             image.wantsLayer = true
@@ -69,38 +62,17 @@ final class NativeTabIconView: NSView {
             addSubview(image)
             marks.append(image)
         }
-        for (index, mark) in marks.enumerated() {
-            var glyph = icon
-            var state = activity
-            var focused = selected
-            if split, let controller {
-                let surfaces = composition[index].views
-                let id = controller.tabPaneFocusHistory.representative(in: surfaces.map(\.id), focused: controller.focusedSurface?.id)
-                if let surface = surfaces.first(where: { $0.id == id }) ?? surfaces.first {
-                    state = controller.agentActivity(for: surface)
-                    let session = controller.paneSessionContext(for: surface)
-                    if let requested = state?.icon {
-                        glyph = requested.kind == .bundledAsset ? .asset(requested.name) : .systemSymbol(requested.name)
-                    } else {
-                        glyph = session?.workspace?.icon ?? .systemSymbol(session?.tabIconSystemName ?? "terminal")
-                    }
-                    focused = SplitTabPane.isPaneFocused(selected: selected, surfaceID: surface.id, focusedID: controller.focusedSurface?.id)
-                }
-            }
-            mark.image = Self.image(glyph)
-            mark.contentTintColor = focused ? AgentLogoStyle.selectedColor : theme.secondary
+        let visible = window.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
+        let animates = visible && !isHiddenOrHasHiddenAncestor &&
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for (mark, part) in zip(marks, parts) {
+            mark.image = Self.image(part.icon)
+            mark.contentTintColor = part.color(theme: theme)
             mark.layer?.borderWidth = 0
-            if let state, state.state != .idle {
-                mark.contentTintColor = AgentLogoStyle.nativeColor(state)
-            }
-            if let layer = mark.layer {
-                let visible = window.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
-                AgentLogoLayerBreath.setRunning(state?.state == .working && visible &&
-                    !isHiddenOrHasHiddenAncestor && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, on: layer)
-            }
+            if let layer = mark.layer { AgentLogoLayerBreath.setRunning(part.isWorking && animates, on: layer) }
         }
         toolTip = nil
-        setAccessibilityLabel(split ? "\(controller?.surfaceTree.count ?? 0) Panes" : "Terminal")
+        setAccessibilityLabel(presentation.paneCount > 1 ? "\(presentation.paneCount) Panes" : "Terminal")
         needsLayout = true
     }
 
@@ -108,14 +80,14 @@ final class NativeTabIconView: NSView {
         super.layout()
         let edge = min(TabIconMetrics.composition, min(bounds.width, bounds.height))
         let composition = CGRect(x: bounds.midX - edge / 2, y: bounds.midY - edge / 2, width: edge, height: edge)
-        for (index, mark) in marks.enumerated() {
-            let slot = slots[index]
+        for (mark, part) in zip(marks, presentation.parts) {
+            let slot = part.rect
             let area = CGRect(x: composition.minX + slot.minX * edge, y: composition.minY + slot.minY * edge,
                               width: slot.width * edge, height: slot.height * edge)
             let preferred = TabIconMetrics.singleLogo(OhMyGhosttySettings.shared.tabIconSize)
             let symbol: Bool
-            if case .systemSymbol = lastIcon { symbol = true } else { symbol = false }
-            let size = slots.count > 1 ? TabIconMetrics.pane
+            if case .systemSymbol = part.icon { symbol = true } else { symbol = false }
+            let size = presentation.parts.count > 1 ? TabIconMetrics.pane
                 : min(edge, symbol ? preferred + 3 : preferred)
             mark.frame = CGRect(x: area.midX - size / 2, y: area.midY - size / 2, width: size, height: size)
         }

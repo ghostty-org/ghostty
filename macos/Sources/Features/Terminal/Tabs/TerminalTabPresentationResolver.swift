@@ -1,7 +1,56 @@
 import AppKit
 
+/// Complete icon rendering input; the native tab and pane owners retain state.
+struct TerminalTabIconPresentation {
+    struct Part {
+        let rect: CGRect
+        let icon: GhosttyTabIcon
+        let activity: TabActivity?
+        let focused: Bool
+
+        func color(theme: OMGNativeTheme) -> NSColor {
+            if let activity, activity.state != .idle { return AgentLogoStyle.nativeColor(activity) }
+            return focused ? AgentLogoStyle.selectedColor : theme.secondary
+        }
+
+        var isWorking: Bool { activity?.state == .working }
+    }
+
+    let parts: [Part]
+    let paneCount: Int
+}
+
 @MainActor
 enum TerminalTabPresentationResolver {
+    static func iconPresentation(
+        controller: TerminalController?, icon: GhosttyTabIcon, selected: Bool, activity: TabActivity?
+    ) -> TerminalTabIconPresentation {
+        guard let controller, controller.surfaceTree.isSplit else {
+            return .init(parts: [.init(rect: .init(x: 0, y: 0, width: 1, height: 1),
+                                       icon: icon, activity: activity, focused: selected)], paneCount: 1)
+        }
+        let parts = SplitTabIconLayout.layout(tree: controller.surfaceTree).map { slot in
+            let id = controller.tabPaneFocusHistory.representative(
+                in: slot.views.map(\.id), focused: controller.focusedSurface?.id
+            )
+            let surface = slot.views.first { $0.id == id } ?? slot.views[0]
+            let paneActivity = controller.agentActivity(for: surface)
+            let session = controller.paneSessionContext(for: surface)
+            let glyph: GhosttyTabIcon
+            if let requested = paneActivity?.icon {
+                glyph = requested.kind == .bundledAsset ? .asset(requested.name) : .systemSymbol(requested.name)
+            } else {
+                glyph = session?.workspace?.icon ?? .systemSymbol(session?.tabIconSystemName ?? "terminal")
+            }
+            return TerminalTabIconPresentation.Part(
+                rect: slot.rect, icon: glyph, activity: paneActivity,
+                focused: SplitTabPane.isPaneFocused(selected: selected, surfaceID: surface.id,
+                                                    focusedID: controller.focusedSurface?.id)
+            )
+        }
+        return .init(parts: parts, paneCount: controller.surfaceTree.count)
+    }
+
     static func resolve(_ controller: TerminalController, index: Int, selected: Bool,
                         activities: TabActivityStore?,
                         icons: AnyGhosttyTabIconProvider = .init(CompositeGhosttyTabIconProvider(overrides: []))) -> GhosttyTabPresentation? {

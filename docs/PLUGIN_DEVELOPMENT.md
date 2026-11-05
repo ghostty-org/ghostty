@@ -724,6 +724,13 @@ Agent/split icon view through `NSWindowTab.accessoryView`. Providers do not rece
 new lifecycle or wire messages when layout orientation changes. Horizontal
 Inspector navigation moves inside the panel while the registry remains the sole
 owner of pane selection/presentation lifecycle delivery.
+The resolver builds one immutable icon presentation containing each slot's
+geometry, glyph, pane focus and activity. The image view caches only this
+complete rendering value; it does not maintain an independent selected flag or
+read session state while painting. Native selection changes replace the complete
+snapshot synchronously. Activity colors take precedence over focus tint, and
+hover remains independent. Visibility and reduced motion gate animation at paint
+time without changing the semantic snapshot.
 
 ### Experimental protocol components
 

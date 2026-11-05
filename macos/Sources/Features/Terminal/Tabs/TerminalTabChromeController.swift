@@ -238,7 +238,12 @@ final class TerminalTabChromeController {
               group.windows.contains(window) else { return }
         // The native selected-tab border updates synchronously. Keep its icon
         // in the same transaction; other chrome work can remain coalesced.
-        icon.updateSelection(group.selectedWindow === window)
+        let index = (group.windows.firstIndex(of: window) ?? 0) + 1
+        guard let value = TerminalTabPresentationResolver.resolve(
+            controller, index: index, selected: group.selectedWindow === window,
+            activities: (NSApp.delegate as? AppDelegate)?.tabActivities
+        ) else { return }
+        icon.configure(controller: controller, icon: value.icon, selected: value.selected, activity: value.activity)
     }
 
     private func synchronizeTabAccessory(for layout: Ghostty.Config.MacOSTabLayout) {

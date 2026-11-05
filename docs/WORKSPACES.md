@@ -13,6 +13,9 @@ control; workspace shortcuts remain available. Horizontal tabs use a compact
 workspace control above the terminal content.
 Horizontal tab icon emphasis follows the native selected window immediately,
 including rapid tab creation and selection changes.
+Horizontal and vertical icons share a complete presentation snapshot for glyphs,
+pane focus and Agent activity. Hover does not change that snapshot's selection;
+Agent status colors remain visible even when their tab is not selected.
 
 - `Control-Command-W`: open the searchable switcher. It initially selects the
   current window's active workspace; Return confirms, arrow keys choose, Escape cancels.

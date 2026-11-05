@@ -5,6 +5,57 @@ import Testing
 
 @MainActor
 struct SplitTabPresentationTests {
+    @Test func iconPresentationReplacesFocusAndActivityAsOneSnapshot() {
+        let theme = OMGNativeTheme(background: .black, foreground: .white)
+        let working = TabActivity(source: "codex", state: .working, label: nil, message: nil,
+                                  detail: nil, progress: nil, icon: nil)
+        let completed = TabActivity(source: "codex", state: .done, label: nil, message: nil,
+                                    detail: nil, progress: nil, icon: nil)
+        let active = TerminalTabPresentationResolver.iconPresentation(
+            controller: nil, icon: .systemSymbol("terminal"), selected: true, activity: working
+        )
+        let background = TerminalTabPresentationResolver.iconPresentation(
+            controller: nil, icon: .systemSymbol("cloud"), selected: false, activity: completed
+        )
+        let idle = TerminalTabPresentationResolver.iconPresentation(
+            controller: nil, icon: .systemSymbol("cloud"), selected: false, activity: nil
+        )
+        #expect(active.parts[0].focused && active.parts[0].isWorking)
+        #expect(!background.parts[0].focused && !background.parts[0].isWorking)
+        #expect(background.parts[0].color(theme: theme) == AgentLogoStyle.nativeColor(completed))
+        #expect(idle.parts[0].color(theme: theme) == theme.secondary)
+        #expect(idle.parts[0].activity == nil)
+        // A later snapshot never mutates or revives an earlier working state.
+        #expect(active.parts[0].activity == working)
+    }
+
+    @Test func splitIconSnapshotsUsePaneFocusAndNeverTabWideActivity() throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let controller = try fixture.tab()
+        let first = try #require(controller.surfaceTree.first)
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let second = try #require(controller.newSplit(at: first, direction: .right, baseConfig: config))
+        let working = TabActivity(source: "codex", state: .working, label: nil, message: nil,
+                                  detail: nil, progress: nil, icon: nil)
+        controller.focusedSurface = first
+        let before = TerminalTabPresentationResolver.iconPresentation(
+            controller: controller, icon: .systemSymbol("terminal"), selected: true, activity: working
+        )
+        controller.focusedSurface = second
+        let after = TerminalTabPresentationResolver.iconPresentation(
+            controller: controller, icon: .systemSymbol("terminal"), selected: true, activity: working
+        )
+        let inactive = TerminalTabPresentationResolver.iconPresentation(
+            controller: controller, icon: .systemSymbol("terminal"), selected: false, activity: working
+        )
+        #expect(before.parts.map(\.focused) == [true, false])
+        #expect(after.parts.map(\.focused) == [false, true])
+        #expect(inactive.parts.allSatisfy { !$0.focused && !$0.isWorking })
+        #expect(before.parts.allSatisfy { $0.activity == nil })
+    }
+
     @Test func nativeAgentColorsAndBadgesPreserveSemanticStatusStyles() throws {
         func activity(_ state: TabActivityState, _ attention: TabAttentionKind? = nil) -> TabActivity {
             .init(source: "codex", state: state, attentionKind: attention,

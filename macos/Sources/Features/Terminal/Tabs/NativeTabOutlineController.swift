@@ -663,7 +663,7 @@ final class NativeTabCell: NSTableCellView {
     func updateSelection(_ selected: Bool) {
         guard self.selected != selected else { return }
         self.selected = selected
-        icon.updateSelection(selected)
+        refreshNow()
     }
 
     func updateHoverAppearance() {
