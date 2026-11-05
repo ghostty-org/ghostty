@@ -15,7 +15,8 @@ const Result = @import("result.zig").Result;
 const cell_c = @import("cell.zig");
 const row = @import("row.zig");
 const style_c = @import("style.zig");
-const CursorStyle = @import("types.zig").CursorStyle;
+const types = @import("types.zig");
+const CursorStyle = types.CursorStyle;
 const PageList = @import("../PageList.zig");
 
 const log = std.log.scoped(.render_state_c);
@@ -686,7 +687,7 @@ pub const RowCellsData = enum(c_int) {
             .raw => page.Cell.C,
             .style => style_c.Style,
             .graphemes_len => u32,
-            .graphemes_buf => u32,
+            .graphemes_buf => types.CodepointBuffer,
             .bg_color, .fg_color => colorpkg.RGB.C,
             .selected, .has_styling => bool,
             .graphemes_utf8 => lib.Buffer,
@@ -784,13 +785,22 @@ fn rowCellsGetTypedInner(
             out.* = @intCast(1 + extra.len);
         },
         .graphemes_buf => {
-            if (!cell.hasText()) return .success;
-            const extra = if (cell.hasGrapheme()) cells.graphemes[x] else &[_]u21{};
-            const buf: [*]u32 = @ptrCast(out);
-            buf[0] = cell.codepoint();
-            for (extra, 1..) |cp, i| {
-                buf[i] = cp;
+            if (!cell.hasText()) {
+                out.len = 0;
+                return .success;
             }
+            const extra = if (cell.hasGrapheme()) cells.graphemes[x] else &[_]u21{};
+            out.len = 1 + extra.len;
+
+            // Write the prefix that fits. A NULL ptr has no capacity
+            // whatever cap says.
+            const ptr = out.ptr orelse return .out_of_space;
+            const n = @min(out.cap, out.len);
+            if (n > 0) {
+                ptr[0] = cell.codepoint();
+                for (ptr[1..n], extra[0 .. n - 1]) |*dst, cp| dst.* = cp;
+            }
+            if (out.len > out.cap) return .out_of_space;
         },
         .bg_color => {
             // Avoid copying the full struct when only partial changes happen.
@@ -2066,6 +2076,100 @@ test "render: row cells get graphemes utf8" {
     var text: lib.Buffer = .{ .ptr = &buf, .cap = buf.len };
     try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
     try testing.expectEqual(@as(usize, 0), text.len);
+}
+
+test "render: row cells get graphemes buf" {
+    const cases = [_]struct {
+        terminal_input: []const u8,
+        expected: []const u32,
+    }{
+        .{
+            .terminal_input = "A",
+            .expected = &.{'A'},
+        },
+        .{
+            .terminal_input = "e\u{301}",
+            .expected = &.{ 'e', 0x301 },
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            .expected = &.{ 0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467 },
+        },
+    };
+
+    for (cases) |case| {
+        var terminal: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &terminal,
+            10,
+            3,
+        ));
+        defer terminal_c.free(terminal);
+
+        terminal_c.vt_write(terminal, case.terminal_input.ptr, case.terminal_input.len);
+
+        var state: RenderState = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &state,
+        ));
+        defer free(state);
+
+        try testing.expectEqual(Result.success, update(state, terminal));
+
+        var it: RowIterator = null;
+        try testing.expectEqual(Result.success, row_iterator_new(
+            &lib.alloc.test_allocator,
+            &it,
+        ));
+        defer row_iterator_free(it);
+
+        var cells: RowCells = null;
+        try testing.expectEqual(Result.success, row_cells_new(
+            &lib.alloc.test_allocator,
+            &cells,
+        ));
+        defer row_cells_free(cells);
+
+        try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+        try testing.expect(row_iterator_next(it));
+        try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+        try testing.expectEqual(Result.success, row_cells_select(cells, 0));
+
+        // Size query.
+        var out: types.CodepointBuffer = .{};
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+
+        // A NULL ptr has no capacity whatever cap says.
+        out = .{ .cap = 8 };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+
+        // cap below the count: the prefix that fits is written, nothing
+        // past cap is touched, and len is the full count.
+        var small: [8]u32 = @splat(0xAAAA);
+        const small_cap = case.expected.len - 1;
+        out = .{ .ptr = &small, .cap = small_cap };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+        try testing.expectEqualSlices(u32, case.expected[0..small_cap], small[0..small_cap]);
+        for (small[small_cap..]) |v| try testing.expectEqual(@as(u32, 0xAAAA), v);
+
+        // Exact fit.
+        var buf: [8]u32 = undefined;
+        out = .{ .ptr = &buf, .cap = case.expected.len };
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqualSlices(u32, case.expected, buf[0..out.len]);
+
+        // A cell with no text needs no space, even for a size query.
+        try testing.expectEqual(Result.success, row_cells_select(cells, 9));
+        out = .{};
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(@as(usize, 0), out.len);
+    }
 }
 
 test "render: row iterator next" {

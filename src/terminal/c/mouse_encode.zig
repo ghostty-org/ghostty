@@ -444,6 +444,17 @@ test "encode: sgr press left" {
     ));
     try testing.expectEqual(@as(usize, 9), required);
 
+    var small: [4]u8 = undefined;
+    var small_written: usize = 0;
+    try testing.expectEqual(Result.out_of_space, encode(
+        encoder,
+        event,
+        &small,
+        small.len,
+        &small_written,
+    ));
+    try testing.expectEqual(required, small_written);
+
     var buf: [32]u8 = undefined;
     var written: usize = 0;
     try testing.expectEqual(Result.success, encode(

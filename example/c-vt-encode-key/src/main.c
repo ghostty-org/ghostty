@@ -24,7 +24,7 @@ int main() {
   ghostty_key_event_set_mods(event, GHOSTTY_MODS_CTRL);
 
   // Encode the key event
-  char buf[128];
+  uint8_t buf[128];
   size_t written = 0;
   result = ghostty_key_encoder_encode(encoder, event, buf, sizeof(buf), &written);
   assert(result == GHOSTTY_SUCCESS);

@@ -125,7 +125,7 @@ extern "C" {
  * Each call shows whichever frame is due at the time you pass in. When
  * an image moves to a new frame, two things change:
  *
- * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns the pixels of the
+ * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns the pixels of the
  *   new frame.
  * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION returns a new value.
  *
@@ -511,9 +511,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION = 6,
 
   /**
-   * Borrowed pointer to the raw pixel data. Valid as long as the
-   * underlying terminal is not mutated. Returns GHOSTTY_NO_VALUE when
-   * the image metadata is resident but its pixel payload is pending.
+   * The image's pixel data. The string points into memory owned by the
+   * terminal and stays valid until the terminal is next modified. Its
+   * length is always width * height * bytes per pixel for the reported
+   * format.
+   *
+   * Returns GHOSTTY_NO_VALUE if the image's pixels have not arrived yet.
+   * The expected size is still available through
+   * GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN.
    *
    * The data is always fully decoded, uncompressed pixels in the
    * format reported by GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT: zlib payloads
@@ -527,19 +532,32 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * current frame changes, so generation-keyed caches remain
    * coherent.
    *
-   * Output type: const uint8_t **
+   * @code{.c}
+   * GhosttyString pixels;
+   * if (ghostty_kitty_graphics_image_get(
+   *         image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS, &pixels) ==
+   *     GHOSTTY_SUCCESS) {
+   *   upload_texture(pixels.ptr, pixels.len);
+   * }
+   * @endcode
+   *
+   * Output type: GhosttyString *
    */
-  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR = 7,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS = 7,
 
   /**
-   * Length of the raw pixel data in bytes. Always equal to
-   * width * height * bytes-per-pixel for the reported format. For a
-   * pending image, this is the expected length reserved against the
-   * storage limit even though DATA_PTR is not available yet.
+   * The size of the image's pixel data in bytes, which is
+   * width * height * bytes per pixel for the reported format.
+   *
+   * This is available even before the pixels arrive, when
+   * GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS still returns
+   * GHOSTTY_NO_VALUE. In that case the image already counts this many
+   * bytes against the storage limit. Once the pixels arrive, this equals
+   * the length of GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS.
    *
    * Output type: size_t *
    */
-  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_LEN = 8,
+  GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN = 8,
 
   /**
    * A value that changes whenever this image's pixels may have changed:
@@ -558,9 +576,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * One case doesn't change this value. When a program finishes sending
    * an image whose pixels were still on the way, the image keeps its
-   * value, and GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR starts returning the
+   * value, and GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS starts returning the
    * pixels. GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes when that
-   * happens, so read DATA_PTR again then.
+   * happens, so read PIXELS again then.
    *
    * Output type: uint64_t *
    */
@@ -659,8 +677,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  *
  * Images that moved to a new frame get a new
  * @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, and their
- * @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns the new frame's
- * pixels.
+ * @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns the new frame's pixels.
  *
  * Time is measured in milliseconds on a clock you choose, such as the
  * time since your application started. The clock must only move

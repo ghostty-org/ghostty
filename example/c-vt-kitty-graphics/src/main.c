@@ -99,13 +99,14 @@ int64_t tick_animations(GhosttyKittyGraphics graphics, uint64_t now_ms) {
 void print_image(GhosttyKittyGraphics graphics, uint32_t image_id) {
   GhosttyKittyGraphicsImage image =
       ghostty_kitty_graphics_image(graphics, image_id);
-  const uint8_t* pixels = NULL;
+  GhosttyString pixels = {0};
   uint64_t generation = 0;
-  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR,
+  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
                                    &pixels);
   ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION,
                                    &generation);
-  printf("pixel=(%u,%u,%u) generation=%llu", pixels[0], pixels[1], pixels[2],
+  printf("pixel=(%u,%u,%u) generation=%llu", pixels.ptr[0], pixels.ptr[1],
+         pixels.ptr[2],
          (unsigned long long)generation);
 }
 
@@ -292,20 +293,18 @@ int draw_images(GhosttyRenderState state,
 
     uint32_t image_width = 0, image_height = 0;
     GhosttyKittyImageFormat format = 0;
-    const uint8_t* pixels = NULL;
-    size_t data_len = 0;
-    ghostty_kitty_graphics_image_get_multi(image, 5,
+    GhosttyString pixels = {0};
+    ghostty_kitty_graphics_image_get_multi(image, 4,
         (GhosttyKittyGraphicsImageData[]){
             GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH,
             GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT,
             GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT,
-            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR,
-            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_LEN,
+            GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
         },
-        (void*[]){ &image_width, &image_height, &format, &pixels, &data_len },
+        (void*[]){ &image_width, &image_height, &format, &pixels },
         NULL);
     printf("    pixels: %ux%u format=%d data_len=%zu generation=%llu\n",
-           image_width, image_height, format, data_len,
+           image_width, image_height, format, pixels.len,
            (unsigned long long)generation);
   }
 

@@ -200,15 +200,20 @@ int main(void) {
       if (style.flags & GHOSTTY_STYLE_FLAG_BOLD) printf("\033[1m");
       if (GHOSTTY_STYLE_UNDERLINE(style)) printf("\033[4m");
 
-      // Read grapheme codepoints into a buffer and print them.
-      // The buffer must be at least grapheme_len elements.
+      // Read grapheme codepoints into a buffer and print them. If the
+      // cell has more than 16 codepoints, only the first 16 are written
+      // and graphemes.len holds the full count, so print what fits.
       uint32_t codepoints[16];
-      uint32_t len = grapheme_len < 16 ? grapheme_len : 16;
+      GhosttyCodepointBuffer graphemes = {
+          .ptr = codepoints,
+          .cap = sizeof(codepoints) / sizeof(codepoints[0]),
+      };
       ghostty_render_state_row_cells_get(
           cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-          codepoints);
+          &graphemes);
 
-      for (uint32_t i = 0; i < len; i++) {
+      size_t len = graphemes.len < graphemes.cap ? graphemes.len : graphemes.cap;
+      for (size_t i = 0; i < len; i++) {
         // Simple ASCII print; a real renderer would handle UTF-8.
         if (codepoints[i] < 128)
           putchar((char)codepoints[i]);

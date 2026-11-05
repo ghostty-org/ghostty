@@ -100,6 +100,18 @@ pub const Codepoints = extern struct {
     len: usize = 0,
 };
 
+/// C: GhosttyCodepointBuffer
+///
+/// A caller-provided buffer of codepoints. The caller sets ptr and cap
+/// (in u32 elements). The library writes up to cap codepoints and sets
+/// len to the total count, returning out_of_space when len > cap.
+/// Frozen layout.
+pub const CodepointBuffer = extern struct {
+    ptr: ?[*]u32 = null,
+    cap: usize = 0,
+    len: usize = 0,
+};
+
 pub const TypeDecl = struct {
     name: []const u8,
     T: type,
@@ -363,6 +375,7 @@ pub const type_decls = [_]TypeDecl{
     .initStruct("GhosttyClipboardReadReply", terminal.ClipboardReadReply),
     .initStruct("GhosttyClipboardWrite", terminal.ClipboardWrite),
     .initStruct("GhosttyClipboardWriteReply", terminal.ClipboardWriteReply),
+    .initStruct("GhosttyCodepointBuffer", CodepointBuffer),
     .initStruct("GhosttyCodepoints", Codepoints),
     .initStruct("GhosttyColorPaletteMask", color_c.PaletteMask),
     .initStruct("GhosttyColorRgb", color.RGB.C),

@@ -53,7 +53,7 @@
  * ghostty_key_encoder_set_from_terminal(encoder, terminal);
  *
  * // Encode a key event using the terminal-derived options
- * char buf[128];
+ * uint8_t buf[128];
  * size_t written = 0;
  * ghostty_key_encoder_encode(encoder, event, buf, sizeof(buf), &written);
  *

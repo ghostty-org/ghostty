@@ -1988,18 +1988,11 @@ test "snapshot decoder restores Kitty graphics images and reports their payloads
         .kitty_graphics,
         @ptrCast(&graphics),
     ));
-    var data_len: usize = 0;
+    var pixels: lib.String = undefined;
     try testing.expectEqual(Result.success, kitty_graphics_c.image_get(
         kitty_graphics_c.image_get_handle(graphics, 2),
-        .data_len,
-        @ptrCast(&data_len),
+        .pixels,
+        @ptrCast(&pixels),
     ));
-    try testing.expectEqual(8, data_len);
-    var data_ptr: [*]const u8 = undefined;
-    try testing.expectEqual(Result.success, kitty_graphics_c.image_get(
-        kitty_graphics_c.image_get_handle(graphics, 2),
-        .data_ptr,
-        @ptrCast(&data_ptr),
-    ));
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255, 0, 0, 0, 255 }, data_ptr[0..8]);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255, 0, 0, 0, 255 }, pixels.ptr[0..pixels.len]);
 }

@@ -127,7 +127,7 @@ extern "C" {
  *
  * Images are restored at READY with their pixels pending, and the pixels
  * arrive later through ghostty_snapshot_decoder_next(). A pending image can
- * be placed and queried, but GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns
+ * be placed and queried, but GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns
  * GHOSTTY_NO_VALUE for it until its pixels arrive. When they do, the
  * image keeps its GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, but
  * GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes, so a renderer that
@@ -438,8 +438,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * These images can be placed and queried right away, but their pixels
    * arrive later through ghostty_snapshot_decoder_next(). Until then,
-   * GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_DATA_PTR returns GHOSTTY_NO_VALUE for
-   * them.
+   * GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns GHOSTTY_NO_VALUE for them.
    * This value becomes available after READY validates, and is zero in a
    * library built without Kitty graphics.
    *

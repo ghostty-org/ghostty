@@ -35,7 +35,7 @@ int main() {
       (GhosttyMousePosition){.x = 50.0f, .y = 40.0f});
 
   // Encode the mouse event
-  char buf[128];
+  uint8_t buf[128];
   size_t written = 0;
   result = ghostty_mouse_encoder_encode(encoder, event,
       buf, sizeof(buf), &written);

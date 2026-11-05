@@ -1450,9 +1450,27 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *  (uint32_t). Returns 0 if the cell has no text. */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN = 3,
 
-  /** Write grapheme codepoints into a caller-provided buffer (uint32_t*).
-   *  The buffer must be at least graphemes_len elements. The base codepoint
-   *  is written first, followed by any extra codepoints. */
+  /**
+   * Copy the cell's grapheme codepoints into a buffer you provide
+   * (GhosttyCodepointBuffer).
+   *
+   * The base codepoint comes first, followed by any extra codepoints. Up
+   * to cap codepoints are written, and len is set to the total number of
+   * codepoints in the cell. If they do not all fit, this returns
+   * GHOSTTY_OUT_OF_SPACE and the buffer holds the first cap of them. A
+   * cell with no text returns GHOSTTY_SUCCESS with len set to 0.
+   *
+   * @code{.c}
+   * uint32_t codepoints[16];
+   * GhosttyCodepointBuffer graphemes = {.ptr = codepoints, .cap = 16};
+   * GhosttyResult result = ghostty_render_state_row_cells_get(
+   *     cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, &graphemes);
+   * if (result == GHOSTTY_OUT_OF_SPACE) {
+   *   // The cell has graphemes.len codepoints, but only the first 16
+   *   // were written. Retry with a larger buffer to get the rest.
+   * }
+   * @endcode
+   */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF = 4,
 
   /** The resolved background color of the cell (GhosttyColorRgb).

@@ -219,16 +219,34 @@ GHOSTTY_API void ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
  * Encode a mouse event into a terminal escape sequence.
  *
  * Not all mouse events produce output. In such cases this returns
- * GHOSTTY_SUCCESS with out_len set to 0.
+ * GHOSTTY_SUCCESS with @p out_written set to 0.
  *
- * If the output buffer is too small, this returns GHOSTTY_OUT_OF_SPACE
- * and out_len contains the required size.
+ * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
+ * @p out_written to the size needed. The buffer may then hold part of the
+ * sequence, which you should discard. To get the size without encoding
+ * anything, pass NULL for @p buf and 0 for @p buf_len. An event with no
+ * output still returns GHOSTTY_SUCCESS in that case, because it needs no
+ * space.
+ *
+ * A 128-byte buffer is enough for typical events:
+ *
+ * @code{.c}
+ * uint8_t buf[128];
+ * size_t written = 0;
+ * if (ghostty_mouse_encoder_encode(encoder, event, buf, sizeof(buf),
+ *                                  &written) == GHOSTTY_SUCCESS &&
+ *     written > 0) {
+ *   write(pty_fd, buf, written);
+ * }
+ * @endcode
  *
  * @param encoder The encoder handle, must not be NULL
  * @param event The mouse event to encode, must not be NULL
- * @param out_buf Buffer to write encoded bytes to, or NULL to query required size
- * @param out_buf_size Size of out_buf in bytes
- * @param out_len Pointer to store bytes written (or required bytes on failure)
+ * @param buf Buffer to write the sequence into. May be NULL if @p buf_len
+ *            is 0.
+ * @param buf_len Size of @p buf in bytes
+ * @param[out] out_written The number of bytes written, or the size needed
+ *             if the result is GHOSTTY_OUT_OF_SPACE. Must not be NULL.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if buffer is too small,
  *         or another error code
  *
@@ -236,8 +254,8 @@ GHOSTTY_API void ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
  */
 GHOSTTY_API GhosttyResult ghostty_mouse_encoder_encode(GhosttyMouseEncoder encoder,
                                            GhosttyMouseEvent event,
-                                           char *out_buf,
-                                           size_t out_buf_size,
-                                           size_t *out_len);
+                                           uint8_t *buf,
+                                           size_t buf_len,
+                                           size_t *out_written);
 
 #endif /* GHOSTTY_VT_MOUSE_ENCODER_H */

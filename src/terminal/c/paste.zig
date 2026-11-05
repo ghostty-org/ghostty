@@ -39,7 +39,7 @@ pub const Request = extern struct {
 pub fn terminal_paste(
     terminal_: Terminal,
     req_: ?*const Request,
-    out_written: ?*bool,
+    out_pasted: ?*bool,
 ) callconv(lib.calling_conv) Result {
     const wrapper = terminal_ orelse return .invalid_value;
     const req = req_ orelse return .invalid_value;
@@ -86,7 +86,7 @@ pub fn terminal_paste(
         error.Canceled,
         => .io_error,
     };
-    if (out_written) |ptr| ptr.* = written;
+    if (out_pasted) |ptr| ptr.* = written;
     return .success;
 }
 
@@ -222,6 +222,10 @@ test "encode with null buffer" {
     const result = encode(input.ptr, input.len, true, null, 0, &written);
     try testing.expectEqual(.out_of_space, result);
     try testing.expectEqual(17, written);
+
+    // An empty result fits, so the size query succeeds.
+    try testing.expectEqual(.success, encode(null, 0, false, null, 0, &written));
+    try testing.expectEqual(0, written);
 }
 
 test "is_safe with safe data" {
@@ -423,7 +427,7 @@ test "terminal_paste text and unsafe" {
     defer terminal_c.free(t);
     try testing.expectEqual(Result.success, terminal_c.set(t, .write_pty, @ptrCast(&S.writePty)));
 
-    // Plain text, NULL out_written pointer is fine. The text is read
+    // Plain text, NULL out_pasted pointer is fine. The text is read
     // once, the image never.
     var contents: S.Contents = .init(&.{
         .{ "image/png", "\x89PNG" },

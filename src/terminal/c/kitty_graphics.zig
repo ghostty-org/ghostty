@@ -190,8 +190,8 @@ pub const ImageData = enum(c_int) {
     height = 4,
     format = 5,
     compression = 6,
-    data_ptr = 7,
-    data_len = 8,
+    pixels = 7,
+    expected_len = 8,
     generation = 9,
 
     _,
@@ -202,8 +202,8 @@ pub const ImageData = enum(c_int) {
             .id, .number, .width, .height => u32,
             .format => ImageFormat,
             .compression => ImageCompression,
-            .data_ptr => [*]const u8,
-            .data_len => usize,
+            .pixels => lib.String,
+            .expected_len => usize,
             .generation => u64,
             _ => void,
         };
@@ -303,8 +303,8 @@ fn imageGetTyped(
         // For animated images this is the current animation frame's
         // data; the image generation changes whenever the current
         // frame does, so generation-keyed caches stay coherent.
-        .data_ptr => out.* = (image.renderData().bytes() orelse return .no_value).ptr,
-        .data_len => out.* = image.renderData().len(),
+        .pixels => out.* = .init(image.renderData().bytes() orelse return .no_value),
+        .expected_len => out.* = image.renderData().len(),
         .generation => out.* = image.generation,
         _ => comptime unreachable,
     }
@@ -1048,9 +1048,9 @@ test "image_get_handle and image_get with transmitted image" {
     try testing.expectEqual(Result.success, image_get(img, .compression, @ptrCast(&comp)));
     try testing.expectEqual(.none, comp);
 
-    var data_len: usize = undefined;
-    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
-    try testing.expect(data_len > 0);
+    var expected_len: usize = undefined;
+    try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&expected_len)));
+    try testing.expect(expected_len > 0);
 }
 
 test "image_get exposes pending metadata without a data pointer" {
@@ -1089,20 +1089,24 @@ test "image_get exposes pending metadata without a data pointer" {
     try testing.expectEqual(Result.success, image_get(img, .number, @ptrCast(&number)));
     try testing.expectEqual(@as(u32, 7), number);
 
-    var data_len: usize = 0;
-    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
-    try testing.expectEqual(@as(usize, 12), data_len);
+    // Pending: the expected length is known, the pixels are not.
+    var expected_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&expected_len)));
+    try testing.expectEqual(@as(usize, 12), expected_len);
 
-    var data_ptr: [*]const u8 = undefined;
-    try testing.expectEqual(Result.no_value, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
+    var image_pixels: lib.String = undefined;
+    try testing.expectEqual(Result.no_value, image_get(img, .pixels, @ptrCast(&image_pixels)));
 
     const pixels = try alloc.alloc(u8, 12);
     @memset(pixels, '*');
     try testing.expect(pending.complete(graphics, testing.io, pixels));
     const completed_img = image_get_handle(graphics, 42);
     try testing.expect(completed_img != null);
-    try testing.expectEqual(Result.success, image_get(completed_img, .data_ptr, @ptrCast(&data_ptr)));
-    try testing.expectEqualSlices(u8, pixels, data_ptr[0..data_len]);
+    // Complete: the pixels carry their length, equal to the expected one.
+    try testing.expectEqual(Result.success, image_get(completed_img, .pixels, @ptrCast(&image_pixels)));
+    try testing.expectEqualSlices(u8, pixels, image_pixels.ptr[0..image_pixels.len]);
+    try testing.expectEqual(Result.success, image_get(completed_img, .expected_len, @ptrCast(&expected_len)));
+    try testing.expectEqual(image_pixels.len, expected_len);
 }
 
 test "placement_rect with transmit and display" {
@@ -2006,7 +2010,7 @@ test "image generation detects same-sized retransmission" {
         try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen1)));
         try testing.expectEqual(Result.success, image_get(img, .width, @ptrCast(&w1)));
         try testing.expectEqual(Result.success, image_get(img, .height, @ptrCast(&h1)));
-        try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&len1)));
+        try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&len1)));
         try testing.expect(gen1 > 0);
     }
 
@@ -2027,7 +2031,7 @@ test "image generation detects same-sized retransmission" {
         try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen2)));
         try testing.expectEqual(Result.success, image_get(img, .width, @ptrCast(&w2)));
         try testing.expectEqual(Result.success, image_get(img, .height, @ptrCast(&h2)));
-        try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&len2)));
+        try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&len2)));
 
         // Size heuristics are identical...
         try testing.expectEqual(w1, w2);
@@ -2114,13 +2118,9 @@ test "image compression and format always report decoded data" {
     try testing.expectEqual(.none, comp);
 
     // Data is the decoded pixels: width * height * bpp.
-    var data_len: usize = 0;
-    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
-    try testing.expectEqual(3, data_len);
-
-    var data_ptr: [*]const u8 = undefined;
-    try testing.expectEqual(Result.success, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
-    try testing.expectEqualSlices(u8, &.{ 0xFF, 0x00, 0x00 }, data_ptr[0..data_len]);
+    var pixels: lib.String = undefined;
+    try testing.expectEqual(Result.success, image_get(img, .pixels, @ptrCast(&pixels)));
+    try testing.expectEqualSlices(u8, &.{ 0xFF, 0x00, 0x00 }, pixels.ptr[0..pixels.len]);
 }
 
 test "generation never recurs across resets and screen switches" {
@@ -2216,10 +2216,10 @@ test "animation_tick advances a running animation" {
         fn read(g: KittyGraphics) !@This() {
             const img = image_get_handle(g, 1) orelse return error.TestUnexpectedResult;
             var gen: u64 = 0;
-            var ptr: [*]const u8 = undefined;
+            var pixels: lib.String = undefined;
             try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen)));
-            try testing.expectEqual(Result.success, image_get(img, .data_ptr, @ptrCast(&ptr)));
-            return .{ .gen = gen, .pixel = ptr[0..4].* };
+            try testing.expectEqual(Result.success, image_get(img, .pixels, @ptrCast(&pixels)));
+            return .{ .gen = gen, .pixel = pixels.ptr[0..4].* };
         }
     };
     const red: [4]u8 = .{ 255, 0, 0, 255 };

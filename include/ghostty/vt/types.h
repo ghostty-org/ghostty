@@ -438,6 +438,32 @@ typedef struct {
 } GhosttyCodepoints;
 
 /**
+ * A buffer you provide for the library to fill with Unicode codepoints.
+ *
+ * Set ptr to an array of uint32_t and cap to the number of elements it
+ * holds. The library writes up to cap codepoints and sets len to the total
+ * number available. When len is greater than cap, the call returns
+ * GHOSTTY_OUT_OF_SPACE and ptr holds only the first cap codepoints.
+ *
+ * To learn the count without copying anything, set ptr to NULL and cap to
+ * 0, then read len.
+ *
+ * This struct has a frozen layout and will not gain fields in future
+ * versions.
+ */
+typedef struct {
+  /** Where codepoints are written. May be NULL when cap is 0. */
+  uint32_t* ptr;
+
+  /** Number of uint32_t elements ptr can hold. */
+  size_t cap;
+
+  /** Set by the library to the total number of codepoints, whether or not
+   *  they all fit. */
+  size_t len;
+} GhosttyCodepointBuffer;
+
+/**
  * Initialize a sized struct to zero and set its size field.
  *
  * Sized structs use a `size` field as the first member for ABI

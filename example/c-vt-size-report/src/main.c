@@ -10,7 +10,7 @@ int main() {
     .cell_height = 18,
   };
 
-  char buf[64];
+  uint8_t buf[64];
   size_t written = 0;
 
   GhosttyResult result = ghostty_size_report_encode(

@@ -351,6 +351,18 @@ test "encode: kitty ctrl release with ctrl mod set" {
         &required,
     ));
 
+    // An undersized buffer reports the same required size
+    var small: [4]u8 = undefined;
+    var small_written: usize = 0;
+    try testing.expectEqual(Result.out_of_space, encode(
+        encoder,
+        event,
+        &small,
+        small.len,
+        &small_written,
+    ));
+    try testing.expectEqual(required, small_written);
+
     // Encode the key event
     var buf: [128]u8 = undefined;
     var written: usize = 0;
