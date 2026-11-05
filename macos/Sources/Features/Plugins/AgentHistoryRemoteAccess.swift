@@ -197,13 +197,21 @@ struct AgentHistoryRemoteAccess: Sendable {
         return Self.parseBatchStream(output)
     }
 
-    func read(path: String, maximumBytes: Int) async throws -> Data {
-        guard Self.validRemotePath(path), maximumBytes > 0 else {
+    struct TranscriptPrefix {
+        let data: Data
+        let wasTruncated: Bool
+    }
+
+    func readTranscript(path: String, maximumBytes: Int) async throws -> TranscriptPrefix {
+        guard Self.validRemotePath(path), maximumBytes > 0, maximumBytes < Int.max else {
             throw AgentHistoryRemoteError.invalidPath
         }
-        let command = "head -c \(maximumBytes) \(Self.shellQuote(path)) 2>/dev/null | sed '$d'"
+        // One extra byte distinguishes EOF from a bounded prefix without
+        // deleting the last complete line of short transcripts.
+        let command = "head -c \(maximumBytes + 1) \(Self.shellQuote(path)) 2>/dev/null"
         let output = try await runCommand(command)
-        return Data(output.utf8)
+        let data = Data(output.utf8)
+        return .init(data: Data(data.prefix(maximumBytes)), wasTruncated: data.count > maximumBytes)
     }
 
     struct PromptTail: Sendable {

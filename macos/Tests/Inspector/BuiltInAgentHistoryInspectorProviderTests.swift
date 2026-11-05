@@ -930,7 +930,7 @@ struct AgentHistoryInspectorTests {
         #expect(AgentHistoryStore.cleanMeaningfulText(isolatedPath) == "[Image/Attachment]")
     }
 
-    @Test func agentHistoryOmitsInjectedContentAndCodexCommentary() async throws {
+    @Test func agentHistoryOmitsInjectedContentAndKeepsCodexCommentary() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let codexRoot = root.appendingPathComponent("codex")
@@ -963,9 +963,11 @@ struct AgentHistoryInspectorTests {
             #expect(session.title == "Real request")
             let transcript = await AgentHistoryStore.transcript(for: session)
             #expect(transcript.messages.map(\.text) == (session.agent == .codex
-                ? ["Real request", "Final answer"] : ["Real request", "Answer"]))
+                ? ["Real request", "Intermediate update\n\nFinal answer"] : ["Real request", "Answer"]))
             #expect(session.previewSnippet?.contains("injected") == false)
-            #expect(session.previewSnippet?.contains("Intermediate update") == false)
+            if session.agent == .codex {
+                #expect(session.previewSnippet?.contains("Intermediate update") == true)
+            }
         }
     }
 
@@ -1057,6 +1059,209 @@ struct AgentHistoryInspectorTests {
             for: remote, remoteAccess: AgentHistoryRemoteAccess(alias: "host") { _ in data }
         )
         #expect(remoteTranscript.messages.map(\.text) == transcript.messages.map(\.text))
+    }
+
+    @Test func quotedInjectedMarkupRemainsConversation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let question = "Explain this XML: <system-reminder>preserve me</system-reminder>"
+        let answer = "<system-reminder>This is an example in an answer</system-reminder>"
+        let fenced = "```xml\n<system-reminder>quoted code</system-reminder>\n```"
+        let legacyExample = "Example:\n~~~xml\n<environment_context>keep this too</environment_context>\n~~~"
+        let nestedExample = "````text\n````xml\n<environment_context>still code</environment_context>\n````"
+        try writeJSONL([
+            ["type": "session", "id": "quotes", "cwd": "/tmp"],
+            ["type": "message", "message": ["role": "user", "content": question]],
+            ["type": "message", "message": ["role": "assistant", "content": answer]],
+            ["type": "message", "message": ["role": "user", "content": fenced]],
+            ["type": "message", "message": ["role": "user", "content": legacyExample]],
+            ["type": "message", "message": ["role": "user", "content": nestedExample]],
+        ], to: root.appendingPathComponent("2026_quotes.jsonl"))
+        let sessions = await AgentHistoryStore.load(
+            agents: [.pi], rootURLs: [.pi: root], cacheURL: root.appendingPathComponent("cache.json")
+        )
+        let session = try #require(sessions.first)
+        let transcript = await AgentHistoryStore.transcript(for: session)
+        #expect(transcript.messages.map(\.text) == [question, answer, fenced, legacyExample, nestedExample])
+        let matches = await AgentHistoryStore.search(sessions: sessions, query: "preserve me")
+        #expect(matches[session.id] != nil)
+    }
+
+    @Test func interruptedCodexTurnKeepsProgressAndMergesItsMessages() async throws {
+        let session = AgentHistorySession(
+            agent: .codex, conversationID: try #require(AgentConversationID("interrupted")),
+            title: "Interrupted", workingDirectory: "/tmp", updatedAt: Date(),
+            sourcePath: "/unused", isActive: false
+        )
+        let records: [[String: Any]] = [
+            ["type": "response_item", "payload": ["role": "user", "content": "Question"]],
+            ["type": "response_item", "payload": ["role": "assistant", "phase": "commentary", "content": "Progress one"]],
+            ["type": "response_item", "payload": ["role": "assistant", "phase": "commentary", "content": "Progress two"]],
+            ["type": "event_msg", "payload": ["type": "turn_aborted"]],
+        ]
+        let data = try records.reduce(into: Data()) { data, record in
+            data.append(try JSONSerialization.data(withJSONObject: record))
+            data.append(10)
+        }
+        var next: Data? = data
+        let transcript = AgentHistoryStore.parseTranscript(session: session) {
+            defer { next = nil }
+            return next
+        }
+        #expect(transcript.messages.map(\.text) == ["Question", "Progress one\n\nProgress two"])
+        #expect(!transcript.wasTruncated)
+    }
+
+    @Test func searchReturnsBeforeReadingTheRemainderAndIgnoresCase() {
+        for agent in [SupportedAgent.codex, .claude, .pi] {
+            var reads = 0
+            let result = AgentHistoryStore.firstTranscriptMatch(query: "needle", agent: agent) {
+                reads += 1
+                if reads > 1 {
+                    Issue.record("Search read past its first matching record")
+                    return nil
+                }
+                return Data("{\"type\":\"user\",\"content\":\"NEEDLE\"}\n".utf8)
+            }
+            #expect(result == "NEEDLE")
+            #expect(reads == 1)
+        }
+    }
+
+    @Test func oversizedRecordDoesNotHideTheFollowingMessage() throws {
+        let session = AgentHistorySession(
+            agent: .codex, conversationID: try #require(AgentConversationID("oversized")),
+            title: "Oversized", workingDirectory: "/tmp", updatedAt: Date(),
+            sourcePath: "/unused", isActive: false
+        )
+        var remainingChunks = 66
+        let transcript = AgentHistoryStore.parseTranscript(session: session) {
+            defer { remainingChunks -= 1 }
+            if remainingChunks > 0 { return Data(repeating: 97, count: 64 * 1_024) }
+            if remainingChunks == 0 {
+                return Data("\n{\"type\":\"user\",\"content\":\"Surviving message\"}\n".utf8)
+            }
+            return nil
+        }
+        #expect(transcript.messages.map(\.text) == ["Surviving message"])
+        #expect(transcript.wasTruncated)
+    }
+
+    @Test func transcriptByteLimitStopsReadingAtItsBoundary() throws {
+        let session = AgentHistorySession(
+            agent: .codex, conversationID: try #require(AgentConversationID("byte-limit")),
+            title: "Limit", workingDirectory: "/tmp", updatedAt: Date(),
+            sourcePath: "/unused", isActive: false
+        )
+        var reads = 0
+        let transcript = AgentHistoryStore.parseTranscript(session: session) {
+            reads += 1
+            return Data(repeating: 97, count: 64 * 1_024)
+        }
+        #expect(reads == 129)
+        #expect(transcript.wasTruncated)
+    }
+
+    @Test func transcriptExactlyAtByteLimitDoesNotReportFalseTruncation() throws {
+        let session = AgentHistorySession(
+            agent: .codex, conversationID: try #require(AgentConversationID("exact-limit")),
+            title: "Exact limit", workingDirectory: "/tmp", updatedAt: Date(),
+            sourcePath: "/unused", isActive: false
+        )
+        let start = "{\"type\":\"event_msg\",\"text\":\""
+        let end = "\"}\n"
+        let padding = Data((start + String(repeating: "x", count: 64 * 1_024 - start.utf8.count - end.utf8.count) + end).utf8)
+        var reads = 0
+        let transcript = AgentHistoryStore.parseTranscript(session: session) {
+            reads += 1
+            return reads <= 128 ? padding : nil
+        }
+        #expect(reads == 129)
+        #expect(!transcript.wasTruncated)
+    }
+
+    @Test func compactionOutsideHeaderDoesNotLeakIntoPreview() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeJSONL([
+            ["type": "session_meta", "payload": ["id": "boundary", "cwd": "/tmp"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": "Real request"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "assistant",
+                "phase": "final_answer", "id": "summary",
+                "internal_chat_message_metadata_passthrough": ["turn_id": "turn"],
+                "content": "## Active Task\nboundary-secret"]],
+            ["type": "event_msg", "payload": ["type": "noise", "text": String(repeating: "x", count: 2 * 1_024 * 1_024)]],
+            ["type": "token_usage_record", "payload": ["turn_id": "turn", "response_id": "response"]],
+            ["type": "compacted", "payload": ["compaction_response_id": "response"]],
+        ], to: root.appendingPathComponent("2026/01/01/rollout-boundary.jsonl"))
+        let sessions = await AgentHistoryStore.load(
+            agents: [.codex], rootURLs: [.codex: root], cacheURL: root.appendingPathComponent("cache.json")
+        )
+        let session = try #require(sessions.first)
+        #expect(session.previewSnippet == "Real request")
+        let transcript = await AgentHistoryStore.transcript(for: session)
+        #expect(transcript.messages.map(\.text) == ["Real request"])
+        #expect(!transcript.wasTruncated)
+        #expect(await AgentHistoryStore.search(sessions: sessions, query: "boundary-secret").isEmpty)
+    }
+
+    @Test func remoteTranscriptPreservesItsFinalLineAndReportsTruncation() async throws {
+        let record = "{\"type\":\"user\",\"content\":\"Final line\"}"
+        let full = AgentHistoryRemoteAccess(alias: "host") { _ in record }
+        let prefix = try await full.readTranscript(path: "/home/test/session.jsonl", maximumBytes: 1_024)
+        #expect(String(data: prefix.data, encoding: .utf8) == record)
+        #expect(!prefix.wasTruncated)
+        let cut = try await full.readTranscript(path: "/home/test/session.jsonl", maximumBytes: record.utf8.count - 1)
+        #expect(cut.wasTruncated)
+        #expect(cut.data.count == record.utf8.count - 1)
+    }
+
+    @Test func unresolvedCompactionAtCutoffIsWithheldAcrossChunkBoundaries() throws {
+        let session = AgentHistorySession(
+            agent: .codex, conversationID: try #require(AgentConversationID("cutoff")),
+            title: "Cutoff", workingDirectory: "/tmp", updatedAt: Date(), sourcePath: "/unused", isActive: false
+        )
+        let records: [[String: Any]] = [
+            ["type": "response_item", "payload": ["role": "user", "content": "真实请求"]],
+            ["type": "response_item", "payload": ["type": "message", "id": "pending",
+                "role": "assistant", "phase": "final_answer",
+                "internal_chat_message_metadata_passthrough": ["turn_id": "turn"],
+                "content": "## Active Task\nUnresolved summary"]],
+        ]
+        let data = try records.reduce(into: Data()) { data, record in
+            data.append(try JSONSerialization.data(withJSONObject: record))
+            data.append(10)
+        }
+        var offset = 0
+        let transcript = AgentHistoryStore.parseTranscript(session: session, sourceWasTruncated: true) {
+            guard offset < data.count else { return nil }
+            let end = min(offset + 7, data.count)
+            defer { offset = end }
+            return data.subdata(in: offset..<end)
+        }
+        #expect(transcript.messages.map(\.text) == ["真实请求"])
+        #expect(transcript.wasTruncated)
+    }
+
+    @Test func completeHeaderKeepsAnOrdinaryFinalAnswer() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeJSONL([
+            ["type": "session_meta", "payload": ["id": "complete", "cwd": "/tmp"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": "Question"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "assistant",
+                "phase": "final_answer", "id": "answer",
+                "internal_chat_message_metadata_passthrough": ["turn_id": "turn"],
+                "content": "Ordinary final answer"]],
+        ], to: root.appendingPathComponent("2026/01/01/rollout-complete.jsonl"))
+        let sessions = await AgentHistoryStore.load(
+            agents: [.codex], rootURLs: [.codex: root], cacheURL: root.appendingPathComponent("cache.json")
+        )
+        let session = try #require(sessions.first)
+        #expect(session.previewSnippet?.contains("Ordinary final answer") == true)
+        let transcript = await AgentHistoryStore.transcript(for: session)
+        #expect(transcript.messages.map(\.text) == ["Question", "Ordinary final answer"])
+        #expect(!transcript.wasTruncated)
     }
 
     @Test func remoteMetadataOverridesGenericSessionFilename() async throws {

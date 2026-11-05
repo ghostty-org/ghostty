@@ -132,12 +132,19 @@ a corner badge (an overlay, so the glyph stays centered) whenever any
 non-default choice is active.
 
 Transcript titles, previews, searches and messages omit known injected
-instruction and local-command blocks. Codex assistant messages with an explicit
-non-final phase are omitted; older records without a phase remain visible.
+instruction and local-command blocks from user content. Local-command and
+system-reminder wrappers are removed only at the start of a user content block;
+inline quotations, fenced examples and assistant answers retain their text.
+Codex progress messages remain visible and adjacent assistant messages from the
+same turn are combined, including interrupted turns without a final answer.
 Codex compaction summaries are identified by their response and compaction
-records, so an ordinary answer with the same heading remains visible.
-Local and SSH history use the same text filtering, and the metadata cache is
-versioned so previously generated titles are refreshed.
+records in a single pass, so an ordinary answer with the same heading remains
+visible. An unresolved final assistant record at the end of a bounded prefix
+is withheld until its classification is known. Local and SSH transcript views
+bound content to 8 MiB, skip individual records over 4 MiB, and report truncation.
+Deep search can stop at its first match without a full-file pre-scan. Remote
+reads retain their final complete line and explicitly detect a byte cutoff.
+The metadata cache is versioned so previously generated titles are refreshed.
 
 Folder and time scopes narrow the list before the Agent filter. `This Folder`
 matches the presented pane's working directory and every subfolder, so a

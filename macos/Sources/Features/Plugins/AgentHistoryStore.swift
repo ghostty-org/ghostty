@@ -55,7 +55,8 @@ enum AgentHistoryStore {
     private static let maximumFiles = 200_000
     private static let maximumHeaderCandidates = 20_000
     private static let maximumHeaderBytes = 2 * 1_024 * 1_024
-    private static let maximumTranscriptBytes = 2 * 1_024 * 1_024
+    private static let maximumTranscriptBytes = 8 * 1_024 * 1_024
+    private static let maximumRecordBytes = 4 * 1_024 * 1_024
     private static let maximumTranscriptMessages = 500
     private static let maximumTranscriptCharacters = 500_000
     private static let maximumMessageCharacters = 16_000
@@ -202,7 +203,7 @@ enum AgentHistoryStore {
         }
         if let alias = session.remoteHost {
             let access = remoteAccess ?? AgentHistoryRemoteAccess(alias: alias)
-            guard let data = try? await access.read(
+            guard let prefix = try? await access.readTranscript(
                 path: session.sourcePath,
                 maximumBytes: 8 * 1_024 * 1_024
             ) else {
@@ -213,9 +214,9 @@ enum AgentHistoryStore {
                 )
             }
             return parseTranscript(
-                data: data,
+                data: prefix.data,
                 session: session,
-                sourceWasTruncated: data.count == 8 * 1_024 * 1_024
+                sourceWasTruncated: prefix.wasTruncated
             )
         }
         let diskTask = Task.detached(priority: .utility) {
@@ -307,7 +308,8 @@ enum AgentHistoryStore {
                           matches[session.id] == nil else { continue }
                     if let snippet = firstTranscriptMatch(
                         at: URL(fileURLWithPath: session.sourcePath),
-                        query: needle
+                        query: needle,
+                        agent: session.agent
                     ) {
                         matches[session.id] = snippet
                         continuation.yield(matches)
@@ -322,7 +324,7 @@ enum AgentHistoryStore {
     }
 
     private struct DiskCache: Codable {
-        static let currentVersion = 6
+        static let currentVersion = 7
         var version: Int = currentVersion
         struct Entry: Codable {
             let session: AgentHistorySession
@@ -589,12 +591,9 @@ enum AgentHistoryStore {
     nonisolated private static func session(
         from candidate: Candidate
     ) -> AgentHistorySession? {
-        let records = headerRecords(
-            at: candidate.url,
-            maximumBytes: maximumHeaderBytes
-        )
+        let header = headerSnapshot(at: candidate.url, maximumBytes: maximumHeaderBytes)
+        let records = header.records
         guard !records.isEmpty else { return nil }
-        let compactedIDs = compactionMessageIDs(records)
 
         let metadataID: AgentConversationID? = if let keyPath =
             candidate.source.idKeyPath {
@@ -641,8 +640,7 @@ enum AgentHistoryStore {
         let userTitle = records.lazy.compactMap { record -> String? in
             guard role(of: record) == .user else { return nil }
             return text(of: record)
-        }.compactMap { raw -> String? in
-            let cleaned = cleanMeaningfulText(raw)
+        }.compactMap { cleaned -> String? in
             guard !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { return nil }
             return cleaned
         }.first
@@ -652,10 +650,8 @@ enum AgentHistoryStore {
             conversationID: conversationID
         )
 
-        let previewSnippet = records.lazy.compactMap { record -> String? in
-            guard !isCompactionMessage(record, ids: compactedIDs),
-                  role(of: record) != nil, let raw = text(of: record) else { return nil }
-            let cleaned = cleanMeaningfulText(raw)
+        let previewSnippet = conversationRecords(records, agent: candidate.source.agent, isComplete: header.isComplete).lazy.compactMap { record -> String? in
+            guard role(of: record) != nil, let cleaned = text(of: record) else { return nil }
             return cleaned.isEmpty || cleaned == "[Image/Attachment]" ? nil : String(cleaned.prefix(1_000))
         }.prefix(10).joined(separator: "\n")
 
@@ -676,167 +672,86 @@ enum AgentHistoryStore {
         session: AgentHistorySession,
         sourceWasTruncated: Bool = false
     ) -> AgentHistoryTranscript {
-        var messages: [AgentHistoryMessage] = []
-        var characterCount = 0
-        var truncated = sourceWasTruncated
-        let delimiter = UInt8(ascii: "\n")
-        var messageIndex = 0
-        var buffer = data
-        let compactedIDs = session.agent == .codex
-            ? compactionMessageIDs(headerRecords(from: data)) : []
-
-        while let newlineIndex = buffer.firstIndex(of: delimiter) {
-            let lineData = buffer[buffer.startIndex..<newlineIndex]
-            buffer = buffer[buffer.index(after: newlineIndex)...]
-
-            guard lineData.count > 10,
-                  let lineString = String(data: lineData, encoding: .utf8),
-                  lineString.contains("\"role\"") || lineString.contains("\"type\""),
-                  let record = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  !isCompactionMessage(record, ids: compactedIDs),
-                  let role = role(of: record),
-                  let rawText = text(of: record) else { continue }
-            let cleaned = cleanMeaningfulText(rawText)
-            guard !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { continue }
-
-            if messages.count >= maximumTranscriptMessages ||
-                characterCount >= maximumTranscriptCharacters {
-                truncated = true
-                break
-            }
-            let remaining = maximumTranscriptCharacters - characterCount
-            let limit = min(maximumMessageCharacters, remaining)
-            let value = String(cleaned.prefix(limit))
-            if value.count < cleaned.count { truncated = true }
-            characterCount += value.count
-
-            messages.append(.init(
-                id: "\(session.id):\(messageIndex)",
-                role: role,
-                text: value,
-                timestamp: timestamp(of: record)
-            ))
-            messageIndex += 1
+        var offset = 0
+        return parseTranscript(session: session, sourceWasTruncated: sourceWasTruncated) {
+            guard offset < data.count else { return nil }
+            let end = min(offset + 64 * 1_024, data.count)
+            defer { offset = end }
+            return data.subdata(in: offset..<end)
         }
-
-        if !truncated && !buffer.isEmpty,
-           let lineString = String(data: buffer, encoding: .utf8),
-           lineString.contains("\"role\"") || lineString.contains("\"type\""),
-           let record = try? JSONSerialization.jsonObject(with: buffer) as? [String: Any],
-           !isCompactionMessage(record, ids: compactedIDs),
-           let role = role(of: record),
-           let rawText = text(of: record) {
-            let cleaned = cleanMeaningfulText(rawText)
-            if !cleaned.isEmpty && cleaned != "[Image/Attachment]" {
-                let value = String(cleaned.prefix(maximumMessageCharacters))
-                messages.append(.init(
-                    id: "\(session.id):\(messageIndex)",
-                    role: role,
-                    text: value,
-                    timestamp: timestamp(of: record)
-                ))
-            }
-        }
-
-        return .init(
-            sessionID: session.id,
-            messages: messages,
-            wasTruncated: truncated
-        )
     }
 
-    nonisolated private static func parseTranscript(
-        for session: AgentHistorySession
-    ) -> AgentHistoryTranscript {
+    nonisolated private static func parseTranscript(for session: AgentHistorySession) -> AgentHistoryTranscript {
         let url = URL(fileURLWithPath: session.sourcePath)
         guard let handle = try? FileHandle(forReadingFrom: url) else {
             return .init(sessionID: session.id, messages: [], wasTruncated: false)
         }
         defer { try? handle.close() }
-        let compactedIDs = session.agent == .codex ? compactionMessageIDs(at: url) : []
+        var bytesRead = 0
+        return parseTranscript(session: session) {
+            let count = min(64 * 1_024, max(1, maximumTranscriptBytes - bytesRead))
+            let data = try? handle.read(upToCount: count)
+            bytesRead += data?.count ?? 0
+            return data
+        }
+    }
 
+    nonisolated static func parseTranscript(
+        session: AgentHistorySession,
+        sourceWasTruncated: Bool = false,
+        readChunk: () -> Data?
+    ) -> AgentHistoryTranscript {
+        var filter = ConversationRecordFilter(agent: session.agent)
+        var builder = TranscriptBuilder(session: session)
+        let scan = scanJSONLines(maximumBytes: maximumTranscriptBytes, readChunk: readChunk) { line in
+            guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return true }
+            return filter.consume(record).allSatisfy { builder.append($0) }
+        }
+        if let pending = filter.finish(isComplete: scan.reachedEnd && !sourceWasTruncated) {
+            _ = builder.append(pending)
+        }
+        return .init(sessionID: session.id, messages: builder.messages,
+                     wasTruncated: scan.wasTruncated || sourceWasTruncated || builder.wasTruncated || filter.wasTruncated)
+    }
+
+    private struct TranscriptBuilder {
+        let session: AgentHistorySession
         var messages: [AgentHistoryMessage] = []
         var characterCount = 0
-        var truncated = false
-        var leftover = Data()
-        let delimiter = UInt8(ascii: "\n")
-        var messageIndex = 0
+        var lastTurnID: String?
+        var wasTruncated = false
 
-        while !Task.isCancelled {
-            guard let chunk = try? handle.read(upToCount: 64 * 1024), !chunk.isEmpty else {
-                break
+        mutating func append(_ record: [String: Any]) -> Bool {
+            guard let role = AgentHistoryStore.role(of: record),
+                  let cleaned = AgentHistoryStore.text(of: record),
+                  !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { return true }
+            let payload = record["payload"] as? [String: Any]
+            let metadata = payload?["internal_chat_message_metadata_passthrough"] as? [String: Any]
+            let turnID = metadata?["turn_id"] as? String
+            let merge = session.agent == .codex && role == .assistant && messages.last?.role == .assistant &&
+                turnID == lastTurnID
+            let previous = merge ? messages.last : nil
+            let separator = previous == nil ? "" : "\n\n"
+            let existing = previous?.text ?? ""
+            let remaining = min(AgentHistoryStore.maximumMessageCharacters - existing.count,
+                                AgentHistoryStore.maximumTranscriptCharacters - characterCount)
+            guard merge || messages.count < AgentHistoryStore.maximumTranscriptMessages,
+                  remaining > separator.count else {
+                wasTruncated = true
+                return false
             }
-            var buffer = leftover + chunk
-            leftover = Data()
-
-            while let newlineIndex = buffer.firstIndex(of: delimiter) {
-                let lineData = buffer[buffer.startIndex..<newlineIndex]
-                buffer = buffer[buffer.index(after: newlineIndex)...]
-
-                // Quick pre-check before expensive JSON parsing
-                guard lineData.count > 10,
-                      let lineString = String(data: lineData, encoding: .utf8),
-                      lineString.contains("\"role\"") || lineString.contains("\"type\"") else {
-                    continue
-                }
-                guard let record = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                      !isCompactionMessage(record, ids: compactedIDs),
-                      let role = role(of: record),
-                      let rawText = text(of: record) else {
-                    continue
-                }
-                let cleaned = cleanMeaningfulText(rawText)
-                guard !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { continue }
-
-                if messages.count >= maximumTranscriptMessages ||
-                    characterCount >= maximumTranscriptCharacters {
-                    truncated = true
-                    break
-                }
-                let remaining = maximumTranscriptCharacters - characterCount
-                let limit = min(maximumMessageCharacters, remaining)
-                let value = String(cleaned.prefix(limit))
-                if value.count < cleaned.count { truncated = true }
-                characterCount += value.count
-
-                messages.append(.init(
-                    id: "\(session.id):\(messageIndex)",
-                    role: role,
-                    text: value,
-                    timestamp: timestamp(of: record)
-                ))
-                messageIndex += 1
-            }
-
-            if truncated { break }
-            leftover = buffer
+            let value = String(cleaned.prefix(remaining - separator.count))
+            if value.count < cleaned.count { wasTruncated = true }
+            let message = AgentHistoryMessage(
+                id: previous?.id ?? "\(session.id):\(messages.count)", role: role,
+                text: existing + separator + value,
+                timestamp: previous?.timestamp ?? AgentHistoryStore.timestamp(of: record)
+            )
+            if merge { messages[messages.count - 1] = message } else { messages.append(message) }
+            characterCount += separator.count + value.count
+            lastTurnID = turnID
+            return !wasTruncated
         }
-
-        if !truncated && !leftover.isEmpty && !Task.isCancelled {
-            if let lineString = String(data: leftover, encoding: .utf8),
-               lineString.contains("\"role\"") || lineString.contains("\"type\""),
-               let record = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any],
-               !isCompactionMessage(record, ids: compactedIDs),
-               let role = role(of: record),
-               let rawText = text(of: record) {
-                let cleaned = cleanMeaningfulText(rawText)
-                if !cleaned.isEmpty && cleaned != "[Image/Attachment]" {
-                    let value = String(cleaned.prefix(maximumMessageCharacters))
-                    messages.append(.init(
-                        id: "\(session.id):\(messageIndex)",
-                        role: role,
-                        text: value,
-                        timestamp: timestamp(of: record)
-                    ))
-                }
-            }
-        }
-
-        return .init(
-            sessionID: session.id,
-            messages: messages,
-            wasTruncated: truncated
-        )
     }
 
     nonisolated private static func scanRemote(
@@ -867,7 +782,6 @@ enum AgentHistoryStore {
             if let updatedAfter, chunk.file.modifiedAt < updatedAfter { continue }
             let records = headerRecords(from: chunk.headerData)
             guard !records.isEmpty else { continue }
-            let compactedIDs = compactionMessageIDs(records)
 
             guard let matchedAgent = agents.first(where: { agent in
                 relativeRoots(for: agent).contains { rel in
@@ -930,8 +844,7 @@ enum AgentHistoryStore {
             let userTitle = records.lazy.compactMap { record -> String? in
                 guard role(of: record) == .user else { return nil }
                 return text(of: record)
-            }.compactMap { raw -> String? in
-                let cleaned = cleanMeaningfulText(raw)
+            }.compactMap { cleaned -> String? in
                 guard !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { return nil }
                 return cleaned
             }.first
@@ -940,10 +853,8 @@ enum AgentHistoryStore {
                 workingDirectory: workingDirectory,
                 conversationID: conversationID
             )
-            let previewSnippet = records.lazy.compactMap { record -> String? in
-                guard !isCompactionMessage(record, ids: compactedIDs),
-                      role(of: record) != nil, let raw = text(of: record) else { return nil }
-                let cleaned = cleanMeaningfulText(raw)
+            let previewSnippet = conversationRecords(records, agent: matchedAgent, isComplete: false).lazy.compactMap { record -> String? in
+                guard role(of: record) != nil, let cleaned = text(of: record) else { return nil }
                 return cleaned.isEmpty || cleaned == "[Image/Attachment]"
                     ? nil
                     : String(cleaned.prefix(1_000))
@@ -1063,24 +974,25 @@ enum AgentHistoryStore {
         return name.hasSuffix(".jsonl") || name.hasSuffix(".jsonl.zst")
     }
 
-    nonisolated private static func headerRecords(
+    nonisolated private static func headerSnapshot(
         at url: URL,
         maximumBytes: Int
-    ) -> [[String: Any]] {
-        guard maximumBytes > 0 else { return [] }
+    ) -> (records: [[String: Any]], isComplete: Bool) {
+        guard maximumBytes > 0 else { return ([], false) }
         if url.lastPathComponent.lowercased().hasSuffix(".zst") {
             // Codex archives are single-session rollouts whose metadata sits in
             // the leading records; decompressing less keeps thousands of archive
             // headers affordable.
-            return headerRecords(from: decompressedHeader(
-                at: url,
-                maximumBytes: min(maximumBytes, 64 * 1_024)
-            ))
+            let limit = min(maximumBytes, 64 * 1_024)
+            let data = decompressedHeader(at: url, maximumBytes: limit)
+            return (headerRecords(from: data), data.count < limit)
         }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return ([], false) }
         defer { try? handle.close() }
         var data = (try? handle.read(upToCount: maximumBytes)) ?? Data()
-        if let size = try? handle.seekToEnd(), size > UInt64(data.count) {
+        let size = try? handle.seekToEnd()
+        let isComplete = size.map { $0 <= UInt64(data.count) } ?? false
+        if let size, !isComplete {
             if let newline = data.lastIndex(of: 0x0A) { data = Data(data[...newline]) }
             try? handle.seek(toOffset: size > 128 * 1_024 ? size - 128 * 1_024 : 0)
             let tail = (try? handle.readToEnd()) ?? Data()
@@ -1092,50 +1004,83 @@ enum AgentHistoryStore {
                 data.append(contentsOf: line)
             }
         }
-        return data.split(separator: 0x0A, omittingEmptySubsequences: true)
+        return (data.split(separator: 0x0A, omittingEmptySubsequences: true)
             .compactMap { line -> [String: Any]? in
                 try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
-            }
+            }, isComplete)
     }
 
     nonisolated private static func firstTranscriptMatch(
         at url: URL,
-        query: String
+        query: String,
+        agent: SupportedAgent
     ) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        let compactedIDs = compactionMessageIDs(at: url)
-        let queryData = Data(query.utf8)
-        var leftover = Data()
-        let delimiter = UInt8(ascii: "\n")
+        return firstTranscriptMatch(query: query, agent: agent) { try? handle.read(upToCount: 64 * 1_024) }
+    }
 
-        while !Task.isCancelled {
-            guard let chunk = try? handle.read(upToCount: 128 * 1_024),
-                  !chunk.isEmpty else { break }
-            var buffer = leftover + chunk
-            leftover = Data()
-            while let newlineIndex = buffer.firstIndex(of: delimiter) {
-                let lineData = Data(buffer[buffer.startIndex..<newlineIndex])
-                buffer = buffer[buffer.index(after: newlineIndex)...]
-                guard lineData.range(of: queryData) != nil,
-                      let record = try? JSONSerialization.jsonObject(
-                          with: lineData
-                      ) as? [String: Any],
-                      !isCompactionMessage(record, ids: compactedIDs),
-                      role(of: record) != nil,
-                      let rawText = text(of: record) else { continue }
-                let cleaned = cleanMeaningfulText(rawText)
-                guard let range = cleaned.range(
-                    of: query,
-                    options: .caseInsensitive
-                ) else { continue }
-                return searchSnippet(cleaned, around: range)
-            }
-            // Agent records can be large, but an unbounded malformed line must
-            // not turn one search into unbounded memory growth.
-            leftover = buffer.count <= 4 * 1_024 * 1_024 ? buffer : Data()
+    nonisolated static func firstTranscriptMatch(
+        query: String, agent: SupportedAgent, readChunk: () -> Data?
+    ) -> String? {
+        var filter = ConversationRecordFilter(agent: agent)
+        var match: String?
+        func findMatch(_ record: [String: Any]) -> Bool {
+            guard role(of: record) != nil, let cleaned = text(of: record),
+                  let range = cleaned.range(of: query, options: .caseInsensitive) else { return true }
+            match = searchSnippet(cleaned, around: range)
+            return false
         }
-        return nil
+        let scan = scanJSONLines(readChunk: readChunk, visit: { line in
+            guard let raw = String(data: line, encoding: .utf8) else { return true }
+            let isControl = agent == .codex && ["response_item", "token_usage_record", "compacted", "turn_context", "task_complete", "turn_aborted"]
+                .contains { raw.contains("\"\($0)\"") }
+            guard isControl || raw.range(of: query, options: .caseInsensitive) != nil,
+                  let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return true }
+            return filter.consume(record).allSatisfy(findMatch)
+        })
+        if match == nil, let pending = filter.finish(isComplete: scan.reachedEnd) { _ = findMatch(pending) }
+        return match
+    }
+
+    /// Returns whether input was cut short or an oversized record was skipped.
+    /// Readers can stop on a match without scanning the rest of a session.
+    nonisolated private static func scanJSONLines(
+        maximumBytes: Int = Int.max,
+        readChunk: () -> Data?,
+        visit: (Data) -> Bool
+    ) -> (wasTruncated: Bool, reachedEnd: Bool) {
+        var leftover = Data()
+        var discardingLine = false
+        var truncated = false
+        var count = 0
+        while !Task.isCancelled, let chunk = readChunk(), !chunk.isEmpty {
+            guard count < maximumBytes else { return (true, false) }
+            let available = chunk.prefix(maximumBytes - count)
+            count += available.count
+            var buffer = leftover + available
+            leftover = Data()
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                if !discardingLine && line.count <= maximumRecordBytes {
+                    if !visit(Data(line)) { return (true, false) }
+                } else {
+                    truncated = true
+                }
+                discardingLine = false
+                buffer = buffer[buffer.index(after: newline)...]
+            }
+            if buffer.count > maximumRecordBytes {
+                discardingLine = true
+                truncated = true
+            } else if !discardingLine {
+                leftover = Data(buffer)
+            }
+            if available.count < chunk.count { return (true, false) }
+        }
+        guard !Task.isCancelled else { return (true, false) }
+        if !discardingLine && !leftover.isEmpty && !visit(leftover) { return (true, false) }
+        return (truncated, true)
     }
 
     nonisolated private static func searchSnippet(
@@ -1159,91 +1104,71 @@ enum AgentHistoryStore {
             (end < text.endIndex ? "…" : "")
     }
 
-    // Codex emits its compaction summary as an ordinary final assistant message.
-    // The following usage and compacted records identify the same response.
-    private struct CompactionScanner {
-        var candidateID: String?
-        var candidateTurn: String?
+    // Defer only Codex records that can be compaction summaries, until the next
+    // response item or its compaction marker resolves them. No file pre-pass.
+    private struct ConversationRecordFilter {
+        let agent: SupportedAgent
+        var pending: [String: Any]?
         var responseID: String?
-        var messageIDs: Set<String> = []
+        var wasTruncated = false
 
-        mutating func consume(_ record: [String: Any]) {
+        mutating func consume(_ record: [String: Any]) -> [[String: Any]] {
+            guard agent == .codex else { return [record] }
             let payload = record["payload"] as? [String: Any] ?? [:]
-            switch record["type"] as? String {
-            case "response_item":
-                candidateID = nil
-                candidateTurn = nil
-                responseID = nil
-                guard payload["type"] as? String == "message",
-                      payload["role"] as? String == "assistant",
-                      let metadata = payload["internal_chat_message_metadata_passthrough"] as? [String: Any] else {
-                    return
-                }
-                candidateID = payload["id"] as? String
-                candidateTurn = metadata["turn_id"] as? String
-            case "token_usage_record":
-                guard let candidateTurn, payload["turn_id"] as? String == candidateTurn else { return }
+            let type = record["type"] as? String
+            if type == "compacted", let responseID,
+               payload["compaction_response_id"] as? String == responseID {
+                pending = nil
+                self.responseID = nil
+                return []
+            }
+            if type == "token_usage_record", let pending,
+               let metadata = (pending["payload"] as? [String: Any])?["internal_chat_message_metadata_passthrough"] as? [String: Any],
+               let turnID = metadata["turn_id"] as? String, payload["turn_id"] as? String == turnID {
                 responseID = payload["response_id"] as? String
-            case "compacted":
-                if let candidateID, let responseID,
-                   payload["compaction_response_id"] as? String == responseID {
-                    messageIDs.insert(candidateID)
-                }
-                candidateID = nil
-                candidateTurn = nil
+            }
+            var result: [[String: Any]] = []
+            let completedTurn = type == "event_msg" &&
+                ["task_complete", "turn_aborted"].contains(payload["type"] as? String ?? "")
+            if type == "response_item" || type == "turn_context" || completedTurn || AgentHistoryStore.role(of: record) == .user {
+                if let pending { result.append(pending) }
+                pending = nil
                 responseID = nil
-            default:
-                break
             }
-        }
-    }
-
-    nonisolated private static func compactionMessageIDs(_ records: [[String: Any]]) -> Set<String> {
-        var scanner = CompactionScanner()
-        for record in records { scanner.consume(record) }
-        return scanner.messageIDs
-    }
-
-    nonisolated private static func compactionMessageIDs(at url: URL) -> Set<String> {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
-        defer { try? handle.close() }
-        var scanner = CompactionScanner()
-        var leftover = Data()
-        while !Task.isCancelled,
-              let chunk = try? handle.read(upToCount: 128 * 1_024), !chunk.isEmpty {
-            var buffer = leftover + chunk
-            while let newline = buffer.firstIndex(of: 0x0A) {
-                let line = buffer[buffer.startIndex..<newline]
-                if let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
-                    scanner.consume(record)
-                }
-                buffer = buffer[buffer.index(after: newline)...]
+            if type == "response_item", payload["type"] as? String == "message",
+               payload["role"] as? String == "assistant", payload["phase"] as? String != "commentary",
+               payload["id"] is String,
+               let metadata = payload["internal_chat_message_metadata_passthrough"] as? [String: Any],
+               metadata["turn_id"] is String {
+                pending = record
+            } else {
+                result.append(record)
             }
-            leftover = buffer
+            return result
         }
-        if !leftover.isEmpty,
-           let record = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
-            scanner.consume(record)
+
+        mutating func finish(isComplete: Bool) -> [String: Any]? {
+            defer { pending = nil; responseID = nil }
+            guard isComplete else {
+                if pending != nil { wasTruncated = true }
+                return nil
+            }
+            return pending
         }
-        return scanner.messageIDs
     }
 
-    nonisolated private static func isCompactionMessage(_ record: [String: Any], ids: Set<String>) -> Bool {
-        guard let payload = record["payload"] as? [String: Any],
-              let id = payload["id"] as? String else { return false }
-        return ids.contains(id)
+    nonisolated private static func conversationRecords(
+        _ records: [[String: Any]], agent: SupportedAgent, isComplete: Bool
+    ) -> [[String: Any]] {
+        var filter = ConversationRecordFilter(agent: agent)
+        var result = records.flatMap { filter.consume($0) }
+        if let pending = filter.finish(isComplete: isComplete) { result.append(pending) }
+        return result
     }
 
     nonisolated private static func role(
         of record: [String: Any]
     ) -> AgentHistoryMessageRole? {
-        if record["type"] as? String == "response_item",
-           let payload = record["payload"] as? [String: Any],
-           payload["role"] as? String == "assistant",
-           let phase = payload["phase"] as? String,
-           phase != "final_answer" {
-            return nil
-        }
         let rawRole = (record["message"] as? [String: Any])?["role"] as? String ??
             (record["payload"] as? [String: Any])?["role"] as? String ??
             record["role"] as? String ??
@@ -1256,53 +1181,35 @@ enum AgentHistoryStore {
     }
 
     nonisolated private static func text(of record: [String: Any]) -> String? {
+        let filterInjected = role(of: record) == .user
         if let message = record["message"] as? [String: Any],
-           let text = text(from: message["content"]) {
+           let text = text(from: message["content"], filterInjected: filterInjected) {
             return text
         }
         if let payload = record["payload"] as? [String: Any],
-           let text = text(from: payload["content"]) {
+           let text = text(from: payload["content"], filterInjected: filterInjected) {
             return text
         }
-        if let text = text(from: record["content"]) { return text }
+        if let text = text(from: record["content"], filterInjected: filterInjected) { return text }
         if let humanInput = record["humanInput"] as? [String: Any],
            let text = humanInput["text"] as? String {
-            return text
+            return cleanMeaningfulText(text)
         }
         return nil
     }
 
-    nonisolated private static func text(from value: Any?) -> String? {
-        if let value = value as? String { return value }
+    nonisolated private static func text(from value: Any?, filterInjected: Bool) -> String? {
+        func cleaned(_ value: String) -> String {
+            filterInjected ? cleanMeaningfulText(value) : value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let value = value as? String { return cleaned(value) }
         guard let values = value as? [Any] else { return nil }
-        var parts: [String] = []
-        for item in values {
-            if let item = item as? String {
-                parts.append(item)
-            } else if let item = item as? [String: Any] {
-                guard let text = item["text"] as? String else { continue }
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if isMeaninglessBlockOrInstruction(trimmed) {
-                    continue
-                }
-                parts.append(text)
-            }
-        }
+        let parts = values.compactMap { item -> String? in
+            if let item = item as? String { return cleaned(item) }
+            guard let item = item as? [String: Any], let text = item["text"] as? String else { return nil }
+            return cleaned(text)
+        }.filter { !$0.isEmpty && $0 != "[Image/Attachment]" }
         return parts.isEmpty ? nil : parts.joined(separator: "\n")
-    }
-
-    nonisolated private static func isMeaninglessBlockOrInstruction(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        if lower.hasPrefix("<recommended_plugins") ||
-            lower.hasPrefix("<environment_context") ||
-            lower.hasPrefix("<instructions") ||
-            lower.hasPrefix("# agents.md instructions") ||
-            lower.hasPrefix("agents.md instructions") ||
-            lower.hasPrefix("# files mentioned by the user") ||
-            lower.hasPrefix("files mentioned by the user") {
-            return true
-        }
-        return false
     }
 
     nonisolated private static func timestamp(
@@ -1382,18 +1289,64 @@ enum AgentHistoryStore {
     }
 
     nonisolated static func cleanMeaningfulText(_ raw: String) -> String {
-        var text = raw
-        let blockTags = [
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let injectedTags = [
+            "local-command-caveat", "command-name", "command-message", "command-args",
+            "local-command-stdout", "system-reminder", "external_codex_apps_open_page",
             "recommended_plugins", "environment_context", "instructions",
-            "local-command-caveat", "command-name", "command-message",
-            "command-args", "local-command-stdout", "system-reminder",
-            "external_codex_apps_open_page",
         ]
+        // Only remove these wrappers at the beginning of a user content block.
+        // Inline quotations, fenced examples and assistant answers are content.
+        while let tag = injectedTags.first(where: { text.lowercased().hasPrefix("<\($0)>") }),
+              let end = text.range(of: "</\(tag)>", options: .caseInsensitive) {
+            text = String(text[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var output: [String] = []
+        var prose: [String] = []
+        var fence: String?
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let currentFence = fence {
+                output.append(line)
+                if trimmed.hasPrefix(currentFence),
+                   trimmed.drop(while: { $0 == currentFence.first })
+                    .trimmingCharacters(in: .whitespaces).isEmpty {
+                    fence = nil
+                }
+                continue
+            }
+            let marker = trimmed.first
+            let run = trimmed.prefix { $0 == marker }
+            if (marker == "`" || marker == "~") && run.count >= 3 {
+                if !prose.isEmpty { output.append(cleanUserProse(prose.joined(separator: "\n"))); prose = [] }
+                output.append(line)
+                fence = String(run)
+            } else {
+                prose.append(line)
+            }
+        }
+        if !prose.isEmpty { output.append(cleanUserProse(prose.joined(separator: "\n"))) }
+        return output.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func cleanUserProse(_ raw: String) -> String {
+        var text = raw
+        let blockTags = ["recommended_plugins", "environment_context", "instructions"]
         for tag in blockTags {
-            while let startRange = text.range(of: "<\(tag)>", options: .caseInsensitive),
-                  let endRange = text.range(of: "</\(tag)>", options: .caseInsensitive),
-                  startRange.lowerBound < endRange.upperBound {
-                text.removeSubrange(startRange.lowerBound..<endRange.upperBound)
+            var searchStart = text.startIndex
+            while let startRange = text.range(of: "<\(tag)>", options: .caseInsensitive,
+                                             range: searchStart..<text.endIndex),
+                  let endRange = text.range(of: "</\(tag)>", options: .caseInsensitive,
+                                           range: startRange.upperBound..<text.endIndex) {
+                let lineStart = text[..<startRange.lowerBound].lastIndex(of: "\n")
+                    .map { text.index(after: $0) } ?? text.startIndex
+                if text[lineStart..<startRange.lowerBound].trimmingCharacters(in: .whitespaces).isEmpty {
+                    let offset = text.distance(from: text.startIndex, to: startRange.lowerBound)
+                    text.removeSubrange(startRange.lowerBound..<endRange.upperBound)
+                    searchStart = text.index(text.startIndex, offsetBy: offset)
+                } else {
+                    searchStart = endRange.upperBound
+                }
             }
         }
 
