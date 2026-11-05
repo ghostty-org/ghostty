@@ -137,7 +137,10 @@ final class TerminalTabChromeController {
             observedGroup = group
             if let group {
                 groupObservations = [
-                    group.observe(\.selectedWindow, options: []) { [weak self] _, _ in self?.schedule() },
+                    group.observe(\.selectedWindow, options: []) { [weak self] group, _ in
+                        self?.refreshIconSelection(in: group)
+                        self?.schedule()
+                    },
                     group.observe(\.windows, options: []) { [weak self] _, _ in self?.schedule() },
                     group.observe(\.isTabBarVisible, options: []) { [weak self] _, _ in self?.schedule() },
                 ]
@@ -227,6 +230,15 @@ final class TerminalTabChromeController {
             status.setAccessibilityLabel(help)
             if window.tab.toolTip != help { window.tab.toolTip = help }
         }
+    }
+
+    private func refreshIconSelection(in group: NSWindowTabGroup) {
+        guard let controller, controller.tabLayout == .horizontal,
+              !controller.workspacePresentationIsParked, let window,
+              group.windows.contains(window) else { return }
+        // The native selected-tab border updates synchronously. Keep its icon
+        // in the same transaction; other chrome work can remain coalesced.
+        icon.updateSelection(group.selectedWindow === window)
     }
 
     private func synchronizeTabAccessory(for layout: Ghostty.Config.MacOSTabLayout) {

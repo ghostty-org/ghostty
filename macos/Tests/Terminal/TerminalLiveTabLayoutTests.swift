@@ -245,6 +245,32 @@ struct TerminalLiveTabLayoutTests {
         }
     }
 
+    @Test func horizontalTabIconsFollowTheNativeSelectionAfterRapidCreation() async throws {
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let source = try fixture.tab()
+        source.showWindow(nil)
+        fixture.coordinator.requestTabLayout(.horizontal, from: source)
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = "/bin/sleep 60"
+        let parent = try #require(source.window)
+        for _ in 0..<6 {
+            _ = try #require(TerminalController.newTab(fixture.app, from: parent, withBaseConfig: config, registerUndo: false))
+        }
+        try await Task.sleep(for: .milliseconds(350))
+        let group = try #require(parent.tabGroup)
+        #expect(group.windows.count == 7)
+        for selected in group.windows.reversed() {
+            group.selectedWindow = selected
+            for window in group.windows {
+                let accessory = try #require(window.tab.accessoryView as? NSStackView)
+                let icon = try #require(accessory.arrangedSubviews.compactMap { $0 as? NativeTabIconView }.first)
+                let mark = try #require(icon.subviews.compactMap { $0 as? NSImageView }.first)
+                #expect((mark.contentTintColor == AgentLogoStyle.selectedColor) == (window === selected))
+            }
+        }
+    }
+
     @Test func changingLayoutKeepsWindowsSurfacesAndParkedWorkspaceModes() async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }

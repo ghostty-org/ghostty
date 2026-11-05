@@ -11,6 +11,8 @@ it to search, switch, create or edit a workspace. Each workspace has a name, sym
 and muted accent color. Collapsing the vertical sidebar also hides its workspace
 control; workspace shortcuts remain available. Horizontal tabs use a compact
 workspace control above the terminal content.
+Horizontal tab icon emphasis follows the native selected window immediately,
+including rapid tab creation and selection changes.
 
 - `Control-Command-W`: open the searchable switcher. It initially selects the
   current window's active workspace; Return confirms, arrow keys choose, Escape cancels.
