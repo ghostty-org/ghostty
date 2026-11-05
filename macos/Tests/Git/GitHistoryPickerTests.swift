@@ -5,6 +5,10 @@ import Testing
 
 @MainActor
 struct GitHistoryPickerTests {
+    private final class HoverWindow: NSWindow {
+        override var isKeyWindow: Bool { true }
+    }
+
     @Test func unfavoritedStarsFollowRowHoverAndFavoritesStayVisible() throws {
         let cell = GitCollectionCell(frame: .init(x: 0, y: 0, width: 320, height: 26))
         let branch = GitBranchInfo(name: "main", commit: .init("abc1234"), isCurrent: true,
@@ -87,7 +91,7 @@ struct GitHistoryPickerTests {
         #expect(empty.first?.children.first?.item.title == GitL10n.text("No favorite branches. Star a branch to add it here."))
     }
 
-    @Test func favoriteButtonsUpdateWithoutBrowsingAndPickerStillSelectsCurrentScope() throws {
+    @Test func favoriteButtonsUpdateWithoutBrowsingAndPickerStillSelectsCurrentScope() async throws {
         let suite = "GitHistoryFavoritesPickerTests." + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -100,12 +104,13 @@ struct GitHistoryPickerTests {
         let picker = GitHistoryScopePicker(title: "All branches", branches: branches, enabled: true,
             selectedID: "scope:allBranches", repository: repository) { actions.append($0) }
         let controller = GitHistoryScopePopoverController(content: picker, defaults: defaults) { closed = true }
-        let window = NSWindow(contentRect: .init(origin: .zero, size: controller.preferredContentSize),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HoverWindow(contentRect: .init(origin: .zero, size: controller.preferredContentSize),
+                                 styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         defer { window.contentViewController = nil; window.close() }
         window.makeKeyAndOrderFront(nil)
+        try await Task.sleep(for: .milliseconds(60))
         controller.view.layoutSubtreeIfNeeded()
         let table = try #require(find(GitCollectionTableView.self, in: controller.view).first)
         let coordinator = try #require(table.target as? GitCollectionView.Coordinator)
@@ -119,14 +124,33 @@ struct GitHistoryPickerTests {
         }
         let mainRow = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/main" })
         let featureRow = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/feature/demo" })
+        let mainBackground = try #require(table.rowView(atRow: mainRow, makeIfNecessary: true) as? GitCollectionRowView)
+        let featureBackground = try #require(table.rowView(atRow: featureRow, makeIfNecessary: true) as? GitCollectionRowView)
         let mainStar = try star("refs/heads/main")
         let featureStar = try star("refs/heads/feature/demo")
-        table.setHover(at: NSPoint(x: 40, y: table.rect(ofRow: mainRow).midY))
+        func movePointer(to row: Int, x: CGFloat) throws {
+            let location = table.convert(NSPoint(x: x, y: table.rect(ofRow: row).midY), to: nil)
+            let event = try #require(NSEvent.mouseEvent(
+                with: .mouseMoved, location: location, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 0, pressure: 0
+            ))
+            #expect(event.window === table.window)
+            #expect(window.isKeyWindow && window.isVisible)
+            #expect(!table.isHiddenOrHasHiddenAncestor)
+            #expect(table.visibleRect.contains(table.convert(event.locationInWindow, from: nil)))
+            #expect(NSApp.sendAction(#selector(NSResponder.mouseMoved(with:)), to: table, from: event))
+        }
+        try movePointer(to: mainRow, x: 40)
         #expect(mainStar.showsStar && !featureStar.showsStar)
-        table.setHover(at: NSPoint(x: 40, y: table.rect(ofRow: featureRow).midY))
+        #expect(mainBackground.isPointerHovered && !featureBackground.isPointerHovered)
+        try movePointer(to: mainRow, x: 300)
+        #expect(mainStar.showsStar && !featureStar.showsStar)
+        try movePointer(to: featureRow, x: 40)
         #expect(!mainStar.showsStar && featureStar.showsStar)
+        #expect(!mainBackground.isPointerHovered && featureBackground.isPointerHovered)
         table.clearHover()
         #expect(!mainStar.showsStar && !featureStar.showsStar)
+        #expect(!mainBackground.isPointerHovered && !featureBackground.isPointerHovered)
         try star("HEAD").performClick(nil)
         try star("refs/heads/main").performClick(nil)
         #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["HEAD", "refs/heads/main"])
