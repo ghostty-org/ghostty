@@ -53,6 +53,11 @@
  * (or `memset` it to zero) so every field you don't set, including the
  * reserved slots, is NULL.
  *
+ * The library may call an allocator's functions from any thread that
+ * uses a handle created with it. If handles that share one allocator are
+ * used on different threads, its functions must be thread-safe. The
+ * default allocator is.
+ *
  * This allocator is built on plain `malloc` and `free`:
  *
  * @snippet c-vt-allocator/src/main.c allocator-vtable

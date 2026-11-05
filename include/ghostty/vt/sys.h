@@ -20,7 +20,8 @@
  *
  * These are process-global settings that must be configured at startup
  * before any terminal functionality that depends on them is used.
- * Setting these enables various optional features of the terminal. For
+ * ghostty_sys_set() is not thread-safe: call it before any other thread
+ * uses the library, never while one does. Setting these enables various optional features of the terminal. For
  * example, setting a PNG decoder enables PNG image support in the Kitty
  * Graphics Protocol.
  *
