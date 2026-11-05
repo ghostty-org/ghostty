@@ -310,6 +310,10 @@ On macOS, the shared library also records a compatibility version
 (`0.N.0` before 1.0, then `X.0.0`) and a current version (`X.Y.Z`). The
 macOS loader doesn't check them, so follow the same rebuild rule there.
 
+Our CI compares the ABI of every change to a baseline, so that the ABI
+doesn't break by accident. See [`test/abi/`](test/abi/README.md) for how
+the check works.
+
 ## Package Names
 
 Please name the runtime package according to your distribution's policy
