@@ -1015,6 +1015,50 @@ struct AgentHistoryInspectorTests {
         #expect(transcript.messages[1].text == "这是远程的回复")
     }
 
+    @Test func codexCompactionSummaryIsNotConversation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("2026/01/01/rollout-compaction-test.jsonl")
+        try writeJSONL([
+            ["type": "session_meta", "payload": ["id": "compaction-test", "cwd": "/tmp"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user",
+                "content": [["type": "input_text", "text": "Explain the task"]]]],
+            ["type": "response_item", "payload": ["type": "message", "id": "real",
+                "role": "assistant", "phase": "final_answer",
+                "internal_chat_message_metadata_passthrough": ["turn_id": "turn-1"],
+                "content": [["type": "output_text", "text": "## Active Task\nA real answer"]]]],
+            ["type": "token_usage_record", "payload": ["turn_id": "turn-1", "response_id": "response-1"]],
+            ["type": "response_item", "payload": ["type": "message", "id": "summary",
+                "role": "assistant", "phase": "final_answer",
+                "internal_chat_message_metadata_passthrough": ["turn_id": "turn-2"],
+                "content": [["type": "output_text", "text": "## Active Task\nprivate-compaction-marker"]]]],
+            ["type": "token_usage_record", "payload": ["turn_id": "turn-2", "response_id": "response-2"]],
+            ["type": "event_msg", "payload": ["type": "token_count"]],
+            ["type": "compacted", "payload": ["compaction_response_id": "response-2"]],
+        ], to: file)
+        let sessions = await AgentHistoryStore.load(
+            agents: [.codex], rootURLs: [.codex: root],
+            cacheURL: root.appendingPathComponent("cache.json")
+        )
+        let session = try #require(sessions.first)
+        #expect(session.previewSnippet?.contains("private-compaction-marker") == false)
+        let transcript = await AgentHistoryStore.transcript(for: session)
+        #expect(transcript.messages.map(\.text) == ["Explain the task", "## Active Task\nA real answer"])
+        let matches = await AgentHistoryStore.search(sessions: sessions, query: "private-compaction-marker")
+        #expect(matches.isEmpty)
+
+        let data = try String(contentsOf: file, encoding: .utf8)
+        let remote = AgentHistorySession(
+            agent: .codex, conversationID: session.conversationID, title: session.title,
+            workingDirectory: session.workingDirectory, updatedAt: session.updatedAt,
+            sourcePath: "/home/test/.codex/sessions/rollout.jsonl", remoteHost: "host", isActive: false
+        )
+        let remoteTranscript = await AgentHistoryStore.transcript(
+            for: remote, remoteAccess: AgentHistoryRemoteAccess(alias: "host") { _ in data }
+        )
+        #expect(remoteTranscript.messages.map(\.text) == transcript.messages.map(\.text))
+    }
+
     @Test func remoteMetadataOverridesGenericSessionFilename() async throws {
         let path = "/home/test/.pi/agent/sessions/project/session.jsonl"
         let listing = "-rw-r--r-- 1 test test 120 Sep 04 12:00 \(path)"

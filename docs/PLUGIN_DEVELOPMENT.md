@@ -134,6 +134,8 @@ non-default choice is active.
 Transcript titles, previews, searches and messages omit known injected
 instruction and local-command blocks. Codex assistant messages with an explicit
 non-final phase are omitted; older records without a phase remain visible.
+Codex compaction summaries are identified by their response and compaction
+records, so an ordinary answer with the same heading remains visible.
 Local and SSH history use the same text filtering, and the metadata cache is
 versioned so previously generated titles are refreshed.
 

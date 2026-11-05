@@ -322,7 +322,7 @@ enum AgentHistoryStore {
     }
 
     private struct DiskCache: Codable {
-        static let currentVersion = 5
+        static let currentVersion = 6
         var version: Int = currentVersion
         struct Entry: Codable {
             let session: AgentHistorySession
@@ -594,6 +594,7 @@ enum AgentHistoryStore {
             maximumBytes: maximumHeaderBytes
         )
         guard !records.isEmpty else { return nil }
+        let compactedIDs = compactionMessageIDs(records)
 
         let metadataID: AgentConversationID? = if let keyPath =
             candidate.source.idKeyPath {
@@ -652,7 +653,8 @@ enum AgentHistoryStore {
         )
 
         let previewSnippet = records.lazy.compactMap { record -> String? in
-            guard role(of: record) != nil, let raw = text(of: record) else { return nil }
+            guard !isCompactionMessage(record, ids: compactedIDs),
+                  role(of: record) != nil, let raw = text(of: record) else { return nil }
             let cleaned = cleanMeaningfulText(raw)
             return cleaned.isEmpty || cleaned == "[Image/Attachment]" ? nil : String(cleaned.prefix(1_000))
         }.prefix(10).joined(separator: "\n")
@@ -680,6 +682,8 @@ enum AgentHistoryStore {
         let delimiter = UInt8(ascii: "\n")
         var messageIndex = 0
         var buffer = data
+        let compactedIDs = session.agent == .codex
+            ? compactionMessageIDs(headerRecords(from: data)) : []
 
         while let newlineIndex = buffer.firstIndex(of: delimiter) {
             let lineData = buffer[buffer.startIndex..<newlineIndex]
@@ -689,6 +693,7 @@ enum AgentHistoryStore {
                   let lineString = String(data: lineData, encoding: .utf8),
                   lineString.contains("\"role\"") || lineString.contains("\"type\""),
                   let record = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  !isCompactionMessage(record, ids: compactedIDs),
                   let role = role(of: record),
                   let rawText = text(of: record) else { continue }
             let cleaned = cleanMeaningfulText(rawText)
@@ -718,6 +723,7 @@ enum AgentHistoryStore {
            let lineString = String(data: buffer, encoding: .utf8),
            lineString.contains("\"role\"") || lineString.contains("\"type\""),
            let record = try? JSONSerialization.jsonObject(with: buffer) as? [String: Any],
+           !isCompactionMessage(record, ids: compactedIDs),
            let role = role(of: record),
            let rawText = text(of: record) {
             let cleaned = cleanMeaningfulText(rawText)
@@ -747,6 +753,7 @@ enum AgentHistoryStore {
             return .init(sessionID: session.id, messages: [], wasTruncated: false)
         }
         defer { try? handle.close() }
+        let compactedIDs = session.agent == .codex ? compactionMessageIDs(at: url) : []
 
         var messages: [AgentHistoryMessage] = []
         var characterCount = 0
@@ -773,6 +780,7 @@ enum AgentHistoryStore {
                     continue
                 }
                 guard let record = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      !isCompactionMessage(record, ids: compactedIDs),
                       let role = role(of: record),
                       let rawText = text(of: record) else {
                     continue
@@ -808,6 +816,7 @@ enum AgentHistoryStore {
             if let lineString = String(data: leftover, encoding: .utf8),
                lineString.contains("\"role\"") || lineString.contains("\"type\""),
                let record = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any],
+               !isCompactionMessage(record, ids: compactedIDs),
                let role = role(of: record),
                let rawText = text(of: record) {
                 let cleaned = cleanMeaningfulText(rawText)
@@ -858,6 +867,7 @@ enum AgentHistoryStore {
             if let updatedAfter, chunk.file.modifiedAt < updatedAfter { continue }
             let records = headerRecords(from: chunk.headerData)
             guard !records.isEmpty else { continue }
+            let compactedIDs = compactionMessageIDs(records)
 
             guard let matchedAgent = agents.first(where: { agent in
                 relativeRoots(for: agent).contains { rel in
@@ -931,7 +941,8 @@ enum AgentHistoryStore {
                 conversationID: conversationID
             )
             let previewSnippet = records.lazy.compactMap { record -> String? in
-                guard role(of: record) != nil, let raw = text(of: record) else { return nil }
+                guard !isCompactionMessage(record, ids: compactedIDs),
+                      role(of: record) != nil, let raw = text(of: record) else { return nil }
                 let cleaned = cleanMeaningfulText(raw)
                 return cleaned.isEmpty || cleaned == "[Image/Attachment]"
                     ? nil
@@ -1093,6 +1104,7 @@ enum AgentHistoryStore {
     ) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
+        let compactedIDs = compactionMessageIDs(at: url)
         let queryData = Data(query.utf8)
         var leftover = Data()
         let delimiter = UInt8(ascii: "\n")
@@ -1109,6 +1121,7 @@ enum AgentHistoryStore {
                       let record = try? JSONSerialization.jsonObject(
                           with: lineData
                       ) as? [String: Any],
+                      !isCompactionMessage(record, ids: compactedIDs),
                       role(of: record) != nil,
                       let rawText = text(of: record) else { continue }
                 let cleaned = cleanMeaningfulText(rawText)
@@ -1144,6 +1157,81 @@ enum AgentHistoryStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (start > text.startIndex ? "…" : "") + value +
             (end < text.endIndex ? "…" : "")
+    }
+
+    // Codex emits its compaction summary as an ordinary final assistant message.
+    // The following usage and compacted records identify the same response.
+    private struct CompactionScanner {
+        var candidateID: String?
+        var candidateTurn: String?
+        var responseID: String?
+        var messageIDs: Set<String> = []
+
+        mutating func consume(_ record: [String: Any]) {
+            let payload = record["payload"] as? [String: Any] ?? [:]
+            switch record["type"] as? String {
+            case "response_item":
+                candidateID = nil
+                candidateTurn = nil
+                responseID = nil
+                guard payload["type"] as? String == "message",
+                      payload["role"] as? String == "assistant",
+                      let metadata = payload["internal_chat_message_metadata_passthrough"] as? [String: Any] else {
+                    return
+                }
+                candidateID = payload["id"] as? String
+                candidateTurn = metadata["turn_id"] as? String
+            case "token_usage_record":
+                guard let candidateTurn, payload["turn_id"] as? String == candidateTurn else { return }
+                responseID = payload["response_id"] as? String
+            case "compacted":
+                if let candidateID, let responseID,
+                   payload["compaction_response_id"] as? String == responseID {
+                    messageIDs.insert(candidateID)
+                }
+                candidateID = nil
+                candidateTurn = nil
+                responseID = nil
+            default:
+                break
+            }
+        }
+    }
+
+    nonisolated private static func compactionMessageIDs(_ records: [[String: Any]]) -> Set<String> {
+        var scanner = CompactionScanner()
+        for record in records { scanner.consume(record) }
+        return scanner.messageIDs
+    }
+
+    nonisolated private static func compactionMessageIDs(at url: URL) -> Set<String> {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        defer { try? handle.close() }
+        var scanner = CompactionScanner()
+        var leftover = Data()
+        while !Task.isCancelled,
+              let chunk = try? handle.read(upToCount: 128 * 1_024), !chunk.isEmpty {
+            var buffer = leftover + chunk
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                if let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
+                    scanner.consume(record)
+                }
+                buffer = buffer[buffer.index(after: newline)...]
+            }
+            leftover = buffer
+        }
+        if !leftover.isEmpty,
+           let record = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
+            scanner.consume(record)
+        }
+        return scanner.messageIDs
+    }
+
+    nonisolated private static func isCompactionMessage(_ record: [String: Any], ids: Set<String>) -> Bool {
+        guard let payload = record["payload"] as? [String: Any],
+              let id = payload["id"] as? String else { return false }
+        return ids.contains(id)
     }
 
     nonisolated private static func role(
