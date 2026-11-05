@@ -318,11 +318,8 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
         [icon, heading, metadata, detail, status, sessionID].forEach(addSubview)
         sessionID.isBordered = false
         sessionID.alignment = .left
-        sessionID.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        sessionID.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
         sessionID.lineBreakMode = .byTruncatingMiddle
-        sessionID.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
-        sessionID.imagePosition = .imageTrailing
-        sessionID.imageScaling = .scaleProportionallyDown
         sessionID.contentTintColor = .secondaryLabelColor
         sessionID.target = self
         sessionID.action = #selector(copySessionCommand)
@@ -375,7 +372,9 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
             heading.frame = NSRect(x: 41, y: 8, width: max(0, bounds.width - 53 - (status.isHidden ? 0 : 36)), height: titleHeight)
             status.frame = NSRect(x: bounds.width - 47, y: 8, width: 35, height: 15)
             metadata.frame = NSRect(x: 41, y: heading.frame.maxY + 3, width: max(0, bounds.width - 53), height: 14)
-            sessionID.frame = NSRect(x: 41, y: metadata.frame.maxY + 2, width: max(0, bounds.width - 53), height: 15)
+            sessionID.sizeToFit()
+            sessionID.frame = NSRect(x: 41, y: metadata.frame.maxY + 2,
+                                     width: min(sessionID.frame.width, max(0, bounds.width - 53)), height: 15)
             detail.frame = NSRect(x: 41, y: sessionID.frame.maxY + 3, width: max(0, bounds.width - 53),
                                   height: max(0, bounds.height - sessionID.frame.maxY - 9))
         } else {
@@ -402,7 +401,8 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
             status.stringValue = strings.live
             status.isHidden = !session.isActive
             resumeCommand = session.resumeCommand
-            sessionID.title = session.conversationID.rawValue
+            let id = session.conversationID.rawValue
+            sessionID.title = id.count > 20 ? String(id.prefix(8)) + "…" + String(id.suffix(8)) : id
             sessionID.isHidden = false
             sessionID.isEnabled = resumeCommand != nil
             sessionID.toolTip = resumeCommand.map { strings.copyResumeCommand + "\n" + $0 }

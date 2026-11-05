@@ -284,11 +284,55 @@ struct QuickInputDraftBridgeTests {
         #expect(model.state(for: pane)?.agentDraftShortcut == "control+g")
         model.importAgentDraft("old", shortcut: "control+x,e")
         model.importAgentDraft("")
-        #expect(model.state(for: pane)?.agentDraftShortcut == "control+g")
-        model.importAgentDraft("", processID: 12345)
+        #expect(model.state(for: pane)?.agentDraftShortcut == nil)
+        model.importAgentDraft("old", processID: 12345)
         #expect(model.agentDraftShortcut(for: pane, foregroundPID: 12345) == "control+g")
         #expect(model.agentDraftShortcut(for: pane, foregroundPID: 54321) == nil,
                 "An exited Agent must not send its editor shortcut to the shell.")
+        model.didSubmitAgentDraft(for: pane)
+        #expect(model.agentDraftShortcut(for: pane, foregroundPID: 12345) == nil)
+    }
+
+    @Test func emptyImportedDraftSendsQueuedMessagesDirectlyToPTY() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("agent.py")
+        try #"""
+        import os, pathlib, tty
+        tty.setraw(0)
+        root = pathlib.Path(__file__).parent
+        (root / "ready").touch()
+        data = b""
+        while True:
+            data += os.read(0, 1)
+            if data.endswith(b"\r"):
+                destination = root / ("received-" + str(len(list(root.glob("received-*")))))
+                temporary = root / "received.tmp"
+                temporary.write_bytes(data)
+                os.replace(temporary, destination)
+                data = b""
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        let native = try #require(NSApp.delegate as? AppDelegate).ghostty
+        let python = try #require(LocalPythonInterpreter.cached())
+        var config = Ghostty.SurfaceConfiguration()
+        config.command = Ghostty.Shell.quote(python.executablePath) + " " + Ghostty.Shell.quote(script.path)
+        let controller = TerminalController(native, withBaseConfig: config)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let surface = try #require(controller.surfaceTree.first)
+        try await waitForAppKit { FileManager.default.fileExists(atPath: root.appendingPathComponent("ready").path) }
+        controller.quickInputModel.present(for: surface.id)
+        controller.quickInputModel.importAgentDraft("", processID: surface.surfaceModel?.foregroundPID)
+        for index in 0..<2 {
+            let message = "完整排队消息 \(index)"
+            controller.quickInputModel.draft = message
+            let item = try #require(controller.quickInputModel.enqueueDraft())
+            controller.sendQueuedQuickInput(item.id, from: surface.id)
+            let result = root.appendingPathComponent("received-\(index)")
+            try await waitForAppKit { FileManager.default.fileExists(atPath: result.path) }
+            #expect(try String(contentsOf: result, encoding: .utf8) == message + "\r")
+            #expect(controller.quickInputModel.state(for: surface.id)?.queue.isEmpty == true)
+        }
     }
 
     @Test func queuedAndEditedMessagesReplaceStaleCLIInputWithoutLosingAnyPrefix() async throws {
@@ -357,6 +401,7 @@ struct QuickInputDraftBridgeTests {
         #expect(entries.first?.deliveryState == .sent)
         try FileManager.default.removeItem(at: received)
         controller.quickInputModel.present(for: surface.id)
+        controller.quickInputModel.importAgentDraft("another imported prefix", processID: surface.surfaceModel?.foregroundPID)
         controller.quickInputModel.draft = "修改导入的开头\n完整新消息 🐱"
         controller.sendQuickInputDraft()
         controller.quickInputModel.draft = "发送期间写的新草稿"

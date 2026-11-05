@@ -864,6 +864,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             terminal.sendKeyEvent(.init(key: .enter))
             terminal.sendKeyEvent(.init(key: .enter, action: .release))
             self.acknowledgeTerminalAgentState(for: surface)
+            self.quickInputModel.didSubmitAgentDraft(for: surfaceID)
             self.quickInputModel.recordSentText(text, for: surfaceID, historyID: historyID)
             self.quickInputModel.setStatusMessage(nil)
             completion()

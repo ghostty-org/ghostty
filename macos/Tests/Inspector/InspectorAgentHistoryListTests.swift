@@ -37,7 +37,8 @@ struct InspectorAgentHistoryListTests {
             cell.onActivate = { opened = true }
             cell.configure(.session(entry, snippet: nil), query: "", strings: .init(language: .english))
             let button = try #require(cell.subviews.compactMap { $0 as? NSButton }.first)
-            #expect(button.title == id.rawValue)
+            #expect(button.title == "10000000…00000055")
+            #expect(button.image == nil)
             #expect(button.toolTip?.contains(command) == true)
             button.performClick(nil)
             #expect(board.string(forType: .string) == command)

@@ -430,8 +430,8 @@ final class AgentQuickInputModel: ObservableObject {
     func importAgentDraft(_ text: String, shortcut: String = "control+g", processID: Int? = nil) {
         guard let targetSurfaceID, !isEditingQueuedItem else { return }
         var state = paneStates[targetSurfaceID] ?? .init()
-        state.agentDraftShortcut = shortcut
-        state.agentDraftProcessID = processID
+        state.agentDraftShortcut = text.isEmpty ? nil : shortcut
+        state.agentDraftProcessID = text.isEmpty ? nil : processID
         paneStates[targetSurfaceID] = state
         guard !text.isEmpty, !draft.hasPrefix(text), !draft.hasSuffix(text) else { return }
         useHistoryText(text)
@@ -441,6 +441,13 @@ final class AgentQuickInputModel: ObservableObject {
         guard let state = paneStates[surfaceID],
               state.agentDraftProcessID == nil || state.agentDraftProcessID == foregroundPID else { return nil }
         return state.agentDraftShortcut
+    }
+
+    func didSubmitAgentDraft(for surfaceID: UUID) {
+        guard var state = paneStates[surfaceID] else { return }
+        state.agentDraftShortcut = nil
+        state.agentDraftProcessID = nil
+        paneStates[surfaceID] = state
     }
 
     /// A send may finish after editing or switching panes. Clear only the
