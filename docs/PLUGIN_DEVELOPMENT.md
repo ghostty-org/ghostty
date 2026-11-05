@@ -2983,6 +2983,11 @@ cwd fields are host/core interfaces, not plugin wire capabilities.
 Hard-wrapped bare relative directory paths, including `.pi/...` and `src/...`,
 are normalized as one target before existence checks, hover decoration and
 opening. TUI padding is excluded from the target just as for absolute paths.
+An enclosed path may also wrap at a directory separator before the physical
+right edge when the next complete filename would not fit. Matching closing
+delimiters and aligned continuation indentation are required; a short directory
+on one line followed by unrelated text is not joined. Existence checks, hover,
+opening and both rows' decorations share the resulting complete target.
 
 Plain long `ls` listings can expose directory and extensionless filenames
 without icon prefixes; metadata columns are not candidates. SSH `itemType`

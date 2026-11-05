@@ -108,7 +108,14 @@ pub fn stringMap(alloc: Allocator, screen: *terminal.Screen, line: terminal.Sele
                 // Editors without padding reserve their final column for
                 // the cursor (e.g. pi-tui's layoutWidth = contentWidth - 1).
                 const right_inset = @max(inset, 1);
-                if (tail <= right_inset and next_pin.x == inset and
+                const component_wrap = enclosedComponentWrap(
+                    bytes.items[start..end],
+                    bytes.items[0..start],
+                    source.string[next..],
+                    tail,
+                    right_inset,
+                );
+                if ((tail <= right_inset or component_wrap) and next_pin.x == inset and
                     prev_pin.rowAndCell().cell.semantic_content != .prompt and
                     next_pin.rowAndCell().cell.semantic_content != .prompt)
                 {
@@ -278,6 +285,80 @@ test "OMG inset agent URL and image path normalize before existence checks" {
     }
 }
 
+test "OMG enclosed path word wrap keeps its complete target and decorations" {
+    const alloc = std.testing.allocator;
+    const mods = @import("input.zig").ctrlOrSuper(.{});
+    const prefix = "  Check backfill progress ";
+    const head = "/tmp/safety-state-week-backfill/paimon-switch/";
+    const tail = "watch-progress.json";
+    const target = head ++ tail;
+    const cases = [_]struct {
+        open: []const u8,
+        close: []const u8,
+        fits: bool = false,
+        joined: bool,
+    }{
+        .{ .open = "(", .close = ")", .joined = true },
+        .{ .open = "[", .close = "]", .joined = true },
+        .{ .open = "<", .close = ">", .joined = true },
+        .{ .open = "\"", .close = "\"", .joined = true },
+        .{ .open = "'", .close = "'", .joined = true },
+        .{ .open = "`", .close = "`", .joined = true },
+        .{ .open = "(", .close = ")", .fits = true, .joined = false },
+        .{ .open = "(", .close = "", .joined = false },
+        .{ .open = "", .close = "", .joined = false },
+        .{ .open = "(", .close = "]", .joined = false },
+    };
+    for (cases) |case| {
+        const first = try std.fmt.allocPrint(alloc, "{s}{s}{s}", .{ prefix, case.open, head });
+        defer alloc.free(first);
+        const columns = first.len + (if (case.fits) tail.len + 5 else 6);
+        var t = try terminal.Terminal.init(std.testing.io, alloc, .{ .cols = @intCast(columns), .rows = 4 });
+        defer t.deinit(alloc);
+        try t.setPwd("/repo");
+        var stream = t.vtStream();
+        defer stream.deinit();
+        stream.nextSlice(first);
+        stream.nextSlice("\x1b[2;3H" ++ tail);
+        stream.nextSlice(case.close);
+        var config = try @import("renderer/link.zig").Set.fromConfig(alloc, &.{.{
+            .regex = @import("config/omg_path.zig").regex,
+            .action = .{ .open = {} },
+            .highlight = .{ .hover_mods = mods },
+        }});
+        defer config.deinit(alloc);
+        const screen = t.screens.active;
+        for (0..@as(usize, if (case.joined) 2 else 1)) |y| {
+            const x = if (y == 0) prefix.len + case.open.len + 2 else 3;
+            const pin = screen.pages.pin(.{ .active = .{ .x = @intCast(x), .y = @intCast(y) } }).?;
+            const line = screen.selectLine(.{ .pin = pin, .whitespace = null }).?;
+            const map = try stringMap(alloc, screen, line);
+            defer map.deinit(alloc);
+            var it = map.searchIterator(config.links[0].regex);
+            var match = (try it.next()).?;
+            defer match.deinit();
+            const detected = try Result.fromMatch(alloc, match);
+            defer detected.deinit(alloc);
+            try std.testing.expectEqualStrings(if (case.joined) target else head, detected.target);
+            try std.testing.expect(detected.contains(screen, pin));
+            try std.testing.expectEqual(@as(usize, if (case.joined) 2 else 1), detected.spans.len);
+        }
+        if (!case.joined) continue;
+        var frame: terminal.RenderState = .empty;
+        defer frame.deinit(alloc);
+        try frame.update(alloc, &t);
+        var cache: @import("omg_link_check.zig") = .{};
+        defer cache.deinit(alloc);
+        _ = try cache.putPending(alloc, "/repo", target);
+        try std.testing.expect(cache.resolve("/repo", target, true));
+        var cells = try @import("renderer/omg_link.zig").collect(alloc, alloc, screen, &frame, config.links, &cache, mods);
+        defer cells.deinit(alloc);
+        try std.testing.expectEqual(target.len, cells.count());
+        try std.testing.expect(cells.contains(.{ .x = 3, .y = 1 }));
+        try std.testing.expect(!cells.contains(.{ .x = @intCast(2 + tail.len), .y = 1 }));
+    }
+}
+
 test "OMG link result owns soft wrapped Unicode target and spans" {
     const alloc = std.testing.allocator;
     var t = try terminal.Terminal.init(std.testing.io, alloc, .{ .cols = 20, .rows = 8 });
@@ -312,6 +393,32 @@ test "OMG link result owns soft wrapped Unicode target and spans" {
 
 fn isURLChar(c: u8) bool {
     return c > ' ' and c < 127 and std.mem.indexOfScalar(u8, "<>\"'`()[]{}", c) == null;
+}
+
+/// Markdown/TUI word wrapping may move a complete filename after a slash,
+/// leaving more than the usual padding at the right edge. Require an explicit
+/// matching enclosure and a component that could not fit on the previous row.
+fn enclosedComponentWrap(
+    head: []const u8,
+    before: []const u8,
+    next: []const u8,
+    remaining_columns: usize,
+    right_inset: usize,
+) bool {
+    if (head.len == 0 or head[head.len - 1] != '/' or before.len == 0) return false;
+    const close: u8 = switch (before[before.len - 1]) {
+        '(' => ')',
+        '[' => ']',
+        '<' => '>',
+        '\'' => '\'',
+        '"' => '"',
+        '`' => '`',
+        else => return false,
+    };
+    var end: usize = 0;
+    while (end < next.len and isURLChar(next[end])) : (end += 1) {}
+    if (end == 0 or end == next.len or next[end] != close) return false;
+    return remaining_columns < end + 1 + right_inset;
 }
 
 fn isCandidate(value: []const u8) bool {
