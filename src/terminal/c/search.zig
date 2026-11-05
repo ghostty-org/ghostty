@@ -113,8 +113,8 @@ pub const Data = enum(c_int) {
 pub const Option = enum(c_int) {
     invalid = 0,
     needle = 1,
-    select_next = 2,
-    select_prev = 3,
+    // 2 and 3 were the select_next and select_prev options, which are
+    // now functions. They stay unused so old callers get unsupported.
     select_scroll = 4,
 
     _,
@@ -122,8 +122,6 @@ pub const Option = enum(c_int) {
     pub fn Type(comptime self: Option) type {
         return switch (self) {
             .needle => lib.String,
-            // The value must be NULL. Reserved for future use.
-            .select_next, .select_prev => void,
             .select_scroll => Scroll,
             .invalid, _ => void,
         };
@@ -274,24 +272,6 @@ fn setTyped(
             wrapper.search = replacement;
         },
 
-        .select_next, .select_prev => {
-            // The value is reserved for future use and must be NULL.
-            if (value != null) return .invalid_value;
-
-            const t = wrapper.zigTerminal() orelse return .invalid_value;
-            const s = if (wrapper.search) |*s| s else return .no_value;
-            const selected = s.select(
-                t,
-                switch (option) {
-                    .select_next => .next,
-                    .select_prev => .prev,
-                    else => comptime unreachable,
-                },
-                wrapper.select_scroll,
-            ) catch return .out_of_memory;
-            if (!selected) return .no_value;
-        },
-
         .select_scroll => {
             const v = value orelse {
                 wrapper.select_scroll = .if_needed;
@@ -304,6 +284,30 @@ fn setTyped(
         .invalid, _ => comptime unreachable,
     }
 
+    return .success;
+}
+
+pub fn select_next(search_: Search) callconv(lib.calling_conv) Result {
+    return selectMatch(search_, .next);
+}
+
+pub fn select_prev(search_: Search) callconv(lib.calling_conv) Result {
+    return selectMatch(search_, .prev);
+}
+
+fn selectMatch(
+    search_: Search,
+    direction: searchpkg.Screen.Select,
+) Result {
+    const wrapper = search_ orelse return .invalid_value;
+    const t = wrapper.zigTerminal() orelse return .invalid_value;
+    const s = if (wrapper.search) |*s| s else return .no_value;
+    const selected = s.select(
+        t,
+        direction,
+        wrapper.select_scroll,
+    ) catch return .out_of_memory;
+    if (!selected) return .no_value;
     return .success;
 }
 
@@ -601,7 +605,7 @@ test "search select wraps in both directions" {
 
     // Next: newest match first (index 0), then older (1), then wrap
     // back to 0.
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 0), idx);
 
@@ -609,16 +613,16 @@ test "search select wraps in both directions" {
     try testing.expectEqual(Result.success, get(search, .selected_match, &match));
     try testing.expect(match.start.toPin() != null);
 
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 1), idx);
 
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 0), idx);
 
     // Prev: wrap backward to the oldest match.
-    try testing.expectEqual(Result.success, set(search, .select_prev, null));
+    try testing.expectEqual(Result.success, select_prev(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 1), idx);
 }
@@ -636,11 +640,11 @@ test "search select with no matches returns no value" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
 
-    try testing.expectEqual(Result.no_value, set(search, .select_next, null));
-    try testing.expectEqual(Result.no_value, set(search, .select_prev, null));
+    try testing.expectEqual(Result.no_value, select_next(search));
+    try testing.expectEqual(Result.no_value, select_prev(search));
 }
 
-test "search select rejects a non-null reserved value" {
+test "search former select option keys are unsupported" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -653,9 +657,9 @@ test "search select rejects a non-null reserved value" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
 
-    const bogus: c_int = 0;
-    try testing.expectEqual(Result.invalid_value, set(search, .select_next, &bogus));
-    try testing.expectEqual(Result.invalid_value, set(search, .select_prev, &bogus));
+    // The values that were once select options are unknown keys now.
+    try testing.expectEqual(Result.unsupported, set(search, @fromBackingInt(@intCast(2)), null));
+    try testing.expectEqual(Result.unsupported, set(search, @fromBackingInt(@intCast(3)), null));
 }
 
 test "search select scroll option" {
@@ -705,7 +709,7 @@ test "search selection dropped when reset prunes results" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
     try testing.expectEqual(Result.success, run(search));
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
 
     // A selection survives unrelated writes...
     terminal_c.vt_write(terminal, "\r\nBang", 6);
@@ -805,7 +809,7 @@ test "search get_multi returns first failing index" {
     try testing.expectEqual(@as(usize, 1), total);
 
     // After selecting, the whole batch succeeds.
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get_multi(
         search,
         keys.len,
@@ -878,7 +882,7 @@ test "search without a needle is idle" {
     var total: usize = 999;
     try testing.expectEqual(Result.success, get(search, .total_matches, &total));
     try testing.expectEqual(@as(usize, 0), total);
-    try testing.expectEqual(Result.no_value, set(search, .select_next, null));
+    try testing.expectEqual(Result.no_value, select_next(search));
 
     var buf: selection_c.CSelectionBuffer = .{};
     try testing.expectEqual(Result.success, get(search, .matches, &buf));
@@ -906,7 +910,7 @@ test "search needle change and clear" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
     try testing.expectEqual(Result.success, run(search));
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
 
     var total: usize = 0;
     try testing.expectEqual(Result.success, get(search, .total_matches, &total));
@@ -962,7 +966,7 @@ test "search free after terminal free" {
     // Run and select so the search holds tracked pins within the
     // terminal's page storage.
     try testing.expectEqual(Result.success, run(search));
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
 
     // Free the terminal first. The search detaches: calls that need
     // the terminal fail cleanly instead of touching freed memory.
@@ -970,7 +974,7 @@ test "search free after terminal free" {
     try testing.expectEqual(Result.invalid_value, feed(search));
     try testing.expectEqual(Result.invalid_value, run(search));
     try testing.expectEqual(Result.invalid_value, tick(search, null));
-    try testing.expectEqual(Result.invalid_value, set(search, .select_next, null));
+    try testing.expectEqual(Result.invalid_value, select_next(search));
     const needle_value = testString("Buzz");
     try testing.expectEqual(Result.invalid_value, set(search, .needle, &needle_value));
 

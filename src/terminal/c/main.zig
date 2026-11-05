@@ -149,8 +149,8 @@ pub const key_event_get_unshifted_codepoint = key_event.get_unshifted_codepoint;
 
 pub const key_encoder_new = key_encode.new;
 pub const key_encoder_free = key_encode.free;
-pub const key_encoder_setopt = key_encode.setopt;
-pub const key_encoder_setopt_from_terminal = key_encode.setopt_from_terminal;
+pub const key_encoder_set = key_encode.set;
+pub const key_encoder_set_from_terminal = key_encode.set_from_terminal;
 pub const key_encoder_encode = key_encode.encode;
 
 pub const mouse_event_new = mouse_event.new;
@@ -167,8 +167,8 @@ pub const mouse_event_get_position = mouse_event.get_position;
 
 pub const mouse_encoder_new = mouse_encode.new;
 pub const mouse_encoder_free = mouse_encode.free;
-pub const mouse_encoder_setopt = mouse_encode.setopt;
-pub const mouse_encoder_setopt_from_terminal = mouse_encode.setopt_from_terminal;
+pub const mouse_encoder_set = mouse_encode.set;
+pub const mouse_encoder_set_from_terminal = mouse_encode.set_from_terminal;
 pub const mouse_encoder_reset = mouse_encode.reset;
 pub const mouse_encoder_encode = mouse_encode.encode;
 
@@ -234,6 +234,8 @@ pub const search_free = search.free;
 pub const search_tick = search.tick;
 pub const search_feed = search.feed;
 pub const search_run = search.run;
+pub const search_select_next = search.select_next;
+pub const search_select_prev = search.select_prev;
 pub const search_set = search.set;
 pub const search_get = search.get;
 pub const search_get_multi = search.get_multi;
@@ -357,9 +359,10 @@ test "unknown keys return unsupported in every family" {
         .{ "kitty_graphics_placement_iterator_set", kitty, kitty_graphics.placement_iterator_set(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "kitty_graphics_placement_get", kitty, kitty_graphics.placement_get(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "kitty_graphics_placement_get_multi", kitty, kitty_graphics.placement_get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
-        .{ "key_encoder_setopt", Result.unsupported, key_encode.setopt(null, @fromBackingInt(@intCast(unknown)), &out) },
-        .{ "mouse_encoder_setopt", Result.unsupported, mouse_encode.setopt(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "key_encoder_set", Result.unsupported, key_encode.set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "mouse_encoder_set", Result.unsupported, mouse_encode.set(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "osc_set", Result.unsupported, osc.set(null, @fromBackingInt(@intCast(unknown)), &out) },
+        .{ "osc_command_data", Result.unsupported, osc.commandData(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "render_state_get", Result.unsupported, render.get(state, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "render_state_get_multi", Result.unsupported, render.get_multi(state, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
         .{ "render_state_set", Result.unsupported, render.set(null, @fromBackingInt(@intCast(unknown)), &out) },
@@ -376,6 +379,7 @@ test "unknown keys return unsupported in every family" {
         .{ "selection_gesture_event_set", Result.unsupported, selection_gesture.event_set(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "selection_gesture_get", Result.unsupported, selection_gesture.get(null, null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "selection_gesture_get_multi", Result.unsupported, selection_gesture.get_multi(null, null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
+        .{ "snapshot_decoder_set", Result.unsupported, snapshot.decoder_set(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "snapshot_decoder_get", Result.unsupported, snapshot.decoder_get(null, @fromBackingInt(@intCast(unknown)), &out) },
         .{ "snapshot_decoder_get_multi", Result.unsupported, snapshot.decoder_get_multi(null, 1, &.{@fromBackingInt(@intCast(unknown))}, &values, &written) },
         .{ "sys_set", Result.unsupported, sys.set(@fromBackingInt(@intCast(unknown)), &out) },
@@ -395,9 +399,6 @@ test "unknown keys return unsupported in every family" {
 
     // An unknown first key in a _get_multi call writes nothing.
     try testing.expectEqual(@as(usize, 0), written);
-
-    // osc_command_data reports failure as false rather than a Result.
-    try testing.expect(!osc.commandData(null, @fromBackingInt(@intCast(unknown)), &out));
 }
 
 test "INVALID keys return invalid_value with a live handle" {
@@ -457,8 +458,8 @@ test "INVALID keys return invalid_value with a live handle" {
     const kitty: Result = if (build_options.kitty_graphics) .invalid_value else .no_value;
 
     const cases = .{
-        .{ "key_encoder_setopt", Result.invalid_value, key_encode.setopt(key_enc, .invalid, &out) },
-        .{ "mouse_encoder_setopt", Result.invalid_value, mouse_encode.setopt(mouse_enc, .invalid, &out) },
+        .{ "key_encoder_set", Result.invalid_value, key_encode.set(key_enc, .invalid, &out) },
+        .{ "mouse_encoder_set", Result.invalid_value, mouse_encode.set(mouse_enc, .invalid, &out) },
         .{ "osc_set", Result.invalid_value, osc.set(parser, .invalid, &out) },
         .{ "search_set", Result.invalid_value, search.set(search_, .invalid, &out) },
         .{ "search_get", Result.invalid_value, search.get(search_, .invalid, &out) },
@@ -514,9 +515,9 @@ test "out-of-range enum values passed as data return invalid_value" {
         .{ "key_event_set_key", key_event.set_key(key_ev, @fromBackingInt(@intCast(bad))) },
         .{ "mouse_event_set_action", mouse_event.set_action(mouse_ev, @fromBackingInt(@intCast(bad))) },
         .{ "mouse_event_set_button", mouse_event.set_button(mouse_ev, @fromBackingInt(@intCast(bad))) },
-        .{ "key_encoder_setopt option_as_alt", key_encode.setopt(key_enc, .macos_option_as_alt, &bad_int) },
-        .{ "mouse_encoder_setopt event", mouse_encode.setopt(mouse_enc, .event, &bad_int) },
-        .{ "mouse_encoder_setopt format", mouse_encode.setopt(mouse_enc, .format, &bad_int) },
+        .{ "key_encoder_set option_as_alt", key_encode.set(key_enc, .macos_option_as_alt, &bad_int) },
+        .{ "mouse_encoder_set event", mouse_encode.set(mouse_enc, .event, &bad_int) },
+        .{ "mouse_encoder_set format", mouse_encode.set(mouse_enc, .format, &bad_int) },
         .{ "selection_gesture_event_new", selection_gesture.event_new(alloc, &gesture_ev, @fromBackingInt(@intCast(bad))) },
         .{ "size_report_encode", size_report.encode(@fromBackingInt(@intCast(bad)), &.{ .rows = 1, .columns = 1, .cell_width = 1, .cell_height = 1 }, &buf, buf.len, &written) },
         .{ "color_scheme_report_encode", color_scheme.report_encode(@fromBackingInt(@intCast(bad)), &buf, buf.len, &written) },
@@ -603,9 +604,9 @@ test "null value resets encoder options to their defaults" {
             @typeInfo(key_encode.Option).@"enum".field_names.len - 1);
 
         inline for (cases) |case| {
-            try testing.expectEqual(Result.success, key_encode.setopt(enc, case[0], case[1]));
+            try testing.expectEqual(Result.success, key_encode.set(enc, case[0], case[1]));
             try testing.expect(!std.meta.eql(defaults, enc.?.opts));
-            try testing.expectEqual(Result.success, key_encode.setopt(enc, case[0], null));
+            try testing.expectEqual(Result.success, key_encode.set(enc, case[0], null));
             testing.expect(std.meta.eql(defaults, enc.?.opts)) catch |err| {
                 std.log.err("key option={t}", .{case[0]});
                 return err;
@@ -645,10 +646,10 @@ test "null value resets encoder options to their defaults" {
             @typeInfo(mouse_encode.Option).@"enum".field_names.len - 1);
 
         inline for (cases) |case| {
-            try testing.expectEqual(Result.success, mouse_encode.setopt(enc, case[0], case[1]));
+            try testing.expectEqual(Result.success, mouse_encode.set(enc, case[0], case[1]));
             try testing.expect(!std.meta.eql(defaults, enc.?.opts) or
                 enc.?.track_last_cell != default_track_last_cell);
-            try testing.expectEqual(Result.success, mouse_encode.setopt(enc, case[0], null));
+            try testing.expectEqual(Result.success, mouse_encode.set(enc, case[0], null));
             testing.expect(std.meta.eql(defaults, enc.?.opts) and
                 enc.?.track_last_cell == default_track_last_cell) catch |err| {
                 std.log.err("mouse option={t}", .{case[0]});

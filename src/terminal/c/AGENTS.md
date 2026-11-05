@@ -67,8 +67,8 @@ Never guard the check with `std.debug.runtime_safety`.
   `lib.enumFromPtr(E, ptr) orelse return .invalid_value`.
 - Keep shared Zig enums from the core exhaustive. Convert at the C API
   instead of adding `_` to them.
-- `_get`, `_set` and `_setopt` functions return `Result`, even when every
+- `_get` and `_set` functions return `Result`, even when every
   current option always succeeds, so new options can report errors.
-- A NULL value to a `_set` or `_setopt` resets that option to its
+- A NULL value to a `_set` resets that option to its
   documented default and returns `.success`. Document each option's
   default in the header.

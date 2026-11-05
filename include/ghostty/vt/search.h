@@ -96,9 +96,11 @@ extern "C" {
  * serialize them.
  *
  * Functions that touch the terminal (ghostty_search_new(),
- * ghostty_search_feed(), ghostty_search_run(), ghostty_search_set()
- * with the needle and select options, and ghostty_search_free()) must
- * also be serialized with all other access to the same terminal.
+ * ghostty_search_feed(), ghostty_search_run(),
+ * ghostty_search_select_next(), ghostty_search_select_prev(),
+ * ghostty_search_set() with the needle option, and
+ * ghostty_search_free()) must also be serialized with all other access
+ * to the same terminal.
  *
  * Everything else (ghostty_search_tick(), ghostty_search_get(), and
  * ghostty_search_get_multi()) only touches memory owned by the search
@@ -146,7 +148,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
 /**
  * Scroll policy applied when a match becomes selected via
- * GHOSTTY_SEARCH_OPT_SELECT_NEXT or GHOSTTY_SEARCH_OPT_SELECT_PREV.
+ * ghostty_search_select_next() or ghostty_search_select_prev().
  *
  * @ingroup search
  */
@@ -279,34 +281,11 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_SEARCH_OPT_NEEDLE = 1,
 
   /**
-   * Select the next match, moving toward older content: from the
-   * bottom of the screen upward into history, the direction a search
-   * from the prompt usually wants. Wraps around past the oldest
-   * match.
-   *
-   * The value must be NULL. It is reserved for future use.
-   *
-   * This catches up with the terminal first, so it is safe to call at
-   * any time relative to feeds. The viewport scrolls to the newly
-   * selected match according to GHOSTTY_SEARCH_OPT_SELECT_SCROLL.
-   * This reads the terminal, so the caller must serialize it with all
-   * other access to the same terminal. Returns GHOSTTY_NO_VALUE when
-   * there are no matches.
-   */
-  GHOSTTY_SEARCH_OPT_SELECT_NEXT = 2,
-
-  /**
-   * Select the previous match, moving toward newer content, wrapping
-   * around past the newest match. Otherwise identical to
-   * GHOSTTY_SEARCH_OPT_SELECT_NEXT.
-   */
-  GHOSTTY_SEARCH_OPT_SELECT_PREV = 3,
-
-  /**
-   * Set the scroll policy applied by the select options: const
-   * GhosttySearchScroll*. The policy persists until changed. A NULL
-   * value resets it to GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only
-   * modifies search-owned state and never reads the terminal.
+   * Set the scroll policy applied by ghostty_search_select_next() and
+   * ghostty_search_select_prev(): const GhosttySearchScroll*. The
+   * policy persists until changed. A NULL value resets it to
+   * GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only modifies search-owned
+   * state and never reads the terminal.
    */
   GHOSTTY_SEARCH_OPT_SELECT_SCROLL = 4,
 
@@ -423,21 +402,75 @@ GHOSTTY_API GhosttyResult ghostty_search_feed(GhosttySearch search);
 GHOSTTY_API GhosttyResult ghostty_search_run(GhosttySearch search);
 
 /**
+ * Select the next match, moving toward older content.
+ *
+ * "Next" goes from the bottom of the screen upward into history, the
+ * direction a search from the prompt usually wants. After the oldest
+ * match, selection wraps around to the newest one.
+ *
+ * You can call this at any time, even if the terminal changed since the
+ * last feed, because it first brings the search up to date with the
+ * terminal. The viewport then scrolls to the selected match as set by
+ * GHOSTTY_SEARCH_OPT_SELECT_SCROLL. This reads the terminal, so the
+ * caller must serialize it with all other access to the same terminal.
+ *
+ * A find bar typically calls this when the user presses Enter, then reads
+ * the selected match to highlight it:
+ *
+ * @code{.c}
+ * if (ghostty_search_select_next(search) == GHOSTTY_SUCCESS) {
+ *   GhosttySelection match = {0};
+ *   ghostty_search_get(search, GHOSTTY_SEARCH_DATA_SELECTED_MATCH, &match);
+ *   // Highlight `match` and show its position in the find bar.
+ * }
+ * @endcode
+ *
+ * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS if a match is now selected, GHOSTTY_NO_VALUE if
+ *         there are no matches, GHOSTTY_OUT_OF_MEMORY if allocation fails,
+ *         or GHOSTTY_INVALID_VALUE if `search` is NULL or the terminal was
+ *         freed
+ *
+ * @ingroup search
+ */
+GHOSTTY_API GhosttyResult ghostty_search_select_next(GhosttySearch search);
+
+/**
+ * Select the previous match, moving toward newer content.
+ *
+ * This is the opposite direction of ghostty_search_select_next(). After
+ * the newest match, selection wraps around to the oldest one. Everything
+ * else, including scrolling and thread safety, works the same as
+ * ghostty_search_select_next().
+ *
+ * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS if a match is now selected, GHOSTTY_NO_VALUE if
+ *         there are no matches, GHOSTTY_OUT_OF_MEMORY if allocation fails,
+ *         or GHOSTTY_INVALID_VALUE if `search` is NULL or the terminal was
+ *         freed
+ *
+ * @ingroup search
+ */
+GHOSTTY_API GhosttyResult ghostty_search_select_prev(GhosttySearch search);
+
+/**
  * Write an option to a search.
  *
  * The value type, and what a NULL value means, depends on the option
- * and is documented by GhosttySearchOption. The needle and select
- * options touch the terminal, so the caller must serialize those
- * calls with all other access to the same terminal.
- * GHOSTTY_SEARCH_OPT_SELECT_SCROLL only modifies search-owned state.
+ * and is documented by GhosttySearchOption. GHOSTTY_SEARCH_OPT_NEEDLE
+ * touches the terminal, so the caller must serialize it with all other
+ * access to the same terminal. GHOSTTY_SEARCH_OPT_SELECT_SCROLL only
+ * modifies search-owned state.
+ *
+ * To move between matches, use ghostty_search_select_next() and
+ * ghostty_search_select_prev().
  *
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option Option to write
  * @param value Pointer to the input value for the option. The meaning
  *              of NULL is documented per option.
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a select option
- *         found no matches, GHOSTTY_OUT_OF_MEMORY if allocation fails,
- *         GHOSTTY_INVALID_VALUE if `search` or `value` is invalid or the
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY if allocation
+ *         fails, GHOSTTY_INVALID_VALUE if `search` or `value` is invalid or the
  *         option needs a terminal that was already freed, or
  *         GHOSTTY_UNSUPPORTED if `option` is not known to this version of the
  *         library

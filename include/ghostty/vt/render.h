@@ -682,16 +682,18 @@ typedef enum GHOSTTY_ENUM_TYPED {
    */
   GHOSTTY_RENDER_STATE_OPT_INVALID = 0,
 
-  /** Set dirty state (GhosttyRenderStateDirty). */
+  /** Set dirty state (GhosttyRenderStateDirty). Each update sets this
+   *  value itself, so there is no default to restore and a NULL value
+   *  returns GHOSTTY_INVALID_VALUE. */
   GHOSTTY_RENDER_STATE_OPT_DIRTY = 1,
 
   /** Request overscan rows above and below the viewport
    *  (GhosttyRenderStateOverscan). The request takes effect on the next
    *  update and stays in effect until it is changed. Both sides are zero
-   *  by default, which captures only the viewport. The rows of the last
-   *  update can still be read after changing the request. Expect a full
-   *  redraw on the update after a change. See "Overscan" in the render
-   *  state overview. */
+   *  by default, which captures only the viewport. A NULL value restores
+   *  that default. The rows of the last update can still be read after
+   *  changing the request. Expect a full redraw on the update after a
+   *  change. See "Overscan" in the render state overview. */
   GHOSTTY_RENDER_STATE_OPT_OVERSCAN = 2,
   GHOSTTY_RENDER_STATE_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateOption;
@@ -952,7 +954,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
    */
   GHOSTTY_RENDER_STATE_ROW_OPT_INVALID = 0,
 
-  /** Set dirty state for the current row (bool). */
+  /** Set dirty state for the current row (bool). Each update sets this
+   *  value itself, so there is no default to restore and a NULL value
+   *  returns GHOSTTY_INVALID_VALUE. */
   GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY = 1,
   GHOSTTY_RENDER_STATE_ROW_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateRowOption;
@@ -1227,13 +1231,27 @@ GHOSTTY_API GhosttyResult ghostty_render_state_get_multi(
  * The `value` pointer must point to a value of the type corresponding to the
  * requested option kind (see GhosttyRenderStateOption).
  *
+ * Passing NULL for `value` restores the option's default. Options that
+ * have no default, such as GHOSTTY_RENDER_STATE_OPT_DIRTY, return
+ * GHOSTTY_INVALID_VALUE for NULL instead.
+ *
+ * @code{.c}
+ * GhosttyRenderStateOverscan overscan = { .above = 4, .below = 4 };
+ * ghostty_render_state_set(state, GHOSTTY_RENDER_STATE_OPT_OVERSCAN,
+ *                          &overscan);
+ *
+ * // Later, go back to capturing only the viewport.
+ * ghostty_render_state_set(state, GHOSTTY_RENDER_STATE_OPT_OVERSCAN, NULL);
+ * @endcode
+ *
  * @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
- * @param[in] value Pointer to the value to set (NULL returns
- *            GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` or
- *         `value` is NULL or out of range, or GHOSTTY_UNSUPPORTED
- *         if `option` is not known to this version of the library
+ * @param[in] value Pointer to the value to set, or NULL to restore the
+ *            option's default
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` is
+ *         NULL, `value` is out of range, or `value` is NULL for an option
+ *         with no default, or GHOSTTY_UNSUPPORTED if `option` is not known
+ *         to this version of the library
  *
  * @ingroup render
  */
@@ -1378,10 +1396,10 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_get_multi(
  *
  * @param iterator The iterator handle to update (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
- * @param[in] value Pointer to the value to set (NULL returns
- *            GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `iterator` is
- *         NULL or the iterator is not positioned on a row, or
+ * @param[in] value Pointer to the value to set. Row options have no
+ *            default to restore, so NULL returns GHOSTTY_INVALID_VALUE.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `iterator` or
+ *         `value` is NULL or the iterator is not positioned on a row, or
  *         GHOSTTY_UNSUPPORTED if `option` is not known to this version of the
  *         library
  *

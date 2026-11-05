@@ -79,14 +79,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * Key encoder option identifiers.
  *
- * These values are used with ghostty_key_encoder_setopt() to configure
+ * These values are used with ghostty_key_encoder_set() to configure
  * the behavior of the key encoder.
  *
  * @ingroup key
  */
 typedef enum GHOSTTY_ENUM_TYPED {
     /**
-     * Not a real option. ghostty_key_encoder_setopt() returns
+     * Not a real option. ghostty_key_encoder_set() returns
      * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
      * uninitialized variable is never mistaken for a real option.
      */
@@ -133,7 +133,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Create a new key encoder instance.
  *
  * Creates a new key encoder with default options. The encoder can be configured
- * using ghostty_key_encoder_setopt() and must be freed using
+ * using ghostty_key_encoder_set() and must be freed using
  * ghostty_key_encoder_free() when no longer needed.
  *
  * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
@@ -166,7 +166,7 @@ GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  *
  * If you are using a terminal instance, you can set the key encoding
  * options based on the active terminal state (e.g. legacy vs Kitty mode
- * and associated flags) with ghostty_key_encoder_setopt_from_terminal().
+ * and associated flags) with ghostty_key_encoder_set_from_terminal().
  *
  * Passing NULL for `value` resets the option to its default, the same
  * value a new encoder starts with. Each option's default is listed on
@@ -174,11 +174,11 @@ GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  *
  * @code{.c}
  * bool enabled = true;
- * ghostty_key_encoder_setopt(
+ * ghostty_key_encoder_set(
  *     encoder, GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION, &enabled);
  *
  * // Later, put the option back to its default (false).
- * ghostty_key_encoder_setopt(
+ * ghostty_key_encoder_set(
  *     encoder, GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION, NULL);
  * @endcode
  *
@@ -193,7 +193,7 @@ GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  *
  * @ingroup key
  */
-GHOSTTY_API GhosttyResult ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_set(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
 
 /**
  * Set encoder options from a terminal's current state.
@@ -205,14 +205,14 @@ GHOSTTY_API GhosttyResult ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, 
  *
  * Note that the `macos_option_as_alt` option cannot be determined from
  * terminal state and is reset to `GHOSTTY_OPTION_AS_ALT_FALSE` by this
- * call. Use ghostty_key_encoder_setopt() to set it afterward if needed.
+ * call. Use ghostty_key_encoder_set() to set it afterward if needed.
  *
  * @param encoder The encoder handle, must not be NULL
  * @param terminal The terminal handle, must not be NULL
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
+GHOSTTY_API void ghostty_key_encoder_set_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
 
 /**
  * Encode a key event into a terminal escape sequence.

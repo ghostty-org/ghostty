@@ -115,8 +115,9 @@ pub fn unknown_partial(
 }
 
 pub fn attribute_tag(
-    attr: sgr.Attribute.C,
+    attr_: ?*const sgr.Attribute.C,
 ) callconv(lib.calling_conv) sgr.Attribute.Tag {
+    const attr = attr_ orelse return .unset;
     return attr.tag;
 }
 
@@ -124,6 +125,22 @@ pub fn attribute_value(
     attr: *sgr.Attribute.C,
 ) callconv(lib.calling_conv) *sgr.Attribute.CValue {
     return &attr.value;
+}
+
+test "attribute_tag" {
+    try testing.expectEqual(sgr.Attribute.Tag.unset, attribute_tag(null));
+
+    var p: Parser = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &p,
+    ));
+    defer free(p);
+    try testing.expectEqual(Result.success, setParams(p, &[_]u16{1}, null, 1));
+
+    var attr: sgr.Attribute.C = undefined;
+    try testing.expect(next(p, &attr));
+    try testing.expectEqual(sgr.Attribute.Tag.bold, attribute_tag(&attr));
 }
 
 test "alloc" {

@@ -51,8 +51,9 @@ int main(void) {
   assert(result == GHOSTTY_SUCCESS);
 
   // Keep enough scrollback to demonstrate incremental history restoration.
+  size_t unlimited = SIZE_MAX;
   result = ghostty_terminal_set(
-      source, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, NULL);
+      source, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &unlimited);
   assert(result == GHOSTTY_SUCCESS);
 
   const char *line = "snapshot history line\r\n";

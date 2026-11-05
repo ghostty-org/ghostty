@@ -12,7 +12,7 @@ int main() {
   assert(result == GHOSTTY_SUCCESS);
 
   // Enable Kitty keyboard protocol with all features
-  ghostty_key_encoder_setopt(encoder, GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS,
+  ghostty_key_encoder_set(encoder, GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS,
                              &(uint8_t){GHOSTTY_KITTY_KEY_ALL});
 
   // Create and configure key event for Ctrl+C press

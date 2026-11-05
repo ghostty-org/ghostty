@@ -297,12 +297,13 @@ GHOSTTY_API size_t ghostty_sgr_unknown_partial(GhosttySgrUnknown unknown,
  * this is. Primarily useful in WebAssembly environments where accessing
  * struct fields directly is difficult.
  *
- * @param attr The SGR attribute
- * @return The attribute tag
+ * @param attr Pointer to the SGR attribute (may be NULL)
+ * @return The attribute tag, or GHOSTTY_SGR_ATTR_UNSET if `attr` is NULL
  *
  * @ingroup sgr
  */
-GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(GhosttySgrAttribute attr);
+GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(
+    const GhosttySgrAttribute* attr);
 
 /**
  * Get the value from an SGR attribute.

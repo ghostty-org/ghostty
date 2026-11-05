@@ -36,7 +36,7 @@ extern "C" {
  * scrollback, cursor, styles, modes, and VT stream processing.
  *
  * Once a terminal session is up and running, you can configure a key encoder
- * to write keyboard input via ghostty_key_encoder_setopt_from_terminal().
+ * to write keyboard input via ghostty_key_encoder_set_from_terminal().
  *
  * ### Example: VT stream processing
  * @snippet c-vt-stream/src/main.c vt-stream-init
@@ -2240,7 +2240,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_TERMINAL_OPT_INVALID = 0,
 
   /**
-   * Opaque userdata pointer passed to all callbacks.
+   * Opaque userdata pointer passed to all callbacks. NULL by default.
    *
    * Input type: void*
    */
@@ -2379,9 +2379,11 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Applied to all initialized screens (primary and alternate).
    * A value of zero disables the Kitty graphics protocol entirely,
-   * deleting all stored images and placements. A NULL value pointer
-   * is equivalent to zero (disables). Has no effect when Kitty graphics
-   * are disabled at build time.
+   * deleting all stored images and placements. The default is 10 MB
+   * (10,000,000 bytes), and a NULL value pointer restores it. Values too
+   * large for the platform's address space are treated as the largest
+   * possible limit. Has no effect when Kitty graphics are disabled at
+   * build time.
    *
    * Input type: uint64_t*
    */
@@ -2390,8 +2392,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Enable or disable Kitty image loading via the file medium.
    *
-   * A NULL value pointer is a no-op. Has no effect when Kitty graphics
-   * are disabled at build time.
+   * Disabled by default, and a NULL value pointer disables it again. Has
+   * no effect when Kitty graphics are disabled at build time.
    *
    * Input type: bool*
    */
@@ -2401,8 +2403,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Enable Kitty image loading via the temporary file medium, restricted to
    * the provided directory. The string data is copied into the terminal.
    *
-   * A NULL value pointer disables the temporary file medium. Has no effect
-   * when Kitty graphics are disabled at build time.
+   * Disabled by default, and a NULL value pointer disables it again. Has
+   * no effect when Kitty graphics are disabled at build time.
    *
    * Input type: GhosttyString*
    */
@@ -2411,8 +2413,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Enable or disable Kitty image loading via the shared memory medium.
    *
-   * A NULL value pointer is a no-op. Has no effect when Kitty graphics
-   * are disabled at build time.
+   * Disabled by default, and a NULL value pointer disables it again. Has
+   * no effect when Kitty graphics are disabled at build time.
    *
    * Input type: bool*
    */
@@ -2476,7 +2478,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * When disabled, Glyph Protocol APC sequences are ignored and no
    * support/query/register/clear responses are emitted. Disabling also clears
-   * the terminal session's glyph glossary. A NULL value pointer is a no-op.
+   * the terminal session's glyph glossary.
+   *
+   * Enabled by default, and a NULL value pointer enables it again.
    *
    * Input type: bool*
    */
@@ -2519,7 +2523,20 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Lowering the limit immediately removes eligible complete historical
    * pages. A value of zero disables scrollback and erases retained history.
-   * A NULL value pointer removes the byte limit.
+   *
+   * The default is 10,000 bytes. Because history is kept in whole pages,
+   * this is rounded up to one page in practice. Pass SIZE_MAX for no byte
+   * limit, or NULL to restore the default:
+   *
+   * @code{.c}
+   * size_t unlimited = SIZE_MAX;
+   * ghostty_terminal_set(terminal,
+   *     GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &unlimited);
+   *
+   * // Back to the default of 10,000 bytes.
+   * ghostty_terminal_set(terminal,
+   *     GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, NULL);
+   * @endcode
    *
    * Input type: size_t*
    */
@@ -2543,7 +2560,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * a narrower terminal viewport). So, they are useful together.
    *
    * Lowering the limit immediately removes eligible complete historical
-   * pages. A NULL value pointer removes the line limit.
+   * pages.
+   *
+   * There is no line limit by default. Pass SIZE_MAX or NULL to remove a
+   * line limit you set earlier.
    *
    * Input type: size_t*
    */
@@ -3347,8 +3367,22 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  * write_pty callback and userdata pointer. The value is passed
  * directly for pointer types (callbacks, userdata) or as a pointer
  * to the value for non-pointer types (e.g. GhosttyString*).
- * The behavior of a NULL value is specific to each option and is
- * documented by the corresponding GhosttyTerminalOption value.
+ *
+ * Passing NULL for `value` restores the option's default, the same value
+ * a new terminal starts with. Each GhosttyTerminalOption value documents
+ * its default. Callbacks and the userdata pointer default to NULL, so
+ * passing NULL removes them. GHOSTTY_TERMINAL_OPT_MODE and
+ * GHOSTTY_TERMINAL_OPT_MODE_DEFAULT have no default to restore, so they
+ * return GHOSTTY_INVALID_VALUE for NULL.
+ *
+ * @code{.c}
+ * bool enabled = false;
+ * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL,
+ *                      &enabled);
+ *
+ * // Later, turn it back on by restoring the default.
+ * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL, NULL);
+ * @endcode
  *
  * Callbacks are invoked synchronously during VT writes. Callbacks must not
  * call ghostty_terminal_vt_write() or
@@ -3358,10 +3392,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  * @param terminal The terminal handle, must not be NULL
  * @param option The option to set
  * @param value Pointer to the value to set (type depends on the option),
- *              or NULL to clear the option
+ *              or NULL to restore the option's default
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `terminal`
- *         is NULL, or GHOSTTY_UNSUPPORTED if `option` is not known to this
- *         version of the library
+ *         is NULL or the value is invalid for the option,
+ *         GHOSTTY_OUT_OF_MEMORY if copying the value fails, or
+ *         GHOSTTY_UNSUPPORTED if `option` is not known to this version of
+ *         the library
  *
  * @ingroup terminal
  */
@@ -3628,13 +3664,26 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
  * signed number of prompts to move. See
  * GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA_PROMPT for the navigation behavior. For other behaviors, the value is ignored.
  *
- * @param terminal The terminal handle (may be NULL, in which case this is a no-op)
+ * @code{.c}
+ * GhosttyTerminalScrollViewport behavior = {
+ *   .tag = GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA,
+ *   .value = { .delta = -5 },
+ * };
+ * ghostty_terminal_scroll_viewport(terminal, behavior); // up 5 rows
+ * @endcode
+ *
+ * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param behavior The scroll behavior as a tagged union
+ * @return GHOSTTY_SUCCESS on success, or GHOSTTY_INVALID_VALUE if
+ *         `terminal` is NULL or `behavior.tag` is not a
+ *         GhosttyTerminalScrollViewportTag value known to this version of
+ *         the library. The viewport does not move on failure.
  *
  * @ingroup terminal
  */
-GHOSTTY_API void ghostty_terminal_scroll_viewport(GhosttyTerminal terminal,
-                                       GhosttyTerminalScrollViewport behavior);
+GHOSTTY_API GhosttyResult ghostty_terminal_scroll_viewport(
+    GhosttyTerminal terminal,
+    GhosttyTerminalScrollViewport behavior);
 
 /**
  * Return the current compression activity token.

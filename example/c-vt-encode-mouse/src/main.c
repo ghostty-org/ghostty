@@ -12,13 +12,13 @@ int main() {
   assert(result == GHOSTTY_SUCCESS);
 
   // Configure SGR format with normal tracking
-  ghostty_mouse_encoder_setopt(encoder, GHOSTTY_MOUSE_ENCODER_OPT_EVENT,
+  ghostty_mouse_encoder_set(encoder, GHOSTTY_MOUSE_ENCODER_OPT_EVENT,
       &(GhosttyMouseTrackingMode){GHOSTTY_MOUSE_TRACKING_NORMAL});
-  ghostty_mouse_encoder_setopt(encoder, GHOSTTY_MOUSE_ENCODER_OPT_FORMAT,
+  ghostty_mouse_encoder_set(encoder, GHOSTTY_MOUSE_ENCODER_OPT_FORMAT,
       &(GhosttyMouseFormat){GHOSTTY_MOUSE_FORMAT_SGR});
 
   // Set terminal geometry for coordinate mapping
-  ghostty_mouse_encoder_setopt(encoder, GHOSTTY_MOUSE_ENCODER_OPT_SIZE,
+  ghostty_mouse_encoder_set(encoder, GHOSTTY_MOUSE_ENCODER_OPT_SIZE,
       &(GhosttyMouseEncoderSize){
           .size = sizeof(GhosttyMouseEncoderSize),
           .screen_width = 800, .screen_height = 600,

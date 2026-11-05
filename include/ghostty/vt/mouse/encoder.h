@@ -105,14 +105,14 @@ typedef struct {
 /**
  * Mouse encoder option identifiers.
  *
- * These values are used with ghostty_mouse_encoder_setopt() to configure
+ * These values are used with ghostty_mouse_encoder_set() to configure
  * the behavior of the mouse encoder.
  *
  * @ingroup mouse
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
-   * Not a real option. ghostty_mouse_encoder_setopt() returns
+   * Not a real option. ghostty_mouse_encoder_set() returns
    * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
    * uninitialized variable is never mistaken for a real option.
    */
@@ -170,7 +170,7 @@ GHOSTTY_API void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
  *
  * @code{.c}
  * GhosttyMouseFormat format = GHOSTTY_MOUSE_FORMAT_SGR;
- * GhosttyResult result = ghostty_mouse_encoder_setopt(
+ * GhosttyResult result = ghostty_mouse_encoder_set(
  *     encoder, GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, &format);
  * @endcode
  *
@@ -186,7 +186,7 @@ GHOSTTY_API void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
  *
  * @ingroup mouse
  */
-GHOSTTY_API GhosttyResult ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encoder,
+GHOSTTY_API GhosttyResult ghostty_mouse_encoder_set(GhosttyMouseEncoder encoder,
                                   GhosttyMouseEncoderOption option,
                                   const void *value);
 
@@ -201,7 +201,7 @@ GHOSTTY_API GhosttyResult ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encod
  *
  * @ingroup mouse
  */
-GHOSTTY_API void ghostty_mouse_encoder_setopt_from_terminal(GhosttyMouseEncoder encoder,
+GHOSTTY_API void ghostty_mouse_encoder_set_from_terminal(GhosttyMouseEncoder encoder,
                                                 GhosttyTerminal terminal);
 
 /**

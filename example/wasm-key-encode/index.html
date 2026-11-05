@@ -593,7 +593,7 @@
             const flags = getKittyFlags();
             const flagsPtr = wasmInstance.exports.ghostty_wasm_alloc(1);
             new DataView(getBuffer()).setUint8(flagsPtr, flags);
-            wasmInstance.exports.ghostty_key_encoder_setopt(
+            wasmInstance.exports.ghostty_key_encoder_set(
                 encoderPtr, 
                 6, // GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS
                 flagsPtr

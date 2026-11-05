@@ -472,7 +472,7 @@ pub fn set(
         inline else => |comptime_option| setTyped(
             state_,
             comptime_option,
-            @ptrCast(@alignCast(value orelse return .invalid_value)),
+            @ptrCast(@alignCast(value)),
         ),
     };
 }
@@ -480,18 +480,23 @@ pub fn set(
 fn setTyped(
     state_: RenderState,
     comptime option: SetOption,
-    value: *const option.InType(),
+    value_: ?*const option.InType(),
 ) Result {
     const state = state_ orelse return .invalid_value;
     switch (option) {
-        .dirty => state.state.dirty = lib.enumFromPtr(Dirty, value) orelse
-            return .invalid_value,
+        // The dirty state is computed by every update, so there is no
+        // default to restore.
+        .dirty => {
+            const value = value_ orelse return .invalid_value;
+            state.state.dirty = lib.enumFromPtr(Dirty, value) orelse
+                return .invalid_value;
+        },
 
         // Applied by the next update. See the field docs for why.
-        .overscan => state.overscan_request = .{
+        .overscan => state.overscan_request = if (value_) |value| .{
             .above = value.above,
             .below = value.below,
-        },
+        } else .{},
         .invalid, _ => comptime unreachable,
     }
 
@@ -2919,6 +2924,11 @@ test "render: overscan option roundtrip" {
     // Nothing is captured before an update.
     try testing.expectEqual(Result.success, get(state, .overscan, @ptrCast(&out)));
     try testing.expectEqual(Overscan{}, out);
+
+    // A NULL value restores the default of no overscan.
+    try testing.expectEqual(Result.success, set(state, .overscan, null));
+    try testing.expectEqual(Result.success, get(state, .overscan_request, @ptrCast(&out)));
+    try testing.expectEqual(Overscan{}, out);
 }
 
 test "render: overscan clamps to existing rows" {
@@ -3157,7 +3167,6 @@ test "render: overscan invalid values" {
     defer free(state);
 
     try testing.expectEqual(Result.invalid_value, get(state, .overscan, null));
-    try testing.expectEqual(Result.invalid_value, set(state, .overscan, null));
 
     const terminal = try testTerminalWithLines(10, 5, 1);
     defer terminal_c.free(terminal);
