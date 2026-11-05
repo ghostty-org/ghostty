@@ -144,6 +144,28 @@ extension NativeSettingsController {
     }
 
     private func appearance(_ form: NativeSettingsForm) {
+        form.section(text("Theme", "主题"))
+        picker(form, strings.appearancePickerLabel, \.windowThemeOverride, [
+            (nil, text("Follow terminal", "跟随终端")), (.system, text("System", "系统")), (.light, text("Light", "浅色")), (.dark, text("Dark", "深色"))
+        ])
+        let gallery = NativeThemeGallery(settings: settings)
+        form.addChild(gallery)
+        form.embed(gallery.view, height: 470)
+        form.section(strings.fontSection)
+        picker(form, strings.fontFamilyLabel, \.fontFamilyOverride,
+               [(nil, text("Default", "默认"))] + Array(Set(NSFontManager.shared.availableFontFamilies +
+                [settings.fontFamilyOverride].compactMap { $0 })).sorted().map { (Optional($0), $0) })
+        optionalNumber(form, strings.fontSizeLabel, \.fontSizeOverride, fallback: { [weak self] in
+            guard let self else { return 13 }
+            let value = self.settings.effectiveAppearance(using: self.inheritedConfig).fontSize
+            return value.inheritedValue ?? value.defaultValue
+        }, range: 6...72, step: 0.5)
+        form.section(strings.transparencySection)
+        picker(form, strings.backgroundBlurLabel, \.backgroundBlurOverride,
+               [(nil, text("Default", "默认"))] + OhMyGhosttyBackgroundBlur.allCases.map { (Optional($0), strings.blurTitle($0)) })
+        core(.cursor, in: form)
+        picker(form, strings.cursorStyleLabel, \.cursorStyleOverride,
+               [(nil, text("Default", "默认"))] + OhMyGhosttyCursorStyle.allCases.map { (Optional($0), strings.cursorTitle($0)) })
         form.section(strings.focusedSplitBorderSection)
         toggle(form, strings.focusedSplitBorderLabel, \.focusedSplitBorder)
         picker(form, text("Marker position", "标记线位置"), \.focusedSplitBorderPosition, [
@@ -169,28 +191,6 @@ extension NativeSettingsController {
             "Background opacity also affects sidebars. Unfocused opacity controls native split dimming; 100% disables dimming.",
             "背景不透明度也影响侧栏等界面。非聚焦不透明度控制原生分屏淡化，100% 表示不淡化。"
         ))
-        form.section(text("Theme", "主题"))
-        picker(form, strings.appearancePickerLabel, \.windowThemeOverride, [
-            (nil, text("Follow terminal", "跟随终端")), (.system, text("System", "系统")), (.light, text("Light", "浅色")), (.dark, text("Dark", "深色"))
-        ])
-        let gallery = NativeThemeGallery(settings: settings)
-        form.addChild(gallery)
-        form.embed(gallery.view, height: 470)
-        form.section(strings.fontSection)
-        picker(form, strings.fontFamilyLabel, \.fontFamilyOverride,
-               [(nil, text("Default", "默认"))] + Array(Set(NSFontManager.shared.availableFontFamilies +
-                [settings.fontFamilyOverride].compactMap { $0 })).sorted().map { (Optional($0), $0) })
-        optionalNumber(form, strings.fontSizeLabel, \.fontSizeOverride, fallback: { [weak self] in
-            guard let self else { return 13 }
-            let value = self.settings.effectiveAppearance(using: self.inheritedConfig).fontSize
-            return value.inheritedValue ?? value.defaultValue
-        }, range: 6...72, step: 0.5)
-        form.section(strings.transparencySection)
-        picker(form, strings.backgroundBlurLabel, \.backgroundBlurOverride,
-               [(nil, text("Default", "默认"))] + OhMyGhosttyBackgroundBlur.allCases.map { (Optional($0), strings.blurTitle($0)) })
-        core(.cursor, in: form)
-        picker(form, strings.cursorStyleLabel, \.cursorStyleOverride,
-               [(nil, text("Default", "默认"))] + OhMyGhosttyCursorStyle.allCases.map { (Optional($0), strings.cursorTitle($0)) })
         form.row(strings.resetAppearanceButton, control: SettingsActionButton(text("Reset", "重置")) { [weak self] in
             self?.settings.resetAppearance(); self?.select(.appearance)
         })

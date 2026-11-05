@@ -219,6 +219,9 @@ Window UI state is intentionally separate: `InspectorPresentationStore` owns las
 The selected split marker defaults to a fully opaque, 3pt system accent line
 at the bottom of the pane, with no end insets and 2pt corner radii. Its edge and
 thickness are adjustable. Existing saved thickness values are preserved.
+The focused pane is marked even when it is the only pane in a tab, including
+when a split is zoomed. Focus controls appear below theme, font, transparency,
+and cursor controls on the Appearance page.
 The marker and Ghostty's native unfocused split dimming work together.
 Settings > Appearance > Focus exposes `background-opacity` as focused pane
 background opacity (also used by the app shell), and `unfocused-split-opacity`

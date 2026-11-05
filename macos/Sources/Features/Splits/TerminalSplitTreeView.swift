@@ -151,19 +151,17 @@ private struct TerminalSplitLeaf: View {
                 }
             }
             .overlay(alignment: settings.focusedSplitBorderPosition.alignment) {
-                if isSplit {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(nsColor: .controlAccentColor))
-                        .frame(
-                            width: settings.focusedSplitBorderPosition.isHorizontal ? nil : settings.focusedSplitBorderWidth,
-                            height: settings.focusedSplitBorderPosition.isHorizontal ? settings.focusedSplitBorderWidth : nil
-                        )
-                        .opacity(settings.focusedSplitBorder && focusedSurface?.value === surfaceView ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.12),
-                                   value: focusedSurface?.value === surfaceView)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color(nsColor: .controlAccentColor))
+                    .frame(
+                        width: settings.focusedSplitBorderPosition.isHorizontal ? nil : settings.focusedSplitBorderWidth,
+                        height: settings.focusedSplitBorderPosition.isHorizontal ? settings.focusedSplitBorderWidth : nil
+                    )
+                    .opacity(settings.focusedSplitBorder && focusedSurface?.value === surfaceView ? 1 : 0)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.12),
+                               value: focusedSurface?.value === surfaceView)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in
                 isSelfDragging = value == surfaceView.id

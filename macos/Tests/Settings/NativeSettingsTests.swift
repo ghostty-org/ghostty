@@ -13,6 +13,11 @@ struct NativeSettingsTests {
         settings.language = .english
         let controller = NativeSettingsController(settings: settings, initialSelection: .appearance)
         _ = controller.view
+        let form = try #require(controller.children.compactMap { $0 as? NativeSettingsForm }.first)
+        let strings = SettingsStrings(language: .english)
+        let cursorIndex = try #require(form.rowTitles.firstIndex(of: strings.cursorStyleLabel))
+        let focusIndex = try #require(form.rowTitles.firstIndex(of: strings.focusedSplitBorderLabel))
+        #expect(cursorIndex < focusIndex)
         let controls = descendants(controller.view)
         let position = try #require(controls.compactMap { $0 as? SettingsPopup }
             .first { $0.accessibilityLabel() == "Marker position" })
