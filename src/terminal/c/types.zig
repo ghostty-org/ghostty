@@ -886,6 +886,7 @@ const Json = struct {
         const overrides = [_]struct { []const u8, []const u8, []const u8 }{
             .{ "GhosttyCellData", "color_palette", "GhosttyColorPaletteIndex" },
             .{ "GhosttyCellData", "style_id", "GhosttyStyleId" },
+            .{ "GhosttyFormatterOption", "extras", "GhosttyFormatterExtras" },
             .{ "GhosttyKeyEncoderOption", "kitty_flags", "GhosttyKittyKeyFlags" },
             .{ "GhosttyRenderStateRowCellsData", "raw", "GhosttyCell" },
             .{ "GhosttyRenderStateRowData", "raw", "GhosttyRow" },
@@ -1799,6 +1800,15 @@ test "manifest types the value of every key" {
         .{ "GhosttyKeyEncoderOption", "KITTY_FLAGS", "in", "GhosttyKittyKeyFlags" },
         .{ "GhosttyMouseEncoderOption", "SIZE", "in", "GhosttyMouseEncoderSize" },
         .{ "GhosttyKittyGraphicsPlacementIteratorOption", "LAYER", "in", "u32" },
+        .{ "GhosttyFormatterOption", "EMIT", "in", "GhosttyFormatterFormat" },
+        .{ "GhosttyFormatterOption", "SELECTION", "in", "GhosttySelection" },
+        .{ "GhosttyFormatterOption", "EXTRAS", "in", "GhosttyFormatterExtras" },
+        .{ "GhosttyOscOption", "UNKNOWN_MAX_BYTES", "in", usize_name },
+        .{ "GhosttySearchOption", "NEEDLE", "in", "GhosttyString" },
+        .{ "GhosttySelectionGestureEventOption", "REF", "in", "GhosttyGridRef" },
+        .{ "GhosttySelectionGestureEventOption", "REPEAT_DISTANCE", "in", "f64" },
+        .{ "GhosttySnapshotDecoderOption", "MAX_CONTINUATION_BYTES", "in", usize_name },
+        .{ "GhosttySnapshotDecoderOption", "KITTY_IMAGE_STORAGE_LIMIT", "in", "u64" },
         // Output keys.
         .{ "GhosttyBuildInfo", "VERSION_STRING", "out", "GhosttyString" },
         .{ "GhosttyBuildInfo", "VERSION_MAJOR", "out", usize_name },

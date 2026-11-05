@@ -119,7 +119,8 @@ pub const Option = enum(c_int) {
 
     _,
 
-    pub fn Type(comptime self: Option) type {
+    /// The type that a `set` value points to.
+    pub fn InType(comptime self: Option) type {
         return switch (self) {
             .needle => lib.String,
             .select_scroll => Scroll,
@@ -244,7 +245,7 @@ pub fn set(
 fn setTyped(
     search_: Search,
     comptime option: Option,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const wrapper = search_ orelse return .invalid_value;
     switch (option) {

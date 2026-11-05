@@ -55,6 +55,14 @@ pub const Option = enum(c_int) {
     invalid = 0,
     unknown_max_bytes = 1,
     _,
+
+    /// The type that a `set` value points to.
+    pub fn InType(comptime self: Option) type {
+        return switch (self) {
+            .unknown_max_bytes => usize,
+            .invalid, _ => void,
+        };
+    }
 };
 
 pub fn set(
@@ -65,7 +73,7 @@ pub fn set(
     switch (option) {
         .unknown_max_bytes => {
             const parser = parser_ orelse return .invalid_value;
-            const ptr: ?*const usize = @ptrCast(@alignCast(value));
+            const ptr: ?*const Option.unknown_max_bytes.InType() = @ptrCast(@alignCast(value));
             parser.unknown_max_bytes = if (ptr) |v| v.* else 0;
         },
         .invalid => return .invalid_value,

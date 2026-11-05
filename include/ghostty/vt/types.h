@@ -580,15 +580,16 @@ GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
  * describe the current linked build and are not a cross-version stability
  * promise.
  *
- * Key enums also have a `keys` object. A key enum is the enum that a `_get`,
- * `_set` or `_get_multi` function takes to pick a value, such as
+ * Every key enum also has a `keys` object. A key enum is the enum that a
+ * `_get`, `_set` or `_get_multi` function takes to pick a value, such as
  * GhosttyTerminalData or GhosttyTerminalOption. Each key lists its
  * `direction` and the `type` that its `void *` value points at:
  *
  * - An `"out"` key is read. Pass a pointer to storage of `type`, and the
  *   library writes the value there.
  * - An `"in"` key is set. Pass a pointer to a value of `type`, and the
- *   library reads it.
+ *   library reads it. ghostty_formatter_get() also takes these keys, and
+ *   writes a value of the same `type`.
  * - A `type` of `opaque` is an untyped pointer, such as userdata. Pass the
  *   pointer itself.
  * - A `type` that names a `callback` descriptor sets a callback. Pass the

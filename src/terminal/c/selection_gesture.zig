@@ -188,7 +188,8 @@ pub const EventOption = enum(c_int) {
 
     _,
 
-    pub fn Type(comptime self: EventOption) type {
+    /// The type that an `event_set` value points to.
+    pub fn InType(comptime self: EventOption) type {
         return switch (self) {
             .ref => grid_ref.CGridRef,
             .position => types.SurfacePosition,
@@ -445,7 +446,7 @@ fn getTyped(
 fn eventSetTyped(
     event_: Event,
     comptime option: EventOption,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const event = event_ orelse return .invalid_value;
     return switch (event.event) {
@@ -461,7 +462,7 @@ fn pressSetTyped(
     event: *EventWrapper,
     press: *SelectionGesture.Press,
     comptime option: EventOption,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const v = value orelse {
         switch (option) {
@@ -528,7 +529,7 @@ fn pressSetTyped(
 fn releaseSetTyped(
     release: *SelectionGesture.Release,
     comptime option: EventOption,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     switch (option) {
         .ref => {
@@ -559,7 +560,7 @@ fn dragSetTyped(
     event: *EventWrapper,
     drag: *SelectionGesture.Drag,
     comptime option: EventOption,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const v = value orelse {
         switch (option) {
@@ -622,7 +623,7 @@ fn autoscrollTickSetTyped(
     event: *EventWrapper,
     tick: *SelectionGesture.AutoscrollTick,
     comptime option: EventOption,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const v = value orelse {
         switch (option) {
@@ -685,7 +686,7 @@ fn deepPressSetTyped(
     event: *EventWrapper,
     deep_press: *SelectionGesture.DeepPress,
     comptime option: EventOption,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const v = value orelse {
         switch (option) {
