@@ -993,6 +993,12 @@ jobs:
             -Dtarget=wasm32-freestanding \
             -Doptimize=ReleaseSmall
 
+      - name: Check WASM ABI
+        run: |
+          nix develop -c zig build test-lib-vt-abi \
+            -Dtarget=wasm32-freestanding \
+            -Doptimize=ReleaseSmall
+
       - name: Optimize ReleaseSmall WASM
         run: |
           nix develop -c wasm-opt -O3 \
@@ -1054,7 +1060,7 @@ jobs:
 
       - name: Compile feature flag matrix
         run: |
-          features="snapshot formatter selection render_state input_encode color grid_introspection glyph_protocol kitty_graphics"
+          features="snapshot formatter selection render_state input_encode color grid_introspection glyph_protocol kitty_graphics search"
           configs="-all"
           for f in $features; do configs="$configs -all,+$f"; done
 
@@ -1218,6 +1224,11 @@ jobs:
             --expect-platform ${{ matrix.platform }} \
             --expect-arch ${{ matrix.arch }} \
             ${{ matrix.expect_encryption && '--expect-encryption' || '' }}
+
+      # aarch64-macos is the only Apple target with a golden.
+      - name: Check ABI
+        if: matrix.target == 'aarch64-macos'
+        run: nix develop -c zig build test-lib-vt-abi -Dtarget=${{ matrix.target }}
 
   # lib-vt requires the Android NDK for Android builds
   build-libghostty-vt-android:
@@ -1940,6 +1951,9 @@ jobs:
 
       - name: Validate native ABI manifest
         run: nix develop -c zig build test-lib-vt-schema
+
+      - name: Check native ABI
+        run: nix develop -c zig build test-lib-vt-abi
 
   # Checks that deps/libghostty-vt.txt lists everything a packager needs.
   # It downloads only the packages on that list, then builds and tests the

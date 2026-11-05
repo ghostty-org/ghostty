@@ -4,7 +4,10 @@ This directory contains the tooling that checks the ABI of libghostty-vt
 in CI. For every change, we compare the ABI of the Linux x86_64 shared
 library against a baseline committed here, using
 [libabigail](https://sourceware.org/libabigail/). The check runs as the
-`abi-check` job in `.github/workflows/test.yml`.
+`abi-check` job in `.github/workflows/test.yml`. A second check,
+`zig build test-lib-vt-abi`, covers what this one can't, such as macOS and
+WebAssembly. It compares the library to the manifest goldens and symbol
+list in `src/terminal/c/abi/`.
 
 The goal is that a change never breaks the ABI by accident. If a change
 would break programs already built against libghostty-vt, CI fails and

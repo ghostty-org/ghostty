@@ -71,6 +71,14 @@ pub fn build(b: *std.Build) !void {
         "test-lib-vt-schema",
         "Validate the libghostty-vt ABI type manifest",
     );
+    const test_lib_vt_abi_step = b.step(
+        "test-lib-vt-abi",
+        "Fail if libghostty-vt changed its ABI in a way that is not an addition",
+    );
+    const update_lib_vt_abi_step = b.step(
+        "update-lib-vt-abi",
+        "Record the libghostty-vt ABI of the current target in src/terminal/c/abi",
+    );
     const test_valgrind_step = b.step(
         "test-valgrind",
         "Run tests under valgrind",
@@ -168,6 +176,8 @@ pub fn build(b: *std.Build) !void {
         type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
         type_schema_test.addFileArg(shared.output);
         test_lib_vt_schema_step.dependOn(&type_schema_test.step);
+
+        shared.addAbiCheck(b, config.target.result, test_lib_vt_abi_step, update_lib_vt_abi_step);
     } else {
         _ = b.addFail("cannot execute the ABI manifest for a native freestanding target");
     }
