@@ -45,6 +45,7 @@ test "OMG bare path candidates" {
         .{ .input = "(README.md)", .expected = "README.md" },
         .{ .input = "README.md:12:3", .expected = "README.md:12:3" },
         .{ .input = ".gitignore", .expected = ".gitignore" },
+        .{ .input = ".pi/test-runs/safety-state-week-20261105/week-monitor/progress.json", .expected = ".pi/test-runs/safety-state-week-20261105/week-monitor/progress.json" },
         .{ .input = "src/subdir/", .expected = "src/subdir/" },
         .{ .input = "中文.md", .expected = "中文.md" },
         .{ .input = "..", .expected = ".." },

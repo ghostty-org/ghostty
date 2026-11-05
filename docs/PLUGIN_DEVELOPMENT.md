@@ -2973,6 +2973,9 @@ links when referring to files from an earlier remote directory. Hover previews,
 existence checks, and opening share the same host resolver, including relative
 OSC 8 targets and Chinese filenames. Native `open_url` and `mouse_over_link`
 cwd fields are host/core interfaces, not plugin wire capabilities.
+Hard-wrapped bare relative directory paths, including `.pi/...` and `src/...`,
+are normalized as one target before existence checks, hover decoration and
+opening. TUI padding is excluded from the target just as for absolute paths.
 
 Plain long `ls` listings can expose directory and extensionless filenames
 without icon prefixes; metadata columns are not candidates. SSH `itemType`

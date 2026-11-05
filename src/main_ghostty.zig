@@ -242,6 +242,7 @@ test {
     _ = @import("cli.zig");
     _ = @import("surface_mouse.zig");
     _ = @import("omg_link_check.zig");
+    _ = @import("omg_wrapped_link.zig");
     _ = @import("renderer/omg_link.zig");
 
     // Libraries

@@ -210,6 +210,8 @@ test "OMG inset agent URL and image path normalize before existence checks" {
         for ([_][]const u8{
             "https://github.com/lance-format/lance/pull/10239",
             "/var/folders/2z/zl8wrct518v_n3zcgjmc07200000gn/T/omg-paste/omg-paste-6FF04F2F-370F-4063-9DAE-F110F639E9307.png",
+            ".pi/test-runs/safety-state-week-20261105/week-monitor/progress.json",
+            "src/gateway/tests/reports/integration/validation/output.json",
         }) |target| {
             var t = try terminal.Terminal.init(std.testing.io, alloc, .{ .cols = 40, .rows = 8 });
             defer t.deinit(alloc);
@@ -230,7 +232,7 @@ test "OMG inset agent URL and image path normalize before existence checks" {
             }
             const screen = t.screens.active;
             var config = try @import("renderer/link.zig").Set.fromConfig(alloc, &.{.{
-                .regex = @import("config/url.zig").no_space_regex,
+                .regex = @import("config/url.zig").no_space_regex ++ "|" ++ @import("config/omg_path.zig").regex,
                 .action = .{ .open = {} },
                 .highlight = .{ .hover_mods = mods },
             }});
@@ -249,7 +251,7 @@ test "OMG inset agent URL and image path normalize before existence checks" {
                 try std.testing.expectEqualStrings(target, detected.target);
                 try std.testing.expectEqual(row - 1, detected.spans.len);
                 try std.testing.expectEqual(.inferred_continuation, detected.source);
-                try std.testing.expectEqual(target[0] == '/', detected.kind == .path);
+                try std.testing.expectEqual(!std.mem.startsWith(u8, target, "https://"), detected.kind == .path);
                 const margin = screen.pages.pin(.{ .active = .{ .x = 39, .y = @intCast(y) } }).?;
                 try std.testing.expect(!detected.contains(screen, margin));
             }
@@ -260,7 +262,7 @@ test "OMG inset agent URL and image path normalize before existence checks" {
             try frame.update(alloc, &t);
             var pending = try @import("renderer/omg_link.zig").collect(alloc, alloc, screen, &frame, config.links, &cache, mods);
             defer pending.deinit(alloc);
-            if (target[0] == '/') {
+            if (!std.mem.startsWith(u8, target, "https://")) {
                 try std.testing.expectEqual(@import("omg_link_check.zig").Status.queued, cache.get("/repo", target).?);
                 cache.clear(alloc);
                 _ = try cache.putPending(alloc, "/repo", target);
@@ -313,10 +315,20 @@ fn isURLChar(c: u8) bool {
 }
 
 fn isCandidate(value: []const u8) bool {
-    return std.mem.startsWith(u8, value, "https://") or
+    if (std.mem.startsWith(u8, value, "https://") or
         std.mem.startsWith(u8, value, "http://") or
         std.mem.startsWith(u8, value, "/") or
         std.mem.startsWith(u8, value, "~/") or
         std.mem.startsWith(u8, value, "./") or
-        std.mem.startsWith(u8, value, "../");
+        std.mem.startsWith(u8, value, "../")) return true;
+
+    // Bare relative directory paths use the same continuation mapping as
+    // absolute paths. A hidden directory such as .pi/ is not the ./ prefix.
+    if (value.len == 0 or std.mem.indexOfScalar(u8, value, '/') == null or
+        std.mem.indexOf(u8, value, "...") != null) return false;
+    if (!std.ascii.isAlphanumeric(value[0]) and value[0] != '.' and value[0] != '_') return false;
+    for (value) |c| {
+        if (!std.ascii.isAlphanumeric(c) and std.mem.indexOfScalar(u8, "._-/", c) == null) return false;
+    }
+    return true;
 }
