@@ -88,9 +88,11 @@ jobs:
       - build-dist
       - build-dist-lib-vt
       - build-example-zig-vt-macos-no-sdk
+      - build-example-c-vt-macos-sdk
       - build-examples-zig
       - build-examples-cmake
       - build-examples-cmake-windows
+      - test-lib-vt-install-windows
       - build-examples-swift
       - build-cmake
       - build-flatpak
@@ -135,6 +137,7 @@ jobs:
       - test-dist
       - valgrind
       - zig-fmt
+      - abi-check
 
     steps:
       - id: status
@@ -280,6 +283,61 @@ jobs:
         working-directory: example/zig-vt
         run: nix develop -c env DEVELOPER_DIR=/nonexistent zig build
 
+  # With the SDK, a libghostty-vt build links the dylib natively in a Run
+  # step. When Ghostty is a dependency it must link it with Zig instead,
+  # or dep.artifact("ghostty-vt") panics with "unable to find artifact".
+  # zig-vt only uses the module, so this builds an example that links
+  # the artifact.
+  build-example-c-vt-macos-sdk:
+    name: Example c-vt-build-info (macOS, SDK)
+    runs-on: namespace-profile-ghostty-macos-golden
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    env:
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
+
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: true
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_27.1.app
+
+      - name: Build Example with SDK
+        working-directory: example/c-vt-build-info
+        run: |
+          xcrun --show-sdk-path
+          nix develop -c zig build
+
+      - name: Run Example
+        working-directory: example/c-vt-build-info
+        run: ./zig-out/bin/c_vt_build_info
+
+      - name: Verify the example loads the shared library
+        working-directory: example/c-vt-build-info
+        run: |
+          lib_version=$(sed -n 's/^const lib_version = "\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' ../../build.zig)
+          lib_major=${lib_version%%.*}
+          otool -L zig-out/bin/c_vt_build_info
+          otool -L zig-out/bin/c_vt_build_info | grep -qF "@rpath/libghostty-vt.${lib_major}.dylib"
+
   build-examples-cmake:
     strategy:
       fail-fast: false
@@ -346,6 +404,98 @@ jobs:
           cd example/${{ matrix.dir }}
           cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=${{ github.workspace }}
           cmake --build build
+
+  # Install to a prefix and check the files PACKAGING-LIBGHOSTTY.md lists
+  # for Windows, then use the installed tree from a CMake project. The
+  # target is pinned because the guide's Windows support means the gnu
+  # ABI, which is also what Zig picks for a native Windows build.
+  test-lib-vt-install-windows:
+    name: libghostty-vt install layout (Windows)
+    runs-on: namespace-profile-ghostty-windows
+    timeout-minutes: 45
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+
+      - name: Install libghostty-vt
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "ghostty-vt"
+          zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu --prefix $prefix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem $prefix -Recurse -File |
+            ForEach-Object { $_.FullName.Substring($prefix.Length + 1) }
+
+      - name: Verify installed files
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "ghostty-vt"
+          $expected = @(
+            "bin/ghostty-vt.dll"
+            "lib/ghostty-vt.lib"
+            "lib/ghostty-vt-static.lib"
+            "include/ghostty/vt.h"
+            "include/ghostty/vt"
+            "lib/pkgconfig/libghostty-vt.pc"
+            "lib/pkgconfig/libghostty-vt-static.pc"
+            "lib/cmake/ghostty-vt/ghostty-vt-config.cmake"
+            "lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake"
+          )
+          $missing = $expected | Where-Object { -not (Test-Path (Join-Path $prefix $_)) }
+          if ($missing) {
+            "missing from the install tree: $($missing -join ', ')"
+            exit 1
+          }
+
+          # The text files must not name the build directory. The DLL and
+          # its PDB are left out: debug info names the source files.
+          $workspace = $env:GITHUB_WORKSPACE
+          $patterns = @($workspace, $workspace.Replace('\', '/')) | Sort-Object -Unique
+          $leaks = Get-ChildItem $prefix -Recurse -File -Include *.h, *.pc, *.cmake |
+            Select-String -SimpleMatch -Pattern $patterns
+          if ($leaks) {
+            $leaks
+            "installed files name the build directory"
+            exit 1
+          }
+
+      - name: Build and run a CMake consumer
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "ghostty-vt"
+          $consumer = Join-Path $env:RUNNER_TEMP "consumer"
+          New-Item -ItemType Directory -Force $consumer | Out-Null
+          @'
+          cmake_minimum_required(VERSION 3.19)
+          project(consumer C)
+          find_package(ghostty-vt CONFIG REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE ghostty-vt::ghostty-vt)
+          '@ | Set-Content (Join-Path $consumer "CMakeLists.txt")
+          @'
+          #include <ghostty/vt.h>
+          int main(void) {
+              bool simd = false;
+              return ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd) == GHOSTTY_SUCCESS ? 0 : 1;
+          }
+          '@ | Set-Content (Join-Path $consumer "main.c")
+
+          cmake -S $consumer -B "$consumer/build" "-DCMAKE_PREFIX_PATH=$prefix"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "$consumer/build" --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Windows finds DLLs on PATH; there is no rpath.
+          $env:PATH = "$prefix\bin;$env:PATH"
+          & "$consumer/build/Release/consumer.exe"
+          $code = $LASTEXITCODE
+          "exit code: 0x{0:X8}" -f $code
+          exit $code
 
   build-examples-swift:
     strategy:
@@ -928,6 +1078,74 @@ jobs:
           nix develop -c zig build test-lib-vt \
             -Dvt-features=-all \
             "-Dtest-filter=compiled-out features return unsupported"
+
+  # Checks that the ABI of the Linux shared library didn't break since
+  # test/abi/baseline.abi. See test/abi/README.md for what fails the check.
+  abi-check:
+    runs-on: namespace-profile-ghostty-sm
+    needs: build-gate
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # Build with the options PACKAGING-LIBGHOSTTY.md recommends, so we
+      # check the library that packages ship.
+      - name: Build
+        run: |
+          nix develop -c zig build -Demit-lib-vt \
+            -Doptimize=ReleaseFast \
+            -Dcpu=baseline
+
+      # The dump fails if any API function is missing from it. The
+      # artifact is what a new baseline is taken from.
+      - name: Dump ABI
+        run: |
+          mkdir -p abi-dump
+          nix develop -c test/abi/check.sh dump \
+            zig-out/lib/libghostty-vt.so \
+            abi-dump/baseline.abi
+          version="$(sed -n 's/^Version: //p' zig-out/lib/pkgconfig/libghostty-vt.pc)"
+          {
+            echo "commit: ${GITHUB_SHA}"
+            echo "version: ${version}"
+          } > abi-dump/baseline.txt
+
+      - name: Upload ABI dump
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: libghostty-vt-abi
+          path: |-
+            abi-dump/baseline.abi
+            abi-dump/baseline.txt
+
+      - name: Compare ABI with baseline
+        run: |
+          if [ ! -f test/abi/baseline.abi ]; then
+            echo "::notice title=ABI check::test/abi/baseline.abi doesn't exist yet, so the ABI isn't compared. The dump is in the libghostty-vt-abi artifact."
+            exit 0
+          fi
+          nix develop -c test/abi/check.sh diff \
+            test/abi/baseline.abi \
+            zig-out/lib/libghostty-vt.so
 
   # lib-vt requires macOS runner for macOS/iOS builds because it requires the `apple_sdk` path
   build-libghostty-vt-macos:
