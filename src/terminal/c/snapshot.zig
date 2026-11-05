@@ -21,10 +21,11 @@ const terminal_c = @import("terminal.zig");
 /// Options configure validation and returned-terminal policy before snapshot
 /// decoding begins.
 pub const DecoderOption = enum(c_int) {
-    max_continuation_bytes = 0,
-    retain_continuation = 1,
-    compress_history = 2,
-    kitty_image_storage_limit = 3,
+    invalid = 0,
+    max_continuation_bytes = 1,
+    retain_continuation = 2,
+    compress_history = 3,
+    kitty_image_storage_limit = 4,
     _,
 };
 
@@ -226,6 +227,14 @@ pub fn decoder_set(
     option: DecoderOption,
     value_: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
+    // Check the key first, so an unknown key returns unsupported whatever
+    // state the decoder is in. Callers use that to check for a key.
+    switch (option) {
+        .invalid => return .invalid_value,
+        _ => return .unsupported,
+        else => {},
+    }
+
     // Options freeze as soon as any decoding attempt starts.
     const decoder = decoder_ orelse return .invalid_value;
     switch (decoder.state) {
@@ -233,18 +242,18 @@ pub fn decoder_set(
         else => return .invalid_value,
     }
 
-    // Interpret the erased C pointer according to the selected option.
-    const value = value_ orelse return .invalid_value;
+    // Interpret the erased C pointer according to the selected option. A
+    // NULL value restores the default decoder_new_buf starts with.
     switch (option) {
         .max_continuation_bytes => decoder.max_continuation_bytes =
-            @as(*const usize, @ptrCast(@alignCast(value))).*,
+            if (value_) |v| @as(*const usize, @ptrCast(@alignCast(v))).* else default_max_continuation_bytes,
         .retain_continuation => decoder.retain_continuation =
-            @as(*const bool, @ptrCast(@alignCast(value))).*,
+            if (value_) |v| @as(*const bool, @ptrCast(@alignCast(v))).* else false,
         .compress_history => decoder.compress_history =
-            @as(*const bool, @ptrCast(@alignCast(value))).*,
+            if (value_) |v| @as(*const bool, @ptrCast(@alignCast(v))).* else false,
         .kitty_image_storage_limit => decoder.kitty_image_storage_limit =
-            @as(*const u64, @ptrCast(@alignCast(value))).*,
-        _ => return .unsupported,
+            if (value_) |v| @as(*const u64, @ptrCast(@alignCast(v))).* else null,
+        .invalid, _ => unreachable,
     }
     return .success;
 }
@@ -881,6 +890,28 @@ test "decoder option and empty source" {
     ));
     try testing.expect(compress);
 
+    const storage_limit: u64 = 1;
+    try testing.expectEqual(Result.success, decoder_set(
+        decoder,
+        .kitty_image_storage_limit,
+        &storage_limit,
+    ));
+
+    // A NULL value restores each default.
+    inline for (.{
+        DecoderOption.max_continuation_bytes,
+        DecoderOption.retain_continuation,
+        DecoderOption.compress_history,
+        DecoderOption.kitty_image_storage_limit,
+    }) |option| {
+        try testing.expectEqual(Result.success, decoder_set(decoder, option, null));
+    }
+    try testing.expectEqual(default_max_continuation_bytes, decoder.?.max_continuation_bytes);
+    try testing.expect(!decoder.?.retain_continuation);
+    try testing.expect(!decoder.?.compress_history);
+    try testing.expectEqual(null, decoder.?.kitty_image_storage_limit);
+    try testing.expectEqual(Result.unsupported, decoder_set(decoder, @fromBackingInt(@intCast(9999)), null));
+
     var written: usize = 99;
     try testing.expectEqual(Result.invalid_value, decoder_get_multi(
         decoder,
@@ -1502,10 +1533,11 @@ test "snapshot decoder compresses history when requested" {
         2,
     ));
     defer terminal_c.free(source);
+    const unlimited: usize = std.math.maxInt(usize);
     try testing.expectEqual(Result.success, terminal_c.set(
         source,
         .scrollback_max_bytes,
-        null,
+        &unlimited,
     ));
     const source_pages = &terminal_c.zigTerminal(source).?.screens
         .get(.primary).?.pages;
@@ -1593,10 +1625,11 @@ test "snapshot incremental decoder exposes READY and page progress" {
     try testEnableContinuation(source);
     // Keep multiple complete pages. The ordinary C-terminal byte limit keeps
     // at least one page but can evict older ones before snapshot encoding.
+    const unlimited: usize = std.math.maxInt(usize);
     try testing.expectEqual(Result.success, terminal_c.set(
         source,
         .scrollback_max_bytes,
-        null,
+        &unlimited,
     ));
     const first_page_rows = terminal_c.zigTerminal(source).?.screens
         .get(.primary).?.pages.pages.first.?.capacity().rows;
@@ -1955,18 +1988,11 @@ test "snapshot decoder restores Kitty graphics images and reports their payloads
         .kitty_graphics,
         @ptrCast(&graphics),
     ));
-    var data_len: usize = 0;
+    var pixels: lib.String = undefined;
     try testing.expectEqual(Result.success, kitty_graphics_c.image_get(
         kitty_graphics_c.image_get_handle(graphics, 2),
-        .data_len,
-        @ptrCast(&data_len),
+        .pixels,
+        @ptrCast(&pixels),
     ));
-    try testing.expectEqual(8, data_len);
-    var data_ptr: [*]const u8 = undefined;
-    try testing.expectEqual(Result.success, kitty_graphics_c.image_get(
-        kitty_graphics_c.image_get_handle(graphics, 2),
-        .data_ptr,
-        @ptrCast(&data_ptr),
-    ));
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255, 0, 0, 0, 255 }, data_ptr[0..8]);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255, 0, 0, 0, 255 }, pixels.ptr[0..pixels.len]);
 }

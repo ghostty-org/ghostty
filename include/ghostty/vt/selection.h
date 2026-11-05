@@ -443,17 +443,24 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup selection
  */
 typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Not a real data type. ghostty_selection_gesture_get() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real data type.
+   */
+  GHOSTTY_SELECTION_GESTURE_DATA_INVALID = 0,
+
   /** Current click count: uint8_t*. 0 means inactive. */
-  GHOSTTY_SELECTION_GESTURE_DATA_CLICK_COUNT = 0,
+  GHOSTTY_SELECTION_GESTURE_DATA_CLICK_COUNT = 1,
 
   /** Whether the current/last left-click gesture has dragged: bool*. */
-  GHOSTTY_SELECTION_GESTURE_DATA_DRAGGED = 1,
+  GHOSTTY_SELECTION_GESTURE_DATA_DRAGGED = 2,
 
   /** Current autoscroll request: GhosttySelectionGestureAutoscroll*. */
-  GHOSTTY_SELECTION_GESTURE_DATA_AUTOSCROLL = 2,
+  GHOSTTY_SELECTION_GESTURE_DATA_AUTOSCROLL = 3,
 
   /** Current gesture behavior: GhosttySelectionGestureBehavior*. */
-  GHOSTTY_SELECTION_GESTURE_DATA_BEHAVIOR = 3,
+  GHOSTTY_SELECTION_GESTURE_DATA_BEHAVIOR = 4,
 
   /**
    * Current left-click anchor: GhosttyGridRef*.
@@ -462,7 +469,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * writes an untracked GhosttyGridRef snapshot with normal GhosttyGridRef
    * lifetime rules.
    */
-  GHOSTTY_SELECTION_GESTURE_DATA_ANCHOR = 4,
+  GHOSTTY_SELECTION_GESTURE_DATA_ANCHOR = 5,
 
   GHOSTTY_SELECTION_GESTURE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySelectionGestureData;
@@ -504,22 +511,29 @@ typedef enum GHOSTTY_ENUM_TYPED {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
+   * Not a real option. ghostty_selection_gesture_event_set() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
+   */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_INVALID = 0,
+
+  /**
    * Grid reference under the pointer: GhosttyGridRef*.
    *
    * Required for PRESS and DRAG events. Optional for RELEASE events; when unset
    * or cleared, release records that the pointer did not map to a valid cell.
    */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF = 0,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF = 1,
 
   /**
    * Surface-space pointer position: GhosttySurfacePosition*.
    *
    * Valid for PRESS, DRAG, and AUTOSCROLL_TICK.
    */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_POSITION = 1,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_POSITION = 2,
 
   /** Maximum repeat-click distance in pixels: double*. */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_DISTANCE = 2,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_DISTANCE = 3,
 
   /**
    * Optional monotonic event time in nanoseconds: uint64_t*.
@@ -527,10 +541,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * If unset, press treats the event as untimed and only single-click behavior
    * is available.
    */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_TIME_NS = 3,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_TIME_NS = 4,
 
   /** Maximum interval between repeat clicks in nanoseconds: uint64_t*. */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_INTERVAL_NS = 4,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_INTERVAL_NS = 5,
 
   /**
    * Word-boundary codepoints: GhosttyCodepoints*.
@@ -540,23 +554,23 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Valid for PRESS, DRAG, AUTOSCROLL_TICK, and DEEP_PRESS.
    */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_WORD_BOUNDARY_CODEPOINTS = 5,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_WORD_BOUNDARY_CODEPOINTS = 6,
 
   /**
    * Selection behavior table: GhosttySelectionGestureBehaviors*.
    *
    * If unset, press uses the default behavior table: cell, word, line.
    */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_BEHAVIORS = 6,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_BEHAVIORS = 7,
 
   /** Whether a drag or autoscroll tick should produce a rectangular selection: bool*. */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_RECTANGLE = 7,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_RECTANGLE = 8,
 
   /** Drag display geometry: GhosttySelectionGestureGeometry*. Required for DRAG and AUTOSCROLL_TICK. */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY = 8,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY = 9,
 
   /** Viewport coordinate for an autoscroll tick: GhosttyPointCoordinate*. Required for AUTOSCROLL_TICK. */
-  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_VIEWPORT = 9,
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_VIEWPORT = 10,
 
   GHOSTTY_SELECTION_GESTURE_EVENT_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySelectionGestureEventOption;

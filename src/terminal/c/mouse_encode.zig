@@ -69,11 +69,12 @@ pub const Size = extern struct {
 
 /// C: GhosttyMouseEncoderOption
 pub const Option = enum(c_int) {
-    event = 0,
-    format = 1,
-    size = 2,
-    any_button_pressed = 3,
-    track_last_cell = 4,
+    invalid = 0,
+    event = 1,
+    format = 2,
+    size = 3,
+    any_button_pressed = 4,
+    track_last_cell = 5,
 
     _,
 
@@ -86,7 +87,7 @@ pub const Option = enum(c_int) {
             .any_button_pressed,
             .track_last_cell,
             => bool,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -112,23 +113,24 @@ pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
     alloc.destroy(wrapper);
 }
 
-pub fn setopt(
+pub fn set(
     encoder_: Encoder,
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| {
             const encoder = encoder_ orelse return .invalid_value;
             const ptr = value orelse return resetTyped(encoder, comptime_option);
-            return setoptTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
+            return setTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
         },
     };
 }
 
 /// Reset an option to its default, the same state a new encoder starts in.
-/// This is what a NULL value to `setopt` does.
+/// This is what a NULL value to `set` does.
 fn resetTyped(wrapper: *MouseEncoderWrapper, comptime option: Option) Result {
     const defaults: input_mouse_encode.Options = .{ .size = defaultSize() };
     switch (option) {
@@ -154,13 +156,13 @@ fn resetTyped(wrapper: *MouseEncoderWrapper, comptime option: Option) Result {
             wrapper.last_cell = null;
         },
 
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
 }
 
-fn setoptTyped(
+fn setTyped(
     wrapper: *MouseEncoderWrapper,
     comptime option: Option,
     value: *const option.InType(),
@@ -182,7 +184,7 @@ fn setoptTyped(
 
         .size => {
             if (!lib.sizedCheck(.input, value)) {
-                log.warn("setopt size struct rejected size={d} expected={d}", .{
+                log.warn("set size struct rejected size={d} expected={d}", .{
                     value.size,
                     @sizeOf(Size),
                 });
@@ -190,7 +192,7 @@ fn setoptTyped(
             }
 
             wrapper.opts.size = value.toRenderer() orelse {
-                log.warn("setopt invalid size values (cell width and height must be non-zero)", .{});
+                log.warn("set invalid size values (cell width and height must be non-zero)", .{});
                 return .invalid_value;
             };
             wrapper.last_cell = null;
@@ -203,13 +205,13 @@ fn setoptTyped(
             if (!value.*) wrapper.last_cell = null;
         },
 
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
 }
 
-pub fn setopt_from_terminal(
+pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
 ) callconv(lib.calling_conv) void {
@@ -305,7 +307,7 @@ test "alloc" {
     free(e);
 }
 
-test "setopt" {
+test "set" {
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
@@ -314,15 +316,15 @@ test "setopt" {
     defer free(e);
 
     const event_mode: TrackingMode = .any;
-    try testing.expectEqual(Result.success, setopt(e, .event, &event_mode));
+    try testing.expectEqual(Result.success, set(e, .event, &event_mode));
     try testing.expectEqual(TrackingMode.any, e.?.opts.event);
 
     const format_mode: Format = .sgr;
-    try testing.expectEqual(Result.success, setopt(e, .format, &format_mode));
+    try testing.expectEqual(Result.success, set(e, .format, &format_mode));
     try testing.expectEqual(Format.sgr, e.?.opts.format);
 
     const size = testSize();
-    try testing.expectEqual(Result.success, setopt(e, .size, &size));
+    try testing.expectEqual(Result.success, set(e, .size, &size));
     try testing.expectEqual(size.screen_width, e.?.opts.size.screen.width);
     try testing.expectEqual(size.screen_height, e.?.opts.size.screen.height);
 
@@ -333,28 +335,28 @@ test "setopt" {
         var large: Larger = .{ .size = size, .extra = @splat(0) };
         large.size.screen_width += 1;
         large.size.size = lib.sizedBaseEnd(Size) - 1;
-        try testing.expectEqual(Result.invalid_value, setopt(e, .size, &large.size));
+        try testing.expectEqual(Result.invalid_value, set(e, .size, &large.size));
         try testing.expectEqual(size.screen_width, e.?.opts.size.screen.width);
         large.size.size = @sizeOf(Larger);
-        try testing.expectEqual(Result.success, setopt(e, .size, &large.size));
+        try testing.expectEqual(Result.success, set(e, .size, &large.size));
         try testing.expectEqual(size.screen_width + 1, e.?.opts.size.screen.width);
         large.extra[7] = 1;
         large.size.screen_width += 1;
-        try testing.expectEqual(Result.invalid_value, setopt(e, .size, &large.size));
+        try testing.expectEqual(Result.invalid_value, set(e, .size, &large.size));
         try testing.expectEqual(size.screen_width + 1, e.?.opts.size.screen.width);
-        try testing.expectEqual(Result.success, setopt(e, .size, &size));
+        try testing.expectEqual(Result.success, set(e, .size, &size));
     }
 
     const any_button_pressed = true;
-    try testing.expectEqual(Result.success, setopt(e, .any_button_pressed, &any_button_pressed));
+    try testing.expectEqual(Result.success, set(e, .any_button_pressed, &any_button_pressed));
     try testing.expect(e.?.opts.any_button_pressed);
 
     const track_last_cell = true;
-    try testing.expectEqual(Result.success, setopt(e, .track_last_cell, &track_last_cell));
+    try testing.expectEqual(Result.success, set(e, .track_last_cell, &track_last_cell));
     try testing.expect(e.?.track_last_cell);
 }
 
-test "setopt_from_terminal" {
+test "set_from_terminal" {
     const terminal_c = @import("terminal.zig");
 
     var e: Encoder = undefined;
@@ -374,17 +376,17 @@ test "setopt_from_terminal" {
     defer terminal_c.free(t);
 
     const event_mode: TrackingMode = .any;
-    try testing.expectEqual(Result.success, setopt(e, .event, &event_mode));
+    try testing.expectEqual(Result.success, set(e, .event, &event_mode));
     const format_mode: Format = .sgr;
-    try testing.expectEqual(Result.success, setopt(e, .format, &format_mode));
+    try testing.expectEqual(Result.success, set(e, .format, &format_mode));
 
-    setopt_from_terminal(e, t);
+    set_from_terminal(e, t);
     try testing.expectEqual(TrackingMode.none, e.?.opts.event);
     try testing.expectEqual(Format.x10, e.?.opts.format);
 }
 
-test "setopt_from_terminal null" {
-    setopt_from_terminal(null, null);
+test "set_from_terminal null" {
+    set_from_terminal(null, null);
 
     const terminal_c = @import("terminal.zig");
     var t: Terminal = undefined;
@@ -395,7 +397,7 @@ test "setopt_from_terminal null" {
         24,
     ));
     defer terminal_c.free(t);
-    setopt_from_terminal(null, t);
+    set_from_terminal(null, t);
 
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -403,7 +405,7 @@ test "setopt_from_terminal null" {
         &e,
     ));
     defer free(e);
-    setopt_from_terminal(e, null);
+    set_from_terminal(e, null);
 }
 
 test "encode: sgr press left" {
@@ -415,11 +417,11 @@ test "encode: sgr press left" {
     defer free(encoder);
 
     const event_mode: TrackingMode = .any;
-    try testing.expectEqual(Result.success, setopt(encoder, .event, &event_mode));
+    try testing.expectEqual(Result.success, set(encoder, .event, &event_mode));
     const format_mode: Format = .sgr;
-    try testing.expectEqual(Result.success, setopt(encoder, .format, &format_mode));
+    try testing.expectEqual(Result.success, set(encoder, .format, &format_mode));
     const size = testSize();
-    try testing.expectEqual(Result.success, setopt(encoder, .size, &size));
+    try testing.expectEqual(Result.success, set(encoder, .size, &size));
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
@@ -441,6 +443,17 @@ test "encode: sgr press left" {
         &required,
     ));
     try testing.expectEqual(@as(usize, 9), required);
+
+    var small: [4]u8 = undefined;
+    var small_written: usize = 0;
+    try testing.expectEqual(Result.out_of_space, encode(
+        encoder,
+        event,
+        &small,
+        small.len,
+        &small_written,
+    ));
+    try testing.expectEqual(required, small_written);
 
     var buf: [32]u8 = undefined;
     var written: usize = 0;
@@ -464,13 +477,13 @@ test "encode: motion dedupe and reset" {
     defer free(encoder);
 
     const event_mode: TrackingMode = .any;
-    try testing.expectEqual(Result.success, setopt(encoder, .event, &event_mode));
+    try testing.expectEqual(Result.success, set(encoder, .event, &event_mode));
     const format_mode: Format = .sgr;
-    try testing.expectEqual(Result.success, setopt(encoder, .format, &format_mode));
+    try testing.expectEqual(Result.success, set(encoder, .format, &format_mode));
     const size = testSize();
-    try testing.expectEqual(Result.success, setopt(encoder, .size, &size));
+    try testing.expectEqual(Result.success, set(encoder, .size, &size));
     const track_last_cell = true;
-    try testing.expectEqual(Result.success, setopt(encoder, .track_last_cell, &track_last_cell));
+    try testing.expectEqual(Result.success, set(encoder, .track_last_cell, &track_last_cell));
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
@@ -534,13 +547,13 @@ test "encode: querying required size doesn't update dedupe state" {
     defer free(encoder);
 
     const event_mode: TrackingMode = .any;
-    try testing.expectEqual(Result.success, setopt(encoder, .event, &event_mode));
+    try testing.expectEqual(Result.success, set(encoder, .event, &event_mode));
     const format_mode: Format = .sgr;
-    try testing.expectEqual(Result.success, setopt(encoder, .format, &format_mode));
+    try testing.expectEqual(Result.success, set(encoder, .format, &format_mode));
     const size = testSize();
-    try testing.expectEqual(Result.success, setopt(encoder, .size, &size));
+    try testing.expectEqual(Result.success, set(encoder, .size, &size));
     const track_last_cell = true;
-    try testing.expectEqual(Result.success, setopt(encoder, .track_last_cell, &track_last_cell));
+    try testing.expectEqual(Result.success, set(encoder, .track_last_cell, &track_last_cell));
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(

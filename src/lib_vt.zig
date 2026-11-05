@@ -214,8 +214,8 @@ comptime {
             @export(&c.key_event_get_unshifted_codepoint, .{ .name = "ghostty_key_event_get_unshifted_codepoint" });
             @export(&c.key_encoder_new, .{ .name = "ghostty_key_encoder_new" });
             @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
-            @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
-            @export(&c.key_encoder_setopt_from_terminal, .{ .name = "ghostty_key_encoder_setopt_from_terminal" });
+            @export(&c.key_encoder_set, .{ .name = "ghostty_key_encoder_set" });
+            @export(&c.key_encoder_set_from_terminal, .{ .name = "ghostty_key_encoder_set_from_terminal" });
             @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
             @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
             @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
@@ -234,8 +234,8 @@ comptime {
             @export(&c.mouse_event_get_position, .{ .name = "ghostty_mouse_event_get_position" });
             @export(&c.mouse_encoder_new, .{ .name = "ghostty_mouse_encoder_new" });
             @export(&c.mouse_encoder_free, .{ .name = "ghostty_mouse_encoder_free" });
-            @export(&c.mouse_encoder_setopt, .{ .name = "ghostty_mouse_encoder_setopt" });
-            @export(&c.mouse_encoder_setopt_from_terminal, .{ .name = "ghostty_mouse_encoder_setopt_from_terminal" });
+            @export(&c.mouse_encoder_set, .{ .name = "ghostty_mouse_encoder_set" });
+            @export(&c.mouse_encoder_set_from_terminal, .{ .name = "ghostty_mouse_encoder_set_from_terminal" });
             @export(&c.mouse_encoder_reset, .{ .name = "ghostty_mouse_encoder_reset" });
             @export(&c.mouse_encoder_encode, .{ .name = "ghostty_mouse_encoder_encode" });
         }
@@ -368,6 +368,8 @@ comptime {
             @export(&c.search_tick, .{ .name = "ghostty_search_tick" });
             @export(&c.search_feed, .{ .name = "ghostty_search_feed" });
             @export(&c.search_run, .{ .name = "ghostty_search_run" });
+            @export(&c.search_select_next, .{ .name = "ghostty_search_select_next" });
+            @export(&c.search_select_prev, .{ .name = "ghostty_search_select_prev" });
             @export(&c.search_set, .{ .name = "ghostty_search_set" });
             @export(&c.search_get, .{ .name = "ghostty_search_get" });
             @export(&c.search_get_multi, .{ .name = "ghostty_search_get_multi" });

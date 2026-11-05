@@ -49,21 +49,23 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Encodes a focus gained (CSI I) or focus lost (CSI O) report into the
  * provided buffer.
  *
- * If the buffer is too small, the function returns GHOSTTY_OUT_OF_SPACE
- * and writes the required buffer size to @p out_written. The caller can
- * then retry with a sufficiently sized buffer.
+ * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
+ * @p out_written to the size needed. The buffer may then hold part of the
+ * sequence, which you should discard. To get the size without encoding
+ * anything, pass NULL for @p buf and 0 for @p buf_len.
  *
  * @param event The focus event to encode
- * @param buf Output buffer to write the encoded sequence into (may be NULL)
- * @param buf_len Size of the output buffer in bytes
- * @param[out] out_written On success, the number of bytes written. On
- *             GHOSTTY_OUT_OF_SPACE, the required buffer size.
+ * @param buf Buffer to write the sequence into. May be NULL if @p buf_len
+ *            is 0.
+ * @param buf_len Size of @p buf in bytes
+ * @param[out] out_written The number of bytes written, or the size needed
+ *             if the result is GHOSTTY_OUT_OF_SPACE
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
  *         is too small
  */
 GHOSTTY_API GhosttyResult ghostty_focus_encode(
     GhosttyFocusEvent event,
-    char* buf,
+    uint8_t* buf,
     size_t buf_len,
     size_t* out_written);
 

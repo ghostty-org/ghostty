@@ -25,8 +25,9 @@ int main() {
   printf("Command type: %d\n", type);
   
   // Extract and print the title
-  if (ghostty_osc_command_data(command, GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR, &title)) {
-    printf("Extracted title: %s\n", title);
+  GhosttyString extracted;
+  if (ghostty_osc_command_data(command, GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR, &extracted) == GHOSTTY_SUCCESS) {
+    printf("Extracted title: %.*s\n", (int)extracted.len, (const char *)extracted.ptr);
   } else {
     printf("Failed to extract title\n");
   }

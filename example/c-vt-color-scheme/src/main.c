@@ -3,7 +3,7 @@
 
 //! [color-scheme-report-encode]
 int main() {
-  char buf[16];
+  uint8_t buf[16];
   size_t written = 0;
 
   GhosttyResult result = ghostty_color_scheme_report_encode(

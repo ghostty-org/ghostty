@@ -15,8 +15,8 @@
  * ## Basic Usage
  *
  * 1. Create an encoder instance with ghostty_key_encoder_new()
- * 2. Configure encoder options with ghostty_key_encoder_setopt()
- *    or ghostty_key_encoder_setopt_from_terminal() if you have a 
+ * 2. Configure encoder options with ghostty_key_encoder_set()
+ *    or ghostty_key_encoder_set_from_terminal() if you have a 
  *    GhosttyTerminal.
  * 3. For each key event:
  *    - Create a key event with ghostty_key_event_new()
@@ -50,10 +50,10 @@
  * // Create an encoder and sync its options from the terminal
  * GhosttyKeyEncoder encoder;
  * ghostty_key_encoder_new(NULL, &encoder);
- * ghostty_key_encoder_setopt_from_terminal(encoder, terminal);
+ * ghostty_key_encoder_set_from_terminal(encoder, terminal);
  *
  * // Encode a key event using the terminal-derived options
- * char buf[128];
+ * uint8_t buf[128];
  * size_t written = 0;
  * ghostty_key_encoder_encode(encoder, event, buf, sizeof(buf), &written);
  *

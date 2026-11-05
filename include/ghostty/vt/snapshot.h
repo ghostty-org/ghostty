@@ -127,9 +127,9 @@ extern "C" {
  *
  * Images are restored at READY with their pixels pending, and the pixels
  * arrive later through ghostty_snapshot_decoder_next(). A pending image can
- * be placed and queried, but GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns
+ * be placed and queried, but GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns
  * GHOSTTY_NO_VALUE for it until its pixels arrive. When they do, the
- * image keeps its GHOSTTY_KITTY_IMAGE_DATA_GENERATION, but
+ * image keeps its GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, but
  * GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes, so a renderer that
  * watches that value picks up the new pixels on its next frame.
  *
@@ -150,11 +150,18 @@ extern "C" {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
+   * Not a real option. ghostty_snapshot_decoder_set() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
+   */
+  GHOSTTY_SNAPSHOT_DECODER_OPT_INVALID = 0,
+
+  /**
    * Largest non-ground continuation the decoder will accept.
    *
    * A value of zero accepts only snapshots whose VT parser is in the ground
    * state. The decoder default matches the largest built-in APC protocol
-   * buffer limit, currently 65 MiB.
+   * buffer limit, currently 65 MiB. A NULL value restores the default.
    *
    * This is primarily an input validation limit. When
    * GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the same value
@@ -162,7 +169,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: size_t *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 1,
 
   /**
    * Retain the decoded continuation on the returned terminal.
@@ -173,16 +180,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * tracking limit. The existing ghostty_terminal_continuation_* APIs can then
    * export the exact unfinished VT or UTF-8 input restored from the snapshot.
    *
-   * This is false by default. A maximum continuation size of zero leaves
-   * tracking disabled. With a nonzero maximum, tracking remains enabled even
-   * when the decoded continuation is empty. Exporting an empty continuation
-   * does not disable it. Callers that do not need ongoing tracking must still
-   * set GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and
+   * This is false by default, and a NULL value restores false. A maximum
+   * continuation size of zero leaves tracking disabled. With a nonzero
+   * maximum, tracking remains enabled even when the decoded continuation is
+   * empty. Exporting an empty continuation does not disable it. Callers
+   * that do not need ongoing tracking must still set
+   * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and
    * before writing post-snapshot input.
    *
    * Input type: bool *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 1,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 2,
 
   /**
    * Compress scrollback history while it is restored.
@@ -211,11 +219,11 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * On platforms that do not support scrollback compression, this option is
    * accepted and has no effect.
    *
-   * This is false by default.
+   * This is false by default, and a NULL value restores false.
    *
    * Input type: bool *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY = 2,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY = 3,
 
   /**
    * Kitty graphics image storage limit, in bytes, for each restored screen.
@@ -227,13 +235,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * the placements of evicted images are dropped with them. Zero disables
    * Kitty graphics on the restored terminal.
    *
-   * The default is the storage limit of a new terminal. Change the limit
-   * of a restored terminal later with
+   * The default is the storage limit of a new terminal, and a NULL value
+   * restores it. Change the limit of a restored terminal later with
    * GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT.
    *
    * Input type: uint64_t *
    */
-  GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT = 3,
+  GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT = 4,
 
   GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySnapshotDecoderOption;
@@ -430,7 +438,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * These images can be placed and queried right away, but their pixels
    * arrive later through ghostty_snapshot_decoder_next(). Until then,
-   * GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns GHOSTTY_NO_VALUE for them.
+   * GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns GHOSTTY_NO_VALUE for them.
    * This value becomes available after READY validates, and is zero in a
    * library built without Kitty graphics.
    *
@@ -628,16 +636,30 @@ GHOSTTY_API void ghostty_snapshot_decoder_free(GhosttySnapshotDecoder decoder);
 /**
  * Set a snapshot decoder option.
  *
- * The value pointer must have the type documented by option. Options may only
- * be changed before decoding starts.
+ * The value pointer must have the type documented by option. Passing NULL
+ * for `value` restores the option's default, which each
+ * GhosttySnapshotDecoderOption value documents. Options can only be
+ * changed before decoding starts.
+ *
+ * @code{.c}
+ * bool retain = true;
+ * ghostty_snapshot_decoder_set(
+ *     decoder, GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION, &retain);
+ *
+ * // Changed our mind: go back to the default (false).
+ * ghostty_snapshot_decoder_set(
+ *     decoder, GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION, NULL);
+ * @endcode
  *
  * @param decoder Decoder handle (must not be NULL)
  * @param option Option to change
- * @param value Pointer to the option value (must not be NULL)
+ * @param value Pointer to the option value, or NULL to restore the default
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if decoding has
  *         started or an argument is invalid, GHOSTTY_UNSUPPORTED if `option`
  *         is not known to this version of the library, or another error code
- *         on failure
+ *         on failure. An unknown `option` always returns
+ *         GHOSTTY_UNSUPPORTED, even after decoding has started, so it is
+ *         safe to use for checking whether the library knows an option.
  *
  * @ingroup snapshot
  */

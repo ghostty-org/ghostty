@@ -15,6 +15,8 @@ const Result = @import("result.zig").Result;
 const cell_c = @import("cell.zig");
 const row = @import("row.zig");
 const style_c = @import("style.zig");
+const types = @import("types.zig");
+const CursorStyle = types.CursorStyle;
 const PageList = @import("../PageList.zig");
 
 const log = std.log.scoped(.render_state_c);
@@ -163,23 +165,6 @@ pub const RowId = extern struct {
     }
 };
 
-/// C: GhosttyRenderStateCursorVisualStyle
-pub const CursorVisualStyle = enum(c_int) {
-    bar = 0,
-    block = 1,
-    underline = 2,
-    block_hollow = 3,
-
-    pub fn fromCursorStyle(s: cursorpkg.Style) CursorVisualStyle {
-        return switch (s) {
-            .bar => .bar,
-            .block => .block,
-            .underline => .underline,
-            .block_hollow => .block_hollow,
-        };
-    }
-};
-
 /// C: GhosttyRenderStateCursor
 pub const Cursor = extern struct {
     size: usize = @sizeOf(Cursor),
@@ -190,7 +175,7 @@ pub const Cursor = extern struct {
     visible: bool,
     blinking: bool,
     password_input: bool,
-    visual_style: CursorVisualStyle,
+    visual_style: CursorStyle,
 
     pub const sized_base = "visual_style";
 };
@@ -234,7 +219,7 @@ pub const Data = enum(c_int) {
             .color_background, .color_foreground, .color_cursor => colorpkg.RGB.C,
             .color_cursor_has_value => bool,
             .color_palette => colorpkg.PaletteC,
-            .cursor_visual_style => CursorVisualStyle,
+            .cursor_visual_style => CursorStyle,
             .cursor_visible, .cursor_blinking, .cursor_password_input => bool,
             .cursor_viewport_has_value, .cursor_viewport_wide_tail => bool,
             .cursor_viewport_x, .cursor_viewport_y => size.CellCountInt,
@@ -250,8 +235,9 @@ pub const Data = enum(c_int) {
 
 /// C: GhosttyRenderStateOption
 pub const SetOption = enum(c_int) {
-    dirty = 0,
-    overscan = 1,
+    invalid = 0,
+    dirty = 1,
+    overscan = 2,
 
     _,
 
@@ -260,7 +246,7 @@ pub const SetOption = enum(c_int) {
         return switch (self) {
             .dirty => Dirty,
             .overscan => Overscan,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -440,7 +426,7 @@ fn getTyped(
         },
         .color_cursor_has_value => out.* = state.state.colors.cursor != null,
         .color_palette => out.* = colorpkg.paletteCval(&state.state.colors.palette),
-        .cursor_visual_style => out.* = CursorVisualStyle.fromCursorStyle(state.state.cursor.visual_style),
+        .cursor_visual_style => out.* = CursorStyle.fromZig(state.state.cursor.visual_style),
         .cursor_visible => out.* = state.state.cursor.visible,
         .cursor_blinking => out.* = state.state.cursor.blinking,
         .cursor_password_input => out.* = state.state.cursor.password_input,
@@ -482,11 +468,12 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| setTyped(
             state_,
             comptime_option,
-            @ptrCast(@alignCast(value orelse return .invalid_value)),
+            @ptrCast(@alignCast(value)),
         ),
     };
 }
@@ -494,19 +481,24 @@ pub fn set(
 fn setTyped(
     state_: RenderState,
     comptime option: SetOption,
-    value: *const option.InType(),
+    value_: ?*const option.InType(),
 ) Result {
     const state = state_ orelse return .invalid_value;
     switch (option) {
-        .dirty => state.state.dirty = lib.enumFromPtr(Dirty, value) orelse
-            return .invalid_value,
+        // The dirty state is computed by every update, so there is no
+        // default to restore.
+        .dirty => {
+            const value = value_ orelse return .invalid_value;
+            state.state.dirty = lib.enumFromPtr(Dirty, value) orelse
+                return .invalid_value;
+        },
 
         // Applied by the next update. See the field docs for why.
-        .overscan => state.overscan_request = .{
+        .overscan => state.overscan_request = if (value_) |value| .{
             .above = value.above,
             .below = value.below,
-        },
-        _ => comptime unreachable,
+        } else .{},
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -531,7 +523,7 @@ fn writeCursor(
     lib.sizedSet(
         out,
         "visual_style",
-        CursorVisualStyle.fromCursorStyle(cursor.visual_style),
+        CursorStyle.fromZig(cursor.visual_style),
     );
 
     return .success;
@@ -695,7 +687,7 @@ pub const RowCellsData = enum(c_int) {
             .raw => page.Cell.C,
             .style => style_c.Style,
             .graphemes_len => u32,
-            .graphemes_buf => u32,
+            .graphemes_buf => types.CodepointBuffer,
             .bg_color, .fg_color => colorpkg.RGB.C,
             .selected, .has_styling => bool,
             .graphemes_utf8 => lib.Buffer,
@@ -793,13 +785,22 @@ fn rowCellsGetTypedInner(
             out.* = @intCast(1 + extra.len);
         },
         .graphemes_buf => {
-            if (!cell.hasText()) return .success;
-            const extra = if (cell.hasGrapheme()) cells.graphemes[x] else &[_]u21{};
-            const buf: [*]u32 = @ptrCast(out);
-            buf[0] = cell.codepoint();
-            for (extra, 1..) |cp, i| {
-                buf[i] = cp;
+            if (!cell.hasText()) {
+                out.len = 0;
+                return .success;
             }
+            const extra = if (cell.hasGrapheme()) cells.graphemes[x] else &[_]u21{};
+            out.len = 1 + extra.len;
+
+            // Write the prefix that fits. A NULL ptr has no capacity
+            // whatever cap says.
+            const ptr = out.ptr orelse return .out_of_space;
+            const n = @min(out.cap, out.len);
+            if (n > 0) {
+                ptr[0] = cell.codepoint();
+                for (ptr[1..n], extra[0 .. n - 1]) |*dst, cp| dst.* = cp;
+            }
+            if (out.len > out.cap) return .out_of_space;
         },
         .bg_color => {
             // Avoid copying the full struct when only partial changes happen.
@@ -930,7 +931,8 @@ pub const RowData = enum(c_int) {
 
 /// C: GhosttyRenderStateRowOption
 pub const RowOption = enum(c_int) {
-    dirty = 0,
+    invalid = 0,
+    dirty = 1,
 
     _,
 
@@ -938,7 +940,7 @@ pub const RowOption = enum(c_int) {
     pub fn InType(comptime self: RowOption) type {
         return switch (self) {
             .dirty => bool,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -1056,6 +1058,7 @@ pub fn row_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| rowSetTyped(
             iterator_,
@@ -1075,7 +1078,7 @@ fn rowSetTyped(
     if (y >= it.raws.len) return .invalid_value;
     switch (option) {
         .dirty => it.dirty[y] = value.*,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -1084,7 +1087,7 @@ fn rowSetTyped(
 /// C: GhosttyImageProtocol
 pub const ImageProtocol = renderpkg.RenderState.ImageProtocol;
 
-/// C: GhosttyRenderStateImageLayer
+/// C: GhosttyImageLayer
 pub const ImageLayer = renderpkg.RenderState.ImageLayer;
 
 /// C: GhosttyRenderStateKittyPlacementKind
@@ -2075,6 +2078,100 @@ test "render: row cells get graphemes utf8" {
     try testing.expectEqual(@as(usize, 0), text.len);
 }
 
+test "render: row cells get graphemes buf" {
+    const cases = [_]struct {
+        terminal_input: []const u8,
+        expected: []const u32,
+    }{
+        .{
+            .terminal_input = "A",
+            .expected = &.{'A'},
+        },
+        .{
+            .terminal_input = "e\u{301}",
+            .expected = &.{ 'e', 0x301 },
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            .expected = &.{ 0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467 },
+        },
+    };
+
+    for (cases) |case| {
+        var terminal: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &terminal,
+            10,
+            3,
+        ));
+        defer terminal_c.free(terminal);
+
+        terminal_c.vt_write(terminal, case.terminal_input.ptr, case.terminal_input.len);
+
+        var state: RenderState = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &state,
+        ));
+        defer free(state);
+
+        try testing.expectEqual(Result.success, update(state, terminal));
+
+        var it: RowIterator = null;
+        try testing.expectEqual(Result.success, row_iterator_new(
+            &lib.alloc.test_allocator,
+            &it,
+        ));
+        defer row_iterator_free(it);
+
+        var cells: RowCells = null;
+        try testing.expectEqual(Result.success, row_cells_new(
+            &lib.alloc.test_allocator,
+            &cells,
+        ));
+        defer row_cells_free(cells);
+
+        try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+        try testing.expect(row_iterator_next(it));
+        try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+        try testing.expectEqual(Result.success, row_cells_select(cells, 0));
+
+        // Size query.
+        var out: types.CodepointBuffer = .{};
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+
+        // A NULL ptr has no capacity whatever cap says.
+        out = .{ .cap = 8 };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+
+        // cap below the count: the prefix that fits is written, nothing
+        // past cap is touched, and len is the full count.
+        var small: [8]u32 = @splat(0xAAAA);
+        const small_cap = case.expected.len - 1;
+        out = .{ .ptr = &small, .cap = small_cap };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+        try testing.expectEqualSlices(u32, case.expected[0..small_cap], small[0..small_cap]);
+        for (small[small_cap..]) |v| try testing.expectEqual(@as(u32, 0xAAAA), v);
+
+        // Exact fit.
+        var buf: [8]u32 = undefined;
+        out = .{ .ptr = &buf, .cap = case.expected.len };
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqualSlices(u32, case.expected, buf[0..out.len]);
+
+        // A cell with no text needs no space, even for a size query.
+        try testing.expectEqual(Result.success, row_cells_select(cells, 9));
+        out = .{};
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(@as(usize, 0), out.len);
+    }
+}
+
 test "render: row iterator next" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
@@ -2294,7 +2391,7 @@ test "render: cursor data get matches scalar getters" {
     var visible: bool = undefined;
     var blinking: bool = undefined;
     var password_input: bool = undefined;
-    var visual_style: CursorVisualStyle = undefined;
+    var visual_style: CursorStyle = undefined;
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_has_value, &viewport_has_value));
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_x, &viewport_x));
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_y, &viewport_y));
@@ -2342,7 +2439,7 @@ test "render: cursor data get without viewport" {
     try testing.expect(cursor.visible);
     try testing.expect(cursor.blinking);
     try testing.expect(cursor.password_input);
-    try testing.expectEqual(CursorVisualStyle.underline, cursor.visual_style);
+    try testing.expectEqual(CursorStyle.underline, cursor.visual_style);
 }
 
 test "render: cursor data get size rule" {
@@ -2377,7 +2474,7 @@ test "render: cursor data get size rule" {
     try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
     try testing.expectEqual(expected.visible, cursor.visible);
     try testing.expectEqual(
-        CursorVisualStyle.fromCursorStyle(expected.visual_style),
+        CursorStyle.fromZig(expected.visual_style),
         cursor.visual_style,
     );
 
@@ -2931,6 +3028,11 @@ test "render: overscan option roundtrip" {
     // Nothing is captured before an update.
     try testing.expectEqual(Result.success, get(state, .overscan, @ptrCast(&out)));
     try testing.expectEqual(Overscan{}, out);
+
+    // A NULL value restores the default of no overscan.
+    try testing.expectEqual(Result.success, set(state, .overscan, null));
+    try testing.expectEqual(Result.success, get(state, .overscan_request, @ptrCast(&out)));
+    try testing.expectEqual(Overscan{}, out);
 }
 
 test "render: overscan clamps to existing rows" {
@@ -3169,7 +3271,6 @@ test "render: overscan invalid values" {
     defer free(state);
 
     try testing.expectEqual(Result.invalid_value, get(state, .overscan, null));
-    try testing.expectEqual(Result.invalid_value, set(state, .overscan, null));
 
     const terminal = try testTerminalWithLines(10, 5, 1);
     defer terminal_c.free(terminal);

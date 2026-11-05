@@ -172,11 +172,11 @@ typedef struct {
  *
  * @param terminal The terminal handle
  * @param paste The paste request, borrowed for the duration of the call
- * @param[out] out_written On success, whether anything was written to
+ * @param[out] out_pasted On success, whether anything was written to
  *             the pty (the encoded text or a paste event). False means
  *             there was nothing to paste: no non-empty text
  *             representation. May be NULL.
- * @return GHOSTTY_SUCCESS on success (see @p out_written);
+ * @return GHOSTTY_SUCCESS on success (see @p out_pasted);
  *         GHOSTTY_REJECTED if the text could inject commands and
  *         GhosttyPaste::allow_unsafe is false (nothing was written);
  *         GHOSTTY_INVALID_VALUE for a NULL terminal or paste, MIME
@@ -189,7 +189,7 @@ typedef struct {
 GHOSTTY_API GhosttyResult ghostty_terminal_paste(
     GhosttyTerminal terminal,
     const GhosttyPaste* paste,
-    bool* out_written);
+    bool* out_pasted);
 
 /**
  * Check if paste data is safe to paste into the terminal.
@@ -225,9 +225,29 @@ GHOSTTY_API bool ghostty_paste_is_safe(const char* data, size_t len);
  * encoded result (potentially with bracketed paste prefix/suffix) is
  * written to the output buffer.
  *
- * If the output buffer is too small, the function returns
- * GHOSTTY_OUT_OF_SPACE and sets the required size in @p out_written.
- * The caller can then retry with a sufficiently sized buffer.
+ * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE, sets
+ * @p out_written to the size needed, and leaves @p buf unchanged. To get
+ * the size first, pass NULL for @p buf and 0 for @p buf_len. An empty
+ * result needs no space, so empty input with @p bracketed false returns
+ * GHOSTTY_SUCCESS with @p out_written set to 0.
+ *
+ * The function modifies @p data even when it returns GHOSTTY_OUT_OF_SPACE.
+ * Encoding the modified data again gives the same result, so you can retry
+ * with the same @p data and a larger buffer:
+ *
+ * @code{.c}
+ * size_t needed = 0;
+ * GhosttyResult result = ghostty_paste_encode(data, data_len, bracketed,
+ *                                             NULL, 0, &needed);
+ * if (result == GHOSTTY_OUT_OF_SPACE) {
+ *   uint8_t *buf = malloc(needed);
+ *   size_t written = 0;
+ *   result = ghostty_paste_encode(data, data_len, bracketed, buf, needed,
+ *                                 &written);
+ *   if (result == GHOSTTY_SUCCESS) write(pty_fd, buf, written);
+ *   free(buf);
+ * }
+ * @endcode
  *
  * This is the encoder ghostty_terminal_paste() uses for a text paste;
  * use it directly when there is no terminal to paste into.
@@ -235,10 +255,11 @@ GHOSTTY_API bool ghostty_paste_is_safe(const char* data, size_t len);
  * @param data The paste data to encode (modified in place, may be NULL)
  * @param data_len The length of the input data in bytes
  * @param bracketed Whether bracketed paste mode is active
- * @param buf Output buffer to write the encoded result into (may be NULL)
- * @param buf_len Size of the output buffer in bytes
- * @param[out] out_written On success, the number of bytes written. On
- *             GHOSTTY_OUT_OF_SPACE, the required buffer size.
+ * @param buf Buffer to write the encoded result into. May be NULL if
+ *            @p buf_len is 0.
+ * @param buf_len Size of @p buf in bytes
+ * @param[out] out_written The number of bytes written, or the size needed
+ *             if the result is GHOSTTY_OUT_OF_SPACE
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
  *         is too small
  */
@@ -246,7 +267,7 @@ GHOSTTY_API GhosttyResult ghostty_paste_encode(
     char* data,
     size_t data_len,
     bool bracketed,
-    char* buf,
+    uint8_t* buf,
     size_t buf_len,
     size_t* out_written);
 

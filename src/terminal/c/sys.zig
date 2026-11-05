@@ -59,10 +59,11 @@ pub const LogFn = *const fn (
 
 /// C: GhosttySysOption
 pub const Option = enum(c_int) {
-    userdata = 0,
-    decode_png = 1,
-    log = 2,
-    random_secure = 3,
+    invalid = 0,
+    userdata = 1,
+    decode_png = 2,
+    log = 3,
+    random_secure = 4,
 
     _,
 
@@ -72,7 +73,7 @@ pub const Option = enum(c_int) {
             .decode_png => ?DecodePngFn,
             .log => ?LogFn,
             .random_secure => ?RandomSecureFn,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -131,6 +132,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| setTyped(
             comptime_option,
@@ -154,7 +156,7 @@ fn setTyped(
             global.random_secure = value;
             terminal_sys.random_secure = if (value != null) &randomSecureWrapper else null;
         },
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
     return .success;
 }

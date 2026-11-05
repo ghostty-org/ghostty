@@ -105,7 +105,7 @@ extern "C" {
  * needs that row's content to draw it. Overscan asks the render state to
  * capture extra rows above and below the viewport for this purpose.
  *
- * Request overscan with GHOSTTY_RENDER_STATE_OPTION_OVERSCAN. The request
+ * Request overscan with GHOSTTY_RENDER_STATE_OPT_OVERSCAN. The request
  * applies to every update after it is set. The row iterator then visits
  * the extra rows along with the viewport, from top to bottom: the rows
  * above the viewport, the viewport rows, and then the rows below it.
@@ -139,7 +139,7 @@ extern "C" {
  * // Once, when setting up the render state. One row below the viewport
  * // is enough to draw the partially visible row at the bottom edge.
  * GhosttyRenderStateOverscan request = { .above = 0, .below = 1 };
- * ghostty_render_state_set(state, GHOSTTY_RENDER_STATE_OPTION_OVERSCAN,
+ * ghostty_render_state_set(state, GHOSTTY_RENDER_STATE_OPT_OVERSCAN,
  *                          &request);
  *
  * // Each frame.
@@ -337,7 +337,7 @@ extern "C" {
  *
  * while (ghostty_render_state_image_iterator_next(images)) {
  *   GhosttyImageProtocol protocol;
- *   GhosttyRenderStateImageLayer layer;
+ *   GhosttyImageLayer layer;
  *   uint32_t image_id, offset_x, offset_y, width, height;
  *   uint32_t src_x, src_y, src_width, src_height;
  *   uint64_t generation;
@@ -513,30 +513,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
 } GhosttyRenderStateDirty;
 
 /**
- * Visual style of the cursor.
- *
- * @ingroup render
- */
-typedef enum GHOSTTY_ENUM_TYPED {
-  /** Bar cursor (DECSCUSR 5, 6). */
-  GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR = 0,
-
-  /** Block cursor (DECSCUSR 1, 2). */
-  GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK = 1,
-
-  /** Underline cursor (DECSCUSR 3, 4). */
-  GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE = 2,
-
-  /** Hollow block cursor. */
-  GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW = 3,
-  GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
-} GhosttyRenderStateCursorVisualStyle;
-
-/**
  * A number of rows above and below the viewport.
  *
  * This is used both to request overscan with
- * GHOSTTY_RENDER_STATE_OPTION_OVERSCAN and to report how many rows an
+ * GHOSTTY_RENDER_STATE_OPT_OVERSCAN and to report how many rows an
  * update captured with GHOSTTY_RENDER_STATE_DATA_OVERSCAN. See "Overscan"
  * in the render state overview for how the extra rows are used.
  *
@@ -597,7 +577,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    *  The iterator visits every row the last update captured, from top
    *  to bottom. This is exactly the viewport unless overscan was
-   *  requested with GHOSTTY_RENDER_STATE_OPTION_OVERSCAN.
+   *  requested with GHOSTTY_RENDER_STATE_OPT_OVERSCAN.
    *  */
   GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR = 4,
 
@@ -618,7 +598,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /** The active 256-color palette (GhosttyColorRgb[256]). */
   GHOSTTY_RENDER_STATE_DATA_COLOR_PALETTE = 9,
 
-  /** The visual style of the cursor (GhosttyRenderStateCursorVisualStyle). */
+  /** The visual style of the cursor (GhosttyCursorStyle). */
   GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE = 10,
 
   /** Whether the cursor is visible based on terminal modes (bool). */
@@ -662,7 +642,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_RENDER_STATE_DATA_OVERSCAN = 20,
 
   /** The overscan request most recently set with
-   *  GHOSTTY_RENDER_STATE_OPTION_OVERSCAN (GhosttyRenderStateOverscan).
+   *  GHOSTTY_RENDER_STATE_OPT_OVERSCAN (GhosttyRenderStateOverscan).
    *  The next update uses this request. Both sides are zero if it was
    *  never set. */
   GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST = 21,
@@ -695,18 +675,27 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup render
  */
 typedef enum GHOSTTY_ENUM_TYPED {
-  /** Set dirty state (GhosttyRenderStateDirty). */
-  GHOSTTY_RENDER_STATE_OPTION_DIRTY = 0,
+  /**
+   * Not a real option. ghostty_render_state_set() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
+   */
+  GHOSTTY_RENDER_STATE_OPT_INVALID = 0,
+
+  /** Set dirty state (GhosttyRenderStateDirty). Each update sets this
+   *  value itself, so there is no default to restore and a NULL value
+   *  returns GHOSTTY_INVALID_VALUE. */
+  GHOSTTY_RENDER_STATE_OPT_DIRTY = 1,
 
   /** Request overscan rows above and below the viewport
    *  (GhosttyRenderStateOverscan). The request takes effect on the next
    *  update and stays in effect until it is changed. Both sides are zero
-   *  by default, which captures only the viewport. The rows of the last
-   *  update can still be read after changing the request. Expect a full
-   *  redraw on the update after a change. See "Overscan" in the render
-   *  state overview. */
-  GHOSTTY_RENDER_STATE_OPTION_OVERSCAN = 1,
-  GHOSTTY_RENDER_STATE_OPTION_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+   *  by default, which captures only the viewport. A NULL value restores
+   *  that default. The rows of the last update can still be read after
+   *  changing the request. Expect a full redraw on the update after a
+   *  change. See "Overscan" in the render state overview. */
+  GHOSTTY_RENDER_STATE_OPT_OVERSCAN = 2,
+  GHOSTTY_RENDER_STATE_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateOption;
 
 /**
@@ -729,28 +718,6 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_IMAGE_PROTOCOL_KITTY = 0,
   GHOSTTY_IMAGE_PROTOCOL_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyImageProtocol;
-
-/**
- * Where an image is drawn relative to the terminal's text.
- *
- * Draw the layers in this order: every image below backgrounds, then
- * cell backgrounds, then images below text, then text, then images above
- * text. Within a layer, draw images in order of their z-index, lowest
- * first.
- *
- * @ingroup render
- */
-typedef enum GHOSTTY_ENUM_TYPED {
-  /** Below the cell background colors. */
-  GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_BACKGROUND = 0,
-
-  /** Above the cell background colors and below the text. */
-  GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_TEXT = 1,
-
-  /** Above the text. */
-  GHOSTTY_RENDER_STATE_IMAGE_LAYER_ABOVE_TEXT = 2,
-  GHOSTTY_RENDER_STATE_IMAGE_LAYER_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
-} GhosttyRenderStateImageLayer;
 
 /**
  * The kinds of Kitty graphics placements in a render state's image list.
@@ -830,13 +797,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *  moves to a new frame. Use it as part of your texture cache key,
    *  with the protocol and image ID: if it matches the texture you have,
    *  you don't need to read the pixels again. For Kitty graphics, this
-   *  is the same value as GHOSTTY_KITTY_IMAGE_DATA_GENERATION.
+   *  is the same value as GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION.
    *
    *  To know when the list of placements as a whole changed, use
    *  GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION. */
   GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION = 3,
 
-  /** The layer to draw the image in (GhosttyRenderStateImageLayer). */
+  /** The layer to draw the image in (GhosttyImageLayer). */
   GHOSTTY_RENDER_STATE_IMAGE_DATA_LAYER = 4,
 
   /** The z-index (int32_t), which orders images within a layer. Images
@@ -980,9 +947,18 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup render
  */
 typedef enum GHOSTTY_ENUM_TYPED {
-  /** Set dirty state for the current row (bool). */
-  GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY = 0,
-  GHOSTTY_RENDER_STATE_ROW_OPTION_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+  /**
+   * Not a real option. ghostty_render_state_row_set() returns
+   * GHOSTTY_INVALID_VALUE for it. Its value is 0, so a zeroed or
+   * uninitialized variable is never mistaken for a real option.
+   */
+  GHOSTTY_RENDER_STATE_ROW_OPT_INVALID = 0,
+
+  /** Set dirty state for the current row (bool). Each update sets this
+   *  value itself, so there is no default to restore and a NULL value
+   *  returns GHOSTTY_INVALID_VALUE. */
+  GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY = 1,
+  GHOSTTY_RENDER_STATE_ROW_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateRowOption;
 
 /**
@@ -1044,7 +1020,7 @@ typedef struct {
   bool password_input;
 
   /** The visual style of the cursor. */
-  GhosttyRenderStateCursorVisualStyle visual_style;
+  GhosttyCursorStyle visual_style;
 } GhosttyRenderStateCursor;
 
 /**
@@ -1255,13 +1231,27 @@ GHOSTTY_API GhosttyResult ghostty_render_state_get_multi(
  * The `value` pointer must point to a value of the type corresponding to the
  * requested option kind (see GhosttyRenderStateOption).
  *
+ * Passing NULL for `value` restores the option's default. Options that
+ * have no default, such as GHOSTTY_RENDER_STATE_OPT_DIRTY, return
+ * GHOSTTY_INVALID_VALUE for NULL instead.
+ *
+ * @code{.c}
+ * GhosttyRenderStateOverscan overscan = { .above = 4, .below = 4 };
+ * ghostty_render_state_set(state, GHOSTTY_RENDER_STATE_OPT_OVERSCAN,
+ *                          &overscan);
+ *
+ * // Later, go back to capturing only the viewport.
+ * ghostty_render_state_set(state, GHOSTTY_RENDER_STATE_OPT_OVERSCAN, NULL);
+ * @endcode
+ *
  * @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
- * @param[in] value Pointer to the value to set (NULL returns
- *            GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` or
- *         `value` is NULL or out of range, or GHOSTTY_UNSUPPORTED
- *         if `option` is not known to this version of the library
+ * @param[in] value Pointer to the value to set, or NULL to restore the
+ *            option's default
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` is
+ *         NULL, `value` is out of range, or `value` is NULL for an option
+ *         with no default, or GHOSTTY_UNSUPPORTED if `option` is not known
+ *         to this version of the library
  *
  * @ingroup render
  */
@@ -1302,7 +1292,7 @@ GHOSTTY_API void ghostty_render_state_row_iterator_free(GhosttyRenderStateRowIte
  * Rows are visited in order from top to bottom with no gaps. Without
  * overscan, the first row is the top row of the viewport. With overscan,
  * the first row is the highest captured row above the viewport (see
- * GHOSTTY_RENDER_STATE_OPTION_OVERSCAN). Returns true if the iterator
+ * GHOSTTY_RENDER_STATE_OPT_OVERSCAN). Returns true if the iterator
  * moved successfully and row data is available to read at the new
  * position.
  *
@@ -1406,10 +1396,10 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_get_multi(
  *
  * @param iterator The iterator handle to update (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
- * @param[in] value Pointer to the value to set (NULL returns
- *            GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `iterator` is
- *         NULL or the iterator is not positioned on a row, or
+ * @param[in] value Pointer to the value to set. Row options have no
+ *            default to restore, so NULL returns GHOSTTY_INVALID_VALUE.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `iterator` or
+ *         `value` is NULL or the iterator is not positioned on a row, or
  *         GHOSTTY_UNSUPPORTED if `option` is not known to this version of the
  *         library
  *
@@ -1460,9 +1450,27 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *  (uint32_t). Returns 0 if the cell has no text. */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN = 3,
 
-  /** Write grapheme codepoints into a caller-provided buffer (uint32_t*).
-   *  The buffer must be at least graphemes_len elements. The base codepoint
-   *  is written first, followed by any extra codepoints. */
+  /**
+   * Copy the cell's grapheme codepoints into a buffer you provide
+   * (GhosttyCodepointBuffer).
+   *
+   * The base codepoint comes first, followed by any extra codepoints. Up
+   * to cap codepoints are written, and len is set to the total number of
+   * codepoints in the cell. If they do not all fit, this returns
+   * GHOSTTY_OUT_OF_SPACE and the buffer holds the first cap of them. A
+   * cell with no text returns GHOSTTY_SUCCESS with len set to 0.
+   *
+   * @code{.c}
+   * uint32_t codepoints[16];
+   * GhosttyCodepointBuffer graphemes = {.ptr = codepoints, .cap = 16};
+   * GhosttyResult result = ghostty_render_state_row_cells_get(
+   *     cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, &graphemes);
+   * if (result == GHOSTTY_OUT_OF_SPACE) {
+   *   // The cell has graphemes.len codepoints, but only the first 16
+   *   // were written. Retry with a larger buffer to get the rest.
+   * }
+   * @endcode
+   */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF = 4,
 
   /** The resolved background color of the cell (GhosttyColorRgb).

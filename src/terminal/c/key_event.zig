@@ -100,10 +100,9 @@ pub fn set_utf8(event_: Event, utf8: ?[*]const u8, len: usize) callconv(lib.call
     event.utf8 = if (utf8) |ptr| ptr[0..len] else "";
 }
 
-pub fn get_utf8(event_: Event, len: ?*usize) callconv(lib.calling_conv) ?[*]const u8 {
+pub fn get_utf8(event_: Event) callconv(lib.calling_conv) lib.String {
     const event: *key.KeyEvent = &event_.?.event;
-    if (len) |l| l.* = event.utf8.len;
-    return if (event.utf8.len == 0) null else event.utf8.ptr;
+    return .init(event.utf8);
 }
 
 pub fn set_unshifted_codepoint(event_: Event, codepoint: u32) callconv(lib.calling_conv) void {
@@ -168,6 +167,11 @@ test "set" {
     set_utf8(e, null, 0);
     try testing.expectEqualStrings("", e.?.event.utf8);
 
+    // No text is an empty string with a non-NULL pointer.
+    const empty = get_utf8(e);
+    try testing.expectEqual(@as(usize, 0), empty.len);
+    try testing.expect(@intFromPtr(empty.ptr) != 0);
+
     // Test unshifted codepoint
     set_unshifted_codepoint(e, 'a');
     try testing.expectEqual(@as(u21, 'a'), e.?.event.unshifted_codepoint);
@@ -213,11 +217,8 @@ test "get" {
 
     try testing.expect(get_composing(e));
 
-    var utf8_len: usize = undefined;
-    const got_utf8 = get_utf8(e, &utf8_len);
-    try testing.expect(got_utf8 != null);
-    try testing.expectEqual(@as(usize, 4), utf8_len);
-    try testing.expectEqualStrings("test", got_utf8.?[0..utf8_len]);
+    const got_utf8 = get_utf8(e);
+    try testing.expectEqualStrings("test", got_utf8.ptr[0..got_utf8.len]);
 
     try testing.expectEqual(@as(u32, 'z'), get_unshifted_codepoint(e));
 }
@@ -255,9 +256,6 @@ test "complete key event" {
     try testing.expectEqual(@as(u21, 'a'), e.?.event.unshifted_codepoint);
 
     // Also test the getter
-    var utf8_len: usize = undefined;
-    const got_utf8 = get_utf8(e, &utf8_len);
-    try testing.expect(got_utf8 != null);
-    try testing.expectEqual(@as(usize, 1), utf8_len);
-    try testing.expectEqualStrings("A", got_utf8.?[0..utf8_len]);
+    const got_utf8 = get_utf8(e);
+    try testing.expectEqualStrings("A", got_utf8.ptr[0..got_utf8.len]);
 }

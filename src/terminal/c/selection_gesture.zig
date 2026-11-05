@@ -142,11 +142,12 @@ pub const Behaviors = extern struct {
 
 /// C: GhosttySelectionGestureData
 pub const Data = enum(c_int) {
-    click_count = 0,
-    dragged = 1,
-    autoscroll = 2,
-    behavior = 3,
-    anchor = 4,
+    invalid = 0,
+    click_count = 1,
+    dragged = 2,
+    autoscroll = 3,
+    behavior = 4,
+    anchor = 5,
 
     _,
 
@@ -157,7 +158,7 @@ pub const Data = enum(c_int) {
             .autoscroll => Autoscroll,
             .behavior => Behavior,
             .anchor => grid_ref.CGridRef,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -173,16 +174,17 @@ pub const EventType = enum(c_int) {
 
 /// C: GhosttySelectionGestureEventOption
 pub const EventOption = enum(c_int) {
-    ref = 0,
-    position = 1,
-    repeat_distance = 2,
-    time_ns = 3,
-    repeat_interval_ns = 4,
-    word_boundary_codepoints = 5,
-    behaviors = 6,
-    rectangle = 7,
-    geometry = 8,
-    viewport = 9,
+    invalid = 0,
+    ref = 1,
+    position = 2,
+    repeat_distance = 3,
+    time_ns = 4,
+    repeat_interval_ns = 5,
+    word_boundary_codepoints = 6,
+    behaviors = 7,
+    rectangle = 8,
+    geometry = 9,
+    viewport = 10,
 
     _,
 
@@ -198,7 +200,7 @@ pub const EventOption = enum(c_int) {
             .rectangle => bool,
             .geometry => Geometry,
             .viewport => point.Coordinate,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
@@ -349,6 +351,7 @@ pub fn event_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| eventSetTyped(
             event_,
@@ -366,6 +369,7 @@ pub fn get(
 ) callconv(lib.calling_conv) Result {
     const out_ptr = out orelse return .invalid_value;
     return switch (data) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_data| getTyped(
             gesture_,
@@ -417,7 +421,7 @@ fn getTyped(
                 return .no_value;
             out.* = .fromPin(pin.*);
         },
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -466,7 +470,7 @@ fn pressSetTyped(
             .geometry,
             .viewport,
             => return .invalid_value,
-            _ => comptime unreachable,
+            .invalid, _ => comptime unreachable,
         }
         return .success;
     };
@@ -500,7 +504,7 @@ fn pressSetTyped(
         .geometry,
         .viewport,
         => return .invalid_value,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -530,7 +534,7 @@ fn releaseSetTyped(
         .geometry,
         .viewport,
         => return .invalid_value,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -562,7 +566,7 @@ fn dragSetTyped(
             .repeat_interval_ns,
             .behaviors,
             => return .invalid_value,
-            _ => comptime unreachable,
+            .invalid, _ => comptime unreachable,
         }
         return .success;
     };
@@ -593,7 +597,7 @@ fn dragSetTyped(
         .repeat_interval_ns,
         .behaviors,
         => return .invalid_value,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -625,7 +629,7 @@ fn autoscrollTickSetTyped(
             .repeat_interval_ns,
             .behaviors,
             => return .invalid_value,
-            _ => comptime unreachable,
+            .invalid, _ => comptime unreachable,
         }
         return .success;
     };
@@ -656,7 +660,7 @@ fn autoscrollTickSetTyped(
         .repeat_interval_ns,
         .behaviors,
         => return .invalid_value,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -685,7 +689,7 @@ fn deepPressSetTyped(
             .geometry,
             .viewport,
             => return .invalid_value,
-            _ => comptime unreachable,
+            .invalid, _ => comptime unreachable,
         }
         return .success;
     };
@@ -707,7 +711,7 @@ fn deepPressSetTyped(
         .geometry,
         .viewport,
         => return .invalid_value,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;

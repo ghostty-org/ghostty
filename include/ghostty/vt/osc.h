@@ -183,6 +183,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
+   * Not a real option. ghostty_osc_set() returns GHOSTTY_INVALID_VALUE for
+   * it. Its value is 0, so a zeroed or uninitialized variable is never
+   * mistaken for a real option.
+   */
+  GHOSTTY_OSC_OPT_INVALID = 0,
+
+  /**
    * The most bytes to keep from each OSC sequence whose number the parser
    * does not implement.
    *
@@ -201,7 +208,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Input type: size_t*
    */
-  GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES = 0,
+  GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES = 1,
   GHOSTTY_OSC_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOscOption;
 
@@ -222,7 +229,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * Valid for: GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE
    *
-   * Output type: const char ** (pointer to null-terminated string)
+   * Output type: GhosttyString *. The bytes are not null-terminated, so
+   * use the string's length.
    *
    * Lifetime: Valid until the next call to any ghostty_osc_* function with 
    * the same parser instance. Memory is owned by the parser.
@@ -405,16 +413,34 @@ GHOSTTY_API GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand com
  * requested data kind. Valid command types, output types, and memory
  * safety information are documented in the `GhosttyOscCommandData` enum.
  *
- * @param command The OSC command handle to query (may be NULL)
+ * Only GHOSTTY_SUCCESS writes to `out`. Every other result leaves it
+ * unchanged.
+ *
+ * @code{.c}
+ * GhosttyString title;
+ * if (ghostty_osc_command_data(command,
+ *         GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR,
+ *         &title) == GHOSTTY_SUCCESS) {
+ *   printf("title: %.*s\n", (int)title.len, (const char *)title.ptr);
+ * }
+ * @endcode
+ *
+ * @param command The OSC command handle to query (NULL returns
+ *                GHOSTTY_INVALID_VALUE)
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
- * @return true if data extraction was successful, or false if the command
- *         is NULL, the command has no data of that kind, or `data` is not
- *         known to this version of the library
+ * @return
+ *   - GHOSTTY_SUCCESS if the data was written to `out`.
+ *   - GHOSTTY_NO_VALUE if the command has no data of this kind, for
+ *     example asking a window title command for unknown content.
+ *   - GHOSTTY_INVALID_VALUE if `command` or `out` is NULL, or `data` is
+ *     GHOSTTY_OSC_DATA_INVALID.
+ *   - GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
+ *     library.
  * 
  * @ingroup osc
  */
-GHOSTTY_API bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData data, void *out);
+GHOSTTY_API GhosttyResult ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData data, void *out);
 
 /** @} */
 

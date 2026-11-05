@@ -15,8 +15,8 @@
  * ## Basic Usage
  *
  * 1. Create an encoder instance with ghostty_mouse_encoder_new().
- * 2. Configure encoder options with ghostty_mouse_encoder_setopt() or
- *    ghostty_mouse_encoder_setopt_from_terminal().
+ * 2. Configure encoder options with ghostty_mouse_encoder_set() or
+ *    ghostty_mouse_encoder_set_from_terminal().
  * 3. For each mouse event:
  *    - Create a mouse event with ghostty_mouse_event_new().
  *    - Set event properties (action, button, modifiers, position).
@@ -47,10 +47,10 @@
  * // Create an encoder and sync its options from the terminal
  * GhosttyMouseEncoder encoder;
  * ghostty_mouse_encoder_new(NULL, &encoder);
- * ghostty_mouse_encoder_setopt_from_terminal(encoder, terminal);
+ * ghostty_mouse_encoder_set_from_terminal(encoder, terminal);
  *
  * // Encode a mouse event using the terminal-derived options
- * char buf[128];
+ * uint8_t buf[128];
  * size_t written = 0;
  * ghostty_mouse_encoder_encode(encoder, event, buf, sizeof(buf), &written);
  *

@@ -84,8 +84,8 @@
  * @endcode
  *
  * The same pattern is used by every function whose name ends in `_get`,
- * `_set`, `_setopt` or `_get_multi`, such as ghostty_terminal_get(),
- * ghostty_render_state_set() and ghostty_key_encoder_setopt().
+ * `_set` or `_get_multi`, such as ghostty_terminal_get(),
+ * ghostty_render_state_set() and ghostty_key_encoder_set().
  *
  * @subsection keys_compat_sec Newer Headers, Older Libraries
  *

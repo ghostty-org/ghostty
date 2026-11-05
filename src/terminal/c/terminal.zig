@@ -29,6 +29,7 @@ const grid_ref_tracked_c = @import("grid_ref_tracked.zig");
 const search_c = @import("search.zig");
 const selection_c = @import("selection.zig");
 const style_c = @import("style.zig");
+const CursorStyle = @import("types.zig").CursorStyle;
 const color = @import("../color.zig");
 const clipboard = @import("../clipboard.zig");
 const kitty_clipboard = @import("../kitty/clipboard.zig");
@@ -1326,12 +1327,14 @@ pub fn continuation_buf(
     if (out_ == null) {
         // A null/zero destination is the explicit size-query form. Discarding
         // runs the real exporter, so disabled or unavailable tracking is still
-        // detected before a required length is reported.
+        // detected before a required length is reported. An empty
+        // continuation fits in zero bytes, so it succeeds like every other
+        // buffer function.
         var discarding: std.Io.Writer.Discarding = .init(&.{});
         continuationWriteIo(terminal_, &discarding.writer) catch |err|
             return continuationErrorResult(err);
         out_written.* = @intCast(discarding.count);
-        return .out_of_space;
+        return if (discarding.count == 0) .success else .out_of_space;
     }
 
     // Fixed writers report WriteFailed when capacity is exhausted. The stream
@@ -1457,54 +1460,55 @@ pub fn compress(
 
 /// C: GhosttyTerminalOption
 pub const Option = enum(c_int) {
-    userdata = 0,
-    write_pty = 1,
-    bell = 2,
-    enquiry = 3,
-    xtversion = 4,
-    title_changed = 5,
-    size_cb = 6,
-    color_scheme = 7,
-    device_attributes = 8,
-    title = 9,
-    pwd = 10,
-    color_foreground = 11,
-    color_background = 12,
-    color_cursor = 13,
-    color_palette = 14,
-    kitty_image_storage_limit = 15,
-    kitty_image_medium_file = 16,
-    kitty_image_medium_temp_file = 17,
-    kitty_image_medium_shared_mem = 18,
-    apc_max_bytes = 19,
-    apc_max_bytes_kitty = 20,
-    selection = 21,
-    default_cursor_style = 22,
-    default_cursor_blink = 23,
-    glyph_protocol = 24,
-    pwd_changed = 25,
-    clipboard_write = 26,
-    scrollback_max_bytes = 27,
-    scrollback_max_lines = 28,
-    desktop_notification = 29,
-    progress_report = 30,
-    continuation_max_bytes = 31,
-    title_report = 32,
-    mode_default = 33,
-    mode = 34,
-    unknown_sequence = 35,
-    unknown_max_bytes = 36,
-    terminfo_name = 37,
-    clipboard_read = 38,
-    clipboard_write_max_bytes = 39,
-    resize_pull_scrollback = 40,
-    render_hold = 41,
-    semantic_prompt = 42,
-    reset = 43,
-    xt_checksum_report = 44,
-    xt_checksum_extension = 45,
-    program_status = 46,
-    resize_window = 47,
+    invalid = 0,
+    userdata = 1,
+    write_pty = 2,
+    bell = 3,
+    enquiry = 4,
+    xtversion = 5,
+    title_changed = 6,
+    size_cb = 7,
+    color_scheme = 8,
+    device_attributes = 9,
+    title = 10,
+    pwd = 11,
+    color_foreground = 12,
+    color_background = 13,
+    color_cursor = 14,
+    color_palette = 15,
+    kitty_image_storage_limit = 16,
+    kitty_image_medium_file = 17,
+    kitty_image_medium_temp_file = 18,
+    kitty_image_medium_shared_mem = 19,
+    apc_max_bytes = 20,
+    apc_max_bytes_kitty = 21,
+    selection = 22,
+    default_cursor_style = 23,
+    default_cursor_blink = 24,
+    glyph_protocol = 25,
+    pwd_changed = 26,
+    clipboard_write = 27,
+    scrollback_max_bytes = 28,
+    scrollback_max_lines = 29,
+    desktop_notification = 30,
+    progress_report = 31,
+    continuation_max_bytes = 32,
+    title_report = 33,
+    mode_default = 34,
+    mode = 35,
+    unknown_sequence = 36,
+    unknown_max_bytes = 37,
+    terminfo_name = 38,
+    clipboard_read = 39,
+    clipboard_write_max_bytes = 40,
+    resize_pull_scrollback = 41,
+    render_hold = 42,
+    semantic_prompt = 43,
+    reset = 44,
+    xt_checksum_report = 45,
+    xt_checksum_extension = 46,
+    program_status = 47,
+    resize_window = 48,
 
     _,
 
@@ -1553,13 +1557,17 @@ pub const Option = enum(c_int) {
             .clipboard_write_max_bytes,
             => ?*const usize,
             .selection => ?*const selection_c.CSelection,
-            .default_cursor_style => ?*const TerminalCursorStyle,
+            .default_cursor_style => ?*const CursorStyle,
             .default_cursor_blink => ?*const bool,
             .mode, .mode_default => ?*const ModeConfig,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
+
+/// The option defaults `new` creates a terminal with, so a NULL value can
+/// restore them. The size fields are placeholders that are never read.
+const default_options: ZigTerminal.Options = .{ .cols = 1, .rows = 1 };
 
 pub fn set(
     terminal_: Terminal,
@@ -1567,6 +1575,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| setTyped(
             terminal_ orelse return .invalid_value,
@@ -1674,7 +1683,10 @@ fn setTyped(
         },
         .kitty_image_storage_limit => {
             if (comptime !build_options.kitty_graphics) return .success;
-            const limit: usize = if (value) |v| @intCast(v.*) else 0;
+            const limit: usize = if (value) |v|
+                std.math.cast(usize, v.*) orelse std.math.maxInt(usize)
+            else
+                default_options.kitty_image_storage_limit;
             var it = wrapper.terminal.screens.all.iterator();
             while (it.next()) |entry| {
                 const screen = entry.value.*;
@@ -1685,7 +1697,11 @@ fn setTyped(
         .kitty_image_medium_shared_mem,
         => {
             if (comptime !build_options.kitty_graphics) return .success;
-            const val = (value orelse return .success).*;
+            const val = if (value) |v| v.* else switch (option) {
+                .kitty_image_medium_file => default_options.kitty_image_loading_limits.file,
+                .kitty_image_medium_shared_mem => default_options.kitty_image_loading_limits.shared_memory,
+                else => comptime unreachable,
+            };
             var it = wrapper.terminal.screens.all.iterator();
             while (it.next()) |entry| {
                 const screen = entry.value.*;
@@ -1739,7 +1755,8 @@ fn setTyped(
             }
         },
         .glyph_protocol => {
-            const enabled = (value orelse return .success).*;
+            // Every APC protocol is enabled by default.
+            const enabled = if (value) |v| v.* else true;
             wrapper.stream.handler.apc_handler.enable(.glyph, enabled);
             if (!enabled) wrapper.terminal.glyph_glossary.clearAndFree(wrapper.terminal.gpa());
         },
@@ -1752,7 +1769,7 @@ fn setTyped(
             }
         },
         .default_cursor_style => {
-            const style = (if (value) |ptr| ptr.* else TerminalCursorStyle.block).toZig() orelse return .invalid_value;
+            const style = (if (value) |ptr| ptr.* else CursorStyle.block).toZig() orelse return .invalid_value;
             wrapper.terminal.setDefaultCursorStyle(style);
         },
         .default_cursor_blink => {
@@ -1760,10 +1777,10 @@ fn setTyped(
             wrapper.terminal.setDefaultCursorBlink(blink);
         },
         .scrollback_max_bytes => wrapper.terminal.setScrollbackMaxBytes(
-            if (value) |ptr| ptr.* else null,
+            if (value) |ptr| ptr.* else default_options.max_scrollback_bytes,
         ),
         .scrollback_max_lines => wrapper.terminal.setScrollbackMaxLines(
-            if (value) |ptr| ptr.* else null,
+            if (value) |ptr| ptr.* else default_options.max_scrollback_lines,
         ),
         .continuation_max_bytes => setContinuationMaxBytes(
             wrapper,
@@ -1796,29 +1813,10 @@ fn setTyped(
                 else => unreachable,
             }
         },
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
     return .success;
 }
-
-/// C: GhosttyTerminalCursorStyle
-pub const TerminalCursorStyle = enum(c_int) {
-    bar = 0,
-    block = 1,
-    underline = 2,
-    block_hollow = 3,
-    _,
-
-    fn toZig(self: TerminalCursorStyle) ?Screen.CursorStyle {
-        return switch (self) {
-            .bar => .bar,
-            .block => .block,
-            .underline => .underline,
-            .block_hollow => .block_hollow,
-            _ => null,
-        };
-    }
-};
 
 /// C: GhosttyDeviceAttributes
 pub const DeviceAttributes = Effects.CDeviceAttributes;
@@ -1829,15 +1827,22 @@ pub const ScrollViewport = ZigTerminal.ScrollViewport.C;
 pub fn scroll_viewport(
     terminal_: Terminal,
     behavior: ScrollViewport,
-) callconv(lib.calling_conv) void {
-    const t: *ZigTerminal = (terminal_ orelse return).terminal;
-    t.scrollViewport(switch (behavior.tag) {
+) callconv(lib.calling_conv) Result {
+    // The tag arrives inside a by-value struct from C, so read it as an
+    // integer before switching on it.
+    const tag = lib.enumFromPtr(
+        ZigTerminal.ScrollViewport.Tag,
+        &behavior.tag,
+    ) orelse return .invalid_value;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    t.scrollViewport(switch (tag) {
         .top => .top,
         .bottom => .bottom,
         .delta => .{ .delta = behavior.value.delta },
         .row => .{ .row = behavior.value.row },
         .delta_prompt => .{ .delta_prompt = behavior.value.delta_prompt },
     });
+    return .success;
 }
 
 pub fn resize(
@@ -2369,9 +2374,24 @@ test "continuation buffer and allocator export exact suffix" {
     defer free(t);
     try testEnableContinuation(t);
 
+    // At ground the continuation is empty. It needs no space, so a size
+    // query succeeds with 0, and so does a real buffer.
+    var required: usize = 99;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, null, 0, &required),
+    );
+    try testing.expectEqual(@as(usize, 0), required);
+    var ground_buf: [4]u8 = undefined;
+    required = 99;
+    try testing.expectEqual(
+        Result.success,
+        continuation_buf(t, &ground_buf, ground_buf.len, &required),
+    );
+    try testing.expectEqual(@as(usize, 0), required);
+
     vt_write(t, "A\x1b[31", 5);
 
-    var required: usize = 0;
     try testing.expectEqual(
         Result.out_of_space,
         continuation_buf(t, null, 0, &required),
@@ -2407,7 +2427,7 @@ test "continuation buffer and allocator export exact suffix" {
 
     vt_write(t, "m", 1);
     try testing.expectEqual(
-        Result.out_of_space,
+        Result.success,
         continuation_buf(t, null, 0, &required),
     );
     try testing.expectEqual(@as(usize, 0), required);
@@ -2445,7 +2465,7 @@ test "continuation export tracks split UTF-8" {
     const suffix = [_]u8{ 0x98, 0x80 };
     vt_write(t, &suffix, suffix.len);
     try testing.expectEqual(
-        Result.out_of_space,
+        Result.success,
         continuation_buf(t, null, 0, &written),
     );
     try testing.expectEqual(@as(usize, 0), written);
@@ -2567,7 +2587,7 @@ test "continuation runtime reconfiguration recovers safely" {
     // Completing the sequence reaches ground and resets the broken marker.
     vt_write(t, "m", 1);
     try testing.expectEqual(
-        Result.out_of_space,
+        Result.success,
         continuation_buf(t, null, 0, &written),
     );
     try testing.expectEqual(@as(usize, 0), written);
@@ -2620,6 +2640,75 @@ test "continuation internal allocation and restoration" {
     );
 }
 
+test "set null restores the defaults new starts with" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        3,
+    ));
+    defer free(t);
+    const zt = t.?.terminal;
+    const primary = zt.screens.get(.primary).?;
+
+    // Options read back through get.
+    inline for (.{
+        .{ Option.kitty_image_storage_limit, TerminalData.kitty_image_storage_limit, @as(u64, 1234) },
+        .{ Option.kitty_image_medium_file, TerminalData.kitty_image_medium_file, true },
+        .{ Option.kitty_image_medium_shared_mem, TerminalData.kitty_image_medium_shared_mem, true },
+        .{ Option.continuation_max_bytes, TerminalData.continuation_max_bytes, @as(usize, 4096) },
+        .{ Option.clipboard_write_max_bytes, TerminalData.clipboard_write_max_bytes, @as(usize, 1) },
+    }) |case| {
+        const kitty_option = switch (case[0]) {
+            .kitty_image_storage_limit,
+            .kitty_image_medium_file,
+            .kitty_image_medium_shared_mem,
+            => true,
+            else => false,
+        };
+        if (comptime kitty_option and !build_options.kitty_graphics) continue;
+
+        const T = @TypeOf(case[2]);
+        var default: T = undefined;
+        try testing.expectEqual(Result.success, get(t, case[1], @ptrCast(&default)));
+        try testing.expect(default != case[2]);
+
+        const value: T = case[2];
+        try testing.expectEqual(Result.success, set(t, case[0], @ptrCast(&value)));
+        var got: T = undefined;
+        try testing.expectEqual(Result.success, get(t, case[1], @ptrCast(&got)));
+        try testing.expectEqual(case[2], got);
+
+        try testing.expectEqual(Result.success, set(t, case[0], null));
+        try testing.expectEqual(Result.success, get(t, case[1], @ptrCast(&got)));
+        try testing.expectEqual(default, got);
+    }
+
+    // Options without a getter.
+    const bytes_default = primary.pages.limits.bytes.explicit;
+    const lines_default = primary.pages.limits.lines.explicit;
+    const limit: usize = 0;
+    try testing.expectEqual(Result.success, set(t, .scrollback_max_bytes, &limit));
+    try testing.expectEqual(Result.success, set(t, .scrollback_max_lines, &limit));
+    try testing.expectEqual(Result.success, set(t, .scrollback_max_bytes, null));
+    try testing.expectEqual(Result.success, set(t, .scrollback_max_lines, null));
+    try testing.expectEqual(bytes_default, primary.pages.limits.bytes.explicit);
+    try testing.expectEqual(lines_default, primary.pages.limits.lines.explicit);
+
+    const apc_handler = &t.?.stream.handler.apc_handler;
+    try testing.expect(apc_handler.enabled.contains(.glyph));
+    const off = false;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&off)));
+    try testing.expect(!apc_handler.enabled.contains(.glyph));
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, null));
+    try testing.expect(apc_handler.enabled.contains(.glyph));
+
+    // The mode options have no default to restore.
+    try testing.expectEqual(Result.invalid_value, set(t, .mode, null));
+    try testing.expectEqual(Result.invalid_value, set(t, .mode_default, null));
+}
+
 test "set scrollback limits" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -2648,10 +2737,20 @@ test "set scrollback limits" {
         set(t, .scrollback_max_bytes, null),
     );
     try testing.expectEqual(
-        std.math.maxInt(usize),
+        @as(usize, 10_000),
         primary.pages.limits.bytes.explicit,
     );
     try testing.expect(!primary.no_scrollback);
+
+    const unlimited: usize = std.math.maxInt(usize);
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_bytes, &unlimited),
+    );
+    try testing.expectEqual(
+        std.math.maxInt(usize),
+        primary.pages.limits.bytes.explicit,
+    );
 
     const max_lines: usize = 12;
     try testing.expectEqual(
@@ -2706,7 +2805,7 @@ test "scroll_viewport" {
     }
 
     // Scroll to top: "hello" should be visible again
-    scroll_viewport(t, .{ .tag = .top, .value = undefined });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .top, .value = undefined }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(!viewport_active);
     {
@@ -2716,7 +2815,7 @@ test "scroll_viewport" {
     }
 
     // Scroll to bottom: viewport should be empty again
-    scroll_viewport(t, .{ .tag = .bottom, .value = undefined });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .bottom, .value = undefined }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(viewport_active);
     {
@@ -2726,7 +2825,7 @@ test "scroll_viewport" {
     }
 
     // Scroll up by delta to bring "hello" back into view
-    scroll_viewport(t, .{ .tag = .delta, .value = .{ .delta = -3 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta, .value = .{ .delta = -3 } }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(!viewport_active);
     {
@@ -2757,7 +2856,7 @@ test "scroll_viewport row" {
     try testing.expect(viewport_active);
 
     // Row 0 is the top of the scrollback.
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(!viewport_active);
     {
@@ -2768,7 +2867,7 @@ test "scroll_viewport row" {
 
     // An absolute row within the scrollback becomes the first visible
     // row and round-trips through the scrollbar offset.
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } }));
     {
         const str = try zt.plainString(testing.allocator);
         defer testing.allocator.free(str);
@@ -2781,7 +2880,7 @@ test "scroll_viewport row" {
     try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
 
     // A row past the end clamps to the active area.
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(viewport_active);
     {
@@ -2811,10 +2910,10 @@ test "scroll_viewport row alt screen" {
 
     // Scrolling to any row keeps the viewport on the active area.
     var viewport_active: bool = false;
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(viewport_active);
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } }));
     try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
     try testing.expect(viewport_active);
 
@@ -2853,27 +2952,27 @@ test "scroll_viewport delta_prompt" {
 
     // A negative count goes to the previous prompt, and a positive count
     // returns to the next prompt relative to the current viewport top.
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 6), scrollbar_data.offset);
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 3), scrollbar_data.offset);
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 6), scrollbar_data.offset);
 
     // Counts beyond the retained prompt history clamp to the oldest or
     // newest matching prompt, including the signed minimum boundary.
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = std.math.minInt(isize) } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = std.math.minInt(isize) } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = std.math.maxInt(isize) } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = std.math.maxInt(isize) } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 8), scrollbar_data.offset);
 
     // A zero count leaves the selected prompt unchanged.
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 0 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 0 } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 8), scrollbar_data.offset);
 }
@@ -2900,8 +2999,8 @@ test "scroll_viewport delta_prompt continuation" {
 
     // The continuation row belongs to the first prompt group. Moving
     // forward from that group lands on the second prompt.
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } }));
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } }));
 
     var scrollbar_data: TerminalScrollbar = undefined;
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
@@ -2923,13 +3022,13 @@ test "scroll_viewport delta_prompt final continuation snaps to active" {
         "\x1b]133;P;k=c\x07continued\r\n" ++
         "continued\r\ncontinued\r\ncontinued\r\ncontinued\r\ncontinued";
     vt_write(t, transcript, transcript.len);
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } }));
 
     var scrollbar_data: TerminalScrollbar = undefined;
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 1), scrollbar_data.offset);
 
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 4), scrollbar_data.offset);
 }
@@ -2946,17 +3045,17 @@ test "scroll_viewport delta_prompt no markers and alternate screen" {
 
     const history = "one\r\ntwo\r\nthree\r\nfour";
     vt_write(t, history, history.len);
-    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } }));
 
     // Without OSC 133 prompt markers, a request leaves the viewport alone.
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = 1 } }));
     var scrollbar_data: TerminalScrollbar = undefined;
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
 
     const alternate_screen = "\x1b[?1049h";
     vt_write(t, alternate_screen, alternate_screen.len);
-    scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } });
+    try testing.expectEqual(Result.success, scroll_viewport(t, .{ .tag = .delta_prompt, .value = .{ .delta_prompt = -1 } }));
     try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
     try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
     try testing.expectEqual(@as(u64, 2), scrollbar_data.total);
@@ -3094,9 +3193,25 @@ test "get memory_usage size rule" {
     try testing.expectEqual(@as(u64, 0xDEADBEEF), large.extra);
 }
 
-test "scroll_viewport null" {
-    scroll_viewport(null, .{ .tag = .top, .value = undefined });
-    scroll_viewport(null, .{ .tag = .row, .value = .{ .row = 1 } });
+test "scroll_viewport invalid arguments" {
+    try testing.expectEqual(Result.invalid_value, scroll_viewport(null, .{ .tag = .top, .value = undefined }));
+    try testing.expectEqual(Result.invalid_value, scroll_viewport(null, .{ .tag = .row, .value = .{ .row = 1 } }));
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        5,
+        2,
+    ));
+    defer free(t);
+
+    // An unknown tag from C is rejected without touching the viewport.
+    var behavior: ScrollViewport = .{ .tag = .top, .value = .{ .delta = 0 } };
+    const raw: *c_int = @ptrCast(&behavior.tag);
+    raw.* = std.math.maxInt(c_int) - 1;
+    try testing.expectEqual(Result.invalid_value, scroll_viewport(t, behavior));
+    try testing.expectEqual(Result.invalid_value, scroll_viewport(null, behavior));
 }
 
 test "compression invalid arguments" {
@@ -4418,12 +4533,23 @@ test "get configured scrollback limits" {
         set(t, .scrollback_max_lines, null),
     );
     try testing.expectEqual(
-        Result.no_value,
+        Result.success,
         get(t, .scrollback_max_bytes, @ptrCast(&value)),
     );
+    try testing.expectEqual(@as(usize, 10_000), value);
     try testing.expectEqual(
         Result.no_value,
         get(t, .scrollback_max_lines, @ptrCast(&value)),
+    );
+
+    const unlimited: usize = std.math.maxInt(usize);
+    try testing.expectEqual(
+        Result.success,
+        set(t, .scrollback_max_bytes, @ptrCast(&unlimited)),
+    );
+    try testing.expectEqual(
+        Result.no_value,
+        get(t, .scrollback_max_bytes, @ptrCast(&value)),
     );
 }
 
@@ -4450,7 +4576,7 @@ test "set default cursor style and blink" {
     ));
     defer free(t);
 
-    var default_style: TerminalCursorStyle = .bar;
+    var default_style: CursorStyle = .bar;
     var default_blink = true;
     try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
     try testing.expectEqual(Result.success, set(t, .default_cursor_blink, @ptrCast(&default_blink)));

@@ -12,6 +12,7 @@ const terminal_c = @import("terminal.zig");
 const Terminal = @import("../Terminal.zig");
 const PageList = @import("../PageList.zig");
 const Result = @import("result.zig").Result;
+const RenderState = @import("../render.zig").RenderState;
 
 /// C: GhosttyKittyGraphics
 pub const KittyGraphics = if (build_options.kitty_graphics)
@@ -44,7 +45,7 @@ const PlacementIteratorWrapper = if (build_options.kitty_graphics)
         alloc: std.mem.Allocator,
         inner: PlacementMap.Iterator = undefined,
         entry: ?PlacementMap.Entry = null,
-        layer_filter: PlacementLayer = .all,
+        layer_mask: u32 = 0,
     }
 else
     void;
@@ -136,7 +137,7 @@ fn getTyped(
             it.* = .{
                 .alloc = it.alloc,
                 .inner = storage.placements.iterator(),
-                .layer_filter = it.layer_filter,
+                .layer_mask = it.layer_mask,
             };
         },
         .generation => out.* = storage.generation,
@@ -145,33 +146,31 @@ fn getTyped(
     return .success;
 }
 
-/// C: GhosttyKittyPlacementLayer
-pub const PlacementLayer = enum(c_int) {
-    all = 0,
-    below_bg = 1,
-    below_text = 2,
-    above_text = 3,
+/// Every bit that a GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER
+/// mask may set. Bit N stands for the GhosttyImageLayer with value N, so
+/// this has one bit for each layer.
+const layer_mask_all: u32 = (1 << @typeInfo(RenderState.ImageLayer).@"enum".field_names.len) - 1;
 
-    fn matches(self: PlacementLayer, z: i32) bool {
-        return switch (self) {
-            .all => true,
-            .below_bg => z < std.math.minInt(i32) / 2,
-            .below_text => z >= std.math.minInt(i32) / 2 and z < 0,
-            .above_text => z >= 0,
-        };
-    }
-};
+/// Whether a placement with z-index `z` is in one of the layers in `mask`.
+/// A mask of 0 means no filter, so every placement matches. The layer
+/// comes from the same z-index ranges the render state uses.
+fn layerMaskMatches(mask: u32, z: i32) bool {
+    if (mask == 0) return true;
+    const layer = RenderState.imageLayerFromZ(z);
+    return mask & (@as(u32, 1) << @intCast(@backingInt(layer))) != 0;
+}
 
 /// C: GhosttyKittyGraphicsPlacementIteratorOption
 pub const PlacementIteratorOption = enum(c_int) {
-    layer = 0,
+    invalid = 0,
+    layer = 1,
 
     _,
 
     pub fn InType(comptime self: PlacementIteratorOption) type {
         return switch (self) {
-            .layer => PlacementLayer,
-            _ => void,
+            .layer => u32,
+            .invalid, _ => void,
         };
     }
 };
@@ -191,8 +190,8 @@ pub const ImageData = enum(c_int) {
     height = 4,
     format = 5,
     compression = 6,
-    data_ptr = 7,
-    data_len = 8,
+    pixels = 7,
+    expected_len = 8,
     generation = 9,
 
     _,
@@ -203,8 +202,8 @@ pub const ImageData = enum(c_int) {
             .id, .number, .width, .height => u32,
             .format => ImageFormat,
             .compression => ImageCompression,
-            .data_ptr => [*]const u8,
-            .data_len => usize,
+            .pixels => lib.String,
+            .expected_len => usize,
             .generation => u64,
             _ => void,
         };
@@ -304,8 +303,8 @@ fn imageGetTyped(
         // For animated images this is the current animation frame's
         // data; the image generation changes whenever the current
         // frame does, so generation-keyed caches stay coherent.
-        .data_ptr => out.* = (image.renderData().bytes() orelse return .no_value).ptr,
-        .data_len => out.* = image.renderData().len(),
+        .pixels => out.* = .init(image.renderData().bytes() orelse return .no_value),
+        .expected_len => out.* = image.renderData().len(),
         .generation => out.* = image.generation,
         _ => comptime unreachable,
     }
@@ -345,11 +344,12 @@ pub fn placement_iterator_set(
     if (comptime !build_options.kitty_graphics) return .no_value;
 
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| placementIteratorSetTyped(
             iter_,
             comptime_option,
-            @ptrCast(@alignCast(value orelse return .invalid_value)),
+            if (value) |ptr| @ptrCast(@alignCast(ptr)) else null,
         ),
     };
 }
@@ -357,13 +357,17 @@ pub fn placement_iterator_set(
 fn placementIteratorSetTyped(
     iter_: PlacementIterator,
     comptime option: PlacementIteratorOption,
-    value: *const option.InType(),
+    value: ?*const option.InType(),
 ) Result {
     const iter = iter_ orelse return .invalid_value;
     switch (option) {
-        .layer => iter.layer_filter = lib.enumFromPtr(PlacementLayer, value) orelse
-            return .invalid_value,
-        _ => comptime unreachable,
+        .layer => {
+            // NULL resets to no filter, the same as a zero mask.
+            const mask = if (value) |v| v.* else 0;
+            if (mask & ~layer_mask_all != 0) return .invalid_value;
+            iter.layer_mask = mask;
+        },
+        .invalid, _ => comptime unreachable,
     }
     return .success;
 }
@@ -373,7 +377,7 @@ pub fn placement_iterator_next(iter_: PlacementIterator) callconv(lib.calling_co
 
     const iter = iter_ orelse return false;
     while (iter.inner.next()) |entry| {
-        if (iter.layer_filter.matches(entry.value_ptr.z)) {
+        if (layerMaskMatches(iter.layer_mask, entry.value_ptr.z)) {
             iter.entry = entry;
             return true;
         }
@@ -937,56 +941,43 @@ test "placement_iterator_set layer filter" {
     ));
     defer placement_iterator_free(iter);
 
-    // Filter: above_text (z >= 0) — should yield only p=1.
-    var layer = PlacementLayer.above_text;
-    try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, @ptrCast(&layer)));
-    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
-
-    var count: u32 = 0;
-    while (placement_iterator_next(iter)) {
-        var z: i32 = undefined;
-        try testing.expectEqual(Result.success, placement_get(iter, .z, @ptrCast(&z)));
-        try testing.expect(z >= 0);
-        count += 1;
+    // The three placements are in different layers. Placement 1 is above
+    // the text (mask bit 2), placement 2 is below the text (bit 1), and
+    // placement 3 is below the backgrounds (bit 0). Each row pairs a mask
+    // with the placements it visits, written as a set where bit N means
+    // placement N. Together the rows cover every mask.
+    const cases = [_]struct { mask: u32, ids: u32 }{
+        .{ .mask = 0, .ids = 0b1110 },
+        .{ .mask = 0b001, .ids = 0b1000 },
+        .{ .mask = 0b010, .ids = 0b0100 },
+        .{ .mask = 0b011, .ids = 0b1100 },
+        .{ .mask = 0b100, .ids = 0b0010 },
+        .{ .mask = 0b101, .ids = 0b1010 },
+        .{ .mask = 0b110, .ids = 0b0110 },
+        .{ .mask = 0b111, .ids = 0b1110 },
+    };
+    for (cases) |case| {
+        try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, @ptrCast(&case.mask)));
+        try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
+        var ids: u32 = 0;
+        while (placement_iterator_next(iter)) {
+            var id: u32 = undefined;
+            try testing.expectEqual(Result.success, placement_get(iter, .placement_id, @ptrCast(&id)));
+            ids |= @as(u32, 1) << @intCast(id);
+        }
+        try testing.expectEqual(case.ids, ids);
     }
-    try testing.expectEqual(1, count);
 
-    // Filter: below_text (INT32_MIN/2 <= z < 0) — should yield only p=2.
-    layer = .below_text;
-    try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, @ptrCast(&layer)));
-    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
+    // A bit that matches no layer is rejected, and the previous mask stays.
+    const one_layer: u32 = 0b100;
+    try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, @ptrCast(&one_layer)));
+    const unknown_bit: u32 = 0b1000;
+    try testing.expectEqual(Result.invalid_value, placement_iterator_set(iter, .layer, @ptrCast(&unknown_bit)));
+    try testing.expectEqual(one_layer, iter.?.layer_mask);
 
-    count = 0;
-    while (placement_iterator_next(iter)) {
-        var z: i32 = undefined;
-        try testing.expectEqual(Result.success, placement_get(iter, .z, @ptrCast(&z)));
-        try testing.expect(z >= std.math.minInt(i32) / 2 and z < 0);
-        count += 1;
-    }
-    try testing.expectEqual(1, count);
-
-    // Filter: below_bg (z < INT32_MIN/2) — should yield only p=3.
-    layer = .below_bg;
-    try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, @ptrCast(&layer)));
-    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
-
-    count = 0;
-    while (placement_iterator_next(iter)) {
-        var z: i32 = undefined;
-        try testing.expectEqual(Result.success, placement_get(iter, .z, @ptrCast(&z)));
-        try testing.expect(z < std.math.minInt(i32) / 2);
-        count += 1;
-    }
-    try testing.expectEqual(1, count);
-
-    // Filter: all — should yield all 3.
-    layer = .all;
-    try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, @ptrCast(&layer)));
-    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
-
-    count = 0;
-    while (placement_iterator_next(iter)) count += 1;
-    try testing.expectEqual(3, count);
+    // NULL resets to no filter.
+    try testing.expectEqual(Result.success, placement_iterator_set(iter, .layer, null));
+    try testing.expectEqual(@as(u32, 0), iter.?.layer_mask);
 }
 
 test "image_get_handle returns null for missing id" {
@@ -1057,9 +1048,9 @@ test "image_get_handle and image_get with transmitted image" {
     try testing.expectEqual(Result.success, image_get(img, .compression, @ptrCast(&comp)));
     try testing.expectEqual(.none, comp);
 
-    var data_len: usize = undefined;
-    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
-    try testing.expect(data_len > 0);
+    var expected_len: usize = undefined;
+    try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&expected_len)));
+    try testing.expect(expected_len > 0);
 }
 
 test "image_get exposes pending metadata without a data pointer" {
@@ -1098,20 +1089,24 @@ test "image_get exposes pending metadata without a data pointer" {
     try testing.expectEqual(Result.success, image_get(img, .number, @ptrCast(&number)));
     try testing.expectEqual(@as(u32, 7), number);
 
-    var data_len: usize = 0;
-    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
-    try testing.expectEqual(@as(usize, 12), data_len);
+    // Pending: the expected length is known, the pixels are not.
+    var expected_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&expected_len)));
+    try testing.expectEqual(@as(usize, 12), expected_len);
 
-    var data_ptr: [*]const u8 = undefined;
-    try testing.expectEqual(Result.no_value, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
+    var image_pixels: lib.String = undefined;
+    try testing.expectEqual(Result.no_value, image_get(img, .pixels, @ptrCast(&image_pixels)));
 
     const pixels = try alloc.alloc(u8, 12);
     @memset(pixels, '*');
     try testing.expect(pending.complete(graphics, testing.io, pixels));
     const completed_img = image_get_handle(graphics, 42);
     try testing.expect(completed_img != null);
-    try testing.expectEqual(Result.success, image_get(completed_img, .data_ptr, @ptrCast(&data_ptr)));
-    try testing.expectEqualSlices(u8, pixels, data_ptr[0..data_len]);
+    // Complete: the pixels carry their length, equal to the expected one.
+    try testing.expectEqual(Result.success, image_get(completed_img, .pixels, @ptrCast(&image_pixels)));
+    try testing.expectEqualSlices(u8, pixels, image_pixels.ptr[0..image_pixels.len]);
+    try testing.expectEqual(Result.success, image_get(completed_img, .expected_len, @ptrCast(&expected_len)));
+    try testing.expectEqual(image_pixels.len, expected_len);
 }
 
 test "placement_rect with transmit and display" {
@@ -2015,7 +2010,7 @@ test "image generation detects same-sized retransmission" {
         try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen1)));
         try testing.expectEqual(Result.success, image_get(img, .width, @ptrCast(&w1)));
         try testing.expectEqual(Result.success, image_get(img, .height, @ptrCast(&h1)));
-        try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&len1)));
+        try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&len1)));
         try testing.expect(gen1 > 0);
     }
 
@@ -2036,7 +2031,7 @@ test "image generation detects same-sized retransmission" {
         try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen2)));
         try testing.expectEqual(Result.success, image_get(img, .width, @ptrCast(&w2)));
         try testing.expectEqual(Result.success, image_get(img, .height, @ptrCast(&h2)));
-        try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&len2)));
+        try testing.expectEqual(Result.success, image_get(img, .expected_len, @ptrCast(&len2)));
 
         // Size heuristics are identical...
         try testing.expectEqual(w1, w2);
@@ -2123,13 +2118,9 @@ test "image compression and format always report decoded data" {
     try testing.expectEqual(.none, comp);
 
     // Data is the decoded pixels: width * height * bpp.
-    var data_len: usize = 0;
-    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
-    try testing.expectEqual(3, data_len);
-
-    var data_ptr: [*]const u8 = undefined;
-    try testing.expectEqual(Result.success, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
-    try testing.expectEqualSlices(u8, &.{ 0xFF, 0x00, 0x00 }, data_ptr[0..data_len]);
+    var pixels: lib.String = undefined;
+    try testing.expectEqual(Result.success, image_get(img, .pixels, @ptrCast(&pixels)));
+    try testing.expectEqualSlices(u8, &.{ 0xFF, 0x00, 0x00 }, pixels.ptr[0..pixels.len]);
 }
 
 test "generation never recurs across resets and screen switches" {
@@ -2225,10 +2216,10 @@ test "animation_tick advances a running animation" {
         fn read(g: KittyGraphics) !@This() {
             const img = image_get_handle(g, 1) orelse return error.TestUnexpectedResult;
             var gen: u64 = 0;
-            var ptr: [*]const u8 = undefined;
+            var pixels: lib.String = undefined;
             try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen)));
-            try testing.expectEqual(Result.success, image_get(img, .data_ptr, @ptrCast(&ptr)));
-            return .{ .gen = gen, .pixel = ptr[0..4].* };
+            try testing.expectEqual(Result.success, image_get(img, .pixels, @ptrCast(&pixels)));
+            return .{ .gen = gen, .pixel = pixels.ptr[0..4].* };
         }
     };
     const red: [4]u8 = .{ 255, 0, 0, 255 };

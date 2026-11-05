@@ -45,18 +45,19 @@ pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
 
 /// C: GhosttyKeyEncoderOption
 pub const Option = enum(c_int) {
-    cursor_key_application = 0,
-    keypad_key_application = 1,
-    ignore_keypad_with_numlock = 2,
-    alt_esc_prefix = 3,
-    modify_other_keys_state_2 = 4,
-    kitty_flags = 5,
-    macos_option_as_alt = 6,
+    invalid = 0,
+    cursor_key_application = 1,
+    keypad_key_application = 2,
+    ignore_keypad_with_numlock = 3,
+    alt_esc_prefix = 4,
+    modify_other_keys_state_2 = 5,
+    kitty_flags = 6,
+    macos_option_as_alt = 7,
     /// DEC Backarrow Key Mode (DECBKM)
     /// See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
     /// If `false` (the default), `backspace` emits 0x7f
     /// If `true`, `backspace` emits 0x08
-    backarrow_key_mode = 7,
+    backarrow_key_mode = 8,
 
     _,
 
@@ -72,28 +73,29 @@ pub const Option = enum(c_int) {
             => bool,
             .kitty_flags => u8,
             .macos_option_as_alt => OptionAsAlt,
-            _ => void,
+            .invalid, _ => void,
         };
     }
 };
 
-pub fn setopt(
+pub fn set(
     encoder_: Encoder,
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     return switch (option) {
+        .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_option| {
             const encoder = encoder_ orelse return .invalid_value;
             const ptr = value orelse return resetTyped(encoder, comptime_option);
-            return setoptTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
+            return setTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
         },
     };
 }
 
 /// Reset an option to the default from `key_encode.Options`. This is what a
-/// NULL value to `setopt` does.
+/// NULL value to `set` does.
 fn resetTyped(encoder: *KeyEncoderWrapper, comptime option: Option) Result {
     const defaults: key_encode.Options = .{};
     const name = @tagName(option);
@@ -101,7 +103,7 @@ fn resetTyped(encoder: *KeyEncoderWrapper, comptime option: Option) Result {
     return .success;
 }
 
-fn setoptTyped(
+fn setTyped(
     encoder: *KeyEncoderWrapper,
     comptime option: Option,
     value: *const option.InType(),
@@ -120,13 +122,13 @@ fn setoptTyped(
         .macos_option_as_alt => opts.macos_option_as_alt =
             lib.enumFromPtr(OptionAsAlt, value) orelse return .invalid_value,
         .backarrow_key_mode => opts.backarrow_key_mode = value.*,
-        _ => comptime unreachable,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
 }
 
-pub fn setopt_from_terminal(
+pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
 ) callconv(lib.calling_conv) void {
@@ -180,7 +182,7 @@ test "alloc" {
     free(e);
 }
 
-test "setopt bool" {
+test "set bool" {
     const testing = std.testing;
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -191,18 +193,18 @@ test "setopt bool" {
 
     // Test setting bool options
     const val_true: bool = true;
-    try testing.expectEqual(Result.success, setopt(e, .cursor_key_application, &val_true));
+    try testing.expectEqual(Result.success, set(e, .cursor_key_application, &val_true));
     try testing.expect(e.?.opts.cursor_key_application);
 
     const val_false: bool = false;
-    try testing.expectEqual(Result.success, setopt(e, .cursor_key_application, &val_false));
+    try testing.expectEqual(Result.success, set(e, .cursor_key_application, &val_false));
     try testing.expect(!e.?.opts.cursor_key_application);
 
-    try testing.expectEqual(Result.success, setopt(e, .keypad_key_application, &val_true));
+    try testing.expectEqual(Result.success, set(e, .keypad_key_application, &val_true));
     try testing.expect(e.?.opts.keypad_key_application);
 }
 
-test "setopt kitty flags" {
+test "set kitty flags" {
     const testing = std.testing;
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -217,13 +219,13 @@ test "setopt kitty flags" {
         .report_events = true,
     };
     const flags_int: u8 = @intCast(flags.int());
-    try testing.expectEqual(Result.success, setopt(e, .kitty_flags, &flags_int));
+    try testing.expectEqual(Result.success, set(e, .kitty_flags, &flags_int));
     try testing.expect(e.?.opts.kitty_flags.disambiguate);
     try testing.expect(e.?.opts.kitty_flags.report_events);
     try testing.expect(!e.?.opts.kitty_flags.report_alternates);
 }
 
-test "setopt macos option as alt" {
+test "set macos option as alt" {
     const testing = std.testing;
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -234,15 +236,15 @@ test "setopt macos option as alt" {
 
     // Test setting option as alt
     const opt_left: OptionAsAlt = .left;
-    try testing.expectEqual(Result.success, setopt(e, .macos_option_as_alt, &opt_left));
+    try testing.expectEqual(Result.success, set(e, .macos_option_as_alt, &opt_left));
     try testing.expectEqual(OptionAsAlt.left, e.?.opts.macos_option_as_alt);
 
     const opt_true: OptionAsAlt = .true;
-    try testing.expectEqual(Result.success, setopt(e, .macos_option_as_alt, &opt_true));
+    try testing.expectEqual(Result.success, set(e, .macos_option_as_alt, &opt_true));
     try testing.expectEqual(OptionAsAlt.true, e.?.opts.macos_option_as_alt);
 }
 
-test "setopt_from_terminal" {
+test "set_from_terminal" {
     const testing = std.testing;
     const terminal_c = @import("terminal.zig");
 
@@ -265,7 +267,7 @@ test "setopt_from_terminal" {
     defer terminal_c.free(t);
 
     // Apply terminal state to encoder
-    setopt_from_terminal(e, t);
+    set_from_terminal(e, t);
 
     // Options should reflect defaults from a fresh terminal
     try testing.expect(!e.?.opts.cursor_key_application);
@@ -274,9 +276,9 @@ test "setopt_from_terminal" {
     try testing.expectEqual(OptionAsAlt.false, e.?.opts.macos_option_as_alt);
 }
 
-test "setopt_from_terminal null" {
+test "set_from_terminal null" {
     // Both null should be no-ops
-    setopt_from_terminal(null, null);
+    set_from_terminal(null, null);
 
     const testing = std.testing;
 
@@ -290,7 +292,7 @@ test "setopt_from_terminal null" {
         24,
     ));
     defer terminal_c.free(t);
-    setopt_from_terminal(null, t);
+    set_from_terminal(null, t);
 
     // Valid encoder with null terminal
     var e: Encoder = undefined;
@@ -299,7 +301,7 @@ test "setopt_from_terminal null" {
         &e,
     ));
     defer free(e);
-    setopt_from_terminal(e, null);
+    set_from_terminal(e, null);
 }
 
 test "encode: kitty ctrl release with ctrl mod set" {
@@ -323,7 +325,7 @@ test "encode: kitty ctrl release with ctrl mod set" {
             .report_associated = true,
         };
         const flags_int: u8 = @intCast(flags.int());
-        try testing.expectEqual(Result.success, setopt(encoder, .kitty_flags, &flags_int));
+        try testing.expectEqual(Result.success, set(encoder, .kitty_flags, &flags_int));
     }
 
     // Create key event
@@ -348,6 +350,18 @@ test "encode: kitty ctrl release with ctrl mod set" {
         0,
         &required,
     ));
+
+    // An undersized buffer reports the same required size
+    var small: [4]u8 = undefined;
+    var small_written: usize = 0;
+    try testing.expectEqual(Result.out_of_space, encode(
+        encoder,
+        event,
+        &small,
+        small.len,
+        &small_written,
+    ));
+    try testing.expectEqual(required, small_written);
 
     // Encode the key event
     var buf: [128]u8 = undefined;

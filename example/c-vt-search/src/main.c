@@ -55,7 +55,7 @@ int main() {
   // This scrolls the viewport to the match if it isn't visible, per
   // the GHOSTTY_SEARCH_OPT_SELECT_SCROLL policy.
   while (true) {
-    result = ghostty_search_set(search, GHOSTTY_SEARCH_OPT_SELECT_NEXT, NULL);
+    result = ghostty_search_select_next(search);
     if (result != GHOSTTY_SUCCESS) break;
 
     // Read the selection state in one call. Index 0 is the newest

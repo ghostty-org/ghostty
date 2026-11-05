@@ -208,11 +208,18 @@ typedef bool (*GhosttySysRandomSecureFn)(
  */
 typedef enum GHOSTTY_ENUM_TYPED {
     /**
+     * Not a real option. ghostty_sys_set() returns GHOSTTY_INVALID_VALUE for
+     * it. Its value is 0, so a zeroed or uninitialized variable is never
+     * mistaken for a real option.
+     */
+    GHOSTTY_SYS_OPT_INVALID = 0,
+
+    /**
      * Set the userdata pointer passed to all sys callbacks.
      *
      * Input type: void* (or NULL)
      */
-    GHOSTTY_SYS_OPT_USERDATA = 0,
+    GHOSTTY_SYS_OPT_USERDATA = 1,
 
     /**
      * Set the PNG decode function.
@@ -223,7 +230,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
      *
      * Input type: GhosttySysDecodePngFn (function pointer, or NULL)
      */
-    GHOSTTY_SYS_OPT_DECODE_PNG = 1,
+    GHOSTTY_SYS_OPT_DECODE_PNG = 2,
 
     /**
      * Set the log callback.
@@ -243,7 +250,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
      *
      * Input type: GhosttySysLogFn (function pointer, or NULL)
      */
-    GHOSTTY_SYS_OPT_LOG = 2,
+    GHOSTTY_SYS_OPT_LOG = 3,
 
     /**
      * Override the secure random source.
@@ -258,7 +265,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
      *
      * Input type: GhosttySysRandomSecureFn (function pointer, or NULL)
      */
-    GHOSTTY_SYS_OPT_RANDOM_SECURE = 3,
+    GHOSTTY_SYS_OPT_RANDOM_SECURE = 4,
     GHOSTTY_SYS_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySysOption;
 

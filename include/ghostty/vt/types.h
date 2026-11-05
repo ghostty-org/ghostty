@@ -280,15 +280,97 @@ typedef struct GhosttyOscCommandImpl* GhosttyOscCommand;
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** Plain text (no escape sequences). */
-  GHOSTTY_FORMATTER_FORMAT_PLAIN,
+  GHOSTTY_FORMATTER_FORMAT_PLAIN = 0,
 
   /** VT sequences preserving colors, styles, URLs, etc. */
-  GHOSTTY_FORMATTER_FORMAT_VT,
+  GHOSTTY_FORMATTER_FORMAT_VT = 1,
 
   /** HTML with inline styles. */
-  GHOSTTY_FORMATTER_FORMAT_HTML,
+  GHOSTTY_FORMATTER_FORMAT_HTML = 2,
   GHOSTTY_FORMATTER_FORMAT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyFormatterFormat;
+
+/**
+ * The shape of the cursor.
+ *
+ * Programs change the cursor's shape with the DECSCUSR escape sequence
+ * (CSI Ps SP q). Set the shape that DECSCUSR 0 restores with
+ * GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE. Read the shape to draw with
+ * GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE.
+ *
+ * @ingroup terminal
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Bar cursor (DECSCUSR 5, 6). */
+  GHOSTTY_CURSOR_STYLE_BAR = 0,
+
+  /** Block cursor (DECSCUSR 1, 2). */
+  GHOSTTY_CURSOR_STYLE_BLOCK = 1,
+
+  /** Underline cursor (DECSCUSR 3, 4). */
+  GHOSTTY_CURSOR_STYLE_UNDERLINE = 2,
+
+  /** Hollow block cursor. */
+  GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW = 3,
+  GHOSTTY_CURSOR_STYLE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyCursorStyle;
+
+/**
+ * Where an image is drawn relative to the terminal's text.
+ *
+ * Draw each frame from the bottom up, in this order:
+ *
+ * 1. Images in GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND.
+ * 2. Cell background colors.
+ * 3. Images in GHOSTTY_IMAGE_LAYER_BELOW_TEXT.
+ * 4. Text.
+ * 5. Images in GHOSTTY_IMAGE_LAYER_ABOVE_TEXT.
+ *
+ * Within a layer, draw images in order of their z-index, lowest first.
+ *
+ * A Kitty graphics placement's layer comes from its z-index. Each value
+ * below lists its z-index range. For example, a placement with z-index -1
+ * is in GHOSTTY_IMAGE_LAYER_BELOW_TEXT.
+ *
+ * The render state reports each image's layer with
+ * GHOSTTY_RENDER_STATE_IMAGE_DATA_LAYER. To visit only some layers with
+ * the Kitty graphics placement iterator, build a mask from the
+ * GHOSTTY_IMAGE_LAYER_MASK_* macros and set it with
+ * GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER.
+ *
+ * @ingroup render
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Below the cell background colors. Kitty z-index below INT32_MIN / 2
+   *  (-1,073,741,824). */
+  GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND = 0,
+
+  /** Above the cell background colors and below the text. Kitty z-index
+   *  from INT32_MIN / 2 up to -1. */
+  GHOSTTY_IMAGE_LAYER_BELOW_TEXT = 1,
+
+  /** Above the text. Kitty z-index 0 and above. */
+  GHOSTTY_IMAGE_LAYER_ABOVE_TEXT = 2,
+  GHOSTTY_IMAGE_LAYER_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyImageLayer;
+
+/**
+ * Mask bit for GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND.
+ *
+ * The GHOSTTY_IMAGE_LAYER_MASK_* macros select layers in a filter such
+ * as GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER. Combine them
+ * with `|`.
+ */
+#define GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND \
+  (1u << GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND)
+
+/** Mask bit for GHOSTTY_IMAGE_LAYER_BELOW_TEXT. */
+#define GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT \
+  (1u << GHOSTTY_IMAGE_LAYER_BELOW_TEXT)
+
+/** Mask bit for GHOSTTY_IMAGE_LAYER_ABOVE_TEXT. */
+#define GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT \
+  (1u << GHOSTTY_IMAGE_LAYER_ABOVE_TEXT)
 
 /**
  * A borrowed byte string (pointer + length).
@@ -354,6 +436,32 @@ typedef struct {
   /** Number of entries in ptr. */
   size_t len;
 } GhosttyCodepoints;
+
+/**
+ * A buffer you provide for the library to fill with Unicode codepoints.
+ *
+ * Set ptr to an array of uint32_t and cap to the number of elements it
+ * holds. The library writes up to cap codepoints and sets len to the total
+ * number available. When len is greater than cap, the call returns
+ * GHOSTTY_OUT_OF_SPACE and ptr holds only the first cap codepoints.
+ *
+ * To learn the count without copying anything, set ptr to NULL and cap to
+ * 0, then read len.
+ *
+ * This struct has a frozen layout and will not gain fields in future
+ * versions.
+ */
+typedef struct {
+  /** Where codepoints are written. May be NULL when cap is 0. */
+  uint32_t* ptr;
+
+  /** Number of uint32_t elements ptr can hold. */
+  size_t cap;
+
+  /** Set by the library to the total number of codepoints, whether or not
+   *  they all fit. */
+  size_t len;
+} GhosttyCodepointBuffer;
 
 /**
  * Initialize a sized struct to zero and set its size field.
