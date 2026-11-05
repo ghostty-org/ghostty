@@ -25,6 +25,8 @@ int main() {
   assert(result == GHOSTTY_SUCCESS);
   result = ghostty_key_event_set_mods(event, GHOSTTY_MODS_CTRL);
   assert(result == GHOSTTY_SUCCESS);
+  result = ghostty_key_event_set_unshifted_codepoint(event, 'c');
+  assert(result == GHOSTTY_SUCCESS);
 
   // Encode the key event
   uint8_t buf[128];
