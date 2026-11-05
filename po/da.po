@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-11-01 10:35-0500\n"
 "PO-Revision-Date: 2026-10-08 13:20+0200\n"
 "Last-Translator: Karl G. Nielsen <karl@bacano.dk>\n"
 "Language-Team: Danish <dansk@dansk-gruppen.dk>\n"
@@ -131,7 +131,7 @@ msgid "New Tab"
 msgstr "Ny fane"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:613
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "Luk fane"
 
@@ -149,7 +149,7 @@ msgid "New Window"
 msgstr "Nyt vindue"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:630
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "Luk vindue"
 
@@ -204,7 +204,7 @@ msgstr "Terminalinspektør"
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "Afslut"
 
@@ -232,7 +232,7 @@ msgstr "Genindlæs konfigurationen for at se denne dialog igen"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "Annullér"
 
@@ -264,27 +264,27 @@ msgstr "Lad feltet stå tomt for at gendanne standardtitlen."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "Tastaturgenvejen blev ophævet af systemet."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "Tastaturgenvejen blev afvist af systemet."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "Global tastaturgenvej utilgængelig"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "Eksportér terminal IO-begivenheder"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "Eksportér"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "Redigerer konfigurationsfil"
 
@@ -1014,133 +1014,165 @@ msgstr "Genindlæs konfiguration"
 msgid "Reload the config file."
 msgstr "Genindlæs konfigurationsfilen."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Configured Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use the application appearance from the configuration."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "Luk terminal"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "Luk den nuværende terminal."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "Luk den nuværende fane."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "Luk andre faner"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "Luk alle faner i dette vindue, bortset fra den nuværende."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "Luk alle faner til højre"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "Luk alle faner til højre for den nuværende."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "Luk det nuværende vindue."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "Luk alle vinduer"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "Luk alle vinduer."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "Slå maksimering til/fra"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "Slå den maksimerede tilstand af det nuværende vindue til eller fra."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "Slå fuld skærm til/fra"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Slå fuldskærmstilstanden til eller fra for det nuværende vindue."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "Slå vinduesdekorationer til/fra"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "Slå vinduesdekorationerne til eller fra."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "Slå 'altid øverst' til/fra"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "Slå tilstanden for altid at vise vinduet øverst til eller fra."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "Slå sikkert input til/fra"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "Slå tilstanden for sikkert input til eller fra."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "Slå muserapportering til/fra"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "Slå til eller fra, om musehændelser skal rapporteres til terminalprogrammer."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "Slå baggrundsgennemskinnelighed til/fra"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
 "Slå baggrundsgennemskinneligheden til eller fra for et vindue, der startede "
 "som gennemsigtigt."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "Søg efter opdateringer"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "Søg efter opdateringer til programmet."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "Fortryd"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "Fortryd den sidste handling."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "Gentag"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "Gentag den sidste fortrudte handling."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "Afslut programmet."
 
-#: src/input/command.zig:709
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "Sæt en lille Ghostty i din terminal."

@@ -179,6 +179,9 @@ pub const Application = extern struct {
         /// The configuration for the application.
         config: *Config,
 
+        /// The application window theme selected for this session.
+        window_theme_override: apprt.action.WindowTheme = .config,
+
         /// State and logic for the underlying windowing protocol.
         winproto: winprotopkg.App,
 
@@ -764,6 +767,8 @@ pub const Application = extern struct {
 
             .reload_config => try Action.reloadConfig(self, target, value),
 
+            .set_window_theme => Action.setWindowTheme(self, value),
+
             .render => Action.render(target),
 
             .resize_split => return Action.resizeSplit(target, value),
@@ -996,7 +1001,7 @@ pub const Application = extern struct {
             \\
         );
 
-        switch (window_theme) {
+        if (priv.window_theme_override == .config) switch (window_theme) {
             .ghostty => try writer.print(
                 \\:root {{
                 \\  --ghostty-fg: rgb({d},{d},{d});
@@ -1031,7 +1036,7 @@ pub const Application = extern struct {
                 headerbar_background.b,
             }),
             else => {},
-        }
+        };
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -1400,19 +1405,8 @@ pub const Application = extern struct {
         const config = priv.config.get();
 
         // Setup our initial light/dark
+        self.syncStyleManager(config);
         const style = self.as(adw.Application).getStyleManager();
-        style.setColorScheme(switch (config.@"window-theme") {
-            .auto, .ghostty => auto: {
-                const lum = config.background.toTerminalRGB().perceivedLuminance();
-                break :auto if (lum > 0.5)
-                    .prefer_light
-                else
-                    .prefer_dark;
-            },
-            .system => .prefer_light,
-            .dark => .force_dark,
-            .light => .force_light,
-        });
 
         // Setup color change notifications
         _ = gobject.Object.signals.notify.connect(
@@ -1427,6 +1421,42 @@ pub const Application = extern struct {
         // if our current theme matches what libghostty has so its safe to
         // call.
         handleStyleManagerDark(style, undefined, self);
+    }
+
+    fn syncStyleManager(self: *Self, config: *const CoreConfig) void {
+        self.as(adw.Application).getStyleManager().setColorScheme(
+            colorScheme(self.private().window_theme_override, config),
+        );
+    }
+
+    fn colorScheme(
+        override: apprt.action.WindowTheme,
+        config: *const CoreConfig,
+    ) adw.ColorScheme {
+        return switch (override) {
+            .config => switch (config.@"window-theme") {
+                .auto, .ghostty => auto: {
+                    // A conditional theme's background follows the scheme,
+                    // so deriving the scheme from it can recurse forever
+                    // through the soft reload a scheme change triggers.
+                    if (config._conditional_set.contains(.theme)) {
+                        break :auto .prefer_light;
+                    }
+
+                    const lum = config.background.toTerminalRGB().perceivedLuminance();
+                    break :auto if (lum > 0.5)
+                        .prefer_light
+                    else
+                        .prefer_dark;
+                },
+                .system => .prefer_light,
+                .dark => .force_dark,
+                .light => .force_light,
+            },
+            .system => .prefer_light,
+            .light => .force_light,
+            .dark => .force_dark,
+        };
     }
 
     /// Setup signal handlers
@@ -2227,7 +2257,10 @@ const Action = struct {
 
         switch (target) {
             .surface => |core| core.rt_surface.surface.setConfig(config_obj),
-            .app => self.setConfig(config_obj),
+            .app => {
+                self.setConfig(config_obj);
+                self.syncStyleManager(new_config);
+            },
         }
     }
 
@@ -2780,6 +2813,24 @@ const Action = struct {
         }
     }
 
+    pub fn setWindowTheme(
+        self: *Application,
+        theme: apprt.action.WindowTheme,
+    ) void {
+        const priv = self.private();
+        priv.window_theme_override = theme;
+        self.syncStyleManager(priv.config.get());
+
+        // The style manager only notifies on an effective scheme change, so
+        // the runtime CSS must be reloaded directly.
+        self.loadRuntimeCss() catch |err| switch (err) {
+            error.WriteFailed, error.OutOfMemory => log.warn(
+                "out of memory loading runtime CSS, no runtime CSS applied",
+                .{},
+            ),
+        };
+    }
+
     /// Reload the configuration for the application and propagate it
     /// across the entire application and all terminals.
     pub fn reloadConfig(
@@ -3317,4 +3368,36 @@ fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) 
     // but we want to return 0 to indicate equality.
     // Abusing integers to be enums and booleans is a terrible idea, C.
     return if (window.isActive() != 0) 0 else -1;
+}
+
+test "colorScheme" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var config: CoreConfig = try .default(alloc);
+    defer config.deinit();
+
+    const white: CoreConfig.Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
+    const black: CoreConfig.Color = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+
+    for ([_]CoreConfig.WindowTheme{ .auto, .ghostty }) |theme| {
+        config.@"window-theme" = theme;
+        config._conditional_set = .{};
+
+        config.background = white;
+        try testing.expectEqual(.prefer_light, Application.colorScheme(.config, &config));
+        config.background = black;
+        try testing.expectEqual(.prefer_dark, Application.colorScheme(.config, &config));
+
+        // The scheme must not depend on a background that depends on the scheme.
+        config._conditional_set.insert(.theme);
+        config.background = white;
+        try testing.expectEqual(.prefer_light, Application.colorScheme(.config, &config));
+        config.background = black;
+        try testing.expectEqual(.prefer_light, Application.colorScheme(.config, &config));
+    }
+
+    config.@"window-theme" = .light;
+    try testing.expectEqual(.force_light, Application.colorScheme(.config, &config));
+    try testing.expectEqual(.force_dark, Application.colorScheme(.dark, &config));
+    try testing.expectEqual(.prefer_light, Application.colorScheme(.system, &config));
 }

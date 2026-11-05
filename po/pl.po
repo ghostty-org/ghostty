@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-10-28 20:24+0200\n"
+"POT-Creation-Date: 2026-11-01 10:35-0500\n"
 "PO-Revision-Date: 2026-10-27 13:33+0100\n"
 "Last-Translator: Rayzerrek <rayserrek@gmail.com>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
@@ -133,7 +133,7 @@ msgid "New Tab"
 msgstr "Nowa karta"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:391 src/apprt/gtk/ui/1.4/window.blp:244
-#: src/input/command.zig:613
+#: src/input/command.zig:636
 msgid "Close Tab"
 msgstr "Zamknij kartę"
 
@@ -151,7 +151,7 @@ msgid "New Window"
 msgstr "Nowe okno"
 
 #: src/apprt/gtk/ui/1.0/surface.blp:411 src/apprt/gtk/ui/1.4/window.blp:227
-#: src/input/command.zig:630
+#: src/input/command.zig:653
 msgid "Close Window"
 msgstr "Zamknij okno"
 
@@ -205,7 +205,7 @@ msgstr "Inspektor terminala"
 msgid "About Ghostty"
 msgstr "O Ghostty"
 
-#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.4/window.blp:333 src/input/command.zig:725
 msgid "Quit"
 msgstr "Zakończ"
 
@@ -233,7 +233,7 @@ msgstr "Wczytaj konfigurację ponownie, aby znów wyświetlić ten komunikat"
 
 #: src/apprt/gtk/ui/1.5/close-confirmation-dialog.blp:6
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2152
+#: src/apprt/gtk/class/application.zig:2168
 msgid "Cancel"
 msgstr "Anuluj"
 
@@ -265,27 +265,27 @@ msgstr "Pozostaw puste, by przywrócić domyślny tytuł."
 msgid "OK"
 msgstr "OK"
 
-#: src/apprt/gtk/class/application.zig:1736
+#: src/apprt/gtk/class/application.zig:1752
 msgid "The keybind was revoked by the system."
 msgstr "Skrót klawiszowy został unieważniony przez system."
 
-#: src/apprt/gtk/class/application.zig:1738
+#: src/apprt/gtk/class/application.zig:1754
 msgid "The keybind was denied by the system."
 msgstr "Skrót klawiszowy został odrzucony przez system."
 
-#: src/apprt/gtk/class/application.zig:1750
+#: src/apprt/gtk/class/application.zig:1766
 msgid "Global keybind unavailable"
 msgstr "Globalny skrót klawiszowy jest niedostępny"
 
-#: src/apprt/gtk/class/application.zig:2148
+#: src/apprt/gtk/class/application.zig:2164
 msgid "Export Terminal IO Events"
 msgstr "Wyeksportuj zdarzenia IO terminala"
 
-#: src/apprt/gtk/class/application.zig:2151
+#: src/apprt/gtk/class/application.zig:2167
 msgid "Export"
 msgstr "Eksportuj"
 
-#: src/apprt/gtk/class/application.zig:2649
+#: src/apprt/gtk/class/application.zig:2668
 msgid "Editing configuration file"
 msgstr "Edytowanie pliku konfiguracyjnego"
 
@@ -1008,132 +1008,164 @@ msgstr "Wczytaj konfigurację ponownie"
 msgid "Reload the config file."
 msgstr "Wczytaj plik konfiguracyjny ponownie."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:607
+msgid "Switch to Configured Appearance"
+msgstr ""
+
+#: src/input/command.zig:608
+msgid "Use the application appearance from the configuration."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Switch to System Appearance"
+msgstr ""
+
+#: src/input/command.zig:613
+msgid "Use the system application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Switch to Light Appearance"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Use a light application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:622
+msgid "Switch to Dark Appearance"
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Use a dark application appearance for this session."
+msgstr ""
+
+#: src/input/command.zig:629
 msgid "Close Terminal"
 msgstr "Zamknij terminal"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:630
 msgid "Close the current terminal."
 msgstr "Zamknij aktywny terminal."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:637
 msgid "Close the current tab."
 msgstr "Zamknij aktywną kartę."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:641
 msgid "Close Other Tabs"
 msgstr "Zamknij inne karty"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:642
 msgid "Close all tabs in this window except the current one."
 msgstr "Zamknij wszystkie karty w tym oknie poza aktywną."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:646
 msgid "Close Tabs to the Right"
 msgstr "Zamknij karty po prawej"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:647
 msgid "Close all tabs to the right of the current one."
 msgstr "Zamknij wszystkie karty po prawej od aktywnej."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:654
 msgid "Close the current window."
 msgstr "Zamknij aktywne okno."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:659
 msgid "Close All Windows"
 msgstr "Zamknij wszystkie okna"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:660
 msgid "Close all windows."
 msgstr "Zamknij wszystkie okna."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:665
 msgid "Toggle Maximize"
 msgstr "Przełącz maksymalizację"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:666
 msgid "Toggle the maximized state of the current window."
 msgstr "Włącz/wyłącz maksymalizację aktywnego okna."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:671
 msgid "Toggle Fullscreen"
 msgstr "Przełącz pełny ekran"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:672
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Przełącz tryb pełnoekranowy aktywnego okna."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:677
 msgid "Toggle Window Decorations"
 msgstr "Przełącz dekoracje okna"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:678
 msgid "Toggle the window decorations."
 msgstr "Przełącz dekoracje okna."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:683
 msgid "Toggle Float on Top"
 msgstr "Przełącz zawsze na wierzchu"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:684
 msgid "Toggle the float on top state of the current window."
 msgstr "Włącz/wyłącz wyświetlanie aktywnego okna zawsze na wierzchu."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:689
 msgid "Toggle Secure Input"
 msgstr "Przełącz bezpieczne wprowadzanie"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:690
 msgid "Toggle secure input mode."
 msgstr "Włącz/wyłącz tryb bezpiecznego wprowadzania."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:695
 msgid "Toggle Mouse Reporting"
 msgstr "Przełącz raportowanie myszy"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:696
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr "Włącz/wyłącz raportowanie zdarzeń myszy do aplikacji terminalowych."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:701
 msgid "Toggle Background Opacity"
 msgstr "Przełącz przezroczystość tła"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:702
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
 "Włącz/wyłącz przezroczystość tła okna, które było przezroczyste przy "
 "otwarciu."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:707
 msgid "Check for Updates"
 msgstr "Sprawdź aktualizacje"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:708
 msgid "Check for updates to the application."
 msgstr "Sprawdź dostępność aktualizacji dla aplikacji."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:713
 msgid "Undo"
 msgstr "Cofnij"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:714
 msgid "Undo the last action."
 msgstr "Cofnij ostatnią akcję."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:719
 msgid "Redo"
 msgstr "Powtórz"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:720
 msgid "Redo the last undone action."
 msgstr "Powtórz ostatnią cofniętą akcję."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:726
 msgid "Quit the application."
 msgstr "Zakończ działanie aplikacji."
 
-#: src/input/command.zig:709
+#: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
 msgstr "Wstaw małego Ghostty do terminala."
