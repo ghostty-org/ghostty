@@ -3,7 +3,7 @@ import AppKit
 /// Reused native cells keep file identity and checkbox state explicit.
 final class GitCollectionCell: NSTableCellView {
     let checkbox = GitStageCheckbox()
-    let favoriteButton = NSButton()
+    let favoriteButton = GitBranchFavoriteButton()
     private let progress = NativeProgressIndicator()
     private let disclosure = NSButton()
     private let icon = NSImageView()
@@ -56,6 +56,7 @@ final class GitCollectionCell: NSTableCellView {
             favoriteButton.image = NSImage(systemSymbolName: favorite.isFavorite ? "star.fill" : "star", accessibilityDescription: nil)
             favoriteButton.contentTintColor = favorite.isFavorite ? colors.accent : colors.secondary
             favoriteButton.state = favorite.isFavorite ? .on : .off
+            favoriteButton.needsDisplay = true
             favoriteButton.toolTip = GitL10n.text(favorite.isFavorite ? "Remove Favorite" : "Favorite Branch")
             favoriteButton.setAccessibilityLabel(favoriteButton.toolTip)
             favoriteButton.setAccessibilityIdentifier(item.id + "/favorite")
@@ -188,5 +189,49 @@ final class GitCollectionCell: NSTableCellView {
             name.frame = .init(x: textX, y: center - 7, width: textWidth, height: 15)
         }
         rule.frame = .init(x: 10, y: bounds.height - 1, width: max(0, bounds.width - 20), height: 0.5)
+    }
+}
+
+/// Keep the hit region available while drawing only favorites or a hovered star.
+final class GitBranchFavoriteButton: NSButton {
+    private var tracking: NSTrackingArea?
+    private var hovered = false
+    var showsStar: Bool { state == .on || hovered || window?.firstResponder === self }
+    override var wantsUpdateLayer: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+        hovered = NativePointerLocation.contains(self)
+        needsDisplay = true
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        needsDisplay = true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        needsDisplay = true
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        needsDisplay = true
+        return result
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if showsStar { super.draw(dirtyRect) }
     }
 }

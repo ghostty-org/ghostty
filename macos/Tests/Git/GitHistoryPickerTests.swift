@@ -5,6 +5,39 @@ import Testing
 
 @MainActor
 struct GitHistoryPickerTests {
+    @Test func unfavoritedStarsAppearOnlyInsideTheirHitRegionAndFavoritesStayVisible() throws {
+        let cell = GitCollectionCell(frame: .init(x: 0, y: 0, width: 320, height: 26))
+        let branch = GitBranchInfo(name: "main", commit: .init("abc1234"), isCurrent: true,
+                                   isRemote: false, upstream: "", tracking: "")
+        let row = GitCollectionRow(item: .init(id: branch.id, title: branch.name, kind: .branch(branch, worktrees: [])), depth: 0)
+        var toggles = 0
+        cell.configure(row, colors: .init(), toggle: {}, stage: {}, favorite: (false, { toggles += 1 }))
+        cell.layoutSubtreeIfNeeded()
+        let button = cell.favoriteButton
+        #expect(!button.isHidden, "The invisible star must keep its clickable hit region")
+        #expect(!button.showsStar)
+        #expect(cell.hitTest(.init(x: 300, y: 13)) === button)
+        let entered = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        let exited = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        button.mouseEntered(with: entered)
+        #expect(button.showsStar)
+        button.performClick(nil)
+        #expect(toggles == 1)
+        button.mouseExited(with: exited)
+        #expect(!button.showsStar)
+        cell.configure(row, colors: .init(), toggle: {}, stage: {}, favorite: (true, {}))
+        #expect(button.showsStar)
+        button.mouseEntered(with: entered)
+        button.mouseExited(with: exited)
+        #expect(button.showsStar)
+        cell.configure(row, colors: .init(), toggle: {}, stage: {}, favorite: (false, {}))
+        #expect(!button.showsStar, "Reused cells must clear the previous branch's filled star")
+        cell.configure(row, colors: .init(), toggle: {}, stage: {})
+        #expect(button.isHidden, "Other Git collections must not acquire a favorite action")
+    }
+
     @Test func favoritesPersistShareWorktreesAndSeparateRepositoriesAndSSHHosts() throws {
         let suite = "GitHistoryFavoritesTests." + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -87,7 +120,9 @@ struct GitHistoryPickerTests {
         try star("refs/heads/main").performClick(nil)
         #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs == ["refs/heads/main"])
         #expect(actions.isEmpty && !closed)
-        controller.favoritesControlForTesting.buttonsForTesting[1].performClick(nil)
+        #expect(controller.scopeControlForTesting.buttonsForTesting.map(\.title)
+            == ["Current", "Favorites", "All"].map { GitL10n.text($0) })
+        controller.scopeControlForTesting.buttonsForTesting[1].performClick(nil)
         #expect(coordinator.rows.contains { $0.id == "refs/heads/main" })
         #expect(!coordinator.rows.contains { $0.id == "refs/heads/feature/demo" })
         let selected = try #require(coordinator.rows.firstIndex { $0.id == "refs/heads/main" })
@@ -97,11 +132,13 @@ struct GitHistoryPickerTests {
         try star("refs/heads/main").performClick(nil)
         #expect(!coordinator.rows.contains { $0.id == "refs/heads/main" })
         #expect(!closed)
-        controller.favoritesControlForTesting.buttonsForTesting[0].performClick(nil)
+        controller.scopeControlForTesting.buttonsForTesting[2].performClick(nil)
         #expect(coordinator.rows.contains { $0.id == "refs/heads/feature/demo" })
-        let currentScope = try #require(GitHistoryScope.allCases.firstIndex { $0 != .allBranches })
-        controller.scopeControlForTesting.buttonsForTesting[currentScope].performClick(nil)
-        #expect(actions.last == .selectHistoryScope(GitHistoryScope.allCases[currentScope]))
+        #expect(actions.last == .selectHistoryScope(.allBranches))
+        #expect(closed)
+        closed = false
+        controller.scopeControlForTesting.buttonsForTesting[0].performClick(nil)
+        #expect(actions.last == .selectHistoryScope(.currentBranch))
         #expect(closed)
     }
 
@@ -139,7 +176,8 @@ struct GitHistoryPickerTests {
             #expect(search.focusRingType == .none)
             #expect(view.layer?.backgroundColor != nil)
             #expect(owner.scopeControlForTesting.bounds.width == 320)
-            #expect(owner.scopeControlForTesting.buttonsForTesting.map(\.title) == GitHistoryScope.allCases.map(\.displayName))
+            #expect(owner.scopeControlForTesting.buttonsForTesting.map(\.title)
+                == ["Current", "Favorites", "All"].map { GitL10n.text($0) })
             #expect(owner.scopeControlForTesting.bounds.height == 26)
             for button in owner.modeControlForTesting.buttonsForTesting {
                 #expect(!button.isBordered)

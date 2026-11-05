@@ -8,7 +8,6 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
     private var colors: GitCollectionColors
     private let scopeControl = GitPopoverSegments()
     private let modeControl = GitPopoverSegments()
-    private let favoritesControl = GitPopoverSegments()
     private let favorites: GitHistoryBranchFavorites?
     private var favoritesOnly = false
     private let collectionCoordinator = GitCollectionView.Coordinator()
@@ -18,7 +17,6 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
     var searchFieldForTesting: GitCollectionSearchField.Field { searchField }
     var scopeControlForTesting: GitPopoverSegments { scopeControl }
     var modeControlForTesting: GitPopoverSegments { modeControl }
-    var favoritesControlForTesting: GitPopoverSegments { favoritesControl }
 
     init(content: GitHistoryScopePicker, defaults: UserDefaults = .standard, close: @escaping () -> Void) {
         self.content = content
@@ -31,7 +29,6 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
             worktreeCount: content.worktrees.count,
             tagCount: content.tags.count
         )
-        preferredContentSize.height = min(520, preferredContentSize.height + 34)
     }
 
     @available(*, unavailable)
@@ -78,36 +75,29 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
             $0.hasPrefix("scope:") ? String($0.dropFirst("scope:".count)) : nil
         }
         scopeControl.configure(
-            segments: GitHistoryScope.allCases.map {
-                GitPopoverSegment(id: $0.rawValue, title: $0.displayName,
-                                  accessibilityLabel: $0.displayName)
-            },
+            segments: [
+                GitPopoverSegment(id: "currentBranch", title: GitL10n.text("Current"),
+                                  accessibilityLabel: GitL10n.text("Current branch")),
+                GitPopoverSegment(id: "favorites", title: GitL10n.text("Favorites"),
+                                  accessibilityLabel: GitL10n.text("Favorite Branches")),
+                GitPopoverSegment(id: "allBranches", title: GitL10n.text("All"),
+                                  accessibilityLabel: GitL10n.text("All branches"))
+            ],
             selectedID: selectedScope,
             colors: colors,
-            widths: Array(repeating: (preferredContentSize.width - 22) / 2, count: GitHistoryScope.allCases.count)
+            widths: Array(repeating: (preferredContentSize.width - 22) / 3, count: 3)
         )
-        scopeControl.onSelect = { [weak self] id in self?.selectScope(id) }
-
-        favoritesControl.configure(
-            segments: [
-                GitPopoverSegment(id: "all", title: GitL10n.text("All References"),
-                                  accessibilityLabel: GitL10n.text("All References")),
-                GitPopoverSegment(id: "favorites", title: GitL10n.text("Favorite Branches"), symbol: "star",
-                                  accessibilityLabel: GitL10n.text("Favorite Branches"))
-            ],
-            selectedID: "all", colors: colors,
-            widths: Array(repeating: (preferredContentSize.width - 22) / 2, count: 2)
-        )
-        favoritesControl.onSelect = { [weak self] id in
+        scopeControl.onSelect = { [weak self] id in
             guard let self else { return }
             self.collectionCoordinator.saveAnchor()
             self.favoritesOnly = id == "favorites"
             self.collectionCoordinator.update(self.makeCollection())
+            if !self.favoritesOnly { self.selectScope(id) }
         }
         let collection = makeCollection()
         let scroll = collection.makeNativeView(coordinator: collectionCoordinator, colors: colors)
 
-        let stack = NSStackView(views: [searchRow, scopeControl, favoritesControl, scroll])
+        let stack = NSStackView(views: [searchRow, scopeControl, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -125,8 +115,6 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
             modeControl.heightAnchor.constraint(equalToConstant: 26),
             scopeControl.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scopeControl.heightAnchor.constraint(equalToConstant: 26),
-            favoritesControl.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            favoritesControl.heightAnchor.constraint(equalToConstant: 26),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 100)
         ])
@@ -138,7 +126,7 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         _ = view
         (view as? OMGNativeSurfaceView)?.bindTheme(to: window)
         if let screen = window?.screen {
-            preferredContentSize.height = min(preferredContentSize.height, max(254, screen.visibleFrame.height - 100))
+            preferredContentSize.height = min(preferredContentSize.height, max(220, screen.visibleFrame.height - 100))
         }
     }
 
@@ -152,7 +140,6 @@ final class GitHistoryScopePopoverController: NSViewController, NSSearchFieldDel
         searchField.needsDisplay = true
         modeControl.applyTheme(theme)
         scopeControl.applyTheme(theme)
-        favoritesControl.applyTheme(theme)
         collectionCoordinator.update(makeCollection())
     }
 

@@ -1,4 +1,7 @@
 {
+  "Current": { "en": "Current", "zh-Hans": "当前" },
+  "Favorites": { "en": "Favorites", "zh-Hans": "收藏" },
+  "All": { "en": "All", "zh-Hans": "全部" },
   "All References": { "en": "All References", "zh-Hans": "全部引用" },
   "Favorite Branches": { "en": "Favorite Branches", "zh-Hans": "收藏分支" },
   "Favorite Branch": { "en": "Favorite Branch", "zh-Hans": "收藏分支" },

@@ -2715,8 +2715,10 @@ without opening a terminal or changing Git refs. Ref selection refreshes history
 only. Worktrees remain physical checkout rows with visible paths; branch rows
 mark associated worktrees. Branch rows in the History picker have a star button
 that toggles a favorite without selecting a ref or closing the popover. The
-All References / Favorite Branches filter keeps the current/all-history scope
-shortcuts available. Favorites retain full local/remote ref identities and use
+single Current / Favorites / All control combines the current/all-history scope
+shortcuts with the favorites filter. Unfavorited stars appear only while hovering
+over their button or focusing it with the keyboard; favorited stars remain visible.
+Favorites retain full local/remote ref identities and use
 the same search and List/Tree modes. They persist in app preferences per common
 Git directory (shared by linked worktrees), with local and SSH connection
 identities kept separate. Missing refs are omitted from the favorite list;
