@@ -1210,83 +1210,27 @@ extension Ghostty {
             // we control the preedit state only through the preedit API.
             syncPreedit(clearIfNeeded: markedTextBefore)
 
-            // We're composing if we have preedit (the obvious case). But we're also
-            // composing if we don't have preedit and we had marked text before,
-            // because this input probably just reset the preedit state. It shouldn't
-            // be encoded. Example: Japanese begin composing, then press backspace
-            // or ctrl+h. This should only cancel the composing state but not
-            // actually delete the prior input characters (prior to the composing).
-            let composing = markedText.length > 0 || markedTextBefore
+            let outputs = Self.keyDownOutputs(KeyDownTextInput(
+                insertedTexts: keyTextAccumulator ?? [],
+                markedTextBefore: markedTextBefore,
+                markedTextAfter: markedText.length > 0,
+                keyCharacters: event.characters,
+                replaysAfterCommit: shouldReplayCommittedPreeditKey(translationEvent)
+            ))
 
-            // The input method may commit all or part of the preedit text via
-            // insertText while handling a key that should not itself be
-            // encoded. Send that committed text separately, then only replay
-            // keys that should still affect the terminal after committing.
-            if markedTextBefore,
-               let list = keyTextAccumulator,
-               list.count > 0 {
-                for text in list {
-                    if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
-                        text,
-                        composing: composing
-                    ) {
-                        continue
-                    }
-
+            for output in outputs {
+                switch output {
+                case .text(let text):
                     _ = committedTextAction(action, text: text)
-                }
-
-                if shouldReplayCommittedPreeditKey(translationEvent) {
+                case .keyWithText(let text, let composing):
                     _ = keyAction(
                         action,
                         event: event,
                         translationEvent: translationEvent,
-                        composing: false
-                    )
-                }
-                return
-            }
-
-            if let list = keyTextAccumulator, list.count > 0 {
-                // Accumulated text from interpretKeyEvents (committed by the IME).
-                for text in list {
-                    // Drop bare control characters the IME accumulated while
-                    // composing so they don't leak through to the terminal.
-                    if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
-                        text,
+                        text: text ?? event.ghosttyCharacters,
                         composing: composing
-                    ) {
-                        continue
-                    }
-
-                    // We've composed a character; send it down. keyAction's
-                    // default composing=false applies because this is the
-                    // committed result of a composition, not in-progress preedit.
-                    _ = keyAction(
-                        action,
-                        event: event,
-                        translationEvent: translationEvent,
-                        text: text
                     )
                 }
-            } else {
-                // Raw control characters (e.g. ctrl+h) arriving during
-                // composition belong to the IME, not the terminal.
-                if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
-                    event.characters,
-                    composing: composing
-                ) {
-                    return
-                }
-
-                // We have no accumulated text so this is a normal key event.
-                _ = keyAction(
-                    action,
-                    event: event,
-                    translationEvent: translationEvent,
-                    text: translationEvent.ghosttyCharacters,
-                    composing: composing
-                )
             }
         }
 
@@ -2192,6 +2136,118 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return false
         }
         return scalar.value < 0x20
+    }
+}
+
+// MARK: Key Down Outputs
+
+extension Ghostty.SurfaceView {
+    static func keyDownOutputs(_ input: KeyDownTextInput) -> [KeyDownOutput] {
+        // We're composing if we have preedit (the obvious case). But we're also
+        // composing if we don't have preedit and we had marked text before,
+        // because this input probably just reset the preedit state. It shouldn't
+        // be encoded. Example: Japanese begin composing, then press backspace
+        // or ctrl+h. This should only cancel the composing state but not
+        // actually delete the prior input characters (prior to the composing).
+        let composing = input.markedTextAfter || input.markedTextBefore
+
+        // The input method may commit all or part of the preedit text via
+        // insertText while handling a key that should not itself be
+        // encoded. Send that committed text separately, then only replay
+        // keys that should still affect the terminal after committing.
+        if input.markedTextBefore,
+           !input.insertedTexts.isEmpty {
+            var outputs = [KeyDownOutput]()
+            for text in input.insertedTexts {
+                if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
+                    text,
+                    composing: composing
+                ) {
+                    continue
+                }
+
+                outputs.append(.text(text))
+            }
+
+            if input.replaysAfterCommit {
+                outputs.append(.keyWithText(nil, composing: false))
+            }
+            return outputs
+        }
+
+        if !input.insertedTexts.isEmpty {
+            var outputs = [KeyDownOutput]()
+            // Accumulated text from interpretKeyEvents (committed by the IME).
+            for text in input.insertedTexts {
+                // Drop bare control characters the IME accumulated while
+                // composing so they don't leak through to the terminal.
+                if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
+                    text,
+                    composing: composing
+                ) {
+                    continue
+                }
+
+                // We've composed a character; send it down. keyAction's
+                // default composing=false applies because this is the
+                // committed result of a composition, not in-progress preedit.
+                outputs.append(.keyWithText(text, composing: false))
+            }
+            return outputs
+        } else {
+            // Raw control characters (e.g. ctrl+h) arriving during
+            // composition belong to the IME, not the terminal.
+            if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
+                input.keyCharacters,
+                composing: composing
+            ) {
+                return []
+            }
+
+            // We have no accumulated text so this is a normal key event.
+            return [.keyWithText(nil, composing: composing)]
+        }
+    }
+
+    /// What the text input system did with a key during keyDown.
+    struct KeyDownTextInput {
+        /// Text passed to `insertText` while handling the key, in order.
+        var insertedTexts: [String]
+
+        /// Whether there was marked text before and after handling the key.
+        var markedTextBefore: Bool
+        var markedTextAfter: Bool
+
+        /// The characters of the original key event.
+        var keyCharacters: String?
+
+        /// Whether the key should still be sent after the input method
+        /// committed preedit text while handling it.
+        var replaysAfterCommit: Bool
+    }
+
+    /// What keyDown sends to the terminal, in order.
+    enum KeyDownOutput: Equatable {
+        /// Send text produced by the input method as text only, with no
+        /// relation to the physical key.
+        ///
+        /// Handled by:
+        ///
+        ///     _ = committedTextAction(action, text: text)
+        case text(String)
+        /// Encode the physical key with text or event's ghosttyCharacters
+        /// from the input.
+        ///
+        /// Handled by:
+        ///
+        ///     _ = keyAction(
+        ///         action,
+        ///         event: event,
+        ///         translationEvent: translationEvent,
+        ///         text: text,
+        ///         composing: composing
+        ///     )
+        case keyWithText(String?, composing: Bool)
     }
 }
 
