@@ -1,5 +1,6 @@
 //! The options that are used to configure a terminal IO implementation.
 
+const std = @import("std");
 const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
 const renderer = @import("../renderer.zig");
@@ -16,6 +17,9 @@ full_config: *const Config,
 
 /// The derived configuration for this termio implementation.
 config: termio.Termio.DerivedConfig,
+
+/// The system color scheme used for mode 2031 reports.
+system_color_scheme: *const std.atomic.Value(apprt.ColorScheme),
 
 /// The backend for termio that implements where reads/writes are sourced.
 backend: termio.Backend,
