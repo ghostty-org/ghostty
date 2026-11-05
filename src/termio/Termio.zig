@@ -58,6 +58,10 @@ surface_mailbox: apprt.surface.Mailbox,
 /// The cached size info
 size: renderer.Size,
 
+/// The grid to use instead of the one that fits `size`, if any. See
+/// `Options.grid_override`.
+grid_override: ?renderer.GridSize = null,
+
 /// The mailbox implementation to use.
 mailbox: termio.Mailbox,
 
@@ -271,7 +275,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
 
     // Create our terminal
     var term = try terminalpkg.Terminal.init(global.io(), alloc, opts: {
-        const grid_size = opts.size.grid();
+        const grid_size = opts.grid_override orelse opts.size.grid();
         break :opts .{
             .cols = grid_size.columns,
             .rows = grid_size.rows,
@@ -319,12 +323,15 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .renderer_wakeup = opts.renderer_wakeup,
         .renderer_mailbox = opts.renderer_mailbox,
         .size = &self.size,
+        .grid_override = &self.grid_override,
         .terminal = &self.terminal,
         .osc_color_report_format = opts.config.osc_color_report_format,
         .clipboard_write = opts.config.clipboard_write,
         .clipboard_write_limit = opts.config.clipboard_write_limit,
         .enquiry_response = opts.config.enquiry_response,
         .xt_checksum_report = opts.config.xt_checksum_report,
+        .tmux_follower = backend == .tmux,
+        .tmux_mirror_panes = opts.tmux_mirror_panes,
     };
 
     const thread_enter_state = try ThreadEnterState.create(
@@ -341,6 +348,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .renderer_mailbox = opts.renderer_mailbox,
         .surface_mailbox = opts.surface_mailbox,
         .size = opts.size,
+        .grid_override = opts.grid_override,
         .backend = backend,
         .mailbox = opts.mailbox,
         .terminal_stream = .init(.{
@@ -462,6 +470,57 @@ pub inline fn queueWrite(
     try self.backend.queueWrite(self.alloc, td, data, linefeed);
 }
 
+/// Queue input from the surface, such as keys, pastes and drops.
+///
+/// On a tmux control mode gateway the pty speaks the control protocol,
+/// where every line written to it runs as a tmux command. Input there
+/// goes to tmux's active pane as `send-keys` instead.
+///
+/// This must ONLY be called from the mailbox thread.
+pub fn queueInput(
+    self: *Termio,
+    td: *ThreadData,
+    data: []const u8,
+    linefeed: bool,
+) !void {
+    if (self.inTmuxControlMode()) return try self.tmuxSendKeys(td, data);
+    try self.queueWrite(td, data, linefeed);
+}
+
+/// Queue a report the terminal sends on its own, such as a focus, size,
+/// color scheme or visibility report.
+///
+/// On a tmux control mode gateway the pty speaks the control protocol,
+/// where a report would be read as the start of the next tmux command,
+/// so it is dropped there. Each pane's own surface reports to the program
+/// in that pane.
+fn queueReport(self: *Termio, td: *ThreadData, data: []const u8) !void {
+    if (self.inTmuxControlMode()) return;
+    try self.queueWrite(td, data, false);
+}
+
+/// Type `data` into tmux's active pane through the viewer's command
+/// queue, so tmux's replies stay matched to the commands that caused
+/// them. Long input is split into several `send-keys` commands.
+fn tmuxSendKeys(self: *Termio, td: *ThreadData, data: []const u8) !void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    var stack_buf: [512]u8 = undefined;
+    var stack: std.heap.BufferFirstAllocator = .init(&stack_buf, self.alloc);
+    var buf: std.Io.Writer.Allocating = .init(stack.allocator());
+    defer buf.deinit();
+
+    var rest = data;
+    while (rest.len > 0) {
+        const chunk = rest[0..@min(rest.len, terminalpkg.tmux.send_keys_max)];
+        rest = rest[chunk.len..];
+
+        buf.clearRetainingCapacity();
+        try terminalpkg.tmux.writeSendKeys(&buf.writer, null, chunk);
+        self.tmuxCommand(td, buf.writer.buffered());
+    }
+}
+
 /// Update the configuration.
 pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !void {
     // The remainder of this function is modifying terminal state or
@@ -527,7 +586,7 @@ pub fn resize(
     size: renderer.Size,
 ) !void {
     self.size = size;
-    const grid_size = size.grid();
+    const grid_size = self.grid_override orelse size.grid();
 
     // Enter the critical area that we want to keep small
     {
@@ -537,7 +596,18 @@ pub fn resize(
         // Resizing the pty can immediately wake the shell with SIGWINCH.
         // Hold the same lock used by processOutput before notifying it, so
         // its redraw cannot be parsed against the old terminal dimensions.
-        try self.backend.resize(grid_size, size.terminal());
+        //
+        // A gateway pty is the tmux client's terminal, so resizing it would
+        // resize every tmux window to the size of the control plate. The
+        // followers own the sizing while control mode is active; they tell
+        // tmux about it with refresh-client.
+        //
+        // An overridden grid isn't ours to change, so the backend isn't
+        // told about it either: for a tmux follower that would ask tmux to
+        // resize the pane to the size tmux just gave it.
+        if (!self.inTmuxControlMode() and self.grid_override == null) {
+            try self.backend.resize(grid_size, size.terminal());
+        }
 
         // Update the size of our terminal state
         try self.terminal.resize(
@@ -563,6 +633,26 @@ pub fn resize(
     self.renderer_wakeup.notify() catch {};
 }
 
+/// Use `grid` as the terminal grid from now on, whatever the size of the
+/// surface. See `Options.grid_override`.
+pub fn setGridOverride(
+    self: *Termio,
+    td: *ThreadData,
+    grid: renderer.GridSize,
+) !void {
+    if (self.grid_override) |v| {
+        if (v.columns == grid.columns and v.rows == grid.rows) return;
+    }
+
+    // The stream handler reads it on the read thread.
+    {
+        self.renderer_state.mutex.lockUncancelable(global.io());
+        defer self.renderer_state.mutex.unlock(global.io());
+        self.grid_override = grid;
+    }
+    try self.resize(td, self.size);
+}
+
 /// Make a size report.
 pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
     self.renderer_state.mutex.lockUncancelable(global.io());
@@ -571,7 +661,7 @@ pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeRepo
 }
 
 fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
-    const grid_size = self.size.grid();
+    const grid_size = self.grid_override orelse self.size.grid();
     const report_size: terminalpkg.size_report.Size = .{
         .rows = grid_size.rows,
         .columns = grid_size.columns,
@@ -589,7 +679,142 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
         report_size,
     );
 
-    try self.queueWrite(td, writer.buffered(), false);
+    try self.queueReport(td, writer.buffered());
+}
+
+/// True if the terminal is currently attached to a tmux control mode
+/// session. When this is true the pty carries the tmux control protocol,
+/// so anything we want to send to the running program has to be wrapped
+/// in a tmux command.
+///
+/// Safe to call from any thread.
+pub fn inTmuxControlMode(self: *const Termio) bool {
+    if (comptime !StreamHandler.tmux_enabled) return false;
+    return self.terminal_stream.handler.tmux_control_mode.load(.acquire);
+}
+
+/// True if tmux protocol logging is enabled on this terminal.
+///
+/// Safe to call from any thread.
+pub fn inTmuxLogging(self: *const Termio) bool {
+    if (comptime !StreamHandler.tmux_enabled) return false;
+    return self.terminal_stream.handler.tmux_logging.load(.acquire);
+}
+
+/// Send a command to tmux. Commands are routed through the viewer so
+/// that the `%begin`/`%end` blocks tmux replies with stay matched up
+/// with the commands that caused them.
+pub fn tmuxCommand(self: *Termio, td: *ThreadData, command: []const u8) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    // The bytes to send live in viewer memory that the read thread reuses
+    // as soon as it gets the lock, so they're written before we let go.
+    // queueWrite only copies them into the write queue.
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    // The viewer queued the command behind one that is still in flight;
+    // it'll be sent for us when its turn comes.
+    const data = self.terminal_stream.handler.tmuxSubmitCommand(command) orelse return;
+    self.queueWrite(td, data, false) catch |err| {
+        log.warn("error writing tmux command err={}", .{err});
+    };
+}
+
+/// Write a command the tmux viewer sends on its own, unless we're
+/// detaching. See `termio.Message.tmux_write`.
+pub fn tmuxWrite(self: *Termio, td: *ThreadData, data: []const u8) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    if (!self.terminal_stream.handler.tmuxSending()) return;
+    self.queueWrite(td, data, false) catch |err| {
+        log.warn("error writing tmux command err={}", .{err});
+    };
+}
+
+/// Queue tmux pane output for a follower. Safe to call from any thread;
+/// it never waits on the follower (see termio.Tmux).
+pub fn tmuxQueueOutput(self: *Termio, data: []const u8) void {
+    switch (self.backend) {
+        .tmux => |*tmux| tmux.queueOutput(data) catch |err| {
+            log.warn("error queueing tmux pane output err={}", .{err});
+        },
+        else => {},
+    }
+}
+
+/// Ask tmux for a pane's current contents. See
+/// StreamHandler.tmuxCapturePane.
+pub fn tmuxCapturePane(self: *Termio, td: *ThreadData, pane_id: usize) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    // See tmuxCommand for why the write happens under the lock.
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    const data = self.terminal_stream.handler.tmuxCapturePane(pane_id) orelse return;
+    self.queueWrite(td, data, false) catch |err| {
+        log.warn("error writing tmux capture-pane err={}", .{err});
+    };
+}
+
+/// List the tmux windows again. See StreamHandler.tmuxRefreshWindows.
+pub fn tmuxRefreshWindows(self: *Termio, td: *ThreadData) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+
+    // See tmuxCommand for why the write happens under the lock.
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    const data = self.terminal_stream.handler.tmuxRefreshWindows() orelse return;
+    self.queueWrite(td, data, false) catch |err| {
+        log.warn("error writing tmux list-windows err={}", .{err});
+    };
+}
+
+/// Print text on the terminal as part of the tmux control plate. Nothing
+/// is sent to tmux.
+pub fn tmuxEcho(self: *Termio, text: []const u8) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.terminal_stream.handler.tmuxPrint(text);
+}
+
+/// Toggle tmux protocol logging.
+pub fn tmuxToggleLogging(self: *Termio) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.terminal_stream.handler.tmuxToggleLogging();
+}
+
+/// Stop the tmux viewer from acting on what tmux sends; we're about to
+/// detach. See StreamHandler.tmuxDetaching.
+pub fn tmuxDetaching(self: *Termio) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.terminal_stream.handler.tmuxDetaching();
+}
+
+/// Abandon tmux control mode without waiting for a clean DCS exit.
+pub fn tmuxForceQuit(self: *Termio) void {
+    if (comptime !StreamHandler.tmux_enabled) return;
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+
+    // Leave DCS passthrough immediately. If we only destroy the viewer and
+    // wait for ST, shell output after detach is still eaten as control
+    // mode bytes until a terminator happens to arrive.
+    self.terminal_stream.parser.state = .ground;
+    self.terminal_stream.handler.dcs.deinit();
+    self.terminal_stream.handler.dcs = .{};
+
+    self.terminal_stream.handler.tmuxForceQuit();
 }
 
 /// Reset the synchronized output mode. This is usually called by timer
@@ -692,7 +917,7 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
             log.err("error encoding focus event err={}", .{err});
             return;
         };
-        try self.queueWrite(td, writer.buffered(), false);
+        try self.queueReport(td, writer.buffered());
     }
 
     // We always notify our backend of focus changes.
@@ -794,7 +1019,7 @@ pub fn colorSchemeReportLocked(self: *Termio, td: *ThreadData, force: bool) !voi
     var buf: [terminalpkg.device_status.max_color_scheme_report_encode_size]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
     try terminalpkg.device_status.encodeColorSchemeReport(&writer, scheme);
-    try self.queueWrite(td, writer.buffered(), false);
+    try self.queueReport(td, writer.buffered());
 }
 
 /// Sends a visibility report to the pty. Unforced reports are only sent while
@@ -818,7 +1043,7 @@ pub fn visibilityReport(
         &writer,
         if (visible) .potentially_visible else .not_visible,
     );
-    try self.queueWrite(td, writer.buffered(), false);
+    try self.queueReport(td, writer.buffered());
 }
 
 /// ThreadData is the data created and stored in the termio thread

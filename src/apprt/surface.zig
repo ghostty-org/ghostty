@@ -160,6 +160,48 @@ pub const Message = union(enum) {
     /// Renderer pushed a new frame, redraw this surface.
     redraw,
 
+    /// This surface saw DCS 1000p and is now the tmux control mode
+    /// gateway.
+    tmux_enter: void,
+
+    /// The tmux window/pane layout changed. The receiver takes ownership
+    /// of the snapshot.
+    tmux_windows: *terminal.tmux.Snapshot,
+
+    /// The tmux session's current window changed
+    /// (`%session-window-changed`).
+    tmux_active_window: usize,
+
+    /// The active pane of a tmux window changed (`%window-pane-changed`).
+    /// This alone doesn't make the window the current one.
+    tmux_active_pane: TmuxActivePane,
+
+    /// A tmux window was renamed. The payload is the window id as a
+    /// little-endian u64 followed by the new name. The receiver owns the
+    /// WriteReq memory.
+    tmux_window_renamed: WriteReq,
+
+    /// Output for a tmux pane. The payload is the pane id as a
+    /// little-endian u64 followed by the raw bytes. The receiver owns the
+    /// WriteReq memory.
+    tmux_output: WriteReq,
+
+    /// Control mode ended, so the follower surfaces have to go away.
+    tmux_exit: void,
+
+    /// Terminal input from a follower surface that has to be turned into
+    /// `send-keys` for its pane. The receiver owns the WriteReq memory.
+    tmux_send_keys: WriteReq,
+
+    /// A follower surface's grid size changed, so its tmux pane should
+    /// follow.
+    tmux_resize: renderer.GridSize,
+
+    pub const TmuxActivePane = struct {
+        window_id: usize,
+        pane_id: usize,
+    };
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 
