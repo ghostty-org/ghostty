@@ -36,17 +36,46 @@ struct InspectorAgentHistoryListTests {
             var opened = false
             cell.onActivate = { opened = true }
             cell.configure(.session(entry, snippet: nil), query: "", strings: .init(language: .english))
-            let button = try #require(cell.subviews.compactMap { $0 as? NSButton }.first)
-            #expect(button.title == "10000000…00000055")
+            let button = try #require(cell.subviews.compactMap { $0 as? AgentHistoryCopyButton }.first)
+            #expect(button.attributedTitle.string == "10000000…00000055")
             #expect(button.image == nil)
             #expect(button.toolTip?.contains(command) == true)
             button.performClick(nil)
             #expect(board.string(forType: .string) == command)
+            #expect(button.isCopied)
+            #expect(button.attributedTitle.string == "✓ Copied")
             #expect(!opened)
             cell.configure(.group(id: "group", title: "Group", count: 1, collapsed: false),
                            query: "", strings: .init(language: .english))
             #expect(button.isHidden)
         }
+    }
+
+    @Test func copyFeedbackStaysOnMetadataLineAndResetsOnReuse() async throws {
+        let entry = try session(1)
+        let cell = InspectorAgentSessionCell(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        cell.pasteboard = board
+        cell.configure(.session(entry, snippet: nil), query: "", strings: .init(language: .english))
+        cell.layoutSubtreeIfNeeded()
+        let button = try #require(cell.subviews.compactMap { $0 as? AgentHistoryCopyButton }.first)
+        let metadata = try #require(cell.subviews.compactMap { $0 as? NSTextField }
+            .first { $0.stringValue.hasPrefix(entry.agent.displayName + " · ") })
+        #expect(metadata.stringValue.hasSuffix(" · "))
+        #expect(button.frame.minX == metadata.frame.maxX)
+        #expect(button.frame.minY == metadata.frame.minY)
+        let originalFrame = button.frame
+        button.performClick(nil)
+        #expect(button.isCopied)
+        #expect(button.frame == originalFrame)
+        try await Task.sleep(for: .milliseconds(1_400))
+        #expect(!button.isCopied)
+        #expect(button.attributedTitle.string == entry.conversationID.rawValue)
+        button.performClick(nil)
+        cell.configure(.session(try session(2), snippet: nil), query: "", strings: .init(language: .english))
+        #expect(!button.isCopied)
+        #expect(button.attributedTitle.string == "session-2")
     }
 
     @Test func vectorAgentLogosFillTheirNativeSlotsInBothAppearances() throws {

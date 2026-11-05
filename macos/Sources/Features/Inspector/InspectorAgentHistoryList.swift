@@ -23,7 +23,7 @@ enum InspectorAgentHistoryListRow: Equatable {
         case .more: return 38
         case let .session(session, snippet):
             let titleHeight = Self.titleHeight(session.title, width: width, active: session.isActive)
-            return 8 + titleHeight + 3 + 14 + 17 +
+            return 8 + titleHeight + 3 + 14 +
                 (snippet != nil ? 30 : session.workingDirectory != nil ? 17 : 0) + 9
         }
     }
@@ -307,22 +307,17 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
     private let metadata = NSTextField(labelWithString: "")
     private let detail = NSTextField(wrappingLabelWithString: "")
     private let status = NSTextField(labelWithString: "")
-    private let sessionID = NSButton()
-    private var resumeCommand: String?
-    var pasteboard = NSPasteboard.general
+    private let sessionID = AgentHistoryCopyButton()
+    var pasteboard: NSPasteboard {
+        get { sessionID.pasteboard }
+        set { sessionID.pasteboard = newValue }
+    }
     private var isSession = false
     var onActivate: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         [icon, heading, metadata, detail, status, sessionID].forEach(addSubview)
-        sessionID.isBordered = false
-        sessionID.alignment = .left
-        sessionID.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
-        sessionID.lineBreakMode = .byTruncatingMiddle
-        sessionID.contentTintColor = .secondaryLabelColor
-        sessionID.target = self
-        sessionID.action = #selector(copySessionCommand)
         // Vector catalog assets can have a tiny intrinsic size (for example 1em).
         // Match SwiftUI's former resizable/fit behavior, including upscaling.
         icon.imageScaling = .scaleProportionallyUpOrDown
@@ -342,18 +337,12 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
     override var isFlipped: Bool { true }
     override func accessibilityPerformPress() -> Bool { onActivate?(); return onActivate != nil }
 
-    @objc private func copySessionCommand() {
-        guard let resumeCommand else { return }
-        InspectorCopyMenu.copy(resumeCommand, to: pasteboard)
-        sessionID.setAccessibilityValue(AgentHistoryStrings.current.copied)
-    }
-
     func applyTheme(_ theme: OMGNativeTheme) {
         let title = NSMutableAttributedString(attributedString: heading.attributedStringValue)
         title.addAttribute(.foregroundColor, value: theme.foreground, range: NSRange(location: 0, length: title.length))
         heading.attributedStringValue = title
         metadata.textColor = theme.secondary
-        sessionID.contentTintColor = theme.secondary
+        sessionID.normalColor = theme.secondary
         detail.textColor = theme.foreground.withAlphaComponent(0.42)
         if icon.image?.isTemplate == true { icon.contentTintColor = theme.foreground }
     }
@@ -371,12 +360,14 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
                                                                        active: !status.isHidden)
             heading.frame = NSRect(x: 41, y: 8, width: max(0, bounds.width - 53 - (status.isHidden ? 0 : 36)), height: titleHeight)
             status.frame = NSRect(x: bounds.width - 47, y: 8, width: 35, height: 15)
-            metadata.frame = NSRect(x: 41, y: heading.frame.maxY + 3, width: max(0, bounds.width - 53), height: 14)
-            sessionID.sizeToFit()
-            sessionID.frame = NSRect(x: 41, y: metadata.frame.maxY + 2,
-                                     width: min(sessionID.frame.width, max(0, bounds.width - 53)), height: 15)
-            detail.frame = NSRect(x: 41, y: sessionID.frame.maxY + 3, width: max(0, bounds.width - 53),
-                                  height: max(0, bounds.height - sessionID.frame.maxY - 9))
+            let available = max(0, bounds.width - 53)
+            let idWidth = min(sessionID.preferredWidth, available)
+            let metadataWidth = min(ceil(metadata.intrinsicContentSize.width), max(0, available - idWidth))
+            metadata.frame = NSRect(x: 41, y: heading.frame.maxY + 3, width: metadataWidth, height: 14)
+            sessionID.frame = NSRect(x: metadata.frame.maxX, y: metadata.frame.minY,
+                                     width: min(idWidth, available - metadataWidth), height: 14)
+            detail.frame = NSRect(x: 41, y: metadata.frame.maxY + 3, width: available,
+                                  height: max(0, bounds.height - metadata.frame.maxY - 9))
         } else {
             icon.frame = NSRect(x: 12, y: 8, width: 10, height: 12)
             heading.frame = NSRect(x: 28, y: 6, width: max(0, bounds.width - 72), height: bounds.height - 10)
@@ -388,7 +379,6 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
         status.isHidden = true
         detail.isHidden = true
         sessionID.isHidden = true
-        resumeCommand = nil
         metadata.isHidden = false
         heading.font = .systemFont(ofSize: 12.5, weight: .medium)
         switch row {
@@ -397,17 +387,13 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
             icon.image = NSImage(named: session.agent.assetName)
             icon.contentTintColor = icon.image?.isTemplate == true ? .labelColor : nil
             heading.attributedStringValue = highlighted(session.title, query: query, size: 12.5, color: .labelColor)
-            metadata.stringValue = "\(session.agent.displayName) · \(strings.relativeTime(from: session.updatedAt))"
+            metadata.stringValue = "\(session.agent.displayName) · \(strings.relativeTime(from: session.updatedAt)) · "
             status.stringValue = strings.live
             status.isHidden = !session.isActive
-            resumeCommand = session.resumeCommand
             let id = session.conversationID.rawValue
-            sessionID.title = id.count > 20 ? String(id.prefix(8)) + "…" + String(id.suffix(8)) : id
+            let shortID = id.count > 20 ? String(id.prefix(8)) + "…" + String(id.suffix(8)) : id
+            sessionID.configure(id: id, display: shortID, command: session.resumeCommand, strings: strings)
             sessionID.isHidden = false
-            sessionID.isEnabled = resumeCommand != nil
-            sessionID.toolTip = resumeCommand.map { strings.copyResumeCommand + "\n" + $0 }
-            sessionID.setAccessibilityLabel(strings.copyResumeCommand + ": " + session.conversationID.rawValue)
-            sessionID.setAccessibilityValue("")
             if let snippet {
                 detail.attributedStringValue = highlighted(snippet, query: query, size: 10, color: .secondaryLabelColor)
                 detail.isHidden = false
@@ -417,6 +403,7 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
             }
             toolTip = session.title
         case let .group(_, title, count, collapsed):
+            sessionID.reset()
             isSession = false
             heading.stringValue = title
             heading.font = .systemFont(ofSize: 11.5, weight: .semibold)
@@ -425,6 +412,7 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
             icon.contentTintColor = .secondaryLabelColor
             toolTip = title
         case let .more(remaining):
+            sessionID.reset()
             isSession = false
             metadata.stringValue = ""
             heading.stringValue = strings.loadMoreSessions(remaining)
@@ -455,5 +443,95 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
             remaining = NSRange(location: end, length: source.length - end)
         }
         return result
+    }
+}
+
+/// A fixed-width label keeps the row stable while briefly confirming a copy.
+final class AgentHistoryCopyButton: NSButton {
+    var pasteboard = NSPasteboard.general
+    var normalColor = NSColor.secondaryLabelColor { didSet { updateTitle() } }
+    private(set) var isCopied = false
+    private var command: String?
+    private var display = ""
+    private var copied = ""
+    private var feedbackTask: Task<Void, Never>?
+    private let textFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+
+    var preferredWidth: CGFloat {
+        ceil(max((display as NSString).size(withAttributes: [.font: textFont]).width,
+                 (copied as NSString).size(withAttributes: [.font: textFont]).width)) + 4
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        alignment = .left
+        imagePosition = .noImage
+        lineBreakMode = .byTruncatingMiddle
+        wantsLayer = true
+        target = self
+        action = #selector(copyCommand)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(id: String, display: String, command: String?, strings: AgentHistoryStrings) {
+        if self.command != command || self.display != display {
+            feedbackTask?.cancel()
+            isCopied = false
+        }
+        self.command = command
+        self.display = display
+        copied = "✓ " + strings.copied
+        isEnabled = command != nil
+        toolTip = command.map { strings.copyResumeCommand + "\n" + $0 }
+        setAccessibilityLabel(strings.copyResumeCommand + ": " + id)
+        setAccessibilityValue(isCopied ? strings.copied : "")
+        updateTitle()
+    }
+
+    @objc private func copyCommand() {
+        guard let command else { return }
+        InspectorCopyMenu.copy(command, to: pasteboard)
+        feedbackTask?.cancel()
+        isCopied = true
+        setAccessibilityValue(AgentHistoryStrings.current.copied)
+        updateTitle(animated: true)
+        feedbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled, let self else { return }
+            self.isCopied = false
+            self.setAccessibilityValue("")
+            self.updateTitle(animated: true)
+        }
+    }
+
+    func reset() {
+        feedbackTask?.cancel()
+        command = nil
+        isCopied = false
+        setAccessibilityValue("")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window == nil else { return }
+        feedbackTask?.cancel()
+        isCopied = false
+        setAccessibilityValue("")
+        updateTitle()
+    }
+
+    private func updateTitle(animated: Bool = false) {
+        attributedTitle = NSAttributedString(string: isCopied ? copied : display, attributes: [
+            .font: textFont,
+            .foregroundColor: isCopied ? NSColor.systemGreen : normalColor,
+        ])
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.35
+        fade.toValue = 1
+        fade.duration = 0.18
+        layer?.add(fade, forKey: "copyFeedback")
     }
 }
