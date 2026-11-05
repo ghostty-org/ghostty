@@ -158,7 +158,6 @@ private struct TerminalSplitLeaf: View {
                             width: settings.focusedSplitBorderPosition.isHorizontal ? nil : settings.focusedSplitBorderWidth,
                             height: settings.focusedSplitBorderPosition.isHorizontal ? settings.focusedSplitBorderWidth : nil
                         )
-                        .padding(settings.focusedSplitBorderPosition.isHorizontal ? .horizontal : .vertical, 5)
                         .opacity(settings.focusedSplitBorder && focusedSurface?.value === surfaceView ? 1 : 0)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.12),
                                    value: focusedSurface?.value === surfaceView)

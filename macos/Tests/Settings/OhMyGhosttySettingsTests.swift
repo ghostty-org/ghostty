@@ -136,8 +136,8 @@ struct OhMyGhosttySettingsTests {
         let (settings, url) = temporarySettings()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         #expect(settings.focusedSplitBorder)
-        #expect(settings.focusedSplitBorderWidth == 2.5)
-        #expect(settings.focusedSplitBorderPosition == .top)
+        #expect(settings.focusedSplitBorderWidth == 3)
+        #expect(settings.focusedSplitBorderPosition == .bottom)
         settings.focusedSplitBorder = false
         settings.focusedSplitBorderWidth = 1.5
         #expect(OhMyGhosttySettings(fileURL: url).focusedSplitBorderWidth == 1.5)
@@ -189,8 +189,8 @@ struct OhMyGhosttySettingsTests {
         let reset = OhMyGhosttySettings(fileURL: url)
         #expect(reset.backgroundOpacityOverride == nil)
         #expect(reset.unfocusedSplitOpacity == 0.9)
-        #expect(reset.focusedSplitBorderWidth == 2.5)
-        #expect(reset.focusedSplitBorderPosition == .top)
+        #expect(reset.focusedSplitBorderWidth == 3)
+        #expect(reset.focusedSplitBorderPosition == .bottom)
         let resetConfig = Ghostty.Config(at: configURL.path, overrideAt: overlayURL.path)
         #expect(resetConfig.backgroundOpacity == 0.8)
         #expect(abs(resetConfig.unfocusedSplitOpacity - 0.1) < 0.001)

@@ -502,14 +502,14 @@
     },
     "terminal.focusedSplitBorderPosition": {
       "category": "terminal",
-      "default": "top",
+      "default": "bottom",
       "description": "Edge used for the selected split marker.",
       "enum": ["top", "bottom", "left", "right"],
       "type": "string"
     },
     "terminal.focusedSplitBorderWidth": {
       "category": "terminal",
-      "default": 2.5,
+      "default": 3,
       "description": "Selected split marker thickness in points.",
       "minimum": 1,
       "maximum": 6,

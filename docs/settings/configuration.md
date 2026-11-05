@@ -210,14 +210,14 @@ Window UI state is intentionally separate: `InspectorPresentationStore` owns las
 | `keyboard.quickInputHistoryKeepAfterQuit` | boolean | `true` | `true`, `false` | Settings > Editor > Quick Input | Runtime |
 | `keyboard.quickInputControlJNewline` | boolean | `false` | `true`, `false` | Settings > Controls > Quick Input | Runtime |
 | `terminal.focusedSplitBorder` | boolean | `true` | `true`, `false` | Settings > Appearance > Focus | Runtime |
-| `terminal.focusedSplitBorderWidth` | number | `2.5` | 1–6 points, UI step 0.5 | Settings > Appearance > Focus | Runtime |
-| `terminal.focusedSplitBorderPosition` | enum | `top` | `top`, `bottom`, `left`, `right` | Settings > Appearance > Focus | Runtime |
+| `terminal.focusedSplitBorderWidth` | number | `3` | 1–6 points, UI step 0.5 | Settings > Appearance > Focus | Runtime |
+| `terminal.focusedSplitBorderPosition` | enum | `bottom` | `top`, `bottom`, `left`, `right` | Settings > Appearance > Focus | Runtime |
 | `sessions.startupMode`            | enum    | `restoreSessions`             | `newTerminal`, `restoreTabs`, `restoreSessions`                                                        | Settings > General                 | Next launch                  |
 | `general.language`                | enum    | `system`                      | `system`, `en`, `zh-Hans`                                                                              | Settings > General                 | Live (Settings UI)           |
 | `general.quitWithoutConfirmation` | boolean | Release: `false`; Dev: `true` | `true`, `false`                                                                                        | Settings > General                 | Next app quit                |
 
-The selected split marker defaults to a fully opaque, 2.5pt system accent line
-at the top of the pane, with 5pt end insets and 2pt corner radii. Its edge and
+The selected split marker defaults to a fully opaque, 3pt system accent line
+at the bottom of the pane, with no end insets and 2pt corner radii. Its edge and
 thickness are adjustable. Existing saved thickness values are preserved.
 The marker and Ghostty's native unfocused split dimming work together.
 Settings > Appearance > Focus exposes `background-opacity` as focused pane

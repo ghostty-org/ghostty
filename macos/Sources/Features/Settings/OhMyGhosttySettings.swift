@@ -482,12 +482,12 @@ final class OhMyGhosttySettings: ObservableObject {
             description: "Mark the selected split with a system accent-colored edge line.",
             requiresNewWindow: false, category: "terminal"),
         .init(
-            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "2.5",
+            id: "terminal.focusedSplitBorderWidth", type: .number, defaultValue: "3",
             allowedValues: nil, minimum: 1, maximum: 6,
             description: "Selected split marker thickness in points.",
             requiresNewWindow: false, category: "terminal"),
         .init(
-            id: "terminal.focusedSplitBorderPosition", type: .enumeration, defaultValue: "top",
+            id: "terminal.focusedSplitBorderPosition", type: .enumeration, defaultValue: "bottom",
             allowedValues: FocusedSplitBorderPosition.allCases.map(\.rawValue), minimum: nil, maximum: nil,
             description: "Edge used for the selected split marker.",
             requiresNewWindow: false, category: "terminal"),
@@ -889,9 +889,9 @@ final class OhMyGhosttySettings: ObservableObject {
     @Published var focusedSplitBorder = true {
         didSet { persist("terminal.focusedSplitBorder", focusedSplitBorder) }
     }
-    @Published var focusedSplitBorderWidth: Double = 2.5 {
+    @Published var focusedSplitBorderWidth: Double = 3 {
         didSet {
-            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 6) : 2.5
+            let value = focusedSplitBorderWidth.isFinite ? min(max(focusedSplitBorderWidth, 1), 6) : 3
             if focusedSplitBorderWidth != value {
                 focusedSplitBorderWidth = value
             } else {
@@ -899,7 +899,7 @@ final class OhMyGhosttySettings: ObservableObject {
             }
         }
     }
-    @Published var focusedSplitBorderPosition: FocusedSplitBorderPosition = .top {
+    @Published var focusedSplitBorderPosition: FocusedSplitBorderPosition = .bottom {
         didSet { persist("terminal.focusedSplitBorderPosition", focusedSplitBorderPosition.rawValue) }
     }
     @Published var terminalResizeRendering: TerminalResizeRenderingMode = .onRelease {
@@ -1314,8 +1314,8 @@ final class OhMyGhosttySettings: ObservableObject {
             ).rounded()
             quickInputHistoryKeepAfterQuit = boolValue("keyboard.quickInputHistoryKeepAfterQuit", fallback: true)
             focusedSplitBorder = boolValue("terminal.focusedSplitBorder", fallback: true)
-            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 2.5, range: 1...6)
-            focusedSplitBorderPosition = enumValue("terminal.focusedSplitBorderPosition", fallback: .top)
+            focusedSplitBorderWidth = numberValue("terminal.focusedSplitBorderWidth", fallback: 3, range: 1...6)
+            focusedSplitBorderPosition = enumValue("terminal.focusedSplitBorderPosition", fallback: .bottom)
             terminalResizeRendering = enumValue(
                 "terminal.resizeRendering",
                 fallback: .onRelease
