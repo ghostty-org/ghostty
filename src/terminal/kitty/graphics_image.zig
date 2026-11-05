@@ -1608,7 +1608,7 @@ test "image load: temporary file in /tmp on macOS" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(
