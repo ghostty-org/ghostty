@@ -10,6 +10,7 @@ extension Ghostty {
 
         /// Same as SurfaceWrapper, see the doc comments there.
         @ObservedObject var surfaceView: SurfaceView
+        let presentationLease: SurfacePresentationLease
         var isSplit: Bool = false
 
         // Maintain whether our view has focus or not
@@ -24,10 +25,10 @@ extension Ghostty {
 
             ZStack {
                 if !surfaceView.inspectorVisible {
-                    SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
+                    SurfaceWrapper(surfaceView: surfaceView, presentationLease: presentationLease, isSplit: isSplit)
                 } else {
                     SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
-                        SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
+                        SurfaceWrapper(surfaceView: surfaceView, presentationLease: presentationLease, isSplit: isSplit)
                     }, right: {
                         InspectorViewRepresentable(surfaceView: surfaceView)
                             .focused($inspectorFocus)

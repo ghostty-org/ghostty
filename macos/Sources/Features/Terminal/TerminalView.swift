@@ -29,6 +29,7 @@ protocol TerminalViewModel: ObservableObject {
     /// The tree of terminal surfaces (splits) within the view. This is mutated by TerminalView
     /// and children. This should be @Published.
     var surfaceTree: SplitTree<Ghostty.SurfaceView> { get set }
+    var surfacePresentationLease: SurfacePresentationLease { get }
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
@@ -113,6 +114,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
             TerminalSplitTreeView(
                 tree: viewModel.surfaceTree,
+                presentationLease: viewModel.surfacePresentationLease,
                 action: { delegate?.performSplitAction($0) })
                 .environment(\.editorTerminalController, viewModel as? TerminalController)
                 .environmentObject(ghostty)

@@ -19,87 +19,6 @@ enum TerminalSurfaceResizeInteraction {
     }
 }
 
-enum SurfaceCoreResizeAction: Equatable {
-    case normal(CGSize)
-    case live(CGSize)
-    case commit
-}
-
-/// Pure state machine used by `SurfaceScrollView` so interactive resize
-/// behavior can be tested without constructing a Ghostty surface.
-struct SurfaceCoreResizeState {
-    private(set) var requestedSize: CGSize?
-    private(set) var appliedSize: CGSize?
-    private(set) var committedSize: CGSize?
-    private(set) var interactionDepth = 0
-    private(set) var interactionMode: TerminalResizeRenderingMode?
-    private(set) var hasUncommittedLiveSize = false
-
-    mutating func beginInteraction(mode: TerminalResizeRenderingMode) {
-        if interactionDepth == 0 { interactionMode = mode }
-        interactionDepth += 1
-    }
-
-    mutating func request(_ size: CGSize) -> SurfaceCoreResizeAction? {
-        guard requestedSize != size else { return nil }
-        requestedSize = size
-
-        guard interactionDepth > 0 else {
-            appliedSize = size
-            committedSize = size
-            hasUncommittedLiveSize = false
-            return .normal(size)
-        }
-
-        switch interactionMode {
-        case .duringDrag:
-            appliedSize = size
-            hasUncommittedLiveSize = committedSize != size
-            return .live(size)
-        case .onRelease:
-            return nil
-        case nil:
-            return nil
-        }
-    }
-
-    mutating func commitLiveSizeIfNeeded() -> SurfaceCoreResizeAction? {
-        guard interactionMode == .duringDrag,
-              hasUncommittedLiveSize else { return nil }
-        committedSize = appliedSize
-        hasUncommittedLiveSize = false
-        return .commit
-    }
-
-    mutating func endInteraction() -> SurfaceCoreResizeAction? {
-        guard interactionDepth > 0 else { return nil }
-        interactionDepth -= 1
-        guard interactionDepth == 0 else { return nil }
-        return finishInteraction()
-    }
-
-    mutating func cancelInteractions() -> SurfaceCoreResizeAction? {
-        interactionDepth = 0
-        return finishInteraction()
-    }
-
-    private mutating func finishInteraction() -> SurfaceCoreResizeAction? {
-        defer { interactionMode = nil }
-        switch interactionMode {
-        case .duringDrag:
-            return commitLiveSizeIfNeeded()
-        case .onRelease:
-            guard let size = requestedSize, appliedSize != size else { return nil }
-            appliedSize = size
-            committedSize = size
-            hasUncommittedLiveSize = false
-            return .normal(size)
-        case nil:
-            return nil
-        }
-    }
-}
-
 /// Wraps a Ghostty surface view in an NSScrollView to provide native macOS scrollbar support.
 ///
 /// ## Coordinate System
@@ -118,24 +37,20 @@ class SurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
-    private var coreResizeState = SurfaceCoreResizeState()
-    private var liveResizeCommitWorkItem: DispatchWorkItem?
+    private var retired = false
     // Split-tree reconstruction can mount this Surface in a new wrapper before
     // SwiftUI finishes retiring the old one. Only its current parent may write
     // geometry, scroll position or renderer size.
-    private var ownsSurface: Bool { surfaceView.superview === documentView }
-
-    /// Match Otty's default: if the grid remains unchanged during a live drag,
-    /// publish one mid-drag PTY size after 50 ms. Continuous motion only
-    /// reflows the terminal model/renderer; mouse-up always commits the final.
-    private static let liveResizeCommitDelay: TimeInterval = 0.05
+    private var ownsSurface: Bool {
+        surfaceView.presentation.owns(self) && surfaceView.superview === documentView
+    }
 
     /// The last row position sent via scroll_to_row action. Used to avoid
     /// sending redundant actions when the user drags the scrollbar but stays
     /// on the same row.
     private var lastSentRow: Int?
 
-    init(contentSize: CGSize, surfaceView: Ghostty.SurfaceView) {
+    init(contentSize: CGSize, surfaceView: Ghostty.SurfaceView, lease: SurfacePresentationLease?) {
         self.surfaceView = surfaceView
         // The scroll view is our outermost view that controls all our scrollbar
         // rendering and behavior.
@@ -166,9 +81,8 @@ class SurfaceScrollView: NSView {
         // The document view contains our actual surface as a child.
         // We synchronize the scrolling of the document with this surface
         // so that our primary Ghostty renderer only needs to render the viewport.
-        documentView.addSubview(surfaceView)
-
         super.init(frame: .zero)
+        mount(lease: lease)
 
         // Our scroll view is our only view
         addSubview(scrollView)
@@ -205,11 +119,10 @@ class SurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] notification in
             guard let self,
+                  self.ownsSurface,
                   let resizeWindow = notification.object as? NSWindow,
                   self.window === resizeWindow else { return }
-            self.coreResizeState.beginInteraction(
-                mode: OhMyGhosttySettings.shared.terminalResizeRendering
-            )
+            self.surfaceView.presentation.beginResize()
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: TerminalSurfaceResizeInteraction.didEnd,
@@ -217,13 +130,10 @@ class SurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] notification in
             guard let self,
+                  self.ownsSurface,
                   let resizeWindow = notification.object as? NSWindow,
                   self.window === resizeWindow else { return }
-            self.liveResizeCommitWorkItem?.cancel()
-            self.liveResizeCommitWorkItem = nil
-            if let action = self.coreResizeState.endInteraction() {
-                self.applyCoreSurfaceResize(action)
-            }
+            self.surfaceView.presentation.endResize()
         })
 
         // Listen for live scroll events
@@ -302,7 +212,6 @@ class SurfaceScrollView: NSView {
     }
 
     deinit {
-        liveResizeCommitWorkItem?.cancel()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
@@ -313,13 +222,29 @@ class SurfaceScrollView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil {
-            liveResizeCommitWorkItem?.cancel()
-            liveResizeCommitWorkItem = nil
-            if let action = coreResizeState.cancelInteractions() {
-                applyCoreSurfaceResize(action)
-            }
+        if window == nil, ownsSurface {
+            surfaceView.presentation.finishResize()
         }
+    }
+
+    func mount(lease: SurfacePresentationLease?) {
+        guard !retired else { return }
+        guard surfaceView.presentation.mount(self, lease: lease) else { return }
+        if surfaceView.superview !== documentView {
+            documentView.addSubview(surfaceView)
+            needsLayout = true
+        }
+    }
+
+    func retire() {
+        retired = true
+    }
+
+    func unmount() {
+        retired = true
+        guard ownsSurface else { return }
+        surfaceView.presentation.unmount(self)
+        surfaceView.removeFromSuperview()
     }
 
     override func layout() {
@@ -374,37 +299,7 @@ class SurfaceScrollView: NSView {
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return }
         let size = CGSize(width: width, height: height)
-        guard let action = coreResizeState.request(size) else { return }
-        applyCoreSurfaceResize(action)
-    }
-
-    private func applyCoreSurfaceResize(_ action: SurfaceCoreResizeAction) {
-        guard ownsSurface else { return }
-        switch action {
-        case .normal(let size):
-            surfaceView.sizeDidChange(size)
-        case .live(let size):
-            surfaceView.liveSizeDidChange(size)
-            scheduleStableLiveResizeCommit()
-        case .commit:
-            surfaceView.commitLiveSize()
-        }
-    }
-
-    private func scheduleStableLiveResizeCommit() {
-        liveResizeCommitWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.liveResizeCommitWorkItem = nil
-            if let action = self.coreResizeState.commitLiveSizeIfNeeded() {
-                self.applyCoreSurfaceResize(action)
-            }
-        }
-        liveResizeCommitWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.liveResizeCommitDelay,
-            execute: workItem
-        )
+        surfaceView.presentation.requestSize(size)
     }
 
     /// Sizes the document view and scrolls the content view according to the scrollbar state

@@ -8,6 +8,7 @@ extension Ghostty {
         // The surface to create a view for. This must be created upstream. As long as this
         // remains the same, the surface that is being rendered remains the same.
         @ObservedObject var surfaceView: SurfaceView
+        let presentationLease: SurfacePresentationLease
 
         // True if this surface is part of a split view. This is important to know so
         // we know whether to dim the surface out of focus.
@@ -40,7 +41,7 @@ extension Ghostty {
                     let pubBecomeKey = center.publisher(for: NSWindow.didBecomeKeyNotification)
                     let pubResign = center.publisher(for: NSWindow.didResignKeyNotification)
 
-                    SurfaceRepresentable(view: surfaceView, size: geo.size)
+                    SurfaceRepresentable(view: surfaceView, size: geo.size, lease: presentationLease)
                         .focused($surfaceFocus)
                         .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
                         .focusedValue(\.ghosttySurfaceView, surfaceView)
@@ -561,12 +562,14 @@ extension Ghostty {
         ///
         /// The best approach is to wrap this view in a GeometryReader and pass in the geo.size.
         let size: CGSize
+        let lease: SurfacePresentationLease?
 
         func makeNSView(context: Context) -> SurfaceScrollView {
-            return SurfaceScrollView(contentSize: size, surfaceView: view)
+            return SurfaceScrollView(contentSize: size, surfaceView: view, lease: lease)
         }
 
         func updateNSView(_ scrollView: SurfaceScrollView, context: Context) {
+            scrollView.mount(lease: lease)
             // SwiftUI may defer frame updates under system load (e.g., memory
             // pressure, heavy I/O) or when external window managers trigger rapid
             // layout changes. When that happens, the scroll view's bounds can
@@ -574,6 +577,10 @@ extension Ghostty {
             // the surface to render at stale dimensions.
             guard scrollView.bounds.size != size else { return }
             scrollView.needsLayout = true
+        }
+
+        static func dismantleNSView(_ scrollView: SurfaceScrollView, coordinator: ()) {
+            scrollView.unmount()
         }
     }
 

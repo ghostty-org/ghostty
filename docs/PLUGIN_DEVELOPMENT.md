@@ -600,10 +600,18 @@ translucent chrome drifted by one code value (e.g. 73,76,81 vs 73,75,80). Chrome
 colors follow the focused surface's background (per-surface/OSC dynamic colors).
 
 Split reconstruction retains each terminal Surface while moving it into a new
-native scroll wrapper. Only the wrapper whose document view currently contains
-that Surface may change its frame, scroll position or core size. Retired wrappers
-can still receive SwiftUI layout, scrollbar and delayed resize callbacks; those
-callbacks must not mutate the remounted Surface.
+native scroll wrapper. The terminal controller issues a presentation lease when
+the split structure, zoom, or built-in terminal inspector structure changes.
+Ratio-only changes preserve the lease. The tree passes its captured lease as an
+explicit value to hosted leaves; a retired tree cannot acquire the Surface by
+constructing another wrapper. The Surface owns the authoritative lease and a weak reference to its
+current wrapper. Only that owner may change geometry or scroll position, and
+retiring an old wrapper cannot detach a newer owner's Surface. Cross-controller
+transfers revoke only the source controller's own lease.
+Resize transactions and their stable-size commit belong to the Surface rather
+than a wrapper. Lease changes, native detach and wrapper handoff finish pending
+PTY geometry before dropping ownership, including when the replacement has the
+same size. These host-internal leases grant no plugin capabilities.
 Transient zero-size host proposals also preserve the last valid drawable frame
 until the current wrapper receives a positive viewport.
 

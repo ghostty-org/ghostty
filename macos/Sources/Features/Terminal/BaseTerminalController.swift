@@ -50,9 +50,16 @@ class BaseTerminalController: NSWindowController,
 
     private var focusedSurfaceContextCancellables: Set<AnyCancellable> = []
 
+    private(set) var surfacePresentationLease = SurfacePresentationLease()
+
     /// The tree of splits within this terminal window.
     @Published var surfaceTree: SplitTree<Ghostty.SurfaceView> = .init() {
         didSet {
+            if oldValue.structuralIdentity != surfaceTree.structuralIdentity {
+                let retiredLease = surfacePresentationLease
+                for surface in oldValue { surface.presentation.revoke(retiredLease) }
+                renewSurfacePresentation()
+            }
             Self.updateSurfaceControllers(self, from: oldValue, to: surfaceTree)
             surfaceTreeDidChange(from: oldValue, to: surfaceTree)
             DevMemoryDiagnostics.splitTreeChanged(from: oldValue, to: surfaceTree)
@@ -196,6 +203,7 @@ class BaseTerminalController: NSWindowController,
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
         self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
         Self.updateSurfaceControllers(self, from: .init(), to: surfaceTree)
+        for surface in surfaceTree { surface.presentation.authorize(surfacePresentationLease) }
 
         // Setup our bell state for the window
         setupBellNotificationPublisher()
@@ -285,6 +293,14 @@ class BaseTerminalController: NSWindowController,
     }
 
     // MARK: Methods
+
+    /// Also used when the built-in terminal inspector changes a leaf's
+    /// structure without changing the split model.
+    func renewSurfacePresentation() {
+        surfacePresentationLease = SurfacePresentationLease()
+        for surface in surfaceTree { surface.presentation.authorize(surfacePresentationLease) }
+        objectWillChange.send()
+    }
 
     /// Finds the controller whose split tree owns the given surface.
     ///

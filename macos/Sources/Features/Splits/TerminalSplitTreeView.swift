@@ -29,12 +29,14 @@ enum TerminalSplitOperation {
 
 struct TerminalSplitTreeView: View {
     let tree: SplitTree<Ghostty.SurfaceView>
+    let presentationLease: SurfacePresentationLease
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
         if let node = tree.zoomed ?? tree.root {
             TerminalSplitSubtreeView(
                 node: node,
+                presentationLease: presentationLease,
                 isRoot: node == tree.root,
                 action: action)
             // This is necessary because we can't rely on SwiftUI's implicit
@@ -50,13 +52,16 @@ private struct TerminalSplitSubtreeView: View {
     @EnvironmentObject var ghostty: Ghostty.App
 
     let node: SplitTree<Ghostty.SurfaceView>.Node
+    let presentationLease: SurfacePresentationLease
     var isRoot: Bool = false
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
         switch node {
         case .leaf(let leafView):
-            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, action: action)
+            TerminalSplitLeaf(
+                surfaceView: leafView, presentationLease: presentationLease, isSplit: !isRoot, action: action
+            )
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch split.direction {
@@ -74,10 +79,10 @@ private struct TerminalSplitSubtreeView: View {
                 dividerColor: ghostty.config.splitDividerColor,
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
-                    TerminalSplitSubtreeView(node: split.left, action: action)
+                    TerminalSplitSubtreeView(node: split.left, presentationLease: presentationLease, action: action)
                 },
                 right: {
-                    TerminalSplitSubtreeView(node: split.right, action: action)
+                    TerminalSplitSubtreeView(node: split.right, presentationLease: presentationLease, action: action)
                 },
                 onResizeBegan: {
                     action(.resizeBegan)
@@ -96,6 +101,7 @@ private struct TerminalSplitSubtreeView: View {
 
 private struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
+    let presentationLease: SurfacePresentationLease
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
@@ -107,6 +113,7 @@ private struct TerminalSplitLeaf: View {
             EditorPaneContainer(surfaceView: surfaceView) {
                 Ghostty.InspectableSurface(
                     surfaceView: surfaceView,
+                    presentationLease: presentationLease,
                     isSplit: isSplit)
             }
             .background {

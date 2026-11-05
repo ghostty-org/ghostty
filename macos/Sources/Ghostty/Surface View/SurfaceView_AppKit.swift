@@ -8,6 +8,8 @@ import GhosttyKit
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
     class SurfaceView: OSSurfaceView, Codable, Identifiable {
+        lazy var presentation = SurfacePresentation(surface: self)
+
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes.
         @SurfaceTitle private(set) var title: String = "" {
@@ -205,6 +207,9 @@ extension Ghostty {
         // True if the inspector should be visible
         @Published var inspectorVisible: Bool = false {
             didSet {
+                if oldValue != inspectorVisible {
+                    BaseTerminalController.controller(owning: self)?.renewSurfacePresentation()
+                }
                 if oldValue && !inspectorVisible {
                     guard let surface = self.surface else { return }
                     ghostty_inspector_free(surface)
