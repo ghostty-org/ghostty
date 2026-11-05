@@ -1103,7 +1103,7 @@ pub const ImageStorage = struct {
         while (it.next()) |kv| {
             if (kv.value_ptr.number == image_number) {
                 if (newest == null or
-                    kv.value_ptr.generation > newest.?.generation)
+                    kv.value_ptr.transmission > newest.?.transmission)
                 {
                     newest = kv.value_ptr.*;
                 }
@@ -1130,7 +1130,7 @@ pub const ImageStorage = struct {
         while (it.next()) |kv| {
             if (kv.value_ptr.number != image_number) continue;
             if (newest == null or
-                kv.value_ptr.generation > newest.?.generation)
+                kv.value_ptr.transmission > newest.?.transmission)
             {
                 newest = kv.value_ptr;
             }
@@ -3724,6 +3724,11 @@ test "storage: imageByNumber returns most recently transmitted" {
     // Retransmit the first: it becomes the newest.
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .number = 7 });
     try testing.expectEqual(@as(u32, 1), s.imageByNumber(7).?.id);
+
+    // Showing another frame of the second doesn't make it the newest.
+    s.markImageContentChanged(io, s.images.getPtr(2).?);
+    try testing.expectEqual(@as(u32, 1), s.imageByNumber(7).?.id);
+    try testing.expectEqual(@as(u32, 1), s.imagePtrByIdOrNumber(0, 7).?.id);
 }
 
 test "storage: nextGeneration is unique and monotonic" {
