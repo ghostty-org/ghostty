@@ -182,6 +182,11 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Set NULL to clear the selection and format the whole screen again. When
    * no selection is set, ghostty_formatter_get() returns GHOSTTY_NO_VALUE.
    *
+   * To format the terminal's active selection, read it with
+   * GHOSTTY_TERMINAL_DATA_SELECTION and set it here. For the same text
+   * Ghostty copies to the clipboard, use plain output with
+   * GHOSTTY_FORMATTER_OPT_UNWRAP and GHOSTTY_FORMATTER_OPT_TRIM both true.
+   *
    * @code{.c}
    * // Format only the selected text.
    * ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_SELECTION, &selection);

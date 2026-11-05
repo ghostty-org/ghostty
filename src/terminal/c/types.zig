@@ -451,7 +451,6 @@ pub const type_decls = [_]TypeDecl{
     .initStruct("GhosttyTerminalSelectLineOptions", selection.SelectLineOptions),
     .initStruct("GhosttyTerminalSelectWordBetweenOptions", selection.SelectWordBetweenOptions),
     .initStruct("GhosttyTerminalSelectWordOptions", selection.SelectWordOptions),
-    .initStruct("GhosttyTerminalSelectionFormatOptions", selection.FormatOptions),
     .initTaggedStruct("GhosttyTerminalUnknownSequence", terminal.UnknownSequence.C, "tag", "value", .generated),
     .initStruct("GhosttyTerminalUnknownOscSequence", terminal.UnknownOscSequence),
     .initStruct("GhosttyTerminalUnknownStringSequence", terminal.UnknownStringSequence),

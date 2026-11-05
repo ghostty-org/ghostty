@@ -58,8 +58,8 @@ extern "C" {
  *
  * Every match is returned as a GhosttySelection snapshot with
  * rectangle set to false, so the existing selection APIs all work on
- * matches: ghostty_terminal_selection_format_buf() to copy the
- * matched text, ghostty_terminal_point_from_grid_ref() with
+ * matches: a GhosttyFormatter with GHOSTTY_FORMATTER_OPT_SELECTION to
+ * copy the matched text, ghostty_terminal_point_from_grid_ref() with
  * GHOSTTY_POINT_TAG_VIEWPORT to position highlight rectangles,
  * ghostty_terminal_selection_contains() for hit testing, and
  * ghostty_terminal_set() with GHOSTTY_TERMINAL_OPT_SELECTION to make

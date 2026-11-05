@@ -274,9 +274,6 @@
  *
  * A few functions depend on two features:
  *
- * - ghostty_terminal_selection_format_buf() and
- *   ghostty_terminal_selection_format_alloc() need both `%formatter` and
- *   `%selection`.
  * - ghostty_terminal_grid_ref() and ghostty_terminal_point_from_grid_ref()
  *   need either `%grid_introspection` or `%selection`.
  * - ghostty_tracked_grid_ref_snapshot() needs both `%grid_introspection`

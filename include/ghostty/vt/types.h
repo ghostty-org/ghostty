@@ -522,10 +522,9 @@ typedef struct {
  *
  * Example:
  * @code
- * GhosttyTerminalSelectionFormatOptions opts =
- *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
- * opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
- * opts.trim = true;
+ * GhosttyTerminalSelectLineOptions opts =
+ *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectLineOptions);
+ * opts.ref = ref;
  * @endcode
  */
 #ifdef __cplusplus

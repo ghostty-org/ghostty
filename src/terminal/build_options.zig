@@ -73,8 +73,7 @@ pub const Options = struct {
         /// such as cursor position, palette, modes, and tabstops. Used
         /// for copy-to-clipboard, dump-to-file, and debugging.
         ///
-        /// C API: `ghostty_formatter_*` and, together with `selection`,
-        /// `ghostty_terminal_selection_format_*`.
+        /// C API: `ghostty_formatter_*`.
         formatter: bool = true,
 
         /// Text selection: select word/line/output/all, selection
