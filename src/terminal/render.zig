@@ -2629,6 +2629,11 @@ const CellSpecialMask = page.Mask(page.Cell, &.{
     "style_id",
 }, scan_group_len);
 
+/// Like CellSpecialMask, for rows without graphemes or placeholders.
+/// This lets us skip background color cells because their color is
+/// stored in the cell itself (see `Style.bg`).
+const CellStyleMask = page.Mask(page.Cell, &.{"style_id"}, scan_group_len);
+
 /// Internal helper for RenderState.update that rebuilds a single row of
 /// the render state from the current page contents.
 const RowBuilder = struct {
@@ -2726,24 +2731,44 @@ const RowBuilder = struct {
                 .alloc = arena_alloc,
                 .stale = b.kitty_stale,
             };
-            try b.scan(true, p, page_cells, cells_slice, arena_alloc, vy, &decoder);
+            try @call(
+                .never_inline,
+                scan,
+                .{ b, true, true, p, page_cells, cells_slice, arena_alloc, vy, &decoder },
+            );
             try decoder.flush();
             return;
         }
 
-        try b.scan(false, p, page_cells, cells_slice, arena_alloc, vy, {});
+        // Rows with graphemes are rare, so they get their own copy of the
+        // scan. A row without the grapheme flag has no grapheme cells.
+        if (page_row.grapheme) {
+            try @call(
+                .never_inline,
+                scan,
+                .{ b, false, true, p, page_cells, cells_slice, arena_alloc, vy, {} },
+            );
+        } else {
+            try @call(
+                .always_inline,
+                scan,
+                .{ b, false, false, p, page_cells, cells_slice, arena_alloc, vy, {} },
+            );
+        }
     }
 
     /// The managed memory scan of `row`. When `placeholders` is true,
-    /// this also feeds every Kitty placeholder cell to the decoder.
+    /// this also feeds every Kitty placeholder cell to the decoder, and
+    /// when `graphemes` is true, this also looks up grapheme cells.
     ///
-    /// This is deliberately not inline. Each value of `placeholders`
-    /// produces its own function, so the placeholder handling can't
-    /// change how the common version (without placeholders) is
-    /// optimized.
+    /// Each combination of `placeholders` and `graphemes` produces its
+    /// own function. `row` inlines the common one (without either) and
+    /// calls the others out of line, so the handling of these rare cells
+    /// can't change how the common version is optimized.
     fn scan(
         b: *const RowBuilder,
         comptime placeholders: bool,
+        comptime graphemes: bool,
         p: *page.Page,
         page_cells: []const page.Cell,
         cells_slice: std.MultiArrayList(RenderState.Cell).Slice,
@@ -2753,180 +2778,98 @@ const RowBuilder = struct {
     ) Allocator.Error!void {
         const cells_grapheme = cells_slice.items(.grapheme);
         const n = page_cells.len;
-        const runs_start = b.pending_styles.items.len;
 
         // Each cell starts at most one style run, so reserve a row's worth
         // up front to keep the appends below allocation-free.
         try b.pending_styles.ensureUnusedCapacity(b.alloc, n);
+
+        // We append through a local list to avoid aliasing that forces the
+        // compiler to reload the list's pointer and length after every run.
+        var runs: std.ArrayList(RenderState.StyleRun) = .initBuffer(
+            b.pending_styles.unusedCapacitySlice(),
+        );
+        defer b.pending_styles.items.len += runs.items.len;
+
+        // Likewise, look styles up through locals so run stores
+        // can't alias them and force a reload before every lookup.
+        const styles = p.styles;
+        const memory = p.memory;
+
+        const Mask = if (graphemes or placeholders) CellSpecialMask else CellStyleMask;
+
         var x: usize = 0;
-        scan: while (x < n) {
+        while (x < n) {
+            const cell = page_cells[x];
+            const start = x;
+
             // Skip runs of plain cells a group at a time. Cells that
             // need managed handling are often rare even within rows that
             // have managed memory (e.g. a row is "styled" if a single
             // cell has a style) so groups are skipped with a few vector
             // operations. On placeholder rows a plain cell can be a
-            // placeholder, so those rows check each cell instead.
-            if (!placeholders) while (n - x >= CellSpecialMask.group_len) {
-                if (!CellSpecialMask.match(page_cells, x)) break;
-                x += CellSpecialMask.group_len;
-            };
-
-            // Scalar scan to the next special cell.
-            while (true) {
-                if (x >= n) break :scan;
-                if (!CellSpecialMask.matchScalar(page_cells[x])) break;
-                if (placeholders and
-                    page_cells[x].codepoint() == kitty_gfx.unicode.placeholder)
-                {
-                    try decoder.feed(x, &.{}, &.{});
-                }
-                x += 1;
+            // placeholder, so those rows still check each cell. Without
+            // graphemes or placeholders, we skip background color cells too.
+            if (!placeholders and Mask.matchScalar(cell)) {
+                x = Mask.eqlEnd(page_cells, x + 1, 0);
+                continue;
             }
 
-            const page_cell = &page_cells[x];
+            // Find the run of cells sharing this cell's style and record
+            // it: this does one style lookup per run and defers the
+            // (large) per-cell fill to endUpdate, outside of any terminal
+            // locks. Note grapheme cells may also be styled. The style
+            // must be recorded as a run (rather than written directly)
+            // so that it is ordered correctly relative to possibly-stale
+            // runs from prior updates.
+            x = Mask.eqlEnd(page_cells, x + 1, Mask.pattern(cell));
 
-            switch (page_cell.content_tag) {
-                // Single-codepoint styled cells are by far the most
-                // common special cells, and they usually come in long
-                // runs sharing one style ID (e.g. a fully styled row
-                // usually uses a single style). Find the run and record
-                // it: this does one style lookup per run and defers the
-                // (large) per-cell fill to endUpdate, outside of any
-                // terminal locks.
-                .codepoint => {
-                    @branchHint(.likely);
-                    const sid = page_cell.style_id;
-                    assert(sid > 0); // special + codepoint implies styled
-                    const style_val: Style = p.styles.get(p.memory, sid).*;
+            // We use a pointer here so we can reuse the style without
+            // keeping a copy alive across the grapheme allocations below.
+            const style_val: *const Style = if (cell.hasStyling())
+                styles.get(memory, cell.style_id)
+            else
+                &.{};
 
-                    // A cell continues the run if its masked special
-                    // bits are exactly the style ID of the run (in
-                    // particular the content tag must be a plain
-                    // codepoint). We can check groups of cells at a
-                    // time this way.
-                    const pattern = CellSpecialMask.pattern(page_cell.*);
-                    const start = x;
-                    x += 1;
-                    while (n - x >= CellSpecialMask.group_len) {
-                        if (!CellSpecialMask.eql(
-                            page_cells,
-                            x,
-                            pattern,
-                        )) break;
-                        x += CellSpecialMask.group_len;
-                    }
-                    while (x < n) : (x += 1) {
-                        if (!CellSpecialMask.eqlScalar(
-                            page_cells[x],
-                            pattern,
-                        )) break;
-                    }
+            if (cell.hasStyling()) runs.appendAssumeCapacity(.{
+                .y = @intCast(vy),
+                .start = @intCast(start),
+                .end = @intCast(x),
+                .style = style_val.*,
+            });
 
-                    b.pending_styles.appendAssumeCapacity(.{
-                        .y = @intCast(vy),
-                        .start = @intCast(start),
-                        .end = @intCast(x),
-                        .style = style_val,
-                    });
+            // If we have multi-codepoint graphemes, look them up. On
+            // placeholder rows, feed each placeholder to the decoder.
+            const grapheme = graphemes and cell.content_tag == .codepoint_grapheme;
+            if (grapheme or placeholders) {
+                for (start..x) |cx| {
+                    const cps: []const u21 = if (grapheme) cps: {
+                        const cps = try arena_alloc.dupe(
+                            u21,
+                            p.lookupGrapheme(&page_cells[cx]) orelse &.{},
+                        );
+                        cells_grapheme[cx] = cps;
+                        break :cps cps;
+                    } else &.{};
 
-                    // A placeholder can leave out its row and column
-                    // (it then continues the run to its left), which
-                    // makes it a plain styled cell like these. Every
-                    // cell in this style run has the same style.
-                    if (placeholders) for (start..x) |px| {
-                        if (page_cells[px].codepoint() != kitty_gfx.unicode.placeholder) continue;
-                        try decoder.feed(px, &style_val, &.{});
-                    };
-                },
-
-                // If we have a multi-codepoint grapheme, look it up and
-                // set our content type. Note grapheme cells may also
-                // be styled. The style must be recorded as a run (rather
-                // than written directly) so that it is ordered correctly
-                // relative to possibly-stale runs from prior updates.
-                .codepoint_grapheme => {
-                    const style_val: Style = if (page_cell.style_id > 0) style: {
-                        const style_val = p.styles.get(
-                            p.memory,
-                            page_cell.style_id,
-                        ).*;
-                        b.pending_styles.appendAssumeCapacity(.{
-                            .y = @intCast(vy),
-                            .start = @intCast(x),
-                            .end = @intCast(x + 1),
-                            .style = style_val,
-                        });
-                        break :style style_val;
-                    } else .{};
-                    const cps = try arena_alloc.dupe(
-                        u21,
-                        p.lookupGrapheme(page_cell) orelse &.{},
-                    );
-                    cells_grapheme[x] = cps;
-
-                    // Most placeholders give their row and column in
-                    // the image as combining characters, so most are
-                    // handled here, using the style and grapheme we
-                    // already have.
+                    // A placeholder can be a plain cell, or leave out its row
+                    // and column (it then continues the run to its left). Most
+                    // placeholders give their row and column in the image as
+                    // combining characters, so most are graphemes.
                     if (placeholders and
-                        page_cell.codepoint() == kitty_gfx.unicode.placeholder)
+                        page_cells[cx].codepoint() == kitty_gfx.unicode.placeholder)
                     {
-                        try decoder.feed(x, &style_val, cps);
+                        try decoder.feed(cx, style_val, cps);
                     }
-                    x += 1;
-                },
-
-                // Background-color-only cells. The style is derived
-                // entirely from the cell contents. Consecutive cleared
-                // cells with the same background are bit-identical, so
-                // we run-detect on full equality (e.g. a line cleared
-                // with a background color pending is one run).
-                .bg_color_rgb, .bg_color_palette => {
-                    const style_val: Style = switch (page_cell.content_tag) {
-                        .bg_color_rgb => .{ .bg_color = .rgb(.{
-                            .r = page_cell.content.color_rgb.r,
-                            .g = page_cell.content.color_rgb.g,
-                            .b = page_cell.content.color_rgb.b,
-                        }) },
-                        .bg_color_palette => .{
-                            .bg_color = .palette(page_cell.content.color_palette.data),
-                        },
-                        else => unreachable,
-                    };
-
-                    const first_bits = CellSpecialMask.bits(page_cell.*);
-                    const start = x;
-                    x += 1;
-                    while (n - x >= CellSpecialMask.group_len) {
-                        if (!CellSpecialMask.eqlExact(
-                            page_cells,
-                            x,
-                            first_bits,
-                        )) break;
-                        x += CellSpecialMask.group_len;
-                    }
-                    while (x < n) : (x += 1) {
-                        if (CellSpecialMask.bits(page_cells[x]) != first_bits)
-                            break;
-                    }
-
-                    b.pending_styles.appendAssumeCapacity(.{
-                        .y = @intCast(vy),
-                        .start = @intCast(start),
-                        .end = @intCast(x),
-                        .style = style_val,
-                    });
-                },
+                }
             }
         }
 
         // Reserve the applied style cache capacity for the runs we
         // appended so that endUpdate (which cannot allocate) is able
         // to record what it applies. See Row.applied_styles.
-        const runs_added = b.pending_styles.items.len - runs_start;
-        if (runs_added > 0) try b.applied_styles[vy].ensureTotalCapacity(
+        if (runs.items.len > 0) try b.applied_styles[vy].ensureTotalCapacity(
             b.alloc,
-            runs_added,
+            runs.items.len,
         );
     }
 };
@@ -3104,7 +3047,6 @@ fn testCompareStates(
         const inc_cells = inc_data.items(.cells)[y].slice();
         const new_cells = new_data.items(.cells)[y].slice();
         try testing.expectEqual(new_cells.len, inc_cells.len);
-        const managed = new_row.managedMemory();
         for (0..new_cells.len) |x| {
             errdefer std.log.warn("mismatch on cell x={}", .{x});
 
@@ -3116,14 +3058,8 @@ fn testCompareStates(
                 @as(page.Cell.Backing, @bitCast(inc_cell)),
             );
 
-            // The style is only defined if the cell is styled or is
-            // a bg-color cell within a row that has managed memory.
-            if (new_cell.style_id != 0 or
-                (managed and switch (new_cell.content_tag) {
-                    .bg_color_rgb, .bg_color_palette => true,
-                    else => false,
-                }))
-            {
+            // The style is only defined if the cell is styled.
+            if (new_cell.style_id != 0) {
                 try testing.expect(std.meta.eql(
                     new_cells.items(.style)[x],
                     inc_cells.items(.style)[x],
@@ -3431,8 +3367,8 @@ test "bg color cells" {
             cell.raw.content_tag,
         );
         try testing.expectEqual(
-            Style.Color.palette(1),
-            cell.style.bg_color,
+            t.colors.palette.current[1],
+            Style.bg(.{}, &cell.raw, &t.colors.palette.current),
         );
     }
 }

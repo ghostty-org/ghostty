@@ -2838,15 +2838,17 @@ pub fn Mask(
         /// freely. Use this to detect runs of values that share the
         /// masked field contents while other fields differ, e.g. a run
         /// of cells with the same style ID but different codepoints.
-        /// If the result you derive from a run depends on fields
-        /// outside the mask, use `eqlExact` instead.
         pub inline fn eql(
             values: []const T,
             i: usize,
             expected: Backing,
         ) bool {
-            const masked = load(values, i) & @as(Group, @splat(mask));
-            return @reduce(.And, masked == @as(Group, @splat(expected)));
+            assert(expected & ~mask == 0);
+
+            // OR the differences together and check the masked bits once.
+            // This avoids emulated 64-bit lane comparisons on baseline x86-64.
+            const diff = load(values, i) ^ @as(Group, @splat(expected));
+            return @reduce(.Or, diff) & mask == 0;
         }
 
         /// Scalar variant of `eql` for a single value.
@@ -2900,28 +2902,30 @@ pub fn Mask(
             return @ctz(~ok_bits);
         }
 
-        /// Returns true if every value in the group of group_len
-        /// values starting at index i is bit-identical to the expected
-        /// value. Note: this compares entire values; it is NOT
-        /// affected by the field mask.
+        /// Returns the index of the first value at or after i whose masked
+        /// fields differ from the expected pattern (see `pattern`), or
+        /// values.len if all remaining values match. Unlike `eqlPrefix`,
+        /// this returns an index rather than a count, so a scan can
+        /// continue from it.
         ///
-        /// This exists alongside `eql` for run detection where the
-        /// derived result depends on fields outside the mask, so a
-        /// masked compare would incorrectly extend the run. For
-        /// example, the background color of a bg-color cell lives in
-        /// the content field: two such cells only share a background
-        /// if their content bits are identical, not merely their
-        /// content tag. Values in such runs are typically produced by
-        /// bulk fills (e.g. erase with a pending background) and are
-        /// bit-identical in practice, so exact equality is both
-        /// correct and cheap.
-        pub inline fn eqlExact(
+        /// Runs are often only a value or two long (e.g. syntax
+        /// highlighting changes style every few cells), so this checks
+        /// the next value on its own before checking whole groups.
+        pub inline fn eqlEnd(
             values: []const T,
             i: usize,
             expected: Backing,
-        ) bool {
-            const group = load(values, i);
-            return @reduce(.And, group == @as(Group, @splat(expected)));
+        ) usize {
+            var end = i;
+            if (end < values.len and eqlScalar(values[end], expected)) {
+                end += 1;
+                while (values.len - end >= group_len) : (end += group_len) {
+                    if (!eql(values, end, expected)) break;
+                }
+                while (end < values.len and
+                    eqlScalar(values[end], expected)) end += 1;
+            }
+            return end;
         }
     };
 }
@@ -2970,15 +2974,26 @@ test "Mask" {
         try testing.expectEqual(4, M.eqlPrefix(&cells, 0, expected));
     }
 
-    // eqlExact: bit-identical values only
+    // eqlEnd: end of the run of matching values, across groups
     {
-        const expected = M.bits(styled);
-        var cells: [4]Cell = .{ styled, styled, styled, styled };
-        try testing.expect(M.eqlExact(&cells, 0, expected));
+        const expected = M.pattern(styled);
+        var cells: [11]Cell = @splat(styled2);
+        try testing.expectEqual(11, M.eqlEnd(&cells, 0, expected));
+        try testing.expectEqual(11, M.eqlEnd(&cells, 3, expected));
+        try testing.expectEqual(11, M.eqlEnd(&cells, 11, expected));
 
-        // Same masked fields but different codepoint is not exact.
-        cells[3] = styled2;
-        try testing.expect(!M.eqlExact(&cells, 0, expected));
+        // Ends within the second group, and in the scalar tail.
+        cells[6] = other;
+        try testing.expectEqual(6, M.eqlEnd(&cells, 0, expected));
+        try testing.expectEqual(6, M.eqlEnd(&cells, 6, expected));
+        cells[9] = plain;
+        try testing.expectEqual(9, M.eqlEnd(&cells, 7, expected));
+
+        // Ends at the last value of a group that ends with the values.
+        cells[6] = styled2;
+        cells[9] = styled2;
+        cells[10] = other;
+        try testing.expectEqual(10, M.eqlEnd(&cells, 2, expected));
     }
 
     // strip: compare values while ignoring the masked fields
