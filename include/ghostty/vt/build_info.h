@@ -9,19 +9,25 @@
 
 /** @addtogroup build_info
  *
- * Query compile-time build configuration of libghostty-vt.
+ * Build info is what this copy of the library knows about how it was compiled:
+ * its version, its optimization mode, and which features it has.
  *
- * These values reflect the options the library was built with and are
- * constant for the lifetime of the process.
+ * You need this when your program has to adapt to the library it loaded, such
+ * as checking for Kitty graphics before you offer images. You don't need a
+ * terminal. These values are constant for the lifetime of the process, so you
+ * only have to read them once.
  *
- * ## Basic Usage
+ * ## Example
  *
- * Use ghostty_build_info() to query individual build options:
+ * @code{.c}
+ * bool simd = false;
+ * ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd);
+ * @endcode
  *
- * @snippet c-vt-build-info/src/main.c build-info-query
+ * Full program: @ref c-vt-build-info/src/main.c
  *
  * To check the version of the headers rather than the library, see
- * @ref version "Version".
+ * @ref version "Version". To choose what a build contains, see @ref features.
  *
  * @{
  */
@@ -212,8 +218,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * Query a compile-time build configuration value.
  *
- * The caller must pass a pointer to the correct output type for the
+ * You must pass a pointer to the correct output type for the
  * requested data (see GhosttyBuildInfo variants for types).
+ *
+ * @snippet c-vt-build-info/src/main.c build-info-query
+ *
+ * Full program: @ref c-vt-build-info/src/main.c
  *
  * @param data The build info field to query
  * @param out Pointer to store the result (type depends on data parameter)

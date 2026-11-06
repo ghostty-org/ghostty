@@ -19,12 +19,20 @@ extern "C" {
 /** @addtogroup search
  *
  * Search a terminal for a string, covering the active area and scrollback of
- * both the primary and alternate screens. The @ref guide-search "Search guide"
- * covers driving a search, reading matches, lifetime, and threads.
+ * both the primary and alternate screens.
+ *
+ * You need a terminal to search. For a one-shot search, ghostty_search_run()
+ * does all of the work. For a find bar over a lot of scrollback, you decide when
+ * the work happens.
  *
  * ## Example
  *
  * @snippet c-vt-search/src/main.c search-main
+ *
+ * Full program: @ref c-vt-search/src/main.c
+ *
+ * The @ref guide-search "Search guide" covers driving a search, reading
+ * matches, lifetime, and threads.
  *
  * @{
  */
@@ -175,7 +183,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Set the needle to search for: const GhosttyString*. The bytes are
-   * copied, so the caller's memory does not need to outlive the call.
+   * copied, so your memory does not need to outlive the call.
    * Matching is byte-exact except ASCII letters, which compare
    * case-insensitively.
    *
@@ -186,7 +194,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * the needle and returns the search to idle.
    *
    * Replacing or clearing a needle releases tracked state held
-   * within the terminal, so the caller must serialize this with all
+   * within the terminal, so you must serialize this with all
    * other access to the same terminal. Returns GHOSTTY_INVALID_VALUE
    * after the terminal was freed.
    */
@@ -216,7 +224,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * Creation is cheap and does not read terminal contents, but it
  * registers the search with the terminal so the two can be freed in
- * any order. The caller must serialize this call with all other
+ * any order. You must serialize this call with all other
  * access to the same terminal.
  *
  * @param allocator Allocator, or NULL for the default allocator
@@ -237,7 +245,7 @@ GHOSTTY_API GhosttyResult ghostty_search_new(
  * Free a search.
  *
  * If the bound terminal is still alive, this releases tracked state
- * the search holds within it, so the caller must serialize this call
+ * the search holds within it, so you must serialize this call
  * with all other access to the same terminal. If the terminal was
  * already freed, the search has been detached and this releases only
  * search-owned memory. Passing NULL is allowed and is a no-op.
@@ -280,7 +288,7 @@ GHOSTTY_API GhosttyResult ghostty_search_tick(
  * learns about terminal changes, so keep feeding periodically while
  * the search is in use, even after it reports complete.
  *
- * This reads the terminal, so the caller must serialize it with all
+ * This reads the terminal, so you must serialize it with all
  * other access to the same terminal. Each call does a bounded amount
  * of work so that any caller-held terminal lock is held only briefly.
  *
@@ -302,7 +310,7 @@ GHOSTTY_API GhosttyResult ghostty_search_feed(GhosttySearch search);
  * scrollback can take a while, so interactive embedders should drive
  * ghostty_search_tick() and ghostty_search_feed() themselves.
  *
- * This reads the terminal for the entire call, so the caller must
+ * This reads the terminal for the entire call, so you must
  * serialize it with all other access to the same terminal.
  *
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
@@ -323,8 +331,8 @@ GHOSTTY_API GhosttyResult ghostty_search_run(GhosttySearch search);
  * You can call this at any time, even if the terminal changed since the
  * last feed, because it first brings the search up to date with the
  * terminal. The viewport then scrolls to the selected match as set by
- * GHOSTTY_SEARCH_OPT_SELECT_SCROLL. This reads the terminal, so the
- * caller must serialize it with all other access to the same terminal.
+ * GHOSTTY_SEARCH_OPT_SELECT_SCROLL. This reads the terminal, so
+ * you must serialize it with all other access to the same terminal.
  *
  * A find bar typically calls this when the user presses Enter, then reads
  * the selected match to highlight it:
@@ -370,7 +378,7 @@ GHOSTTY_API GhosttyResult ghostty_search_select_prev(GhosttySearch search);
  *
  * The value type, and what a NULL value means, depends on the option
  * and is documented by GhosttySearchOption. GHOSTTY_SEARCH_OPT_NEEDLE
- * touches the terminal, so the caller must serialize it with all other
+ * touches the terminal, so you must serialize it with all other
  * access to the same terminal. GHOSTTY_SEARCH_OPT_SELECT_SCROLL only
  * modifies search-owned state.
  *

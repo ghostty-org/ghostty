@@ -20,10 +20,12 @@ extern "C" {
 
 /** @addtogroup grid_ref
  *
- * A grid reference points at one cell in the terminal. An untracked reference
- * is a snapshot that is only valid until the next change to the terminal. A
- * tracked reference follows its cell. The @ref guide-grid "Grid guide" covers
- * coordinates, both kinds of reference, and when each one dies.
+ * A grid reference points at one cell in the terminal.
+ *
+ * An untracked reference is a snapshot that is only valid until the next change
+ * to the terminal. A tracked reference follows its cell. Use one to read
+ * particular cells. They aren't fast enough to draw a frame, so use @ref render
+ * for that.
  *
  * ## Example
  *
@@ -40,6 +42,11 @@ extern "C" {
  * }
  * @endcode
  *
+ * Full program: @ref c-vt-grid-traverse/src/main.c
+ *
+ * The @ref guide-grid "Grid guide" covers coordinates, both kinds of reference,
+ * and when each one dies.
+ *
  * @{
  */
 
@@ -55,6 +62,12 @@ extern "C" {
  * next call that changes the terminal, such as ghostty_terminal_vt_write()
  * or ghostty_terminal_resize(). To keep pointing at the same cell across
  * changes, use a tracked reference instead (see GhosttyTrackedGridRef).
+ *
+ * We can't detect a stale reference, so nothing returns an error for one. A
+ * reference holds a raw pointer into the terminal's page list. If that page is
+ * still there, you read whatever is at that position now, which may be a
+ * different cell. If the page was freed, you read freed memory, and that's
+ * undefined behavior. Don't use a reference after the terminal changes.
  *
  * Start with a zero-initialized value. A zeroed reference doesn't point at
  * any cell, and the ghostty_grid_ref_* functions return

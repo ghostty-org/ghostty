@@ -194,6 +194,8 @@ GHOSTTY_API GhosttyResult ghostty_mouse_encoder_set(GhosttyMouseEncoder encoder,
  * Set encoder options from a terminal's current state.
  *
  * This sets tracking mode and output format from terminal state.
+ * It also clears the last-cell state, as ghostty_mouse_encoder_reset() does,
+ * so the next motion event isn't dropped as a repeat of the last cell.
  * It does not modify size or any-button state.
  *
  * @param encoder The encoder handle

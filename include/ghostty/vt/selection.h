@@ -22,9 +22,9 @@ extern "C" {
 /** @addtogroup selection
  *
  * A selection is a range of terminal content between two cells. It is a
- * snapshot, only valid until the next change to the terminal. The
- * @ref guide-selection "Selection guide" covers making one, turning pointer
- * gestures into one, and copying it out.
+ * snapshot, only valid until the next change to the terminal.
+ *
+ * You need a terminal, and usually a grid reference to start from.
  *
  * ## Example
  *
@@ -39,6 +39,11 @@ extern "C" {
  *   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
  * }
  * @endcode
+ *
+ * Full program: @ref c-vt-selection/src/main.c
+ *
+ * The @ref guide-selection "Selection guide" covers making one, turning pointer
+ * gestures into one, and copying it out.
  *
  * @{
  */
@@ -524,6 +529,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_SELECTION_GESTURE_EVENT_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySelectionGestureEventOption;
 
+/** @name Gesture Events
+ * @{
+ */
+
 /**
  * Create a reusable selection gesture event object.
  *
@@ -599,6 +608,15 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_event_set(
  * rectangle, and word-boundary codepoints are optional and use initialized
  * defaults when unset or cleared.
  *
+ * An autoscroll tick scrolls the viewport exactly one row in the direction
+ * GHOSTTY_SELECTION_GESTURE_DATA_AUTOSCROLL reports, then continues the drag at
+ * the viewport coordinate. The gesture has no timer of its own. While that
+ * direction is up or down, send ticks from a timer you run. The interval is up
+ * to you, and ticking faster scrolls faster. A tick returns GHOSTTY_NO_VALUE
+ * and scrolls nothing if there's no direction to scroll in. If the cell of the
+ * original press is no longer on the active screen, it also resets the gesture
+ * and leaves any existing terminal selection alone, so stop your timer.
+ *
  * For GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_DEEP_PRESS, only
  * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_WORD_BOUNDARY_CODEPOINTS is valid. It is
  * optional and uses initialized defaults when unset or cleared.
@@ -623,6 +641,12 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_event(
                                     GhosttyTerminal terminal,
                                     GhosttySelectionGestureEvent event,
                                     GhosttySelection* out_selection);
+
+/** @} */
+
+/** @name Gestures
+ * @{
+ */
 
 /**
  * Create a selection gesture object.
@@ -743,6 +767,12 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_get_multi(
                                     void** values,
                                     size_t* out_written);
 
+/** @} */
+
+/** @name Selecting
+ * @{
+ */
+
 /**
  * Derive a word selection snapshot from a terminal grid reference.
  *
@@ -779,6 +809,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_word(
  * reverse direction, and combine the two word bounds into the drag selection.
  *
  * @snippet c-vt-selection/src/main.c selection-word-between
+ *
+ * Full program: @ref c-vt-selection/src/main.c
  *
  * The returned selection is not installed as the terminal's current
  * selection. It is a snapshot with the same lifetime rules as GhosttySelection.
@@ -857,10 +889,16 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_output(
                                     GhosttyGridRef ref,
                                     GhosttySelection* out_selection);
 
+/** @} */
+
+/** @name Working with Selections
+ * @{
+ */
+
 /**
  * Adjust a selection snapshot using terminal selection semantics.
  *
- * This mutates the caller-provided GhosttySelection in place. The logical end
+ * This mutates your GhosttySelection in place. The logical end
  * endpoint is always moved, regardless of whether the selection is forward or
  * reversed visually. The input selection remains a snapshot: after adjustment,
  * call ghostty_terminal_set() with GHOSTTY_TERMINAL_OPT_SELECTION to install it
@@ -1001,6 +1039,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_selection_equal(
                                     const GhosttySelection* a,
                                     const GhosttySelection* b,
                                     bool* out_equal);
+
+/** @} */
 
 /** @} */
 

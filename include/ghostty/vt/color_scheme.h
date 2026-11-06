@@ -10,12 +10,20 @@
 
 /** @addtogroup color_scheme
  *
- * Utilities for encoding color scheme reports into terminal escape
- * sequences for color scheme reporting mode (mode 2031).
+ * A color scheme report tells a program whether your terminal is light or dark.
  *
- * See @ref guide-colors-scheme for when to send one.
+ * You need this when a program sets mode 2031 and expects to hear when the
+ * scheme changes. Encode the report and write it to the pty yourself. You don't
+ * need it to answer a `CSI ? 996 n` query. A terminal does that for you through
+ * a GhosttyTerminalColorSchemeFn.
+ *
+ * ## Example
  *
  * @snippet c-vt-color-scheme/src/main.c color-scheme-report-encode
+ *
+ * Full program: @ref c-vt-color-scheme/src/main.c
+ *
+ * See @ref guide-colors-scheme for when to send one.
  *
  * @{
  */

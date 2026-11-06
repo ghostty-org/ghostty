@@ -15,21 +15,22 @@
 
 /** @addtogroup sys
  *
- * Runtime-swappable function pointers for operations that depend on
- * external implementations (e.g. image decoding). Setting one enables the
- * feature that depends on it. For example, setting a PNG decoder enables
- * PNG image support in the Kitty Graphics Protocol.
+ * The system interface is a set of process-global function pointers for things
+ * the library can't do by itself, such as decoding a PNG.
  *
- * These are process-global settings, so configure them at startup with
- * ghostty_sys_set() and a `GhosttySysOption`. ghostty_sys_set() is not
- * thread-safe: call it before any other thread uses the library, never
- * while one does. Passing NULL clears an implementation and disables the
- * feature.
+ * Setting one enables the feature that depends on it. For example, setting a
+ * PNG decoder enables PNG image support in the Kitty Graphics Protocol. Set
+ * them at startup with ghostty_sys_set() and a `GhosttySysOption`. It is not
+ * thread-safe, so call it before any other thread uses the library, never while
+ * one does. Passing NULL clears an implementation and disables the feature.
+ *
+ * ## Example
+ *
+ * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-decode-png
+ *
+ * Full program: @ref c-vt-kitty-graphics/src/main.c
  *
  * See @ref guide-images-png for how to write a PNG decoder.
- *
- * ### Defining a PNG decode callback
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-decode-png
  *
  * @{
  */
@@ -86,7 +87,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Callback type for logging.
  *
  * When installed, internal library log messages are delivered through
- * this callback instead of being discarded. The embedder is responsible
+ * this callback instead of being discarded. You are responsible
  * for formatting and routing log output.
  *
  * @p scope is the log scope name as UTF-8 bytes (e.g. "osc", "kitty").

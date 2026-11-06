@@ -9,25 +9,22 @@
 
 /** @addtogroup modes
  *
- * Utilities for working with terminal modes. A mode is a compact
- * 16-bit representation of a terminal mode identifier that encodes both
- * the numeric mode value (up to 15 bits) and whether the mode is an ANSI
- * mode or a DEC private mode (?-prefixed).
+ * A GhosttyMode is a terminal mode number packed into 16 bits, together with
+ * whether it's an ANSI mode or a DEC private mode.
  *
- * The packed layout (least-significant bit first) is:
- * - Bits 0–14: mode value (u15)
- * - Bit 15: ANSI flag (0 = DEC private mode, 1 = ANSI mode)
+ * The number alone isn't enough. ANSI mode 4 is insert mode, and DEC private
+ * mode 4 is slow scroll. Use these to name a mode when you read or set one on a
+ * terminal with GhosttyTerminalModeConfig, or to encode a DECRPM report with
+ * ghostty_mode_report_encode(). You don't need a terminal to pack one.
  *
  * ## Example
  *
  * @snippet c-vt-modes/src/main.c modes-pack-unpack
  *
- * ## DECRPM Report Encoding
+ * Full program: @ref c-vt-modes/src/main.c
  *
- * Use ghostty_mode_report_encode() to encode a DECRPM response into a
- * caller-provided buffer:
- *
- * @snippet c-vt-modes/src/main.c modes-decrpm
+ * See the @ref guide-input "Input guide" for the modes that change what input
+ * encodes to.
  *
  * @{
  */
@@ -175,6 +172,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @p out_written to the size needed. The buffer may then hold part of the
  * sequence, which you should discard. To get the size without encoding
  * anything, pass NULL for @p buf and 0 for @p buf_len.
+ *
+ * @snippet c-vt-modes/src/main.c modes-decrpm
+ *
+ * Full program: @ref c-vt-modes/src/main.c
  *
  * @param mode The mode identifying the mode to report on
  * @param state The report state for this mode

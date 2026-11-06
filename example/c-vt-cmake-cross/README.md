@@ -1,7 +1,7 @@
 # c-vt-cmake-cross
 
-Demonstrates using `ghostty_vt_add_target()` to cross-compile
-libghostty-vt with static linking. The target OS is chosen automatically:
+Cross-compiles libghostty-vt with `ghostty_vt_add_target()` and links it
+statically. The target OS is chosen automatically:
 
 | Host    | Target          |
 | ------- | --------------- |

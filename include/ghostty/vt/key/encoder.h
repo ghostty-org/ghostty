@@ -200,8 +200,9 @@ GHOSTTY_API GhosttyResult ghostty_key_encoder_set(GhosttyKeyEncoder encoder, Gho
  *
  * Reads the terminal's current modes and flags and applies them to the
  * encoder's options. This sets cursor key application mode, keypad mode,
- * alt escape prefix, modifyOtherKeys state, and Kitty keyboard protocol
- * flags from the terminal state.
+ * backarrow key mode, ignore-keypad-with-numlock, alt escape prefix,
+ * modifyOtherKeys state, and Kitty keyboard protocol flags from the terminal
+ * state.
  *
  * Note that the `macos_option_as_alt` option cannot be determined from
  * terminal state and is reset to `GHOSTTY_OPTION_AS_ALT_FALSE` by this

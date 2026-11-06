@@ -30,22 +30,32 @@ extern "C" {
 
 /** @addtogroup terminal
  *
- * Complete terminal emulator state and rendering.
+ * A GhosttyTerminal is a whole terminal emulator: you write VT data into it, and
+ * it keeps the screen, scrollback, cursor, styles, and modes.
  *
- * A terminal instance manages the full emulator state including the screen,
- * scrollback, cursor, styles, modes, and VT stream processing.
+ * Nearly everything in this library starts here. All you need to make one is a
+ * size. It doesn't draw and it doesn't talk to a pty. Both of those are yours.
+ * If you only want one parser or encoder, the
+ * @ref api_building_blocks "Building Blocks" work without a terminal.
  *
- * Once a terminal session is up and running, you can configure a key encoder
- * to write keyboard input via ghostty_key_encoder_set_from_terminal().
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyTerminal terminal;
+ * ghostty_terminal_new(NULL, &terminal, 80, 24);
+ *
+ * const char* text = "Hello, \x1b[1;32mworld\x1b[0m!\r\n";
+ * ghostty_terminal_vt_write(terminal, (const uint8_t*)text, strlen(text));
+ *
+ * ghostty_terminal_free(terminal);
+ * @endcode
+ *
+ * Full program: @ref c-vt-stream/src/main.c
  *
  * The guides cover the rest: @ref guide-effects "Effects" for what programs
  * ask of the terminal, @ref guide-colors "Colors",
  * @ref guide-scrollback "Scrollback", and
  * @ref guide-custom-sequences "Custom Sequences".
- *
- * ### Example: VT stream processing
- * @snippet c-vt-stream/src/main.c vt-stream-init
- * @snippet c-vt-stream/src/main.c vt-stream-write
  *
  * @{
  */
@@ -440,44 +450,23 @@ typedef struct {
  * Memory held by a terminal.
  *
  * Read with ghostty_terminal_get() and
- * `GHOSTTY_TERMINAL_DATA_MEMORY_USAGE`. This helps applications that host
- * many terminals stay within a memory budget, for example by compressing
- * or closing the terminals that hold the most memory first.
- *
- * Most of a terminal's memory goes to its screen contents and scrollback,
- * which are stored in fixed-size blocks called pages. Resident bytes are
- * the physical memory pages use right now, and are the figure to budget
- * against. Virtual bytes are the address space reserved for pages.
- * Compressing scrollback lowers the resident figure but not the virtual
- * one, because each page's space stays reserved for decompression.
+ * `GHOSTTY_TERMINAL_DATA_MEMORY_USAGE`.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
  * passing it to ghostty_terminal_get(). See @ref sized-structs.
  *
  * Each screen has its own set of fields, named with a `primary_` or
- * `alternate_` prefix. The primary screen holds shell output and all of
- * the scrollback. The alternate screen is used by full-screen programs
- * such as text editors, and its fields are all zero until a program first
- * switches to it. Add the two sets together for the terminal's total.
+ * `alternate_` prefix. Add the two sets together for the terminal's total.
+ * The alternate fields are all zero until a program first switches to that
+ * screen.
  *
- * Everything the terminal displays is stored inside pages, including
- * colors, styles and hyperlinks, so those are already part of the page
- * figures. Images are stored separately and have their own fields. Small
- * structures outside of pages, such as the window title and internal
- * bookkeeping, are not counted. They are small next to the pages once a
- * terminal has any scrollback.
- *
- * On macOS, the operating system takes back memory freed by compression
- * lazily, when something else needs it. Until then, the memory use the
- * system reports for your process (its RSS) can be higher than the
- * resident figures here.
- *
- * @snippet c-vt-compression/src/main.c memory-usage
+ * See @ref guide-scrollback-memory for what these figures cover and which one
+ * to budget against.
  *
  * @ingroup terminal
  */
 typedef struct {
-  /** Size of this struct in bytes. Set by the caller. */
+  /** Size of this struct in bytes. Set by you. */
   size_t size;
 
   /**
@@ -545,14 +534,31 @@ typedef struct {
 
 /** @addtogroup effects
  *
- * Effects are callbacks that the terminal invokes in response to VT
- * sequences processed during VT writes. They let the embedding application
- * react to terminal-initiated events such as bell characters, title changes,
- * device status report responses, and more.
+ * An effect is a callback the terminal calls when a program asks for something
+ * the terminal can't do by itself, such as ringing the bell or changing the
+ * window title.
+ *
+ * You need these as soon as a real program runs in the terminal. Until you
+ * register one, the terminal ignores that request, and a program that asks a
+ * question gets no answer. If you only feed bytes in to read the result back,
+ * you can skip this page.
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_BELL,
+ *                      (const void*)on_bell);
+ * @endcode
+ *
+ * Full program: @ref c-vt-effects/src/main.c
  *
  * See the @ref guide-effects "Effects guide" for how to register them, the
  * rules for callbacks, the list of effects, and examples.
  *
+ * @{
+ */
+
+/** @name Bell
  * @{
  */
 
@@ -568,6 +574,12 @@ typedef struct {
  */
 typedef void (*GhosttyTerminalBellFn)(GhosttyTerminal terminal,
                                       void* userdata);
+
+/** @} */
+
+/** @name Unknown Sequences
+ * @{
+ */
 
 /**
  * The kind of unsupported sequence passed to a
@@ -690,7 +702,7 @@ typedef struct {
  *   or SUB or aborted by another 8-bit control byte.
  * - Sequences libghostty-vt implements, even when their contents are
  *   malformed.
- * - Supported protocols that the embedder turned off.
+ * - Supported protocols that you turned off.
  *
  * The callback runs during ghostty_terminal_vt_write(). It may write a reply
  * to the pty, and that reply stays in order with the terminal's own
@@ -711,6 +723,12 @@ typedef void (*GhosttyTerminalUnknownSequenceFn)(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyTerminalUnknownSequence* sequence);
+
+/** @} */
+
+/** @name Clipboard
+ * @{
+ */
 
 /**
  * Clipboard destination for a clipboard write.
@@ -870,13 +888,13 @@ struct GhosttyClipboardWrite {
 
   /**
    * True if the terminal already holds a session grant for this request
-   * The embedder should skip any permission prompt and perform the write.
+   * You should skip any permission prompt and perform the write.
    */
   bool granted;
 
   /**
-   * True if the program supplied a session password, so the embedder may
-   * offer to remember the user's decision through
+   * True if the program supplied a session password, so you may
+   * offer to remember the decision through
    * GhosttyClipboardWriteReply::remember. When false, remember is ignored.
    */
   bool can_remember;
@@ -891,7 +909,7 @@ struct GhosttyClipboardWrite {
 /**
  * Callback function type for clipboard_write.
  *
- * The embedder may ask for permission to write or perform the write 
+ * You may ask for permission to write or perform the write 
  * async, but the callback itself is synchronous and the reply function
  * must be called during the lifetime of this function. While this callback
  * is active the VT stream is paused.
@@ -902,7 +920,7 @@ struct GhosttyClipboardWrite {
  * The request may carry an optional program name requesting the write
  * and the state of prior permission granted. If `can_remember` is set
  * the response may set the `remember` flag and future requests from this
- * same program will be "granted" and the embedder can skip permission
+ * same program will be "granted" and you can skip permission
  * requests.
  *
  * Clipboard read requests (OSC 52 "?" and OSC 5522 reads) are delivered
@@ -931,7 +949,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /** The clipboard read was denied by policy or the user. */
   GHOSTTY_CLIPBOARD_READ_RESULT_DENIED = 1,
 
-  /** The embedder cannot read this clipboard. */
+  /** You cannot read this clipboard. */
   GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED = 2,
 
   /** The clipboard is temporarily unavailable. */
@@ -1055,7 +1073,7 @@ struct GhosttyClipboardRead {
 
   /**
    * True if the terminal already holds a session grant for this request
-   * (kitty clipboard protocol passwords). The embedder should skip any
+   * (kitty clipboard protocol passwords). You should skip any
    * permission prompt and serve the read.
    *
    * Always false when mimes_len is zero: such a request is served
@@ -1066,8 +1084,8 @@ struct GhosttyClipboardRead {
   bool granted;
 
   /**
-   * True if the program supplied a session password, so the embedder may
-   * offer to remember the user's decision through
+   * True if the program supplied a session password, so you may
+   * offer to remember the decision through
    * GhosttyClipboardReadReply::remember. When false, remember is ignored.
    */
   bool can_remember;
@@ -1084,9 +1102,9 @@ struct GhosttyClipboardRead {
  *
  * Called synchronously when the running program requests clipboard contents
  * via OSC 52 with a "?" payload or a Kitty clipboard (OSC 5522) read.
- * Answering lets the program read the user's clipboard, so the embedder is
+ * Answering lets the program read the clipboard of the person using your terminal, so you are
  * expected to mediate consent. Because the read is synchronous, an embedder
- * that needs to ask the user must block (for example by running a modal
+ * that needs to ask them must block (for example by running a modal
  * prompt) until it has an answer; the VT stream waits until the callback
  * returns.
  *
@@ -1116,6 +1134,12 @@ typedef void (*GhosttyTerminalClipboardReadFn)(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyClipboardRead* read);
+
+/** @} */
+
+/** @name Desktop Notifications
+ * @{
+ */
 
 /**
  * A request to show a desktop notification.
@@ -1153,6 +1177,12 @@ typedef void (*GhosttyTerminalDesktopNotificationFn)(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyTerminalDesktopNotification* notification);
+
+/** @} */
+
+/** @name Progress Reports
+ * @{
+ */
 
 /**
  * State of a terminal progress report.
@@ -1210,6 +1240,12 @@ typedef void (*GhosttyTerminalProgressReportFn)(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyTerminalProgressReport* report);
+
+/** @} */
+
+/** @name Program Status
+ * @{
+ */
 
 /**
  * What a program says it is doing, in a program status report (OSC 7501).
@@ -1435,6 +1471,12 @@ typedef void (*GhosttyTerminalProgramStatusFn)(
     void* userdata,
     const GhosttyTerminalProgramStatus* report);
 
+/** @} */
+
+/** @name Semantic Prompts
+ * @{
+ */
+
 /**
  * The step of a command that a shell integration event reports.
  *
@@ -1580,6 +1622,12 @@ typedef void (*GhosttyTerminalSemanticPromptFn)(
     void* userdata,
     const GhosttyTerminalSemanticPrompt* event);
 
+/** @} */
+
+/** @name Reset and Resize
+ * @{
+ */
+
 /**
  * Callback function type for reset.
  *
@@ -1669,7 +1717,7 @@ typedef struct {
  * Called synchronously when the running program asks to resize the window,
  * such as with CSI 8 ; rows ; columns t. Check `request->tag` first, because
  * more kinds of requests may be reported in later versions. The terminal is
- * not resized by this: the embedder decides whether to allow the request,
+ * not resized by this: you decide whether to allow the request,
  * and if so resizes its window and the terminal. Letting any
  * program resize the window is a nuisance at best, so consider making this
  * opt-in for users.
@@ -1684,6 +1732,12 @@ typedef void (*GhosttyTerminalResizeWindowFn)(
     GhosttyTerminal terminal,
     void* userdata,
     const GhosttyTerminalResizeWindow* request);
+
+/** @} */
+
+/** @name Queries
+ * @{
+ */
 
 /**
  * Callback function type for color scheme queries (CSI ? 996 n).
@@ -1813,6 +1867,12 @@ typedef bool (*GhosttyTerminalSizeFn)(GhosttyTerminal terminal,
                                       void* userdata,
                                       GhosttySizeReportSize* out_size);
 
+/** @} */
+
+/** @name Terminal State
+ * @{
+ */
+
 /**
  * Callback function type for title_changed.
  *
@@ -1871,7 +1931,7 @@ typedef void (*GhosttyTerminalRenderHoldFn)(GhosttyTerminal terminal,
  *
  * The terminal stores whatever bytes the shell emitted, without parsing.
  * That means for OSC 7 the value is the raw URI (typically file://...);
- * for OSC 9/OSC 1337 it is typically a bare path. The embedder is
+ * for OSC 9/OSC 1337 it is typically a bare path. You are
  * responsible for decoding any URI scheme or host if it cares about them.
  *
  * The callback also fires when the shell clears the pwd (e.g. an empty
@@ -1886,13 +1946,19 @@ typedef void (*GhosttyTerminalRenderHoldFn)(GhosttyTerminal terminal,
 typedef void (*GhosttyTerminalPwdChangedFn)(GhosttyTerminal terminal,
                                             void* userdata);
 
+/** @} */
+
+/** @name Replies
+ * @{
+ */
+
 /**
  * Callback function type for write_pty.
  *
  * Called when the terminal needs to write data back to the pty, for
  * example in response to a device status report, mode query, or VT-driven
  * mode 2048 enable. The data is only valid for the duration of the call;
- * callers must copy it if it needs to persist.
+ * you must copy it if it needs to persist.
  *
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
@@ -1922,6 +1988,8 @@ typedef void (*GhosttyTerminalWritePtyFn)(GhosttyTerminal terminal,
  */
 typedef GhosttyString (*GhosttyTerminalXtversionFn)(GhosttyTerminal terminal,
                                                      void* userdata);
+
+/** @} */
 
 /** @} */
 
@@ -2870,7 +2938,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * The active screen's current selection.
    *
    * On success, writes an untracked snapshot of the terminal-owned selection
-   * to the caller-provided GhosttySelection. The GhosttySelection struct is
+   * to your GhosttySelection. The GhosttySelection struct is
    * caller-owned and may be kept, but the grid references inside it are
    * untracked borrowed references into the active screen. They are only valid
    * until the next mutating terminal call, such as ghostty_terminal_set(),
@@ -2945,7 +3013,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Get the current value of a terminal mode.
    *
-   * The caller must initialize the `mode` field. On success, the `value` field
+   * You must initialize the `mode` field. On success, the `value` field
    * is updated with the current value. A NULL pointer or unknown mode returns
    * GHOSTTY_INVALID_VALUE.
    *
@@ -3013,6 +3081,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_TERMINAL_DATA_MEMORY_USAGE = 42,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
+
+/** @name Lifecycle
+ * @{
+ */
 
 /**
  * Create a new terminal instance.
@@ -3093,6 +3165,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
                                       uint32_t cell_width_px,
                                       uint32_t cell_height_px);
 
+/** @} */
+
+/** @name Options
+ * @{
+ */
+
 /**
  * Set an option on the terminal.
  *
@@ -3140,6 +3218,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
 GHOSTTY_API GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
                                    GhosttyTerminalOption option,
                                    const void* value);
+
+/** @} */
+
+/** @name Writing
+ * @{
+ */
 
 /**
  * Write VT-encoded data to the terminal for processing.
@@ -3230,7 +3314,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_vt_write_until(
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
  * input that produced the continuation was written.
  *
- * The caller must serialize this operation with both VT write functions and
+ * You must serialize this operation with both VT write functions and
  * all other access to the same terminal.
  *
  * @param terminal Terminal to read from (must not be NULL)
@@ -3260,7 +3344,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_write(
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
  * input that produced the continuation was written.
  *
- * The caller must serialize this operation with all other access to the same
+ * You must serialize this operation with all other access to the same
  * terminal.
  *
  * @param terminal Terminal to read from (must not be NULL)
@@ -3286,7 +3370,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_buf(
  * Return an allocated copy of the terminal's replay-safe VT continuation.
  *
  * The returned bytes are allocated with allocator, or the default allocator
- * when allocator is NULL. The caller must release them with ghostty_free(),
+ * when allocator is NULL. You must release them with ghostty_free(),
  * passing the same allocator and returned length. An empty continuation is a
  * successful result with *out_ptr set to NULL and *out_len set to zero,
  * which can also be passed to ghostty_free().
@@ -3294,7 +3378,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_buf(
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
  * input that produced the continuation was written.
  *
- * The caller must serialize this operation with all other access to the same
+ * You must serialize this operation with all other access to the same
  * terminal.
  *
  * @param terminal Terminal to read from (must not be NULL)
@@ -3312,6 +3396,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
     const GhosttyAllocator* allocator,
     uint8_t** out_ptr,
     size_t* out_len);
+
+/** @} */
+
+/** @name Scrolling
+ * @{
+ */
 
 /**
  * Scroll the terminal viewport.
@@ -3347,6 +3437,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
 GHOSTTY_API GhosttyResult ghostty_terminal_scroll_viewport(
     GhosttyTerminal terminal,
     GhosttyTerminalScrollViewport behavior);
+
+/** @} */
+
+/** @name Compression
+ * @{
+ */
 
 /**
  * Return the current compression activity token.
@@ -3386,7 +3482,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compression_activity(
  * Accessing compressed history restores it transparently.
  *
  * This function is not thread-safe with other operations on the same
- * terminal. The caller must serialize it with writes, rendering, searches,
+ * terminal. You must serialize it with writes, rendering, searches,
  * and other terminal access.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
@@ -3401,6 +3497,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_compress(
     GhosttyTerminal terminal,
     GhosttyTerminalCompressionMode mode,
     GhosttyTerminalCompressionResult* out_result);
+
+/** @} */
+
+/** @name Data
+ * @{
+ */
 
 /**
  * Get data from a terminal instance.
@@ -3460,6 +3562,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_get_multi(GhosttyTerminal terminal,
                                     const GhosttyTerminalData* keys,
                                     void** values,
                                     size_t* out_written);
+
+/** @} */
+
+/** @name Grid Access
+ * @{
+ */
 
 /**
  * Resolve a point in the terminal grid to a grid reference.
@@ -3555,6 +3663,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_point_from_grid_ref(
     const GhosttyGridRef *ref,
     GhosttyPointTag tag,
     GhosttyPointCoordinate *out);
+
+/** @} */
 
 /** @} */
 

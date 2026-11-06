@@ -14,12 +14,21 @@
 
 /** @addtogroup allocator
  *
- * Control how libghostty-vt allocates memory.
+ * An allocator is the set of functions libghostty-vt calls to get and free
+ * memory.
  *
  * Most programs never need this. Any function that takes a
  * `const GhosttyAllocator*` accepts NULL, which selects the default
- * allocator. See @ref memory for what the default is, how to write your
- * own allocator, and how to free memory the library gives you.
+ * allocator. You only need your own to run the library on memory you control.
+ *
+ * ## Example
+ *
+ * @snippet c-vt-allocator/src/main.c allocator-use
+ *
+ * Full program: @ref c-vt-allocator/src/main.c
+ *
+ * See @ref memory for what the default is, how to write your own allocator,
+ * and how to free memory the library gives you.
  *
  * @{
  */
@@ -149,8 +158,6 @@ typedef struct {
  * or pass NULL to use the default allocator described in @ref memory-default.
  * The library does not copy the allocator. It must stay valid for as long
  * as anything allocated with it is in use.
- *
- * @snippet c-vt-allocator/src/main.c allocator-use
  *
  * @ingroup allocator
  */

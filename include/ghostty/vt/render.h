@@ -26,12 +26,17 @@ extern "C" {
  * during an update, so everything after that can happen while the terminal
  * keeps working.
  *
+ * Use this when you draw the terminal yourself.
+ *
+ * ## Example
+ *
+ * @snippet c-vt-render/src/main.c render-state-update
+ *
+ * Full program: @ref c-vt-render/src/main.c
+ *
  * See @ref guide-rendering for how to draw a frame, track what changed,
  * respect render holds, and use overscan and row identity. See
  * @ref guide-images for drawing images.
- *
- * ### Creating and updating render state
- * @snippet c-vt-render/src/main.c render-state-update
  *
  * @{
  */
@@ -600,6 +605,10 @@ typedef struct {
   GhosttyColorRgb palette[256];
 } GhosttyRenderStateColors;
 
+/** @name Lifecycle
+ * @{
+ */
+
 /**
  * Create a new render state instance.
  *
@@ -624,6 +633,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_new(const GhosttyAllocator* alloc
  * @ingroup render
  */
 GHOSTTY_API void ghostty_render_state_free(GhosttyRenderState state);
+
+/** @} */
+
+/** @name Updating
+ * @{
+ */
 
 /**
  * Update a render state instance from a terminal.
@@ -663,7 +678,7 @@ GHOSTTY_API GhosttyResult ghostty_render_state_update(GhosttyRenderState state,
  *
  * Work that doesn't require terminal access may be deferred to the end phase
  * to keep this call (and therefore lock hold time) as short as possible.
- * Callers must treat the render state as incomplete until
+ * You must treat the render state as incomplete until
  * ghostty_render_state_end_update is called.
  *
  * This consumes terminal/screen dirty state in the same way as the internal
@@ -712,6 +727,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_end_update(GhosttyRenderState sta
  * @ingroup render
  */
 GHOSTTY_API GhosttyResult ghostty_render_state_clean(GhosttyRenderState state);
+
+/** @} */
+
+/** @name Reading State
+ * @{
+ */
 
 /**
  * Get a value from a render state.
@@ -802,6 +823,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_get_multi(
 GHOSTTY_API GhosttyResult ghostty_render_state_set(GhosttyRenderState state,
                                        GhosttyRenderStateOption option,
                                        const void* value);
+
+/** @} */
+
+/** @name Rows
+ * @{
+ */
 
 /**
  * Create a new row iterator instance.
@@ -960,26 +987,7 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_set(
     GhosttyRenderStateRowOption option,
     const void* value);
 
-/**
- * Create a new row cells instance.
- *
- * All fields except the allocator are left undefined until populated
- * via ghostty_render_state_row_get() with
- * GHOSTTY_RENDER_STATE_ROW_DATA_CELLS.
- *
- * You can reuse this value repeatedly with ghostty_render_state_row_get() to 
- * avoid allocating a new cells container for every row.
- *
- * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param[out] out_cells On success, receives the created row cells handle
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
- *
- * @ingroup render
- */
-GHOSTTY_API GhosttyResult ghostty_render_state_row_cells_new(
-    const GhosttyAllocator* allocator,
-    GhosttyRenderStateRowCells* out_cells);
+/** @} */
 
 /**
  * Queryable data kinds for ghostty_render_state_row_cells_get().
@@ -1027,22 +1035,22 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *  Flattens the three possible sources: content-tag bg_color_rgb,
    *  content-tag bg_color_palette (looked up in the palette), or the
    *  style's bg_color. Returns GHOSTTY_INVALID_VALUE if the cell has
-   *  no background color, in which case the caller should use whatever
+   *  no background color, in which case you should use whatever
    *  default background color it wants (e.g. the terminal background). */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR = 5,
 
   /** The resolved foreground color of the cell (GhosttyColorRgb).
    *  Resolves palette indices through the palette. Bold color handling
-   *  is not applied; the caller should handle bold styling separately.
+   *  is not applied; you should handle bold styling separately.
    *  Returns GHOSTTY_INVALID_VALUE if the cell has no explicit foreground
-   *  color, in which case the caller should use whatever default foreground
+   *  color, in which case you should use whatever default foreground
    *  color it wants (e.g. the terminal foreground). */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR = 6,
 
   /** Whether the cell is contained within the current selection (bool).
    *  This returns true when the cell's column is within the current row's
    *  row-local selection range, and false otherwise. Rendering policy for
-   *  selected cells (colors, inversion, etc.) is left to the caller.
+   *  selected cells (colors, inversion, etc.) is left to you.
    *
    *  Renderers that can draw cells in spans may be more efficient querying
    *  GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION once per row and applying that
@@ -1070,6 +1078,31 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8 = 9,
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyRenderStateRowCellsData;
+
+/** @name Cells
+ * @{
+ */
+
+/**
+ * Create a new row cells instance.
+ *
+ * All fields except the allocator are left undefined until populated
+ * via ghostty_render_state_row_get() with
+ * GHOSTTY_RENDER_STATE_ROW_DATA_CELLS.
+ *
+ * You can reuse this value repeatedly with ghostty_render_state_row_get() to 
+ * avoid allocating a new cells container for every row.
+ *
+ * @param allocator Pointer to allocator, or NULL to use the default allocator
+ * @param[out] out_cells On success, receives the created row cells handle
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
+ *         failure
+ *
+ * @ingroup render
+ */
+GHOSTTY_API GhosttyResult ghostty_render_state_row_cells_new(
+    const GhosttyAllocator* allocator,
+    GhosttyRenderStateRowCells* out_cells);
 
 /**
  * Move a render-state row cells iterator to the next cell.
@@ -1169,6 +1202,12 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_cells_get_multi(
  * @ingroup render
  */
 GHOSTTY_API void ghostty_render_state_row_cells_free(GhosttyRenderStateRowCells cells);
+
+/** @} */
+
+/** @name Images
+ * @{
+ */
 
 /**
  * Create a new image iterator.
@@ -1282,6 +1321,8 @@ GHOSTTY_API GhosttyResult ghostty_render_state_image_get_multi(
     const GhosttyRenderStateImageData* keys,
     void** values,
     size_t* out_written);
+
+/** @} */
 
 /** @} */
 

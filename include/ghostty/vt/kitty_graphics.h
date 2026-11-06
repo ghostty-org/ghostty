@@ -21,19 +21,21 @@ extern "C" {
 
 /** @addtogroup kitty_graphics
  *
- * API for the images that programs send with the
+ * GhosttyKittyGraphics is a handle to the image storage of the active screen,
+ * where the terminal keeps every image a program sends with the
  * [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
  *
- * The terminal keeps every image a program sends in an image storage, and
- * @ref GhosttyKittyGraphics is a handle to the storage of the active
- * screen. Use it to read pixels, play animations, and inspect what the
- * storage holds. It doesn't tell you where to draw. The render state does
- * that.
+ * Read it from a terminal with #GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS. Use it to
+ * read pixels, play animations, and inspect what the storage holds. It doesn't
+ * tell you where to draw. The render state does that.
+ *
+ * ## Example
+ *
+ * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-animation-tick
+ *
+ * Full program: @ref c-vt-kitty-graphics/src/main.c
  *
  * See @ref guide-images for how to set up, decode PNGs, and draw images.
- *
- * ### Playing animations
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-animation-tick
  *
  * @{
  */
@@ -453,6 +455,10 @@ typedef struct {
   uint32_t source_height;
 } GhosttyKittyGraphicsPlacementRenderInfo;
 
+/** @name Storage
+ * @{
+ */
+
 /**
  * Get data from a kitty graphics storage instance.
  *
@@ -517,6 +523,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_animation_tick(
     GhosttyKittyGraphics graphics,
     uint64_t now_ms,
     uint64_t* next_ms);
+
+/** @} */
+
+/** @name Images
+ * @{
+ */
 
 /**
  * Look up a Kitty graphics image by its image ID.
@@ -591,6 +603,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_image_get_multi(
     const GhosttyKittyGraphicsImageData* keys,
     void** values,
     size_t* out_written);
+
+/** @} */
+
+/** @name Placements
+ * @{
+ */
 
 /**
  * Create a new placement iterator instance.
@@ -716,6 +734,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_get_multi(
     const GhosttyKittyGraphicsPlacementData* keys,
     void** values,
     size_t* out_written);
+
+/** @} */
+
+/** @name Placement Geometry
+ * @{
+ */
 
 /**
  * Compute the grid rectangle occupied by the current placement.
@@ -892,6 +916,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_render_info(
     GhosttyKittyGraphicsImage image,
     GhosttyTerminal terminal,
     GhosttyKittyGraphicsPlacementRenderInfo* out_info);
+
+/** @} */
 
 /** @} */
 

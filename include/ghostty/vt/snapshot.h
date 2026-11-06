@@ -22,13 +22,20 @@ extern "C" {
 
 /** @addtogroup snapshot
  *
- * Encode and restore the complete state of a terminal via a binary format. The
- * @ref guide-snapshots "Snapshots guide" covers encoding, restoring in one call
- * or in pieces, and the format.
+ * Encode and restore the complete state of a terminal via a binary format.
+ *
+ * Use this to save a terminal and bring it back later. If the input can stop
+ * partway through a sequence, turn on
+ * #GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES before you write it.
  *
  * ## Example
  *
  * @snippet c-vt-snapshot/src/main.c snapshot-decode
+ *
+ * Full program: @ref c-vt-snapshot/src/main.c
+ *
+ * The @ref guide-snapshots "Snapshots guide" covers encoding, restoring in one
+ * call or in pieces, and the format.
  *
  * @{
  */
@@ -384,7 +391,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Encode a complete terminal snapshot to a writer.
  *
  * The terminal's persistent VT stream supplies the continuation bytes needed
- * to reconstruct unfinished parser state. The caller must prevent concurrent
+ * to reconstruct unfinished parser state. You must prevent concurrent
  * writes or other terminal mutation for the duration of this call. The writer
  * callback must not call terminal APIs with the same terminal handle.
  * A terminal can be encoded with tracking disabled when its VT parser and
@@ -395,7 +402,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Encoding begins at the writer's current position. If an error occurs, the
  * writer may contain a partial snapshot without a valid FINISH marker.
  * Calls to the writer are synchronous; this function does not flush or make
- * the caller's destination durable.
+ * your destination durable.
  *
  * @param terminal Terminal to encode (must not be NULL)
  * @param writer Destination writer whose write callback must not be NULL
@@ -441,7 +448,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_encode_buf(
  * Encode a complete terminal snapshot to an allocated buffer.
  *
  * The returned buffer is allocated with allocator, or the default allocator
- * when allocator is NULL. The caller must release it with ghostty_free(),
+ * when allocator is NULL. You must release it with ghostty_free(),
  * passing the same allocator used here.
  *
  * A terminal can be encoded with tracking disabled when its VT parser and
@@ -515,7 +522,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_new_buf(
 /**
  * Free a snapshot decoder.
  *
- * This does not release the caller's ownership of a terminal returned by
+ * This does not release your ownership of a terminal returned by
  * ready or decode. Abandoning an incremental decode leaves that terminal
  * usable with whatever history had already been restored.
  *
@@ -579,7 +586,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_set(
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and before
  * writing any post-snapshot bytes, because later input may change it.
  *
- * The caller must keep the returned terminal alive until FINISH validates or
+ * You must keep the returned terminal alive until FINISH validates or
  * the decoder is freed. The decoder borrows this terminal handle while it
  * restores history; ghostty_snapshot_decoder_next() uses it automatically.
  *
@@ -653,7 +660,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_ready(
  * validated and progress reports zero rows. Image pixels work the same way:
  * if live input deleted the image, or sent a new image with the same ID, the
  * pixels are consumed and validated and progress reports zero bytes. The
- * decoder applies history and pixels to the caller-owned terminal produced
+ * decoder applies history and pixels to your terminal produced
  * by its READY operation.
  *
  * If GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY is true, the page is

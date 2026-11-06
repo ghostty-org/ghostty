@@ -10,12 +10,19 @@
 /** @addtogroup mouse
  *
  * Encode mouse events into terminal escape sequences, in the X10, UTF-8, SGR,
- * URxvt, and SGR-Pixels formats. An encoder has to follow the terminal's
- * modes, which the @ref guide-input "Input guide" explains.
+ * URxvt, and SGR-Pixels formats.
+ *
+ * An encoder has to follow the terminal's modes. If you have a terminal, call
+ * ghostty_mouse_encoder_set_from_terminal() before you encode.
  *
  * ## Example
  *
  * @snippet c-vt-encode-mouse/src/main.c mouse-encode
+ *
+ * Full program: @ref c-vt-encode-mouse/src/main.c
+ *
+ * The @ref guide-input "Input guide" explains which modes matter and when to
+ * sync them.
  *
  * @{
  */

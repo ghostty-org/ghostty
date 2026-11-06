@@ -164,7 +164,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
     GHOSTTY_LIMIT_EXCEEDED = -6,
     /**
      * Operation was rejected by a safety check (e.g. pasted text that could
-     * inject commands). Nothing was done. Confirm with the user and retry
+     * inject commands). Nothing was done. Confirm with the person using your terminal and retry
      * with the operation's allow flag set.
      */
     GHOSTTY_REJECTED = -7,
@@ -205,7 +205,7 @@ typedef struct GhosttySnapshotDecoderImpl* GhosttySnapshotDecoder;
 /**
  * Opaque handle to a tracked grid reference.
  *
- * A tracked grid reference is owned by the caller and must be freed with
+ * A tracked grid reference is owned by you and must be freed with
  * ghostty_tracked_grid_ref_free(). If the terminal that created it is freed
  * first, the handle remains valid only for tracked-grid-ref APIs: it reports no
  * value and can still be freed.
@@ -533,7 +533,7 @@ typedef struct {
  * Sized structs use a `size` field as the first member for ABI
  * compatibility. This macro zero-initializes the struct and sets the
  * size field to `sizeof(type)`, which allows the library to detect
- * which version of the struct the caller was compiled against.
+ * which version of the struct you compiled against.
  *
  * @param type The struct type to initialize
  * @return A zero-initialized struct with the size field set

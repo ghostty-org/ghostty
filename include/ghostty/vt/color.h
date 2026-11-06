@@ -9,22 +9,24 @@
 
 /** @addtogroup color
  *
- * Color parsing, palette generation, color math, and X11 color name
- * utilities shared by libghostty-vt.
+ * These are Ghostty's own color rules, so you don't have to write them again:
+ * the color strings its config and theme files accept, the 256-color palette
+ * the terminal uses, and the X11 color names.
  *
- * These APIs expose Ghostty's color semantics directly to embedders. Use
- * them when an application needs to parse the same color strings as Ghostty
- * config and theme files, generate the same 256-color palette used by the
- * terminal, list supported X11 color names, or make UI decisions from
- * luminance and contrast values.
+ * Use them when your application has to agree with Ghostty about what a color
+ * means, or to make UI decisions from luminance and contrast values. You don't
+ * need a terminal.
  *
- * See the @ref guide-colors "Colors guide" for parsing, palettes, and how a
- * terminal's colors work.
+ * ## Example
  *
  * @code{.c}
  * GhosttyColorRgb color;
  * ghostty_color_parse("#abc", sizeof("#abc") - 1, &color);
  * @endcode
+ *
+ * See the @ref guide-colors "Colors guide" for parsing, palettes, and how a
+ * terminal's colors work. @ref c-vt-colors/src/main.c "c-vt-colors" sets a
+ * terminal's colors with these types.
  *
  * @{
  */

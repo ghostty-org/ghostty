@@ -10,12 +10,18 @@
 /** @addtogroup focus
  *
  * Encode focus gained and lost events into terminal escape sequences
- * (CSI I / CSI O) for focus reporting mode (mode 1004). See the
- * @ref guide-input "Input guide".
+ * (CSI I / CSI O) for focus reporting mode (mode 1004).
+ *
+ * Only send these to a program that turned that mode on. There's no encoder to
+ * create, and you don't need a terminal to encode one.
  *
  * ## Example
  *
  * @snippet c-vt-encode-focus/src/main.c focus-encode
+ *
+ * Full program: @ref c-vt-encode-focus/src/main.c
+ *
+ * See the @ref guide-input "Input guide".
  *
  * @{
  */

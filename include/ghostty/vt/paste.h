@@ -10,12 +10,20 @@
 /** @addtogroup paste
  *
  * Paste into a terminal with ghostty_terminal_paste(), or validate and encode
- * paste data without one. The @ref guide-input "Input guide" covers what a
- * paste writes and how unsafe pastes are refused.
+ * paste data without one.
+ *
+ * What a paste writes depends on the terminal's modes, and
+ * ghostty_terminal_paste() reads them itself. If you have a terminal, that's
+ * the function you want.
  *
  * ## Example
  *
  * @snippet c-vt-paste/src/main.c terminal-paste
+ *
+ * Full program: @ref c-vt-paste/src/main.c
+ *
+ * The @ref guide-input "Input guide" covers what a paste writes and how unsafe
+ * pastes are refused.
  *
  * @{
  */
@@ -100,7 +108,7 @@ typedef struct {
 
   /**
    * Write text that could inject commands. Call with false, confirm
-   * with the user on GHOSTTY_REJECTED, and call again with true.
+   * with the person using your terminal on GHOSTTY_REJECTED, and call again with true.
    */
   bool allow_unsafe;
 } GhosttyPaste;
@@ -111,7 +119,7 @@ typedef struct {
  * clipboard_read callback is installed, otherwise the text framed per
  * mode 2004. See @ref guide-input-paste for the full behavior. Output
  * streams through the write_pty callback in chunks. The viewport is not
- * scrolled; that is up to the embedder, as for key input.
+ * scrolled; that is up to you, as for key input.
  *
  * A paste event records a session grant for its one-time password only
  * once the event is written; a failed call never leaves a grant for an
