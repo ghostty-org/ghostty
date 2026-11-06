@@ -1,0 +1,219 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+usage() {
+    cat <<'EOF'
+Usage: omg-vm COMMAND
+
+Commands:
+  up                 Start the retained VM headless and wait for its GUI session
+  status             Show Tart state and guest IP
+  deploy [APP]       Deploy this checkout's Debug OMG.app to the guest
+  run                Launch OMG Dev in the guest Aqua session
+  shot [OUTPUT.png]  Capture the guest display without opening a host window
+  provision          Grant the guest Accessibility/ScreenCapture/Automation for smoke tests
+  smoke [OUTPUT.png] Run the guest keyboard/PTY/screenshot smoke check
+  logs               Show the Tart and OMG guest logs
+  down               Shut the guest down gracefully while retaining its disk
+
+Environment:
+  OMG_VM_NAME        Tart VM name (default: omg-test)
+  OMG_VM_USER        Guest user (default: admin)
+  OMG_VM_APP         Debug app path (default: macos/build/Debug/OMG.app)
+  OMG_VM_STATE       Host key/log directory (default: ~/.local/share/omg-vm)
+EOF
+}
+
+vm_up() {
+    local state attempt
+    state="$(omg_vm_state)"
+    [[ -n "$state" ]] || omg_vm_die "VM '$OMG_VM_NAME' does not exist; see macos/VM_TESTING.md"
+
+    if [[ "$state" == suspended ]]; then
+        "$OMG_TART" stop "$OMG_VM_NAME"
+        state=stopped
+    fi
+
+    if [[ "$state" != running ]]; then
+        launchctl remove "$OMG_VM_LABEL" 2>/dev/null || true
+        : >"$OMG_VM_LOG"
+        launchctl submit -l "$OMG_VM_LABEL" \
+            -o "$OMG_VM_LOG" -e "$OMG_VM_LOG" \
+            -- "$OMG_TART" run --no-graphics "$OMG_VM_NAME"
+
+        for attempt in $(seq 1 120); do
+            state="$(omg_vm_state)"
+            [[ "$state" == running ]] && break
+            if ! launchctl print "gui/$(id -u)/$OMG_VM_LABEL" >/dev/null 2>&1; then
+                tail -20 "$OMG_VM_LOG" >&2 || true
+                omg_vm_die "Tart exited before the VM started"
+            fi
+            sleep 1
+        done
+        [[ "$state" == running ]] || omg_vm_die "timed out starting VM; see $OMG_VM_LOG"
+    fi
+
+    omg_vm_install_ssh_key
+    omg_vm_wait_for_ssh
+    omg_vm_wait_for_gui
+    printf 'VM %s is running at %s\n' "$OMG_VM_NAME" "$(omg_vm_ip)"
+}
+
+vm_status() {
+    local state
+    state="$(omg_vm_state)"
+    [[ -n "$state" ]] || omg_vm_die "VM '$OMG_VM_NAME' does not exist"
+    printf 'VM: %s\nState: %s\n' "$OMG_VM_NAME" "$state"
+    if [[ "$state" == running ]]; then
+        printf 'Guest IP: %s\n' "$(omg_vm_ip)"
+    fi
+}
+
+vm_deploy() {
+    local app ip
+    app="${1:-$OMG_VM_APP}"
+    OMG_VM_APP="$app"
+    omg_vm_require_debug_app
+    omg_vm_require_running
+
+    ip="$(omg_vm_ip)"
+    omg_vm_ssh "mkdir -p /tmp/OMG.app.stage"
+    rsync -a --delete -e "ssh ${OMG_VM_SSH_OPTS[*]}" \
+        "$OMG_VM_APP/" "$OMG_VM_USER@$ip:/tmp/OMG.app.stage/"
+    omg_vm_ssh bash -s <"$SCRIPT_DIR/guest-deploy.sh"
+}
+
+vm_run() {
+    omg_vm_require_running
+    omg_vm_ssh "test -d /Applications/OMG.app" ||
+        omg_vm_die "OMG Dev is not deployed; run deploy first"
+
+    if ! omg_vm_ssh "pgrep -x omg >/dev/null"; then
+        omg_vm_ssh "open -n /Applications/OMG.app --stdout /tmp/omg-stdout.log --stderr /tmp/omg-stderr.log"
+    fi
+
+    local attempt
+    for attempt in $(seq 1 30); do
+        if omg_vm_ssh "pgrep -x omg >/dev/null" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+    omg_vm_ssh "pgrep -x omg >/dev/null" || omg_vm_die "OMG Dev did not start; run logs"
+    omg_vm_ssh "/usr/bin/osascript -e 'tell application \"System Events\" to tell process \"omg\" to set frontmost to true'"
+    echo "OMG Dev is running in the guest"
+}
+
+vm_shot() {
+    omg_vm_require_running
+    local output guest_path
+    output="${1:-/tmp/omg-vm-$OMG_VM_NAME-$(date +%Y%m%d-%H%M%S).png}"
+    mkdir -p "$(dirname "$output")"
+    guest_path="/tmp/omg-vm-shot-$$.png"
+    omg_vm_gui /usr/sbin/screencapture -x "$guest_path"
+    local ip
+    ip="$(omg_vm_ip)"
+    omg_vm_scp_from "$ip" "$guest_path" "$output"
+    omg_vm_ssh "rm -f '$guest_path'"
+    [[ -s "$output" ]] || omg_vm_die "guest screenshot was not created"
+    printf '%s\n' "$output"
+}
+
+vm_provision() {
+    omg_vm_require_running
+    omg_vm_ssh "test -d /Applications/OMG.app" ||
+        omg_vm_die "OMG Dev is not deployed; run deploy first"
+    omg_vm_ssh bash -s <"$SCRIPT_DIR/guest-provision.sh"
+}
+
+vm_smoke() {
+    omg_vm_require_running
+    vm_run
+    local token output result
+    token="$(date +%s)-$$"
+    result="$(omg_vm_ssh bash -s -- "$token" <"$SCRIPT_DIR/guest-smoke.sh")"
+    [[ "$result" == "OMG_VM_SMOKE_$token" ]] ||
+        omg_vm_die "unexpected guest smoke result: $result"
+
+    output="${1:-/tmp/omg-vm-smoke-$OMG_VM_NAME-$token.png}"
+    vm_shot "$output" >/dev/null
+    printf 'Guest shell round-trip passed: %s\nScreenshot: %s\n' "$result" "$output"
+}
+
+vm_logs() {
+    omg_vm_require_running
+    printf '%s\n' "-- Tart log: $OMG_VM_LOG"
+    tail -40 "$OMG_VM_LOG" 2>/dev/null || true
+    printf '%s\n' "-- OMG guest logs"
+    omg_vm_ssh "for f in /tmp/omg-stdout.log /tmp/omg-stderr.log; do if [ -f \"\$f\" ]; then echo \"--- \$f\"; tail -40 \"\$f\"; fi; done"
+}
+
+vm_down() {
+    local state attempt offset pid
+    state="$(omg_vm_state)"
+    if [[ "$state" == suspended ]]; then
+        "$OMG_TART" stop "$OMG_VM_NAME"
+        launchctl remove "$OMG_VM_LABEL" 2>/dev/null || true
+        printf 'VM %s cold-stopped; its disk remains in Tart storage\n' "$OMG_VM_NAME"
+        return 0
+    fi
+    if [[ "$state" != running ]]; then
+        launchctl remove "$OMG_VM_LABEL" 2>/dev/null || true
+        printf 'VM %s is already %s\n' "$OMG_VM_NAME" "${state:-unknown}"
+        return 0
+    fi
+
+    offset="$(omg_vm_log_lines)"
+
+    # Ask the guest to halt itself. SSH exits non-zero because the connection
+    # drops while the guest shuts down, so the exit status is not meaningful.
+    omg_vm_ssh "sudo -n /sbin/shutdown -h now" >/dev/null 2>&1 || true
+
+    for attempt in $(seq 1 45); do
+        omg_vm_guest_halted_since "$offset" && break
+        sleep 1
+    done
+
+    if ! omg_vm_guest_halted_since "$offset"; then
+        printf 'Guest did not halt within 45s; forcing %s to stop\n' "$OMG_VM_NAME" >&2
+        "$OMG_TART" stop --timeout 15 "$OMG_VM_NAME" >/dev/null 2>&1 || true
+    fi
+
+    launchctl remove "$OMG_VM_LABEL" 2>/dev/null || true
+
+    for attempt in $(seq 1 15); do
+        state="$(omg_vm_state)"
+        [[ "$state" == stopped ]] && break
+        sleep 1
+    done
+
+    if [[ "$state" != stopped ]]; then
+        pid="$(omg_vm_runner_pid)"
+        if [[ -n "$pid" ]]; then
+            kill "$pid" 2>/dev/null || true
+            sleep 3
+            state="$(omg_vm_state)"
+        fi
+    fi
+
+    [[ "$state" == stopped ]] || omg_vm_die "VM '$OMG_VM_NAME' did not stop"
+    printf 'VM %s shut down; its disk remains in Tart storage\n' "$OMG_VM_NAME"
+}
+
+case "${1:-}" in
+    up) shift; [[ $# -eq 0 ]] || omg_vm_die "up takes no arguments"; vm_up ;;
+    status) shift; [[ $# -eq 0 ]] || omg_vm_die "status takes no arguments"; vm_status ;;
+    deploy) shift; [[ $# -le 1 ]] || omg_vm_die "deploy accepts at most one app path"; vm_deploy "${1:-$OMG_VM_APP}" ;;
+    run) shift; [[ $# -eq 0 ]] || omg_vm_die "run takes no arguments"; vm_run ;;
+    shot) shift; [[ $# -le 1 ]] || omg_vm_die "shot accepts at most one output path"; vm_shot "${1:-}" ;;
+    provision) shift; [[ $# -eq 0 ]] || omg_vm_die "provision takes no arguments"; vm_provision ;;
+    smoke) shift; [[ $# -le 1 ]] || omg_vm_die "smoke accepts at most one output path"; vm_smoke "${1:-}" ;;
+    logs) shift; [[ $# -eq 0 ]] || omg_vm_die "logs takes no arguments"; vm_logs ;;
+    down) shift; [[ $# -eq 0 ]] || omg_vm_die "down takes no arguments"; vm_down ;;
+    -h|--help|help|"") usage ;;
+    *) omg_vm_die "unknown command: $1 (see --help)" ;;
+esac

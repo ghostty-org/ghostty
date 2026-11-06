@@ -208,3 +208,11 @@ python3 -m unittest discover -s dist -p 'test_omg_keychain.py'
 Full TCC permission-upgrade experiments are not a prerequisite for this policy;
 report them NOT RUN if omitted. See
 [RELEASING.md](RELEASING.md).
+
+## Isolated GUI runs
+
+To smoke-test a Debug build without taking over the host desktop, use the
+retained Tart VM described in [macos/VM_TESTING.md](../macos/VM_TESTING.md). It
+covers Debug deployment, GUI launch, keyboard input, PTY shell behavior and
+guest screenshots. Real drag, native fullscreen, multi-display behavior and
+frame-rate or latency measurements still require a host desktop run.
