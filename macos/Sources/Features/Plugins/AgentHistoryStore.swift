@@ -723,7 +723,7 @@ enum AgentHistoryStore {
 
         mutating func append(_ record: [String: Any]) -> Bool {
             guard let role = AgentHistoryStore.role(of: record),
-                  let cleaned = AgentHistoryStore.text(of: record),
+                  let cleaned = AgentHistoryStore.text(of: record, keepingUserPastes: true),
                   !cleaned.isEmpty, cleaned != "[Image/Attachment]" else { return true }
             let payload = record["payload"] as? [String: Any]
             let metadata = payload?["internal_chat_message_metadata_passthrough"] as? [String: Any]
@@ -1181,26 +1181,44 @@ enum AgentHistoryStore {
     }
 
     nonisolated private static func text(of record: [String: Any]) -> String? {
+        text(of: record, keepingUserPastes: false)
+    }
+
+    /// - Parameter keepingUserPastes: Keeps the body of a `<pasted_content>`
+    ///   wrapper. Transcripts show what the user actually pasted, while titles
+    ///   and previews drop the wrapper so the surrounding request surfaces.
+    nonisolated private static func text(
+        of record: [String: Any], keepingUserPastes: Bool
+    ) -> String? {
         let filterInjected = role(of: record) == .user
         if let message = record["message"] as? [String: Any],
-           let text = text(from: message["content"], filterInjected: filterInjected) {
+           let text = text(from: message["content"], filterInjected: filterInjected,
+                           keepingUserPastes: keepingUserPastes) {
             return text
         }
         if let payload = record["payload"] as? [String: Any],
-           let text = text(from: payload["content"], filterInjected: filterInjected) {
+           let text = text(from: payload["content"], filterInjected: filterInjected,
+                           keepingUserPastes: keepingUserPastes) {
             return text
         }
-        if let text = text(from: record["content"], filterInjected: filterInjected) { return text }
+        if let text = text(from: record["content"], filterInjected: filterInjected,
+                           keepingUserPastes: keepingUserPastes) {
+            return text
+        }
         if let humanInput = record["humanInput"] as? [String: Any],
            let text = humanInput["text"] as? String {
-            return cleanMeaningfulText(text)
+            return cleanMeaningfulText(text, keepingUserPastes: keepingUserPastes)
         }
         return nil
     }
 
-    nonisolated private static func text(from value: Any?, filterInjected: Bool) -> String? {
+    nonisolated private static func text(
+        from value: Any?, filterInjected: Bool, keepingUserPastes: Bool
+    ) -> String? {
         func cleaned(_ value: String) -> String {
-            filterInjected ? cleanMeaningfulText(value) : value.trimmingCharacters(in: .whitespacesAndNewlines)
+            filterInjected
+                ? cleanMeaningfulText(value, keepingUserPastes: keepingUserPastes)
+                : value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let value = value as? String { return cleaned(value) }
         guard let values = value as? [Any] else { return nil }
@@ -1288,18 +1306,93 @@ enum AgentHistoryStore {
         return value
     }
 
+    /// Wrapper names that agents inject into user content blocks.
+    nonisolated private static let injectedWrapperNames: Set<String> = [
+        "local-command-caveat", "command-name", "command-message", "command-args",
+        "local-command-stdout", "system-reminder", "external_codex_apps_open_page",
+        "recommended_plugins", "environment_context", "instructions", "pasted_content",
+        "skills_instructions", "model_switch", "codex_apps_client_time_context",
+        "task-notification",
+    ]
+
+    /// Wrapper families whose tag name carries a generated suffix.
+    nonisolated private static let injectedWrapperPrefixes: [String] = [
+        "external_codex_apps_selected_page_part",
+    ]
+
+    /// A leading injected wrapper and the tags that delimit it.
+    nonisolated private struct InjectedWrapper {
+        let name: String
+        let opening: Range<String.Index>
+        let closing: Range<String.Index>?
+
+        var isUserPaste: Bool { name == "pasted_content" }
+    }
+
+    /// Finds the injected wrapper that starts a user content block, if any.
+    nonisolated private static func leadingInjectedWrapper(
+        in text: String
+    ) -> InjectedWrapper? {
+        guard text.hasPrefix("<"), let openEnd = text.range(of: ">") else { return nil }
+        let opening = text[text.index(after: text.startIndex)..<openEnd.lowerBound]
+        let name = opening.prefix { !$0.isWhitespace && $0 != "/" }
+        guard !name.isEmpty, isInjectedWrapper(String(name)) else { return nil }
+        let openingRange = text.startIndex..<openEnd.upperBound
+        guard let match = text[openEnd.upperBound...].range(of: "</\(name)", options: .caseInsensitive),
+              let closingEnd = closingTagEnd(in: text, after: match.upperBound) else {
+            return .init(name: String(name), opening: openingRange, closing: nil)
+        }
+        return .init(name: String(name), opening: openingRange,
+                     closing: match.lowerBound..<closingEnd)
+    }
+
+    /// Confirms that a closing match is the wrapper itself, not a longer name,
+    /// and returns the index just after its `>`.
+    nonisolated private static func closingTagEnd(
+        in text: String, after index: String.Index
+    ) -> String.Index? {
+        if index < text.endIndex {
+            let character = text[index]
+            guard character == ">" || character == "/" || character.isWhitespace else {
+                return nil
+            }
+        }
+        return text.range(of: ">", range: index..<text.endIndex)?.upperBound
+    }
+
+    nonisolated private static func isInjectedWrapper(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        return injectedWrapperNames.contains(lowered) ||
+            injectedWrapperPrefixes.contains { lowered.hasPrefix($0) }
+    }
+
     nonisolated static func cleanMeaningfulText(_ raw: String) -> String {
+        cleanMeaningfulText(raw, keepingUserPastes: false)
+    }
+
+    /// Removes machine-injected wrappers from a user content block.
+    ///
+    /// Agents emit these wrappers with a fixed name, a generated suffix, or
+    /// extra attributes, so the opening and closing forms must both be matched
+    /// by name. A user's own paste keeps its body when the caller asks for it.
+    nonisolated static func cleanMeaningfulText(
+        _ raw: String, keepingUserPastes: Bool
+    ) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let injectedTags = [
-            "local-command-caveat", "command-name", "command-message", "command-args",
-            "local-command-stdout", "system-reminder", "external_codex_apps_open_page",
-            "recommended_plugins", "environment_context", "instructions",
-        ]
         // Only remove these wrappers at the beginning of a user content block.
         // Inline quotations, fenced examples and assistant answers are content.
-        while let tag = injectedTags.first(where: { text.lowercased().hasPrefix("<\($0)>") }),
-              let end = text.range(of: "</\(tag)>", options: .caseInsensitive) {
-            text = String(text[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        while let wrapper = leadingInjectedWrapper(in: text) {
+            if keepingUserPastes, wrapper.isUserPaste {
+                var pasted = text
+                if let closing = wrapper.closing {
+                    pasted.removeSubrange(closing)
+                }
+                pasted.removeSubrange(wrapper.opening)
+                text = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                continue
+            }
+            let end = wrapper.closing?.upperBound ?? wrapper.opening.upperBound
+            text = String(text[end...]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         var output: [String] = []
         var prose: [String] = []

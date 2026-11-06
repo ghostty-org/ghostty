@@ -135,6 +135,12 @@ Transcript titles, previews, searches and messages omit known injected
 instruction and local-command blocks from user content. Local-command and
 system-reminder wrappers are removed only at the start of a user content block;
 inline quotations, fenced examples and assistant answers retain their text.
+Wrapper matching is tolerant of the shapes agents actually emit: a generated
+tag suffix, extra attributes on the opening tag, and repeated attributes on the
+closing tag. Titles and previews drop the whole wrapper, so a session whose
+first user message is a machine wrapper still shows the surrounding request.
+A `<pasted_content>` block is the user's own paste: transcripts keep its body
+with the wrapper tags removed, while titles and previews omit the block.
 Codex progress messages remain visible and adjacent assistant messages from the
 same turn are combined, including interrupted turns without a final answer.
 Codex compaction summaries are identified by their response and compaction

@@ -971,6 +971,101 @@ struct AgentHistoryInspectorTests {
         }
     }
 
+    @Test func injectedWrappersWithAttributesOrSuffixesAreNotTitles() {
+        let codex = """
+        <external_codex_apps_selected_page_part_1_of_1>Companion Page snapshot part 1 of 1:
+        {"page_id":null}</external_codex_apps_selected_page_part_1_of_1>
+        """
+        #expect(AgentHistoryStore.cleanMeaningfulText(codex).isEmpty)
+
+        let claude = """
+        <pasted_content id="500e">
+        Task ID: 27149
+        Status: Failed
+        </pasted_content id="500e">
+        你看下这个任务，为什么失败了
+        """
+        let cleaned = AgentHistoryStore.cleanMeaningfulText(claude)
+        #expect(cleaned == "你看下这个任务，为什么失败了")
+        #expect(!cleaned.contains("pasted_content"))
+        #expect(!cleaned.contains("Task ID"))
+
+        // The transcript keeps what the user actually pasted.
+        let transcript = AgentHistoryStore.cleanMeaningfulText(claude, keepingUserPastes: true)
+        #expect(transcript.contains("Task ID: 27149"))
+        #expect(transcript.contains("你看下这个任务，为什么失败了"))
+        #expect(!transcript.contains("<pasted_content"))
+    }
+
+    @Test func remoteSessionTitlesSkipInjectedWrappers() async throws {
+        let codexPath = "/home/test/.codex/sessions/2026/11/06/rollout-2026-11-06T11-55-47-codex-remote.jsonl"
+        let claudePath = "/home/test/.claude/projects/-home-test-proj/claude-remote.jsonl"
+        let codexSnapshot = "<external_codex_apps_selected_page_part_1_of_1>Companion Page snapshot " +
+            "part 1 of 1:\n{\"page_id\":null}</external_codex_apps_selected_page_part_1_of_1>"
+        let codexRecords: [[String: Any]] = [
+            ["type": "session_meta", "payload": ["id": "codex-remote", "cwd": "/home/test/worktree"]],
+            ["type": "response_item", "payload": [
+                "role": "user",
+                "content": [["type": "input_text", "text": codexSnapshot]],
+            ]],
+            ["type": "response_item", "payload": [
+                "role": "user",
+                "content": [["type": "input_text", "text": "看一下这个任务"]],
+            ]],
+        ]
+        let claudePaste = """
+        <pasted_content id="500e">
+        Task ID: 27149
+        Status: Failed
+        </pasted_content id="500e">
+        你看下这个任务，为什么失败了
+        """
+        let claudeRecords: [[String: Any]] = [
+            ["type": "user", "sessionId": "claude-remote",
+                "message": ["role": "user", "content": claudePaste]],
+        ]
+
+        func batchLine(path: String, records: [[String: Any]]) throws -> String {
+            let object: [String: Any] = [
+                "path": path, "size": 1_024, "modified": 1_800_000_000.0, "records": records,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: object)
+            return String(bytes: data, encoding: .utf8) ?? ""
+        }
+
+        let batch = [
+            try batchLine(path: codexPath, records: codexRecords),
+            try batchLine(path: claudePath, records: claudeRecords),
+        ].joined(separator: "\n")
+        let access = AgentHistoryRemoteAccess(alias: "cloud") { command in
+            if command.contains("OMG_HISTORY_PY") {
+                return batch
+            }
+            if command.contains("head -c") {
+                return """
+                {"type":"session","id":"claude-remote","cwd":"/home/test/proj"}
+                {"type":"user","sessionId":"claude-remote","message":{"role":"user","content":"<pasted_content id=\\"500e\\">\\nTask ID: 27149\\n</pasted_content id=\\"500e\\">\\n你看下这个任务，为什么失败了"}}
+                """
+            }
+            return ""
+        }
+
+        let sessions = await AgentHistoryStore.loadRemote(access: access, agents: [.codex, .claude])
+        #expect(sessions.count == 2)
+        let codex = try #require(sessions.first { $0.agent == .codex })
+        #expect(codex.title == "看一下这个任务")
+        #expect(!codex.title.contains("external_codex_apps"))
+        let claude = try #require(sessions.first { $0.agent == .claude })
+        #expect(claude.title == "你看下这个任务，为什么失败了")
+        #expect(!claude.title.contains("pasted_content"))
+
+        let transcript = await AgentHistoryStore.transcript(for: claude, remoteAccess: access)
+        #expect(transcript.messages.count == 1)
+        #expect(transcript.messages[0].text.contains("Task ID: 27149"))
+        #expect(transcript.messages[0].text.contains("你看下这个任务，为什么失败了"))
+        #expect(!transcript.messages[0].text.contains("pasted_content"))
+    }
+
     @Test func remoteSessionEnumerationAndTranscript() async throws {
         let sessionFile = "/home/test/.pi/agent/sessions/--home-test-proj--/2026_remote-123.jsonl"
         let remoteListing = """
