@@ -51,7 +51,8 @@ holds prebuilt files for app developers:
 - `ghostty-vt-VERSION.wasm` and `ghostty-vt-VERSION-small.wasm`: the
   WebAssembly module, built with `ReleaseFast` and `ReleaseSmall`. See
   [WebAssembly](#webassembly).
-- `libghostty-vt-VERSION-docs.zip`: the C API reference as HTML.
+- `libghostty-vt-VERSION-docs.zip`: the C API reference as HTML. The HTML
+  reference for each release is also at <https://lib.ghostty.org/vt/X.Y.Z/>.
 
 Every file has a `.minisig` signature next to it. `SHA256SUMS` lists the
 checksums of both tarballs and the files above, and is signed too, as
