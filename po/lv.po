@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-11-01 10:35-0500\n"
-"PO-Revision-Date: 2026-08-10 17:32+0300\n"
+"PO-Revision-Date: 2026-11-06 03:31+0200\n"
 "Last-Translator: Ēriks Remess <eriks@remess.lv>\n"
 "Language-Team: Latvian\n"
 "Language: lv\n"
@@ -346,11 +346,11 @@ msgstr "Pašlaik palaistais process šajā nodalījumā tiks pārtraukts."
 
 #: src/apprt/gtk/class/command_palette.zig:693
 msgid "Untitled"
-msgstr ""
+msgstr "Bez nosaukuma"
 
 #: src/apprt/gtk/class/command_palette.zig:697
 msgid "Focus"
-msgstr ""
+msgstr "Fokusēt"
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
@@ -992,35 +992,35 @@ msgstr "Pārlādēt konfigurācijas failu."
 
 #: src/input/command.zig:607
 msgid "Switch to Configured Appearance"
-msgstr ""
+msgstr "Pārslēgties uz konfigurācijā norādīto izskatu"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
-msgstr ""
+msgstr "Izmantot konfigurācijā norādīto lietotnes izskatu."
 
 #: src/input/command.zig:612
 msgid "Switch to System Appearance"
-msgstr ""
+msgstr "Pārslēgties uz sistēmas izskatu"
 
 #: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
-msgstr ""
+msgstr "Šajā sesijā izmantot sistēmas noteikto lietotnes izskatu."
 
 #: src/input/command.zig:617
 msgid "Switch to Light Appearance"
-msgstr ""
+msgstr "Pārslēgties uz gaišo izskatu"
 
 #: src/input/command.zig:618
 msgid "Use a light application appearance for this session."
-msgstr ""
+msgstr "Šajā sesijā izmantot lietotnes gaišo izskatu."
 
 #: src/input/command.zig:622
 msgid "Switch to Dark Appearance"
-msgstr ""
+msgstr "Pārslēgties uz tumšo izskatu"
 
 #: src/input/command.zig:623
 msgid "Use a dark application appearance for this session."
-msgstr ""
+msgstr "Šajā sesijā izmantot lietotnes tumšo izskatu."
 
 #: src/input/command.zig:629
 msgid "Close Terminal"
