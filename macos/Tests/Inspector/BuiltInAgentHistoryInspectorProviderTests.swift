@@ -997,6 +997,28 @@ struct AgentHistoryInspectorTests {
         #expect(!transcript.contains("<pasted_content"))
     }
 
+    @Test func userPasteAfterATypedCharacterIsNotATitle() {
+        let dirty = """
+        ”
+
+        <pasted_content id="9f34">
+        以 Lake 26706 为例，从保存的请求反推
+        </pasted_content id="9f34">
+
+        “
+        我们有一个 lake rover 平台，帮我看下 sql 生成
+        """
+        let cleaned = AgentHistoryStore.cleanMeaningfulText(dirty)
+        #expect(cleaned == "我们有一个 lake rover 平台，帮我看下 sql 生成")
+        #expect(!cleaned.contains("pasted_content"))
+        #expect(!cleaned.contains("以 Lake 26706"))
+
+        let transcript = AgentHistoryStore.cleanMeaningfulText(dirty, keepingUserPastes: true)
+        #expect(transcript.contains("以 Lake 26706 为例"))
+        #expect(transcript.contains("我们有一个 lake rover 平台"))
+        #expect(!transcript.contains("pasted_content"))
+    }
+
     @Test func remoteSessionTitlesSkipInjectedWrappers() async throws {
         let codexPath = "/home/test/.codex/sessions/2026/11/06/rollout-2026-11-06T11-55-47-codex-remote.jsonl"
         let claudePath = "/home/test/.claude/projects/-home-test-proj/claude-remote.jsonl"

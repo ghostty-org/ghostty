@@ -1366,6 +1366,92 @@ enum AgentHistoryStore {
             injectedWrapperPrefixes.contains { lowered.hasPrefix($0) }
     }
 
+    /// Removes `<pasted_content>` wrappers wherever they appear. The user can
+    /// type a character before pasting, so the wrapper is not always at the
+    /// start of the content block.
+    nonisolated private static func removingUserPasteWrappers(
+        in text: String, keepingBody: Bool
+    ) -> String {
+        var output = ""
+        var cursor = text.startIndex
+        var searchStart = text.startIndex
+        while let opening = text.range(of: "<pasted_content", options: .caseInsensitive,
+                                      range: searchStart..<text.endIndex) {
+            guard let openEnd = text.range(of: ">", range: opening.upperBound..<text.endIndex),
+                  isWrapperTagEnd(text, after: opening.upperBound, before: openEnd.lowerBound) else {
+                searchStart = opening.upperBound
+                continue
+            }
+            guard let closing = text.range(of: "</pasted_content", options: .caseInsensitive,
+                                             range: openEnd.upperBound..<text.endIndex),
+                  let closeEnd = closingTagEnd(in: text, after: closing.upperBound) else {
+                searchStart = openEnd.upperBound
+                continue
+            }
+            var start = opening.lowerBound
+            var end = closeEnd
+            if !keepingBody {
+                // Quotes around a paste become orphans once the body is gone.
+                start = orphanQuoteStart(in: text, before: start)
+                end = orphanQuoteEnd(in: text, after: end)
+            }
+            output += text[cursor..<start]
+            if keepingBody {
+                output += text[openEnd.upperBound..<closing.lowerBound]
+            }
+            cursor = end
+            searchStart = closeEnd
+        }
+        output += text[cursor...]
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Confirms that an opening match is the paste tag itself.
+    nonisolated private static func isWrapperTagEnd(
+        _ text: String, after nameEnd: String.Index, before tagEnd: String.Index
+    ) -> Bool {
+        guard nameEnd < tagEnd else { return false }
+        let character = text[nameEnd]
+        return character == ">" || character == "/" || character.isWhitespace
+    }
+
+    /// Extends a removal backwards over whitespace and a single orphan quote.
+    nonisolated private static func orphanQuoteStart(
+        in text: String, before index: String.Index
+    ) -> String.Index {
+        var cursor = index
+        while cursor > text.startIndex {
+            let previous = text.index(before: cursor)
+            if text[previous].isWhitespace {
+                cursor = previous
+                continue
+            }
+            guard orphanQuotes.contains(text[previous]) else { break }
+            return previous
+        }
+        return index
+    }
+
+    /// Extends a removal forwards over whitespace and a single orphan quote.
+    nonisolated private static func orphanQuoteEnd(
+        in text: String, after index: String.Index
+    ) -> String.Index {
+        var cursor = index
+        while cursor < text.endIndex {
+            if text[cursor].isWhitespace {
+                cursor = text.index(after: cursor)
+                continue
+            }
+            guard orphanQuotes.contains(text[cursor]) else { break }
+            return text.index(after: cursor)
+        }
+        return index
+    }
+
+    nonisolated private static let orphanQuotes: Set<Character> = [
+        "\"", "'", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}", "`",
+    ]
+
     nonisolated static func cleanMeaningfulText(_ raw: String) -> String {
         cleanMeaningfulText(raw, keepingUserPastes: false)
     }
@@ -1382,18 +1468,13 @@ enum AgentHistoryStore {
         // Only remove these wrappers at the beginning of a user content block.
         // Inline quotations, fenced examples and assistant answers are content.
         while let wrapper = leadingInjectedWrapper(in: text) {
-            if keepingUserPastes, wrapper.isUserPaste {
-                var pasted = text
-                if let closing = wrapper.closing {
-                    pasted.removeSubrange(closing)
-                }
-                pasted.removeSubrange(wrapper.opening)
-                text = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                continue
-            }
+            // A paste is handled below so its body and the quotes around it
+            // stay consistent wherever the wrapper appears.
+            if wrapper.isUserPaste { break }
             let end = wrapper.closing?.upperBound ?? wrapper.opening.upperBound
             text = String(text[end...]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        text = removingUserPasteWrappers(in: text, keepingBody: keepingUserPastes)
         var output: [String] = []
         var prose: [String] = []
         var fence: String?
