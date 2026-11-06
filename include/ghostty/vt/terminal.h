@@ -1897,7 +1897,7 @@ typedef void (*GhosttyTerminalTitleChangedFn)(GhosttyTerminal terminal,
  * what to do about one.
  *
  * `held` is true when the program sets mode 2026
- * (GHOSTTY_MODE_SYNC_OUTPUT), which is the only way to start a hold today.
+ * (GHOSTTY_MODE_SYNCHRONIZED_OUTPUT), which is the only way to start a hold today.
  *
  * `held` is false when the hold ends, which happens when:
  *

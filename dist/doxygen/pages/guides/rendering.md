@@ -112,7 +112,7 @@ the last finished frame the whole time and then switch to the new one all at
 once.
 
 Today the only way to start a hold is synchronized output (DEC private mode
-2026, #GHOSTTY_MODE_SYNC_OUTPUT). The callback is named for what you should do
+2026, #GHOSTTY_MODE_SYNCHRONIZED_OUTPUT). The callback is named for what you should do
 rather than for that mode, so that other sources of holds can be added later.
 
 ghostty_render_state_update() doesn't check for any of this. It always captures
@@ -149,7 +149,7 @@ void draw(Renderer* r, GhosttyTerminal terminal) {
   // Give up on a program that holds the screen for too long.
   if (r->held && now_ms() - r->hold_started_ms >= 1000) {
     GhosttyTerminalModeConfig mode = {
-      .mode = GHOSTTY_MODE_SYNC_OUTPUT,
+      .mode = GHOSTTY_MODE_SYNCHRONIZED_OUTPUT,
       .value = false,
     };
     ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_MODE, &mode);
@@ -168,7 +168,7 @@ screen forever. One second is a common limit. When it expires, reset the mode
 yourself and go back to updating normally. Setting the mode again during a hold
 does nothing, so a program can't keep pushing your deadline back.
 
-Why a callback? You could check #GHOSTTY_MODE_SYNC_OUTPUT before each draw and
+Why a callback? You could check #GHOSTTY_MODE_SYNCHRONIZED_OUTPUT before each draw and
 skip the update when it's set. That's simpler, but it has two problems. First,
 the frame left on screen is whatever you happened to draw last, which can be
 older than what the program intended or even half-drawn. Second, if the program
