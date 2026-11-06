@@ -40,6 +40,11 @@ singletons use this launch marker to avoid user catalog/checkpoint reads or writ
 before XCTest classes have loaded. Persistence fixtures explicitly use temporary
 paths; test-like names in a user's catalog are not automatically deleted.
 
+Synthetic key-window hover fixtures use a fixture-owned notification center in
+`NativeTableHover`, so real focus changes from other test windows cannot clear
+a simulated pointer. Production defaults to the system notification center;
+real pointer routing remains covered by the interactive desktop tier.
+
 Synthetic native fullscreen and close notifications must use a fixture-owned
 `NotificationCenter`, injected into `TerminalWorkspaceNativeAdapter`. Posting
 these system notifications through `.default` also reaches AppKit observers:

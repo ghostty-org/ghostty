@@ -30,7 +30,10 @@ struct NativeHoverRoutingTests {
     }
 
     private final class Table: NSTableView, NSTableViewDataSource, NSTableViewDelegate {
-        private lazy var hover = NativeTableHover(table: self)
+        // The fixture's key-window and pointer state are synthetic. Real focus
+        // notifications from other suites must not override that test state.
+        let windowNotifications = NotificationCenter()
+        private lazy var hover = NativeTableHover(table: self, windowNotifications: windowNotifications)
         var rows: [Row] = []
 
         override func updateTrackingAreas() {
@@ -187,6 +190,8 @@ struct NativeHoverRoutingTests {
         #expect(hoveredRows == [stationaryRow])
         #expect(!newlyHovered.close.isHidden)
         #expect(table.selectedRow == -1)
+        table.windowNotifications.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(!newlyHovered.isHovered)
         let exit = try event(.mouseExited, at: center, window: window, index: 2)
         #expect(NSApp.sendAction(#selector(NSResponder.mouseExited(with:)), to: owner, from: exit))
         clip.scroll(to: .zero)

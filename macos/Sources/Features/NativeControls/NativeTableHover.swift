@@ -9,19 +9,21 @@ final class NativeTableHover: NSObject {
     private weak var observedWindow: NSWindow?
     private var clipObservation: NSObjectProtocol?
     private var windowObservations: [NSObjectProtocol] = []
+    private let windowNotifications: NotificationCenter
     private var pointerInside = false
     private var refreshPending = false
     private var validateWindowPending = false
     private var generation: UInt64 = 0
 
-    init(table: NSTableView) {
+    init(table: NSTableView, windowNotifications: NotificationCenter = .default) {
         self.table = table
+        self.windowNotifications = windowNotifications
         super.init()
     }
 
     deinit {
         if let clipObservation { NotificationCenter.default.removeObserver(clipObservation) }
-        windowObservations.forEach(NotificationCenter.default.removeObserver)
+        windowObservations.forEach(windowNotifications.removeObserver)
     }
 
     func update() {
@@ -33,7 +35,7 @@ final class NativeTableHover: NSObject {
             clear()
             if let clipObservation { NotificationCenter.default.removeObserver(clipObservation) }
             clipObservation = nil
-            windowObservations.forEach(NotificationCenter.default.removeObserver)
+            windowObservations.forEach(windowNotifications.removeObserver)
             windowObservations.removeAll()
             observedWindow = window
             observedClip = clip
@@ -47,7 +49,7 @@ final class NativeTableHover: NSObject {
             }
             if let window {
                 for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-                    windowObservations.append(NotificationCenter.default.addObserver(
+                    windowObservations.append(windowNotifications.addObserver(
                         forName: name, object: window, queue: .main
                     ) { [weak self] note in
                         MainActor.assumeIsolated {
