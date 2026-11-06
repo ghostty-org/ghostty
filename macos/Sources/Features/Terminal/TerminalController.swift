@@ -499,6 +499,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard descriptor.isValid, surfaceTree.contains(surface) else { return }
         agentResumeDescriptors[surface.id] = descriptor
         surface.agentResumeDescriptor = descriptor
+        if descriptor.scope == .local, let directory = descriptor.workingDirectory, !directory.isEmpty,
+           surface.pwd == nil || surface.pwd == "" {
+            // Direct Agent launches have no shell integration to publish an
+            // initial PWD. The resume command already establishes this CWD.
+            surface.pwd = directory
+        }
         refreshPresentedTerminalTitle()
         enableRestorationForResumableSession()
         invalidateRestorableState()
@@ -2167,8 +2173,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // a conversation that belongs to a directory other than the shell's
         // current one. Restoring in the shell directory would make the agent
         // create a brand-new conversation instead of resuming this one.
-        let workingDirectory = session.workingDirectory
-            ?? paneSessionContexts[surfaceID]?.workingDirectory
+        let paneDirectory = paneSessionContexts[surfaceID].flatMap { context -> String? in
+            if session.scope == .remote {
+                guard case .sshReady = context.state else { return nil }
+            }
+            return context.workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        let workingDirectory = session.workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
+            ?? paneDirectory ?? previous?.workingDirectory
         let sshReplay: SSHReplayDescriptor? = if session.scope == .remote,
            let context = paneSessionContexts[surfaceID] {
             switch context.state {

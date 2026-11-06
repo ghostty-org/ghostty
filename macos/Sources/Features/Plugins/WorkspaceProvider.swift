@@ -210,7 +210,7 @@ struct PaneSessionContext: Equatable, Sendable {
             staleRemoteTerminalTitle != terminalTitle
         if acceptsTitle { staleRemoteTerminalTitle = nil }
         let next = Local(
-            workingDirectory: workingDirectory ?? local.workingDirectory,
+            workingDirectory: workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? local.workingDirectory,
             terminalTitle: acceptsTitle && !terminalTitle.isEmpty
                 ? terminalTitle
                 : local.terminalTitle

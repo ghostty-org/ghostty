@@ -242,6 +242,35 @@ struct TerminalLiveTabLayoutTests {
     }
 
     @Test(arguments: [false, true])
+    func resumedDirectorySurvivesInitialRuntimeHydration(localRuntime: Bool) throws {
+        let enabled = OhMyGhosttySettings.shared.agentStatusHooksEnabled
+        OhMyGhosttySettings.shared.agentStatusHooksEnabled = true
+        defer { OhMyGhosttySettings.shared.agentStatusHooksEnabled = enabled }
+        let fixture = try TerminalWorkspaceRefactorTests.Fixture()
+        defer { fixture.close() }
+        let controller = try fixture.tab()
+        let surface = try #require(controller.surfaceTree.first)
+        surface.runtimeDescriptor = localRuntime
+            ? .init(connection: nil, revision: "title-test", policy: .init(), localWorkingDirectory: "/tmp") : nil
+        surface.pwd = ""
+        controller.adoptAgentResumeDescriptor(.init(agent: .codex,
+            conversationID: AgentConversationID("directory-hydration"), scope: .local,
+            workingDirectory: "/tmp/project"), for: surface)
+        #expect(surface.pwd == "/tmp/project")
+        surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "begin")
+        surface.contextSignal = .init(action: .start, id: "omg-agent-sync", metadata: "end")
+        surface.pwd = ""
+        surface.contextSignal = .init(action: .start, id: "omg-agent-codex-42",
+            metadata: "type=app;omg_agent=codex;omg_scope=local;omg_state=idle")
+        let hydrated = try #require(TerminalTabPresentationResolver.resolve(
+            controller, index: 0, selected: true, activities: nil
+        ))
+        let folderOnly = OhMyGhosttySettings.shared.tabPathDisplay == .folderName
+        #expect(hydrated.title == (folderOnly ? "project" : "/tmp/project"))
+        #expect(controller.agentResumeDescriptor(for: surface)?.workingDirectory == "/tmp/project")
+    }
+
+    @Test(arguments: [false, true])
     func historyTitleYieldsToLiveTitlesAndKeepsUserRenamesSeparate(localRuntime: Bool) async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }

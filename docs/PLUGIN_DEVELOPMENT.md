@@ -156,6 +156,9 @@ resume descriptor's directory until live session metadata is available. Empty
 directory values do not suppress this fallback. During SSH startup the local
 launcher's directory is excluded; the remote directory takes over after handoff.
 History request titles remain window-title fallbacks, not Agent tab names.
+Direct local resume commands initialize the pane's PWD from their launch
+directory, since an Agent process does not run shell integration. Empty metadata
+updates retain the known directory, including across initial runtime hydration.
 Splitting a resumed SSH pane uses its inline remote session independently of
 whether the host PTY has a local runtime descriptor. Before inline handoff,
 the validated replay opens a new remote shell in the resumed directory without
