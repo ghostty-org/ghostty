@@ -76,7 +76,7 @@ Walk the rows and cells and draw what's dirty. After you finish the frame, clear
 
 Full program: @ref c-vt-render/src/main.c
 
-The update is the only step that needs the terminal. If your IO and your renderer are on different threads, hold a lock around the update and draw without it. Ghostling is single-threaded, so it doesn't bother. See @ref render "Render State" and @ref conventions-threads.
+The update is the only step that needs the terminal. If your IO and your renderer are on different threads, hold a lock around the update and draw without it. Ghostling is single-threaded, so it doesn't bother. See @ref guide-rendering and @ref conventions-threads.
 
 ## 4. Encoders Back to the Pty {#building-input}
 
@@ -92,7 +92,7 @@ The mouse works the same way, with ghostty_mouse_encoder_set_from_terminal(). Th
 
 Focus and paste are smaller. Only send focus events when the program has turned on #GHOSTTY_MODE_FOCUS_EVENT, and use ghostty_focus_encode() to get the bytes. Send pastes through ghostty_terminal_paste().
 
-See @ref key "Keys", @ref mouse "Mouse", @ref focus "Focus" and @ref paste "Paste".
+See @ref guide-input.
 
 ## Resizing {#building-resize}
 

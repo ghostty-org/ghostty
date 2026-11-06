@@ -22,121 +22,13 @@ extern "C" {
 
 /** @addtogroup snapshot
  *
- * Encode and restore the complete state of a terminal via a binary format.
+ * Encode and restore the complete state of a terminal via a binary format. The
+ * @ref guide-snapshots "Snapshots guide" covers encoding, restoring in one call
+ * or in pieces, and the format.
  *
- * A snapshot is an ordered, CRC-protected record stream. Its READY marker
- * follows enough state to render and resume the terminal, including any
- * unfinished VT parser input. Older scrollback pages follow READY and the
- * FINISH marker terminates the complete snapshot.
+ * ## Example
  *
- * End-of-file before an operation's required READY or FINISH marker is
- * malformed, truncated snapshot data and returns GHOSTTY_INVALID_VALUE.
- * GHOSTTY_IO_ERROR is reserved for a reader callback that returns false.
- *
- * ## Examples
- *
- * The complete working example is available in `example/c-vt-snapshot`.
- *
- * ### Encode a terminal and its unfinished VT continuation
- * @snippet c-vt-snapshot/src/main.c snapshot-encode
- *
- * ### Restore a complete snapshot in one call
  * @snippet c-vt-snapshot/src/main.c snapshot-decode
- *
- * ### Adapt a byte source to GhosttyReader
- * @snippet c-vt-snapshot/src/main.c snapshot-buffer-reader
- *
- * ### Restore READY first, then incrementally prepend history
- * @snippet c-vt-snapshot/src/main.c snapshot-incremental
- *
- * ## Format
- *
- * Every integer is unsigned and little-endian. The stream begins with this
- * fixed ten-byte envelope:
- *
- * @code{.unparsed}
- * byte  0               8       10
- *       +---------------+--------+
- *       | "GHOSTSNP"    | version|
- *       | 8-byte magic  | u16    |
- *       +---------------+--------+
- * @endcode
- *
- * The envelope is followed by independently checksummed records. A record's
- * CRC32C covers its encoded tag and payload length followed by its payload; it
- * does not cover the CRC field itself.
- *
- * @code{.unparsed}
- * byte  0       2             6          10             10 + payload_len
- *       +-------+-------------+-----------+----------------+
- *       | tag   | payload_len | CRC32C    | payload        |
- *       | u16   | u32         | u32       | payload_len B  |
- *       +-------+-------------+-----------+----------------+
- *       \____________________/             \______________/
- *          CRC prefix                         CRC suffix
- * @endcode
- *
- * Record groups occur in this strict order. SCREEN and HISTORY groups contain
- * one entry for each screen declared by TERMINAL. Each manifest is followed
- * by the number of PAGE records it declares. Active SCREEN pages make the
- * terminal renderable; HISTORY pages are older scrollback ordered newest to
- * oldest so an incremental decoder can prepend them as they arrive.
- *
- * @code{.unparsed}
- * +---------------- TERMINAL ----------------+
- * | terminal-wide state and screen count     |
- * +----------------- SCREEN -----------------+  repeated per screen
- * | active-screen manifest                   |
- * +------------------ PAGE ------------------+  repeated per manifest
- * | active screen rows                       |
- * +---------- KITTY_IMAGE_STORAGE -----------+  optional, per screen
- * | images, placements, in-progress load     |
- * +------------- CONTINUATION ---------------+
- * | unfinished VT/UTF-8 input, or ground     |
- * +------------------ READY -----------------+
- * | empty renderable-state marker            |  ready() returns here
- * +---------- KITTY_IMAGE_PAYLOAD -----------+  optional, anywhere until FINISH,
- * | one image's or frame's pixels            |  next() consumes one
- * +----------------- HISTORY ----------------+  repeated per screen
- * | scrollback manifest                      |
- * +------------------ PAGE ------------------+  next() consumes one page
- * | older screen rows                        |
- * +------ KITTY_IMAGE_PAGE_PLACEMENTS -------+  optional, after a PAGE
- * | placements pinned to that page           |
- * +------------------ FINISH ----------------+
- * | empty end-of-snapshot marker              |  next() returns NO_VALUE
- * +------------------------------------------+
- * | trailing transport bytes (not consumed) |
- * +------------------------------------------+
- * @endcode
- *
- * READY separates the renderable prefix through CONTINUATION from history.
- * FINISH terminates the record sequence. Both are empty records protected by
- * CRC32C, like every other record. Declared record counts, tags, and strict
- * decoding enforce the stream's ordering and completeness.
- *
- * A decoder skips any record whose tag it does not know, wherever it
- * appears. This lets a newer library add optional kinds of records that
- * older libraries ignore, without changing the snapshot version. Skipped
- * records are still checked, so a damaged record fails decoding even when
- * its tag is unknown.
- *
- * The Kitty graphics records are optional in this way. A library built
- * without Kitty graphics skips them and restores the same terminal without
- * its images, and a terminal without images writes none of them.
- *
- * Images are restored at READY with their pixels pending, and the pixels
- * arrive later through ghostty_snapshot_decoder_next(). A pending image can
- * be placed and queried, but GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns
- * GHOSTTY_NO_VALUE for it until its pixels arrive. When they do, the
- * image keeps its GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, but
- * GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes, so a renderer that
- * watches that value picks up the new pixels on its next frame.
- *
- * Snapshot format version 1 is a work in progress and does not yet carry a
- * binary-compatibility guarantee.
- *
- * @see <a href="https://github.com/ghostty-org/ghostty/blob/main/src/terminal/snapshot/main.zig">Snapshot format and Zig codec documentation</a>
  *
  * @{
  */

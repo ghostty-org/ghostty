@@ -23,7 +23,8 @@ extern "C" {
  *
  * A style describes the visual attributes of a terminal cell, including
  * foreground, background, and underline colors, as well as flags for
- * bold, italic, underline, and other text decorations.
+ * bold, italic, underline, and other text decorations. See the
+ * @ref guide-grid "Grid guide".
  *
  * @{
  */

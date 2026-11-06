@@ -21,30 +21,24 @@ extern "C" {
 
 /** @addtogroup selection
  *
- * A snapshot selection range defined by two grid references that identifies
- * a contiguous or rectangular region of terminal content.
+ * A selection is a range of terminal content between two cells. It is a
+ * snapshot, only valid until the next change to the terminal. The
+ * @ref guide-selection "Selection guide" covers making one, turning pointer
+ * gestures into one, and copying it out.
  *
- * The start and end values are GhosttyGridRef values. They are therefore
- * untracked grid references and inherit the same lifetime rules: they are
- * only safe to use until the next mutating operation on the terminal that
- * produced them, including freeing the terminal. To keep a selection valid
- * across terminal mutations, callers must maintain tracked grid references
- * for the endpoints and reconstruct a GhosttySelection from fresh snapshots
- * when needed.
+ * ## Example
  *
- * Selection gestures provide a reusable state machine for turning UI pointer
- * interactions into selection snapshots. A caller creates one
- * GhosttySelectionGesture per active gesture stream, reuses typed
- * GhosttySelectionGestureEvent objects for synthetic press, drag, release,
- * autoscroll tick, and deep-press events, and applies each event with
- * ghostty_selection_gesture_event(). The returned GhosttySelection is a
- * snapshot; the embedder decides whether to render it, format/copy it, or
- * install it as the terminal's active selection.
+ * @code{.c}
+ * GhosttyTerminalSelectWordOptions word =
+ *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectWordOptions);
+ * word.ref = ref;
  *
- * ## Examples
- *
- * @snippet c-vt-selection/src/main.c selection-main
- * @snippet c-vt-selection-gesture/src/main.c selection-gesture-main
+ * GhosttySelection selection = {0};
+ * if (ghostty_terminal_select_word(terminal, &word, &selection) ==
+ *     GHOSTTY_SUCCESS) {
+ *   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+ * }
+ * @endcode
  *
  * @{
  */

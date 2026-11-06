@@ -24,6 +24,7 @@ extern "C" {
  * is a single grid cell and a GhosttyRow is a single row. Cell fields can
  * be accessed via ghostty_cell_get() or decoded from the packed layout in
  * ghostty_type_json(). Rows are opaque and accessed via ghostty_row_get().
+ * See the @ref guide-grid "Grid guide".
  *
  * @{
  */

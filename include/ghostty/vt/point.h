@@ -19,7 +19,8 @@ extern "C" {
  *
  * Types for referencing x/y positions in the terminal grid under
  * different coordinate systems (active area, viewport, full screen,
- * scrollback history).
+ * scrollback history). The @ref guide-grid "Grid guide" shows how they
+ * line up.
  *
  * @{
  */

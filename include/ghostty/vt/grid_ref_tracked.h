@@ -18,8 +18,8 @@ extern "C" {
 
 /**
  * Tracked grid references are owned grid references that move with the
- * terminal. See @ref grid_ref for the full overview of tracked and untracked
- * grid reference behavior.
+ * terminal. See the @ref guide-grid "Grid guide" for how tracked and untracked
+ * references behave.
  *
  * @ingroup grid_ref
  */

@@ -9,14 +9,9 @@
 
 /** @addtogroup focus
  *
- * Utilities for encoding focus gained/lost events into terminal escape
- * sequences (CSI I / CSI O) for focus reporting mode (mode 1004).
- *
- * ## Basic Usage
- *
- * Use ghostty_focus_encode() to encode a focus event into a caller-provided
- * buffer. If the buffer is too small, the function returns
- * GHOSTTY_OUT_OF_SPACE and sets the required size in the output parameter.
+ * Encode focus gained and lost events into terminal escape sequences
+ * (CSI I / CSI O) for focus reporting mode (mode 1004). See the
+ * @ref guide-input "Input guide".
  *
  * ## Example
  *
