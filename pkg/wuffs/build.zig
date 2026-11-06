@@ -64,11 +64,14 @@ pub fn build(b: *std.Build) !void {
 
         // Larger flag set for C file build within module
         const c_flags = c_flags: {
-            var len: usize = macro_flags.len + 1;
+            var len: usize = macro_flags.len + 2;
             if (windows) len += 2;
             var flag_builder: std.ArrayList([]const u8) = try .initCapacity(b.allocator, len);
 
             flag_builder.appendAssumeCapacity("-DWUFFS_IMPLEMENTATION");
+
+            // Only linked statically into libghostty-vt and the app: export nothing.
+            flag_builder.appendAssumeCapacity("-fvisibility=hidden");
 
             // Disable ubsan on Windows to avoid undefined __ubsan_handle_*
             // references: Zig's ubsan runtime can't be bundled on Windows

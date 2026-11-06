@@ -42,6 +42,9 @@ pub fn build(b: *std.Build) !void {
     // (See root Ghostty build.zig on why we do this)
     try flags.append(b.allocator, "-DSIMDUTF_IMPLEMENTATION_ICELAKE=0");
 
+    // Only linked statically into libghostty-vt and the app: export nothing.
+    try flags.append(b.allocator, "-fvisibility=hidden");
+
     // Fixes linker issues for release builds missing ubsanitizer symbols
     try flags.appendSlice(b.allocator, &.{
         "-fno-sanitize=undefined",
