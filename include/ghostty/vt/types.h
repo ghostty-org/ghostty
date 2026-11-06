@@ -133,10 +133,10 @@
  *
  * Functions that read or write values by key, such as
  * ghostty_terminal_get(), return GHOSTTY_UNSUPPORTED for a key that this
- * version of the library does not know. See @ref keys_sec for how to use
+ * version of the library does not know. See @ref values for how to use
  * that to support older versions of the library. Functions of an
  * optional feature that this build leaves out return it too. See
- * @ref features_sec.
+ * @ref features.
  *
  * @ingroup core_types
  */
@@ -175,12 +175,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
      * key is newer than the library. Nothing is read or written. This
      * usually means the program was built with a newer header than the
      * library it is running with. Check for it to fall back gracefully, as
-     * shown in @ref keys_compat_sec.
+     * shown in @ref values-older-libraries.
      *
      * Also returned by every function of an optional feature that this
      * build leaves out. For example, ghostty_snapshot_encode() returns it
      * when the library was built without the `%snapshot` feature. See
-     * @ref features_sec.
+     * @ref features.
      */
     GHOSTTY_UNSUPPORTED = -8,
     GHOSTTY_RESULT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
@@ -566,7 +566,7 @@ typedef struct {
  * the struct to zero and then stores `size` in the struct's `size` field.
  * It is meant for language bindings that cannot use a C macro. Pass the
  * size of the struct as your binding lays it out, which is `sizeof` of the
- * struct in the header the binding was built from. See @ref sized_sec.
+ * struct in the header the binding was built from. See @ref sized-structs.
  *
  * @code{.c}
  * GhosttyRenderStateCursor cursor;

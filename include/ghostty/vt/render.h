@@ -965,7 +965,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Row-local selection range.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * querying GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION. See @ref sized_sec.
+ * querying GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION. See @ref sized-structs.
  *
  * Querying GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION returns GHOSTTY_NO_VALUE
  * if the current row does not intersect the current selection.
@@ -987,7 +987,7 @@ typedef struct {
  * Render-state cursor information.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * querying GHOSTTY_RENDER_STATE_DATA_CURSOR. See @ref sized_sec.
+ * querying GHOSTTY_RENDER_STATE_DATA_CURSOR. See @ref sized-structs.
  *
  * When viewport_has_value is false, viewport_x, viewport_y, and wide_tail
  * contain undefined data and must not be read.
@@ -1027,7 +1027,7 @@ typedef struct {
  * Render-state color information.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * querying GHOSTTY_RENDER_STATE_DATA_COLORS. See @ref sized_sec.
+ * querying GHOSTTY_RENDER_STATE_DATA_COLORS. See @ref sized-structs.
  *
  * Example:
  * @code

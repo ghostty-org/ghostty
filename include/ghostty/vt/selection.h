@@ -157,7 +157,7 @@ typedef struct {
  * Options for deriving a word selection from a terminal grid reference.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec.
+ * the fields you need. See @ref sized-structs.
  *
  * If boundary_codepoints is NULL and boundary_codepoints_len is 0, Ghostty's
  * default word-boundary codepoints are used. If boundary_codepoints_len is
@@ -183,7 +183,7 @@ typedef struct {
  * Options for deriving the nearest word selection between two grid references.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec.
+ * the fields you need. See @ref sized-structs.
  *
  * If boundary_codepoints is NULL and boundary_codepoints_len is 0, Ghostty's
  * default word-boundary codepoints are used. If boundary_codepoints_len is
@@ -212,7 +212,7 @@ typedef struct {
  * Options for deriving a line selection from a terminal grid reference.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec.
+ * the fields you need. See @ref sized-structs.
  *
  * If whitespace is NULL and whitespace_len is 0, Ghostty's default line-trim
  * whitespace codepoints are used. If whitespace_len is non-zero, whitespace

@@ -490,7 +490,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Where ghostty_terminal_vt_write_until() stopped, and why.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * the first call. See @ref sized_sec. Each call resets every field except
+ * the first call. See @ref sized-structs. Each call resets every field except
  * `size` before it writes the result, so you can reuse one struct across
  * calls.
  *
@@ -591,7 +591,7 @@ typedef struct {
  * one, because each page's space stays reserved for decompression.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * passing it to ghostty_terminal_get(). See @ref sized_sec.
+ * passing it to ghostty_terminal_get(). See @ref sized-structs.
  *
  * Each screen has its own set of fields, named with a `primary_` or
  * `alternate_` prefix. The primary screen holds shell output and all of
@@ -986,7 +986,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * The reply to a clipboard write request.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec. If `size` is not valid, the
+ * the fields you need. See @ref sized-structs. If `size` is not valid, the
  * library ignores the rest of the reply and answers as if you had replied
  * with GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED.
  *
@@ -1150,7 +1150,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * The reply to a clipboard read request.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec. If `size` is not valid, the
+ * the fields you need. See @ref sized-structs. If `size` is not valid, the
  * library ignores the rest of the reply and answers as if you had replied
  * with GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED.
  *

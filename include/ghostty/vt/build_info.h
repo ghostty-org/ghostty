@@ -66,7 +66,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Whether this build includes the `%kitty_graphics` feature, which
    * provides the Kitty graphics protocol and the `ghostty_kitty_graphics_*`
    * functions. It is always false on targets without an operating system,
-   * such as wasm32-freestanding. See @ref features_sec.
+   * such as wasm32-freestanding. See @ref features.
    *
    * Output type: bool *
    */
@@ -132,7 +132,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%snapshot` feature, which provides
-   * the `ghostty_snapshot_*` functions. See @ref features_sec.
+   * the `ghostty_snapshot_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -140,7 +140,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%formatter` feature, which provides
-   * the `ghostty_formatter_*` functions. See @ref features_sec.
+   * the `ghostty_formatter_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -149,7 +149,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Whether this build includes the `%selection` feature, which provides
    * the `ghostty_terminal_select_*`, `ghostty_terminal_selection_*` and
-   * `ghostty_selection_gesture_*` functions. See @ref features_sec.
+   * `ghostty_selection_gesture_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -157,7 +157,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%search` feature, which provides the
-   * `ghostty_search_*` functions. See @ref features_sec.
+   * `ghostty_search_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -165,7 +165,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%render_state` feature, which provides
-   * the `ghostty_render_state_*` functions. See @ref features_sec.
+   * the `ghostty_render_state_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -174,7 +174,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Whether this build includes the `%input_encode` feature, which provides
    * the key, mouse, focus and paste encoding functions. See
-   * @ref features_sec for the full list.
+   * @ref features for the full list.
    *
    * Output type: bool *
    */
@@ -182,7 +182,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%color` feature, which provides the
-   * `ghostty_color_*` functions. See @ref features_sec.
+   * `ghostty_color_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -192,7 +192,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Whether this build includes the `%grid_introspection` feature, which
    * provides the `ghostty_grid_ref_*`, `ghostty_tracked_grid_ref_*`,
    * `ghostty_cell_get*` and `ghostty_row_get*` functions. See
-   * @ref features_sec for the full list.
+   * @ref features for the full list.
    *
    * Output type: bool *
    */
@@ -201,7 +201,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Whether this build includes the `%glyph_protocol` feature, which lets
    * applications register custom glyphs with Ghostty's glyph protocol. It
-   * has no functions of its own. See @ref features_sec.
+   * has no functions of its own. See @ref features.
    *
    * Output type: bool *
    */

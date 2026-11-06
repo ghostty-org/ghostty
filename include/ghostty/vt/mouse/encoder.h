@@ -69,7 +69,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * surface-space positions into encoded coordinates.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED(), then set
- * the fields you need. See @ref sized_sec.
+ * the fields you need. See @ref sized-structs.
  *
  * @ingroup mouse
  */

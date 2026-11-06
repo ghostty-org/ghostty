@@ -603,7 +603,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * See "Drawing Images" in the @ref kitty_graphics documentation.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * each call. See @ref sized_sec.
+ * each call. See @ref sized-structs.
  *
  * @code{.c}
  * GhosttyKittyGraphicsPlacementRenderInfo info =
