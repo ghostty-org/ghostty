@@ -1087,9 +1087,9 @@ jobs:
             "-Dtest-filter=compiled-out features return unsupported"
 
   # Keeps the Doxygen build free of warnings. It checks stderr because
-  # WARN_AS_ERROR doesn't cover warnings about the Doxyfile itself. This is
-  # the only check: the docs site uses whatever Doxygen Arch ships, and a new
-  # warning there shouldn't take the site down.
+  # WARN_AS_ERROR doesn't cover warnings about the Doxyfile itself. Only this
+  # job checks for warnings. The docs site in lib-docs.yml builds with the same
+  # Nix Doxygen but ignores them, so a new warning can't take the site down.
   build-libghostty-vt-docs:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
     needs: skip

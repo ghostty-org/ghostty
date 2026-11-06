@@ -1,0 +1,183 @@
+# Deploys the libghostty-vt Doxygen docs to Vercel as two static sites. Both
+# keep the docs under /vt/.
+#
+#   tip      The docs for main, at /vt/. Search engines are told to skip it.
+#            This job builds the docs on every push to main that can change
+#            them.
+#
+#   release  The docs for every vt-X.Y.Z tag, at https://lib.ghostty.org/vt/.
+#            The newest is at /vt/ and each one is at /vt/X.Y.Z/. This job
+#            builds nothing. It downloads the signed docs zips that
+#            release-lib-vt.yml publishes.
+#
+# .github/scripts/lib-docs-site.sh assembles both sites. See that script for
+# the layout, and dist/doxygen/site/ for the Vercel config of each site.
+#
+# Deploying by hand
+#
+#   A manual run deploys both sites from the branch it is started on, so start
+#   it from main:
+#
+#     gh workflow run lib-docs.yml --ref main
+#
+#   The release job fails if the repository has no vt-X.Y.Z tags yet, or if
+#   any tag has no docs zip. It deploys nothing in that case.
+#
+# Secrets
+#
+#   VERCEL_TOKEN                    Deploys to both Vercel projects.
+#   VERCEL_ORG_ID                   The Vercel team that owns them.
+#   VERCEL_PROJECT_ID_LIB_DOCS_TIP  The project of the tip site.
+#   VERCEL_PROJECT_ID_LIB_DOCS      The project of the release site.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "include/**"
+      - "dist/doxygen/**"
+      - "example/**"
+      - "Doxyfile"
+      - "DoxygenLayout.xml"
+      - "src/terminal/c/types.schema.json"
+      - ".github/scripts/lib-docs-site.sh"
+      - ".github/workflows/lib-docs.yml"
+
+  # This also fires after dry runs and rehearsals, which publish nothing. The
+  # release job then deploys the same site again, which does no harm.
+  workflow_run:
+    workflows: ["Release libghostty-vt"]
+    types: [completed]
+
+  workflow_dispatch:
+
+name: libghostty-vt Docs
+
+env:
+  # The Vercel CLI isn't in the Nix dev shell, so npx downloads this version.
+  VERCEL_CLI: vercel@65.12.1
+
+jobs:
+  tip:
+    if: |
+      github.repository == 'ghostty-org/ghostty' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: namespace-profile-ghostty-sm
+    # Only one deploy of a site can run at a time. Each job has its own group
+    # because a group keeps a single pending run, so with a shared group, a
+    # push to main could replace a pending release deploy.
+    concurrency:
+      group: ${{ github.workflow }}-tip
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # Doxygen doesn't create the parent folders of its output directory,
+      # so make them first.
+      - name: Build Docs
+        run: |
+          mkdir -p zig-out/share/ghostty/doc/libghostty
+          nix develop -c doxygen
+          test -f zig-out/share/ghostty/doc/libghostty/index.html
+
+      - name: Assemble Site
+        run: .github/scripts/lib-docs-site.sh tip site zig-out/share/ghostty/doc/libghostty
+
+      - name: Deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_LIB_DOCS_TIP }}
+        run: |
+          cd site
+          nix develop "$GITHUB_WORKSPACE" -c npx --yes "$VERCEL_CLI" \
+            deploy --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
+
+  release:
+    if: |
+      github.repository == 'ghostty-org/ghostty' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success'
+        )
+      )
+    runs-on: namespace-profile-ghostty-sm
+    concurrency:
+      group: ${{ github.workflow }}-release
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Important so that the checkout has every tag
+          fetch-depth: 0
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # A deploy replaces the whole site, so every release must be here or
+      # its pages disappear. That's why a missing zip fails the job. The
+      # pattern skips any tag that isn't exactly vt-X.Y.Z, and the dev shell
+      # has no unzip, so it comes from the nixpkgs that the flake pins.
+      - name: Download Docs
+        run: |
+          versions=$(git tag --list 'vt-*' \
+            | sed -n -E 's/^vt-([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
+            | sort -V)
+          if [ -z "$versions" ]; then
+            echo "No vt-X.Y.Z tags found"
+            exit 1
+          fi
+
+          mkdir docs
+          for version in $versions; do
+            echo "Downloading docs for $version"
+            zip="libghostty-vt-${version}-docs.zip"
+            url="https://release.files.ghostty.org/libghostty-vt/${version}/${zip}"
+            curl -fsSL --retry 3 -o "docs/${zip}" "$url"
+            curl -fsSL --retry 3 -o "docs/${zip}.minisig" "${url}.minisig"
+            nix develop -c minisign -V \
+              -P RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV \
+              -m "docs/${zip}"
+            nix shell --inputs-from . nixpkgs#unzip -c unzip -q "docs/${zip}" -d docs
+          done
+
+      - name: Assemble Site
+        run: .github/scripts/lib-docs-site.sh release site docs/libghostty-vt-*-docs
+
+      - name: Deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_LIB_DOCS }}
+        run: |
+          cd site
+          nix develop "$GITHUB_WORKSPACE" -c npx --yes "$VERCEL_CLI" \
+            deploy --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
