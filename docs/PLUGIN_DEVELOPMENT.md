@@ -1911,7 +1911,12 @@ the latter two modes only. Quick Terminal state follows the same tab gate.
 For SSH panes the port-forwarding section stays above history. Empty ports occupy
 64 points rather than a fixed 220-point panel; populated ports grow to a maximum
 of 180 points, with their own scroll area. The add-port control remains in the
-header, disabled with an identity explanation when the SSH server is unresolved.
+header and is available for every ready SSH pane. `omg +ssh` panes persist
+forwards under their verified server ID; plain `ssh` panes inferred from the
+foreground process use an `ssh-destination:<alias>` identity and follow the pane
+lifecycle, so no SSH host registration is required to forward a port. While the
+connection is still connecting the control stays disabled and explains that the
+host is not ready yet.
 History belongs to the current Surface and connection epoch, never global shell
 history. The local epoch is initialized when each Surface registers, even if
 Info has never opened; moving that Surface between controllers does not reset

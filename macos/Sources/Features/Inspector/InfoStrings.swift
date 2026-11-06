@@ -69,13 +69,6 @@ struct InfoStrings: Equatable, Sendable {
         )
     }
 
-    func identityUnavailable() -> String {
-        t(
-            "OMG could not determine this SSH server's stable identity.",
-            "OMG 无法确定此 SSH 服务器的稳定身份。"
-        )
-    }
-
     func listenerTimeout(localPort: Int) -> String {
         t(
             "Timed out waiting for localhost:\(localPort) to start listening.",

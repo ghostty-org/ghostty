@@ -223,6 +223,47 @@ struct BuiltInInfoInspectorProviderTests {
         #expect(stops == 1)
     }
 
+    @Test func plainSSHPaneCreatesForwardsWithoutRegistryIdentity() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registry = InspectorRegistry()
+        var launches: [(alias: String, remote: Int)] = []
+        var stops = 0
+        let provider = BuiltInInfoInspectorProvider(
+            registry: registry, persistenceURL: root.appendingPathComponent("port-forwards.json"),
+            processLauncher: { alias, _, remote, _, _ in
+                launches.append((alias, remote))
+                return { stops += 1 }
+            },
+            localPortAllocator: { _ in 41_000 }, forwardReadiness: { _ in true }
+        )
+        try provider.setEnabled(true)
+        defer { provider.shutdown() }
+
+        let context = plainSSHContext(alias: "cloud", connectionID: "omg-ssh-foreground-42")
+        registry.presentationDidChange(to: BuiltInInfoInspectorProvider.paneID, context: context)
+        guard case .info(let info) = registry.content(
+            for: BuiltInInfoInspectorProvider.paneID, context: context
+        ) else {
+            Issue.record("Expected typed Info content")
+            return
+        }
+        #expect(info.portForwards.canCreate)
+
+        registry.performAction(
+            paneID: BuiltInInfoInspectorProvider.paneID,
+            action: .init(context: context, kind: .createPortForward(target: "8080"))
+        )
+        #expect(launches.count == 1)
+        #expect(launches.first?.alias == "cloud")
+        #expect(launches.first?.remote == 8_080)
+
+        // Registry synchronization does not own plain panes; the live pane does.
+        provider.synchronizeConnections(.init())
+        #expect(stops == 0)
+        #expect(provider.content(for: "ssh-destination:cloud", alias: "cloud").items.count == 1)
+    }
+
     @Test func batchesPortsAndSharesDemandAcrossInfoPresentations() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -708,6 +749,30 @@ struct BuiltInInfoInspectorProviderTests {
                 action: .start,
                 id: connectionID,
                 metadata: "type=remote;targethost=\(alias);serverid=\(serverID);cwd=/home/test"
+            ),
+            currentWorkingDirectory: "/Users/test/code",
+            currentTerminalTitle: "remote"
+        )
+        return .init(
+            tabID: UUID(),
+            surfaceID: UUID(),
+            title: session.presentationTitle,
+            workingDirectory: session.workingDirectory,
+            workspace: session.workspace,
+            session: session
+        )
+    }
+
+    private func plainSSHContext(alias: String, connectionID: String) -> InspectorPaneContext {
+        var session = PaneSessionContext(
+            workingDirectory: "/Users/test/code",
+            terminalTitle: "code"
+        )
+        session.apply(
+            .init(
+                action: .start,
+                id: connectionID,
+                metadata: "type=remote;targethost=\(alias);cwd=/home/test"
             ),
             currentWorkingDirectory: "/Users/test/code",
             currentTerminalTitle: "remote"

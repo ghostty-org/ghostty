@@ -359,14 +359,22 @@ final class BuiltInInfoInspectorProvider {
 
     func synchronizeConnections(_ next: ConnectionServers) {
         servers = next
+        let paneIdentities = livePaneIdentities()
+        // Registry connections still own registered forwards; plain panes keep
+        // only their destination identities alive.
+        let connected = next.connected.union(
+            paneIdentities.keys.filter { $0.hasPrefix(Self.paneIdentityPrefix) }
+        )
 
         let staleIDs = runtimeForwards.compactMap { id, runtime in
-            next.connected.contains(runtime.desired.serverID) ? nil : id
+            connected.contains(runtime.desired.serverID) ? nil : id
         }
         for id in staleIDs { stopRuntimeForward(id: id) }
 
         for desired in desiredForwards where runtimeForwards[desired.id] == nil {
-            guard let alias = next.readyAliases[desired.serverID] else { continue }
+            guard let alias = next.readyAliases[desired.serverID]
+                ?? (desired.serverID.hasPrefix(Self.paneIdentityPrefix)
+                    ? paneIdentities[desired.serverID] : nil) else { continue }
             startRuntimeForward(desired, alias: alias)
         }
         reconcileProcessRefresh()
@@ -410,9 +418,11 @@ final class BuiltInInfoInspectorProvider {
             presentedContexts[context.tabID] = context
             agentHistory.retain(surfaces: Set(presentedContexts.values.compactMap(\.surfaceID)))
             publish(context)
+            reconcilePaneForwards()
         case .disappeared(let context):
             presentedContexts.removeValue(forKey: context.tabID)
             agentHistory.retain(surfaces: Set(presentedContexts.values.compactMap(\.surfaceID)))
+            reconcilePaneForwards()
         }
         reconcileProcessRefresh()
     }
@@ -705,8 +715,7 @@ final class BuiltInInfoInspectorProvider {
                 agentName: historyInfo.agentName, historyState: historyInfo.state
             ))
         case .sshReady(let ssh, _):
-            let forwards = ssh.serverID.map { self.content(for: $0, alias: ssh.alias) }
-                ?? .init(hostAlias: ssh.alias, items: [], canCreate: false)
+            let forwards = self.content(for: Self.forwardingIdentity(for: ssh), alias: ssh.alias)
             content = .info(.init(portForwards: forwards, historyItems: historyInfo.items,
                                  isAgentSession: historyInfo.isAgent, agentName: historyInfo.agentName,
                                  historyState: historyInfo.state))
@@ -778,9 +787,48 @@ final class BuiltInInfoInspectorProvider {
     private static func readyServer(
         _ context: InspectorPaneContext
     ) -> (id: String, alias: String)? {
-        guard case .sshReady(let ssh, _) = context.session.state,
-              let serverID = ssh.serverID else { return nil }
-        return (serverID, ssh.alias)
+        guard case .sshReady(let ssh, _) = context.session.state else { return nil }
+        return (forwardingIdentity(for: ssh), ssh.alias)
+    }
+
+    /// Stable identity used to persist and reconcile a pane's port forwards.
+    ///
+    /// `omg +ssh` panes carry a verified server ID. Plain `ssh` panes inferred
+    /// from the foreground process only know their destination, so their
+    /// forwards follow the pane lifecycle under a destination identity.
+    /// Forwards still launch through the pane's own SSH alias, which resolves
+    /// the user's OpenSSH configuration.
+    private static func forwardingIdentity(for ssh: PaneSessionContext.SSH) -> String {
+        if let serverID = ssh.serverID { return serverID }
+        return paneIdentityPrefix + ssh.alias
+    }
+
+    private static let paneIdentityPrefix = "ssh-destination:"
+
+    /// Identities and aliases of SSH panes that are ready right now.
+    private func livePaneIdentities() -> [String: String] {
+        var result: [String: String] = [:]
+        for context in presentedContexts.values {
+            guard case .sshReady(let ssh, _) = context.session.state else { continue }
+            result[Self.forwardingIdentity(for: ssh)] = ssh.alias
+        }
+        return result
+    }
+
+    /// Plain SSH panes are not registry connections, so their persisted
+    /// forwards follow the pane lifecycle instead of `synchronizeConnections`.
+    private func reconcilePaneForwards() {
+        let live = livePaneIdentities()
+        let stale = runtimeForwards.compactMap { id, runtime -> String? in
+            runtime.desired.serverID.hasPrefix(Self.paneIdentityPrefix) &&
+                live[runtime.desired.serverID] == nil ? id : nil
+        }
+        for id in stale { stopRuntimeForward(id: id) }
+        for desired in desiredForwards
+        where desired.serverID.hasPrefix(Self.paneIdentityPrefix) && runtimeForwards[desired.id] == nil {
+            guard let alias = live[desired.serverID] else { continue }
+            startRuntimeForward(desired, alias: alias)
+        }
     }
 
     nonisolated private static func launchProcess(

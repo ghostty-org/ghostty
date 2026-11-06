@@ -1374,7 +1374,9 @@ private struct InspectorPortForwardListView: View {
                     (inside ? NSCursor.pointingHand : NSCursor.arrow).set()
                 }
                 .disabled(!forwards.canCreate)
-                .help(forwards.canCreate ? strings.forwardAPort : strings.identityUnavailable())
+                .help(forwards.canCreate
+                    ? strings.forwardAPort
+                    : strings.waitingForHost(forwards.hostAlias))
                 .accessibilityLabel(strings.forwardAPort)
             }
             .padding(.horizontal, 8)
