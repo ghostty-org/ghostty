@@ -106,7 +106,8 @@ enum GitCollectionBuilder {
     }
     static func nodes(source: GitCollectionSource, mode: GitCollectionMode, query: String = "",
                       pending: Set<String> = [], canWrite: Bool = true, extraRefs: [GitRefDecoration] = [],
-                      favoriteBranchIDs: Set<String>? = nil, includesHead: Bool = false) -> [GitCollectionNode] {
+                      favoriteBranchIDs: Set<String>? = nil, favoritesOnly: Bool = false,
+                      includesHead: Bool = false) -> [GitCollectionNode] {
         switch source {
         case .decorations(let refs): return referenceNodes(refs, mode: mode, query: query)
         case .changes(let staged, let unstaged, let stagedError, let unstagedError):
@@ -153,22 +154,21 @@ enum GitCollectionBuilder {
             let occupied = Dictionary(grouping: worktrees.compactMap { tree in tree.branchRef.map { ($0, tree.path) } }, by: { $0.0 })
             let head = GitCollectionNode(.init(id: "HEAD", title: "HEAD",
                 kind: .ref(.init(name: "HEAD", kind: .head)), enabled: branchesError == nil))
-            if let favoriteBranchIDs {
-                let favorites = branches.filter { favoriteBranchIDs.contains($0.id) }
-                let entries = favorites.filter { matches(query, text: $0.name) }.map { branch in
-                    (branch.name, GitCollectionItem(id: branch.id, title: branch.name,
-                        kind: .branch(branch, worktrees: occupied[branch.id, default: []].map(\.1)), enabled: branchesError == nil))
-                }
-                let hasHead = includesHead && favoriteBranchIDs.contains("HEAD")
-                var children = grouped(entries, category: "refs/favorites", mode: mode)
-                if hasHead && matches(query, text: "HEAD") { children.insert(head, at: 0) }
-                return [category("refs/favorites", title: GitL10n.text("Favorite Branches"), count: favorites.count + (hasHead ? 1 : 0),
-                    children: children, error: branchesError,
-                    empty: query.isEmpty ? GitL10n.text("No favorite branches. Star a branch to add it here.") : GitL10n.text("No matching branches"))]
+            let favorites = favoriteBranchIDs.map { ids in
+                favoriteCategory(.init(branches: branches, worktrees: worktrees, head: head, ids: ids,
+                                       includesHead: includesHead && favoritesOnly, occupied: occupied,
+                                       mode: mode, query: query,
+                                       error: branchesError ?? worktreesError))
             }
-            var roots = scopes && query.isEmpty ? GitHistoryScope.allCases.map { scope in
-                GitCollectionNode(.init(id: "scope:" + scope.rawValue, title: scope.displayName, kind: .scope(scope)))
-            } : []
+            if favoritesOnly, let favorites { return [favorites] }
+            var roots: [GitCollectionNode] = []
+            // Favorites stay above the normal sections once anything is starred.
+            if let favorites, !favorites.children.isEmpty { roots.append(favorites) }
+            if scopes && query.isEmpty {
+                roots += GitHistoryScope.allCases.map { scope in
+                    GitCollectionNode(.init(id: "scope:" + scope.rawValue, title: scope.displayName, kind: .scope(scope)))
+                }
+            }
             if includesHead && matches(query, text: "HEAD") { roots.append(head) }
             for remote in [false, true] {
                 let key = remote ? "refs/remote" : "refs/local"
@@ -182,11 +182,7 @@ enum GitCollectionBuilder {
                     empty: query.isEmpty ? GitL10n.text("No branches") : GitL10n.text("No matching branches")))
             }
             let trees = worktrees.filter { matches(query, text: $0.branchName + " " + $0.path + " " + ($0.head?.rawValue ?? "")) }
-                .map { worktree in
-                    GitCollectionNode(.init(id: "worktree:" + worktree.path,
-                        title: worktree.branchRef == nil ? worktree.head?.shortSHA ?? GitL10n.text("No commits") : worktree.branchName,
-                        subtitle: worktree.path, kind: .worktree(worktree), enabled: worktreesError == nil && !worktree.isBare))
-                }
+                .map { worktreeNode($0, error: worktreesError) }
             roots.append(category("worktrees", title: GitL10n.text("Worktrees"), count: worktrees.count, children: trees,
                                   error: worktreesError, empty: query.isEmpty ? GitL10n.text("No worktrees") : GitL10n.text("No matching worktrees")))
             if !extraRefs.isEmpty { roots += referenceNodes(extraRefs, mode: mode, query: query) }
@@ -195,6 +191,56 @@ enum GitCollectionBuilder {
     }
 
     static func referenceID(_ ref: GitRefDecoration) -> String { "ref:" + ref.kind.rawValue + ":" + ref.name }
+
+    private struct FavoriteContext {
+        let branches: [GitBranchInfo]
+        let worktrees: [GitWorktreeInfo]
+        let head: GitCollectionNode
+        let ids: Set<String>
+        let includesHead: Bool
+        let occupied: [String: [(String, String)]]
+        let mode: GitCollectionMode
+        let query: String
+        let error: String?
+    }
+
+    /// Starred branches and worktrees, shared with the history scope picker.
+    private static func favoriteCategory(_ context: FavoriteContext) -> GitCollectionNode {
+        let favorites = context.branches.filter { context.ids.contains($0.id) }
+        let entries = favorites.filter { matches(context.query, text: $0.name) }.map { branch in
+            (branch.name, GitCollectionItem(id: branch.id, title: branch.name,
+                kind: .branch(branch, worktrees: context.occupied[branch.id, default: []].map(\.1)),
+                enabled: context.error == nil))
+        }
+        var children = grouped(entries, category: "refs/favorites", mode: context.mode)
+        let hasHead = context.includesHead && context.ids.contains("HEAD") &&
+            matches(context.query, text: "HEAD")
+        if hasHead {
+            children.insert(context.head, at: 0)
+        }
+        let favoriteWorktrees = context.worktrees.filter {
+            context.ids.contains(GitHistoryBranchFavorites.worktreeID(path: $0.path)) &&
+                matches(context.query, text: $0.branchName + " " + $0.path)
+        }
+        for worktree in favoriteWorktrees {
+            children.append(worktreeNode(worktree, error: context.error))
+        }
+        let count = favorites.count + (hasHead ? 1 : 0) + favoriteWorktrees.count
+        return category("refs/favorites", title: GitL10n.text("Favorites"), count: count,
+                        children: children, error: context.error,
+                        empty: context.query.isEmpty
+                            ? GitL10n.text("No favorites. Star a branch or worktree to add it here.")
+                            : GitL10n.text("No matching favorites"))
+    }
+
+    private static func worktreeNode(_ worktree: GitWorktreeInfo, error: String?) -> GitCollectionNode {
+        GitCollectionNode(.init(id: "worktree:" + worktree.path,
+            title: worktree.branchRef == nil
+                ? worktree.head?.shortSHA ?? GitL10n.text("No commits") : worktree.branchName,
+            subtitle: worktree.path, kind: .worktree(worktree),
+            enabled: error == nil && !worktree.isBare))
+    }
+
     private static func referenceNodes(_ refs: [GitRefDecoration], mode: GitCollectionMode, query: String) -> [GitCollectionNode] {
         let groups: [(String, String, Set<GitRefDecorationKind>)] = [
             ("head", "HEAD", [.head]), ("branches", GitL10n.text("Branches"), [.currentBranch, .localBranch]),

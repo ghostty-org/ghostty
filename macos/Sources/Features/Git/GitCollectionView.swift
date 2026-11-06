@@ -153,7 +153,7 @@ struct GitCollectionView: NSViewRepresentable {
             let changedMode = old?.mode != value.mode
             let changedQuery = old?.query != value.query
             let rebuild = old?.source != value.source || changedMode || changedQuery || changedContext ||
-                old?.favoritesOnly != value.favoritesOnly || (value.favoritesOnly && old?.favoriteBranchIDs != value.favoriteBranchIDs) ||
+                old?.favoritesOnly != value.favoritesOnly || old?.favoriteBranchIDs != value.favoriteBranchIDs ||
                 old?.pending != value.pending || old?.canWrite != value.canWrite || old?.extraRefs != value.extraRefs ||
                 old?.includesHead != value.includesHead || old?.languageCode != value.languageCode
             if changedContext || changedMode { saveAnchor() }
@@ -182,9 +182,12 @@ struct GitCollectionView: NSViewRepresentable {
             value.controller?.activate = table.activateSelection
             if changedQuery { filterCollapsed.removeAll() }
             if rebuild {
+                let favorites: Set<String>? = value.favoritesOnly || !value.favoriteBranchIDs.isEmpty
+                    ? value.favoriteBranchIDs : nil
                 nodes = GitCollectionBuilder.nodes(source: value.source, mode: value.mode, query: value.query,
                                                    pending: value.pending, canWrite: value.canWrite, extraRefs: value.extraRefs,
-                                                   favoriteBranchIDs: value.favoritesOnly ? value.favoriteBranchIDs : nil,
+                                                   favoriteBranchIDs: favorites,
+                                                   favoritesOnly: value.favoritesOnly,
                                                    includesHead: value.includesHead)
                 let collapsed = value.query.isEmpty ? state.collapsed[value.stateKey, default: []] : filterCollapsed
                 let initial: String?

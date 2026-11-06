@@ -384,6 +384,7 @@ struct InspectorGitView: View {
                           externalController: branchesController,
                           externalCancel: { branchesQuery = "" },
                           state: collectionState, stateKey: collectionKey + "/refs/sidebar",
+                          repository: content.repository,
                           perform: { perform(.gitAction($0)) })
         }
     }

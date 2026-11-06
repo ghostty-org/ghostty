@@ -19,6 +19,7 @@ struct GitRefBrowser: View {
     var selectedID: String?
     var decorations: [GitRefDecoration]?
     var tags: [GitRefDecoration] = []
+    var repository: GitRepositoryIdentity?
     var pasteboard = NSPasteboard.general
     var close: () -> Void = {}
     let perform: (InspectorGitAction) -> Void
@@ -27,6 +28,7 @@ struct GitRefBrowser: View {
     @ObservedObject private var settings = OhMyGhosttySettings.shared
     @State private var copied: String?
     @State private var controller = GitCollectionController()
+    @State private var favoritesRevision = 0
     @AppStorage("git.refs.viewMode") private var mode: GitCollectionMode = .tree
     var body: some View {
         VStack(spacing: 6) {
@@ -60,7 +62,13 @@ struct GitRefBrowser: View {
                                             branchesError: branchesError, worktreesError: worktreesError),
                 mode: externalMode ?? mode, query: externalQuery ?? query, canWrite: !isBusy,
                 interaction: decorations != nil ? .references : isPicker ? .picker : .branches, state: state, stateKey: stateKey,
-                selectedID: selectedID, extraRefs: tags, pasteboard: pasteboard,
+                selectedID: selectedID, extraRefs: tags,
+                favoriteBranchIDs: favorites?.refs ?? [],
+                toggleBranchFavorite: favorites.map { store in { id in
+                    store.toggle(id)
+                    favoritesRevision += 1
+                } },
+                pasteboard: pasteboard,
                 referenceAction: { ref in
                     CopyFeedback.copy(ref.name, to: pasteboard)
                     copied = ref.name
@@ -80,5 +88,9 @@ struct GitRefBrowser: View {
     }
     private func cancel() {
         if let externalCancel { externalCancel() } else if isPicker || decorations != nil { close() } else { query = "" }
+    }
+
+    private var favorites: GitHistoryBranchFavorites? {
+        repository.map { GitHistoryBranchFavorites(repository: $0) }
     }
 }

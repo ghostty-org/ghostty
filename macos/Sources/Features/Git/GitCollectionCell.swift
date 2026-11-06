@@ -53,6 +53,7 @@ final class GitCollectionCell: NSTableCellView {
         [checkbox, favoriteButton, progress, disclosure, icon, subtitle, status, badge, rule].forEach { $0.isHidden = true }
         let isFavoritable: Bool = switch item.kind {
         case .branch: true
+        case .worktree: true
         case .ref(let ref): ref.kind == .head && item.id == "HEAD"
         default: false
         }
@@ -63,7 +64,13 @@ final class GitCollectionCell: NSTableCellView {
             favoriteButton.state = favorite.isFavorite ? .on : .off
             favoriteButton.isFavorite = favorite.isFavorite
             favoriteButton.needsDisplay = true
-            favoriteButton.toolTip = GitL10n.text(favorite.isFavorite ? "Remove Favorite" : "Favorite Branch")
+            let noun = switch item.kind {
+            case .worktree: GitL10n.text("Worktree")
+            default: GitL10n.text("Branch")
+            }
+            favoriteButton.toolTip = favorite.isFavorite
+                ? GitL10n.text("Remove Favorite")
+                : GitL10n.text("Favorite") + " " + noun
             favoriteButton.setAccessibilityLabel(favoriteButton.toolTip)
             favoriteButton.setAccessibilityIdentifier(item.id + "/favorite")
         }

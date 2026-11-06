@@ -5,8 +5,12 @@
   "All References": { "en": "All References", "zh-Hans": "全部引用" },
   "Favorite Branches": { "en": "Favorite Branches", "zh-Hans": "收藏分支" },
   "Favorite Branch": { "en": "Favorite Branch", "zh-Hans": "收藏分支" },
+  "Favorite": { "en": "Favorite", "zh-Hans": "收藏" },
+  "Worktree": { "en": "Worktree", "zh-Hans": "Worktree" },
   "Remove Favorite": { "en": "Remove Favorite", "zh-Hans": "取消收藏" },
   "No favorite branches. Star a branch to add it here.": { "en": "No favorite branches. Star a branch to add it here.", "zh-Hans": "暂无收藏分支，点击分支旁的星标即可添加。" },
+  "No favorites. Star a branch or worktree to add it here.": { "en": "No favorites. Star a branch or worktree to add it here.", "zh-Hans": "暂无收藏，点击分支或 Worktree 旁的星标即可添加。" },
+  "No matching favorites": { "en": "No matching favorites", "zh-Hans": "没有匹配的收藏" },
   "Choose a new absolute directory and enter a branch name when creating a branch.": {
     "en": "Choose a new absolute directory and enter a branch name when creating a branch.",
     "zh-Hans": "填写新的绝对目录路径；创建新分支时还需填写分支名。"

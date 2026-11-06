@@ -2837,8 +2837,15 @@ stars remain visible. HEAD can also be starred and resolves to the current
 worktree's HEAD at each snapshot, including detached HEAD. Favorites retain full
 local/remote ref identities and use the same search and List/Tree modes. They persist in app preferences per common
 Git directory (shared by linked worktrees), with local and SSH connection
-identities kept separate. Missing refs are omitted from the favorite list;
-favoriting never checks out a branch or changes repository files.
+identities kept separate. Favorites are stored as JSON records rather than
+composite preference keys, because property lists strip NUL separators and the
+old keys stopped matching after relaunch; reads still migrate the surviving
+legacy keys. Worktrees are favorited by their exact path (`worktree:<path>`), so
+a favorite survives branch renames and detached HEAD states. The Branches column
+shows the same favorites ahead of its normal sections once anything is starred,
+including favorited worktrees, and star toggles there and in the history picker
+share one store. Missing refs are omitted from the favorite list; favoriting
+never checks out a branch or changes repository files.
 
 Changes has its own remembered mode; Branches and the picker share the remembered
 ref mode. Ref Tree grouping splits full branch names on `/`, with the remote as

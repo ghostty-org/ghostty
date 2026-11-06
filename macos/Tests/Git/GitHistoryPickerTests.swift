@@ -77,18 +77,55 @@ struct GitHistoryPickerTests {
         let source = GitCollectionSource.refs(branches: branches, worktrees: [], scopes: true, branchesError: nil, worktreesError: nil)
         let favorites: Set<String> = ["HEAD", "refs/heads/feature/main", "refs/remotes/origin/main", "refs/heads/deleted"]
         for mode in GitCollectionMode.allCases {
-            let nodes = GitCollectionBuilder.nodes(source: source, mode: mode, favoriteBranchIDs: favorites, includesHead: true)
+            let nodes = GitCollectionBuilder.nodes(source: source, mode: mode, favoriteBranchIDs: favorites,
+                                                   favoritesOnly: true, includesHead: true)
             let rows = GitCollectionBuilder.rows(nodes)
             #expect(rows.contains { $0.id == "HEAD" })
             #expect(rows.filter { if case .branch = $0.item.kind { return true }; return false }.map(\.id).sorted()
                 == ["refs/heads/feature/main", "refs/remotes/origin/main"])
             let searched = GitCollectionBuilder.rows(GitCollectionBuilder.nodes(source: source, mode: mode, query: "ORIGIN",
-                favoriteBranchIDs: favorites))
+                favoriteBranchIDs: favorites, favoritesOnly: true))
             #expect(searched.contains { $0.id == "refs/remotes/origin/main" })
             #expect(!searched.contains { $0.id == "refs/heads/feature/main" })
         }
-        let empty = GitCollectionBuilder.nodes(source: source, mode: .list, favoriteBranchIDs: [])
-        #expect(empty.first?.children.first?.item.title == GitL10n.text("No favorite branches. Star a branch to add it here."))
+        let empty = GitCollectionBuilder.nodes(source: source, mode: .list, favoriteBranchIDs: [],
+                                               favoritesOnly: true)
+        #expect(empty.first?.children.first?.item.title ==
+            GitL10n.text("No favorites. Star a branch or worktree to add it here."))
+    }
+
+    @Test func favoritesSectionPrecedesNormalSectionsInBranchColumn() {
+        let branches = ["main", "feature/demo"].map {
+            GitBranchInfo(name: $0, commit: .init("abc1234"), isCurrent: $0 == "main",
+                          isRemote: false, upstream: "", tracking: "")
+        }
+        let worktree = GitWorktreeInfo(path: "/repo-feature", head: .init("abc1234"),
+                                       branchRef: "refs/heads/feature/demo", isMain: false, isCurrent: true)
+        let source = GitCollectionSource.refs(branches: branches, worktrees: [worktree], scopes: false,
+                                              branchesError: nil, worktreesError: nil)
+        let favorites: Set<String> = ["refs/heads/main", GitHistoryBranchFavorites.worktreeID(path: worktree.path)]
+        let nodes = GitCollectionBuilder.nodes(source: source, mode: .list,
+                                               favoriteBranchIDs: favorites, includesHead: true)
+        #expect(nodes.first?.item.id == "refs/favorites")
+        #expect(nodes.first?.children.map(\.item.id) == ["refs/heads/main", "worktree:/repo-feature"])
+        #expect(nodes.dropFirst().contains { $0.item.id == "refs/local" })
+        #expect(nodes.dropFirst().contains { $0.item.id == "worktrees" })
+    }
+
+    @Test func favoritesMigrateLegacyStrippedKeysAndKeepWorktrees() throws {
+        let suite = "GitHistoryFavoritesMigration." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let repository = GitRepositoryIdentity(worktreePath: "/repo", gitDirPath: "/repo/.git",
+                                               commonGitDirPath: "/repo/.git")
+        // Property lists dropped the NUL separators the old keys were built with.
+        defaults.set(["local/repo/.git": ["HEAD", "refs/heads/main"]],
+                     forKey: "git.history.favoriteBranches")
+        let store = GitHistoryBranchFavorites(repository: repository, defaults: defaults)
+        #expect(store.refs == ["HEAD", "refs/heads/main"])
+        store.toggle(GitHistoryBranchFavorites.worktreeID(path: "/repo-feature"))
+        #expect(GitHistoryBranchFavorites(repository: repository, defaults: defaults).refs
+            == ["HEAD", "refs/heads/main", "worktree:/repo-feature"])
     }
 
     @Test func favoriteButtonsUpdateWithoutBrowsingAndPickerStillSelectsCurrentScope() async throws {

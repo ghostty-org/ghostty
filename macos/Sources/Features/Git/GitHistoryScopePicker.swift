@@ -115,28 +115,96 @@ struct GitHistoryScopePicker: NSViewRepresentable {
 }
 
 struct GitHistoryBranchFavorites {
+    struct Entry: Codable, Equatable {
+        var target: String
+        var identity: String
+        var commonGitDir: String
+        var refs: [String]
+    }
+
+    private struct Store: Codable {
+        var version: Int = 1
+        var entries: [Entry] = []
+    }
+
     private let defaults: UserDefaults
-    private let repositoryKey: String
-    private static let defaultsKey = "git.history.favoriteBranches"
+    private let target: String
+    private let identity: String
+    private let commonGitDir: String
+    private static let defaultsKey = "git.history.favoriteBranches.v2"
+    /// Legacy dictionaries used NUL-separated composite keys, and the property
+    /// list dropped those NULs on write. Reads still migrate the surviving
+    /// concatenated key so existing favorites are not lost.
+    private static let legacyDefaultsKey = "git.history.favoriteBranches"
 
     init(repository: GitRepositoryIdentity, defaults: UserDefaults = .standard) {
         self.defaults = defaults
         switch repository.target {
-        case .local: repositoryKey = "local\0" + repository.commonGitDirPath
-        case .ssh(let connection): repositoryKey = "ssh\0" + connection.identity + "\0" + repository.commonGitDirPath
+        case .local:
+            target = "local"
+            identity = ""
+        case .ssh(let connection):
+            target = "ssh"
+            identity = connection.identity
         }
+        commonGitDir = repository.commonGitDirPath
     }
 
     var refs: Set<String> {
-        Set((defaults.dictionary(forKey: Self.defaultsKey)?[repositoryKey] as? [String]) ?? [])
+        var store = load()
+        if let entry = store.entries.first(where: matches) {
+            return Set(entry.refs)
+        }
+        guard let migrated = legacyRefs else { return [] }
+        store.entries.append(.init(target: target, identity: identity,
+                                   commonGitDir: commonGitDir, refs: migrated))
+        save(store)
+        return Set(migrated)
     }
 
     func toggle(_ ref: String) {
-        guard ref == "HEAD" || ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/remotes/") else { return }
+        guard ref == "HEAD" || ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/remotes/") ||
+                ref.hasPrefix("worktree:") else { return }
         var values = refs
         if !values.insert(ref).inserted { values.remove(ref) }
-        var repositories = defaults.dictionary(forKey: Self.defaultsKey) ?? [:]
-        repositories[repositoryKey] = values.isEmpty ? nil : values.sorted()
-        defaults.set(repositories, forKey: Self.defaultsKey)
+        var store = load()
+        store.entries.removeAll(where: matches)
+        if !values.isEmpty {
+            store.entries.append(.init(target: target, identity: identity,
+                                       commonGitDir: commonGitDir, refs: values.sorted()))
+        }
+        save(store)
+    }
+
+    /// Worktrees are favorited by their exact path so a favorite survives
+    /// branch renames and detached HEAD states.
+    static func worktreeID(path: String) -> String { "worktree:" + path }
+
+    private func matches(_ entry: Entry) -> Bool {
+        entry.target == target && entry.identity == identity &&
+            entry.commonGitDir == commonGitDir
+    }
+
+    private func load() -> Store {
+        guard let data = defaults.data(forKey: Self.defaultsKey),
+              let store = try? JSONDecoder().decode(Store.self, from: data) else {
+            return Store()
+        }
+        return store
+    }
+
+    private func save(_ store: Store) {
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        defaults.set(data, forKey: Self.defaultsKey)
+    }
+
+    /// Reads the legacy `[repositoryKey: [String]]` dictionary. Its keys were
+    /// written with NUL separators, which plist serialization strips.
+    private var legacyRefs: [String]? {
+        let repositories = defaults.dictionary(forKey: Self.legacyDefaultsKey) ?? [:]
+        let components = target == "local" ? ["local", commonGitDir] : ["ssh", identity, commonGitDir]
+        let stripped = components.joined()
+        guard let values = repositories[stripped] as? [String], !values.isEmpty else { return nil }
+        return values.sorted()
     }
 }
