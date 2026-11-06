@@ -1,4 +1,4 @@
-# Colors {#guide_colors}
+# Colors {#guide-colors}
 
 A terminal has a foreground color, a background color, a cursor color and a 256-color palette. You set them to your theme, and the programs running in the terminal can change them.
 
@@ -6,7 +6,7 @@ That's the problem this page is about. A program can change the background with 
 
 If you only need to set a theme, read the first two sections. The rest is for reading colors out of config files, generating palettes, and telling programs whether you're in light or dark mode.
 
-## Setting your theme {#guide_colors_defaults}
+## Setting your theme {#guide-colors-defaults}
 
 Use ghostty_terminal_set() to set the default colors. Passing `NULL` clears a default and leaves that color unset.
 
@@ -23,7 +23,7 @@ The palette is a little different. Passing `NULL` resets it to the built-in defa
 
 Full program: @ref c-vt-colors/src/main.c
 
-## Reading colors {#guide_colors_reading}
+## Reading colors {#guide-colors-reading}
 
 Use ghostty_terminal_get() to read colors. Each color has two keys. The effective value is what you should draw with: the override if a program set one, and the default if not. The default value ignores overrides.
 
@@ -50,7 +50,7 @@ Here are the two layers working together. A program overrides the foreground wit
 
 Full program: @ref c-vt-colors/src/main.c
 
-## Parsing colors {#guide_colors_parsing}
+## Parsing colors {#guide-colors-parsing}
 
 Your theme probably starts out as text. These functions parse the same color strings as Ghostty's config and theme files, and none of them need a terminal.
 
@@ -89,7 +89,7 @@ for (size_t i = 0; i < count; i++) {
 }
 ```
 
-## Palettes {#guide_colors_palettes}
+## Palettes {#guide-colors-palettes}
 
 ghostty_color_palette_default() gives you the same 256-color palette the terminal uses by default. ghostty_color_parse_palette_entry() parses one Ghostty palette override in `INDEX=COLOR` form. The index can be decimal or use a `0x`, `0o` or `0b` prefix, and the color side accepts anything ghostty_color_parse() does.
 
@@ -132,13 +132,13 @@ ghostty_color_palette_generate(
 
 If your UI needs to make decisions from a color, ghostty_color_luminance(), ghostty_color_perceived_luminance() and ghostty_color_contrast() give you the luminance and contrast values.
 
-## Light and dark reports {#guide_colors_scheme}
+## Light and dark reports {#guide-colors-scheme}
 
 Programs want to know if your terminal is light or dark, so they can pick colors that fit. There are two ways they find out.
 
-A program can ask with `CSI ? 996 n`. Register a GhosttyTerminalColorSchemeFn with `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME` and fill in the current scheme, or return false to ignore the query. See @ref guide_effects.
+A program can ask with `CSI ? 996 n`. Register a GhosttyTerminalColorSchemeFn with `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME` and fill in the current scheme, or return false to ignore the query. See @ref guide-effects.
 
-Or a program can set mode 2031 and expect you to tell it when the scheme changes. For this one, encode the report yourself with ghostty_color_scheme_report_encode() and write it to the pty. Only send it if `GHOSTTY_MODE_COLOR_SCHEME_REPORT` is set. Dark schemes encode as `ESC [ ? 997 ; 1 n` and light schemes as `ESC [ ? 997 ; 2 n`, which are the same bytes as the terminal's reply to the query.
+Or a program can set mode 2031 and expect you to tell it when the scheme changes. For this one, encode the report yourself with ghostty_color_scheme_report_encode() and write it to the pty. Only send it if `GHOSTTY_MODE_COLOR_SCHEME_REPORT` is set, which you read with ghostty_terminal_get() and `GHOSTTY_TERMINAL_DATA_MODE`. Dark schemes encode as `ESC [ ? 997 ; 1 n` and light schemes as `ESC [ ? 997 ; 2 n`, which are the same bytes as the terminal's reply to the query.
 
 If your buffer is too small, the function returns `GHOSTTY_OUT_OF_SPACE` and sets the output parameter to the size it needs.
 

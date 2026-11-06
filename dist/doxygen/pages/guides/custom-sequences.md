@@ -1,4 +1,4 @@
-# Custom Sequences {#guide_custom_sequences}
+# Custom Sequences {#guide-custom-sequences}
 
 libghostty-vt gives you two ways to get at escape sequences yourself: a callback for the sequences we don't implement, and a write function that stops at the start or end of a control string.
 
@@ -6,7 +6,7 @@ Programs sometimes send sequences we don't implement, such as a newer protocol o
 
 Most programs never need this page. If you don't have your own sequences to handle and you aren't in the middle of someone else's stream, you can skip it.
 
-## Handling sequences we don't implement {#guide_custom_sequences_unknown}
+## Handling sequences we don't implement {#guide-custom-sequences-unknown}
 
 You can ask the terminal to hand these sequences to you, so your application can implement the protocol itself. Two options work together, and you have to set both:
 
@@ -19,7 +19,7 @@ For OSC, the content is everything between `ESC ]` and the terminator, including
 
 We only report numbers we don't recognize. A sequence that uses a number we do implement, such as OSC 2 for the window title, is never reported, even when its contents are malformed. We also don't report sequences cut short before their terminator, or supported protocols that you turned off.
 
-The callback runs while the terminal is processing input, so it can answer a query by writing straight to the pty. The reply stays in order with the terminal's own replies. Use the terminator from the request in your reply, since that's what the program expects. The rules from @ref guide_effects_rules all apply here.
+The callback runs while the terminal is processing input, so it can answer a query by writing straight to the pty. The reply stays in order with the terminal's own replies. Use the terminator from the request in your reply, since that's what the program expects. The rules from @ref guide-effects-rules all apply here.
 
 ```c
 static void on_unknown_sequence(GhosttyTerminal terminal,
@@ -62,7 +62,7 @@ This callback handles both kinds and prints what it gets:
 
 Full program: @ref c-vt-effects/src/main.c
 
-## Stopping a write at a string boundary {#guide_custom_sequences_write_until}
+## Stopping a write at a string boundary {#guide-custom-sequences-write-until}
 
 ghostty_terminal_vt_write_until() works like ghostty_terminal_vt_write(), but it can pause at points you care about. It tells you exactly where a control string starts or ends, using the same parse that updates the terminal. A program that sits between a shell and a terminal can use it to:
 

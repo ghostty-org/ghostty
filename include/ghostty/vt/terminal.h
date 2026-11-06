@@ -38,10 +38,10 @@ extern "C" {
  * Once a terminal session is up and running, you can configure a key encoder
  * to write keyboard input via ghostty_key_encoder_set_from_terminal().
  *
- * The guides cover the rest: @ref guide_effects "Effects" for what programs
- * ask of the terminal, @ref guide_colors "Colors",
- * @ref guide_scrollback "Scrollback", and
- * @ref guide_custom_sequences "Custom Sequences".
+ * The guides cover the rest: @ref guide-effects "Effects" for what programs
+ * ask of the terminal, @ref guide-colors "Colors",
+ * @ref guide-scrollback "Scrollback", and
+ * @ref guide-custom-sequences "Custom Sequences".
  *
  * ### Example: VT stream processing
  * @snippet c-vt-stream/src/main.c vt-stream-init
@@ -550,7 +550,7 @@ typedef struct {
  * react to terminal-initiated events such as bell characters, title changes,
  * device status report responses, and more.
  *
- * See the @ref guide_effects "Effects guide" for how to register them, the
+ * See the @ref guide-effects "Effects guide" for how to register them, the
  * rules for callbacks, the list of effects, and examples.
  *
  * @{
@@ -617,7 +617,7 @@ typedef struct {
  * @endcode
  *
  * For that sequence, `content` is `7400;status=busy` and `terminator`
- * is GHOSTTY_OSC_TERMINATOR_BEL. See @ref guide_custom_sequences_unknown
+ * is GHOSTTY_OSC_TERMINATOR_BEL. See @ref guide-custom-sequences-unknown
  * for a complete example.
  *
  * @ingroup effects
@@ -1817,8 +1817,8 @@ typedef bool (*GhosttyTerminalSizeFn)(GhosttyTerminal terminal,
  * Callback function type for title_changed.
  *
  * Called when the terminal title changes via escape sequences
- * (e.g. OSC 0 or OSC 2). The new title can be queried from the
- * terminal after the callback returns.
+ * (e.g. OSC 0 or OSC 2). Use ghostty_terminal_get() with
+ * GHOSTTY_TERMINAL_DATA_TITLE inside the callback to read the new value.
  *
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
@@ -1833,25 +1833,13 @@ typedef void (*GhosttyTerminalTitleChangedFn)(GhosttyTerminal terminal,
  *
  * Called when the running program asks the terminal to stop updating
  * the screen, and again when it lets the screen update again. We call
- * the time in between a "render hold".
+ * the time in between a "render hold". See @ref guide-rendering-holds for
+ * what to do about one.
  *
- * Programs use a hold to avoid flicker. A full-screen program usually
- * redraws in several steps: clear, draw the text, move the cursor. If
- * the screen is drawn halfway through, the user sees a broken frame. To
- * prevent that, the program starts a hold, draws everything, and then
- * releases the hold. The screen should keep showing the last finished
- * frame the whole time and then switch to the new one all at once.
+ * `held` is true when the program sets mode 2026
+ * (GHOSTTY_MODE_SYNC_OUTPUT), which is the only way to start a hold today.
  *
- * Today the only way a program can start a hold is synchronized output
- * (DEC private mode 2026, GHOSTTY_MODE_SYNC_OUTPUT). The callback is
- * named for what the embedder should do rather than for that mode so
- * that other sources of holds can be added later.
- *
- * ### When it is called
- *
- * With `held` set to true when the program sets mode 2026.
- *
- * With `held` set to false when the hold ends, which happens when:
+ * `held` is false when the hold ends, which happens when:
  *
  *   - the program resets mode 2026
  *   - the terminal is fully reset, by the program (RIS) or by
@@ -1862,81 +1850,6 @@ typedef void (*GhosttyTerminalTitleChangedFn)(GhosttyTerminal terminal,
  * already active does nothing, and neither does resetting it when there
  * is no hold. Changing the mode yourself with GHOSTTY_TERMINAL_OPT_MODE
  * never invokes the callback.
- *
- * ### What to do
- *
- * When a hold begins, the terminal contains exactly the frame the
- * program wants left on screen. Nothing after the start of the hold has
- * been processed yet, even if more bytes follow in the same
- * ghostty_terminal_vt_write() call. Capture that frame by calling
- * ghostty_render_state_update() from within the callback, then stop
- * updating the render state until the hold ends. You can keep drawing
- * the render state in the meantime. It won't change.
- *
- * @code{.c}
- * typedef struct {
- *   GhosttyRenderState render_state;
- *   bool held;
- *   uint64_t hold_started_ms;
- * } Renderer;
- *
- * void on_render_hold(GhosttyTerminal terminal, void* userdata, bool held) {
- *   Renderer* r = userdata;
- *   if (held) {
- *     // Capture the frame the program wants left on screen.
- *     ghostty_render_state_update(r->render_state, terminal);
- *     r->hold_started_ms = now_ms();
- *   }
- *   r->held = held;
- * }
- *
- * void draw(Renderer* r, GhosttyTerminal terminal) {
- *   // Give up on a program that holds the screen for too long.
- *   if (r->held && now_ms() - r->hold_started_ms >= 1000) {
- *     GhosttyTerminalModeConfig mode = {
- *       .mode = GHOSTTY_MODE_SYNC_OUTPUT,
- *       .value = false,
- *     };
- *     ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_MODE, &mode);
- *     r->held = false;
- *   }
- *
- *   // During a hold, skip the update and draw the captured frame.
- *   if (!r->held) ghostty_render_state_update(r->render_state, terminal);
- *   draw_render_state(r->render_state);
- * }
- * @endcode
- *
- * ### Timeouts
- *
- * The terminal has no clock, so it never ends a hold on its own. A
- * program that crashes or forgets to release its hold would freeze the
- * screen forever, so you need a timeout like the one above. One second
- * is a common choice. When it expires, reset the mode yourself and go
- * back to updating normally. Because setting the mode again during a
- * hold does nothing, a program can't keep pushing your deadline back.
- *
- * ### Why a callback
- *
- * You could instead check GHOSTTY_MODE_SYNC_OUTPUT before each draw
- * and skip the update when it is set. That is simpler, but it has two
- * problems. First, the frame left on screen is whatever you happened to
- * draw last, which can be older than what the program intended or even
- * a half-drawn frame. Second, if the program releases a hold and starts
- * the next one between two of your draws, you never see the mode turn
- * off and the finished frame in between is lost. A program that draws
- * continuously can then appear frozen. Capturing the frame when each
- * hold begins avoids both.
- *
- * ### Other notes
- *
- * You are free to ignore a hold whenever showing live content matters
- * more, such as when the user scrolls or starts a selection.
- *
- * Like every callback, this runs on the thread that called
- * ghostty_terminal_vt_write(). If another thread draws the render
- * state, protect the update in the callback the same way you protect
- * any other access to the render state.
  *
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
@@ -2463,7 +2376,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Set to NULL to stop receiving them.
    *
    * GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES must also be set, or the
-   * callback is never called. See @ref guide_custom_sequences_unknown for
+   * callback is never called. See @ref guide-custom-sequences-unknown for
    * an example.
    *
    * Input type: GhosttyTerminalUnknownSequenceFn
@@ -2572,7 +2485,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * this is driven by synchronized output (mode 2026). Set to NULL to
    * ignore these events.
    *
-   * See GhosttyTerminalRenderHoldFn for how to use this in a renderer.
+   * See @ref guide-rendering-holds for how to use this in a renderer.
    *
    * Input type: GhosttyTerminalRenderHoldFn
    */
@@ -3206,8 +3119,11 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  *
  * Callbacks are invoked synchronously during VT writes. Callbacks must not
  * call ghostty_terminal_vt_write() or
- * ghostty_terminal_vt_write_until() on the same terminal
- * (no reentrancy).
+ * ghostty_terminal_vt_write_until() on the same terminal. The terminal is
+ * not reentrant, and nothing checks for this or reports an error. The
+ * bytes go into the parser in the middle of the sequence that called you,
+ * so they can be lost or make that sequence run a second time. See
+ * @ref guide-effects-rules.
  *
  * @param terminal The terminal handle, must not be NULL
  * @param option The option to set
@@ -3275,7 +3191,7 @@ GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
  * ends up in the same state as if you had called
  * ghostty_terminal_vt_write() with all of it.
  *
- * See @ref guide_custom_sequences_write_until for how to find string
+ * See @ref guide-custom-sequences-write-until for how to find string
  * content, the cases that need care, and waiting for ground.
  *
  * @param terminal The terminal handle (must not be NULL)

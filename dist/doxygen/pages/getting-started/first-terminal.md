@@ -36,7 +36,7 @@ one
 
 You rarely see this because a pty normally turns a program's `\n` into `\r\n` on the way out. If you feed in bytes that didn't come through a pty, such as a text file, that's now your job.
 
-Queries are the other surprise. A sequence that asks the terminal a question gets no answer until you register a callback for it. See @ref guide_effects.
+Queries are the other surprise. A sequence that asks the terminal a question gets no answer until you register a callback for it. See @ref guide-effects.
 
 ## Read the Screen {#first-terminal-read}
 
@@ -81,5 +81,5 @@ The rules for handles are the same across the whole library. See @ref convention
 ## What to Read Next {#first-terminal-next}
 
 - @ref building-a-terminal - Connect this to a pty, a renderer and a keyboard.
-- @ref guide_effects - Answer the things a program asks of the terminal.
+- @ref guide-effects - Answer the things a program asks of the terminal.
 - @ref example-programs - Complete programs for everything else.

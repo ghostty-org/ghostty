@@ -18,7 +18,7 @@
  * terminal, list supported X11 color names, or make UI decisions from
  * luminance and contrast values.
  *
- * See the @ref guide_colors "Colors guide" for parsing, palettes, and how a
+ * See the @ref guide-colors "Colors guide" for parsing, palettes, and how a
  * terminal's colors work.
  *
  * @code{.c}

@@ -16,26 +16,20 @@
 /** @addtogroup sys
  *
  * Runtime-swappable function pointers for operations that depend on
- * external implementations (e.g. image decoding).
+ * external implementations (e.g. image decoding). Setting one enables the
+ * feature that depends on it. For example, setting a PNG decoder enables
+ * PNG image support in the Kitty Graphics Protocol.
  *
- * These are process-global settings that must be configured at startup
- * before any terminal functionality that depends on them is used.
- * ghostty_sys_set() is not thread-safe: call it before any other thread
- * uses the library, never while one does. Setting these enables various optional features of the terminal. For
- * example, setting a PNG decoder enables PNG image support in the Kitty
- * Graphics Protocol.
+ * These are process-global settings, so configure them at startup with
+ * ghostty_sys_set() and a `GhosttySysOption`. ghostty_sys_set() is not
+ * thread-safe: call it before any other thread uses the library, never
+ * while one does. Passing NULL clears an implementation and disables the
+ * feature.
  *
- * Use ghostty_sys_set() with a `GhosttySysOption` to install or clear
- * an implementation. Passing NULL as the value clears the implementation
- * and disables the corresponding feature.
- *
- * ## Example
+ * See @ref guide-images-png for how to write a PNG decoder.
  *
  * ### Defining a PNG decode callback
  * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-decode-png
- *
- * ### Installing the callback and sending a PNG image
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-main
  *
  * @{
  */

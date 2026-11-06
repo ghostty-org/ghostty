@@ -1,4 +1,4 @@
-# Effects {#guide_effects}
+# Effects {#guide-effects}
 
 An effect is a callback the terminal calls when a program asks for something the terminal can't do by itself. That means things like ringing the bell, changing the window title, writing to the clipboard, or answering a query.
 
@@ -8,7 +8,7 @@ By default, the VT write functions only process sequences that directly change t
 
 If you're only feeding bytes into a terminal to read the result back, you can skip this page. You need effects as soon as a real program runs in the terminal.
 
-## Registering an effect {#guide_effects_registering}
+## Registering an effect {#guide-effects-registering}
 
 Each effect has a `GhosttyTerminalOption` value. Register a callback by passing it to ghostty_terminal_set(), and clear it by passing `NULL`, which turns the effect off again:
 
@@ -22,17 +22,19 @@ ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_BELL, NULL);
 
 Set a userdata pointer with `GHOSTTY_TERMINAL_OPT_USERDATA` and we pass it to every callback, so you can get back to your own application state without global variables. There's one userdata pointer per terminal. You can't give different callbacks different ones.
 
-## The rules for callbacks {#guide_effects_rules}
+## The rules for callbacks {#guide-effects-rules}
 
 Callbacks run synchronously, in the middle of ghostty_terminal_vt_write() or ghostty_terminal_vt_write_until(). All of these rules come from that.
 
 You can't write to the same terminal from a callback. The terminal is still working through the first write, and it isn't reentrant. This applies to both ghostty_terminal_vt_write() and ghostty_terminal_vt_write_until().
 
+We don't check for this, and you won't get an error. Your bytes go into the parser in whatever state the first write left it, so what happens depends on the sequence that called you. Bytes written from a title callback are read as part of the OSC that fired it, so text never reaches the screen, and a BEL or ESC in them runs that OSC a second time. Bytes written from a bell callback land ahead of the rest of the first write. Don't depend on any of this.
+
 Don't block, and don't do anything expensive. Further IO processing waits until your callback returns, so a slow callback is a slow terminal.
 
 Copy what you want to keep. Strings and buffers passed to a callback are borrowed, and they're only valid until it returns.
 
-## The effects {#guide_effects_table}
+## The effects {#guide-effects-table}
 
 There are 19 effects:
 
@@ -52,13 +54,13 @@ There are 19 effects:
 | #GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION | GhosttyTerminalDesktopNotificationFn | Desktop notification via OSC 9 / OSC 777                                |
 | #GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT      | GhosttyTerminalProgressReportFn      | Progress report via OSC 9;4                                             |
 | #GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS       | GhosttyTerminalProgramStatusFn       | Program status report via OSC 7501                                      |
-| #GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE     | GhosttyTerminalUnknownSequenceFn     | APC or OSC sequence we don't implement. See @ref guide_custom_sequences |
+| #GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE     | GhosttyTerminalUnknownSequenceFn     | APC or OSC sequence we don't implement. See @ref guide-custom-sequences |
 | #GHOSTTY_TERMINAL_OPT_RENDER_HOLD          | GhosttyTerminalRenderHoldFn          | Synchronized output (mode 2026) begins or ends                          |
 | #GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT      | GhosttyTerminalSemanticPromptFn      | Shell reports a prompt or command step via OSC 133                      |
 | #GHOSTTY_TERMINAL_OPT_RESET                | GhosttyTerminalResetFn               | Full reset (RIS, `ESC c`)                                               |
 | #GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW        | GhosttyTerminalResizeWindowFn        | Window resize request (`CSI 8 t`)                                       |
 
-## Common callbacks {#guide_effects_common}
+## Common callbacks {#guide-effects-common}
 
 These are the callbacks most terminals start with. Each one is from the same example program, which prints what it receives.
 
@@ -80,7 +82,7 @@ Full program: @ref c-vt-effects/src/main.c
 
 ### Title changes
 
-The callback tells you the title changed, but not what it changed to. You can read the new title with `GHOSTTY_TERMINAL_DATA_TITLE` after the callback returns.
+The callback tells you the title changed, but not what it changed to. You can read the new title with `GHOSTTY_TERMINAL_DATA_TITLE` inside the callback.
 
 @snippet c-vt-effects/src/main.c effects-title-changed
 
@@ -106,9 +108,9 @@ Full program: @ref c-vt-effects/src/main.c
 
 ### Sequences we don't implement
 
-The callback for unknown sequences has more to it than the others, so it has its own guide. See @ref guide_custom_sequences.
+The callback for unknown sequences has more to it than the others, so it has its own guide. See @ref guide-custom-sequences.
 
-## Putting it together {#guide_effects_register}
+## Putting it together {#guide-effects-register}
 
 This registers the callbacks above, along with the unknown sequence callback, and then writes a sequence for each one so you can watch them fire.
 

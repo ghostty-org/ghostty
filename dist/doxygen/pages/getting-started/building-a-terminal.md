@@ -58,7 +58,7 @@ Don't skip this one. Without it, queries get no answer, and a program can hang w
 
 Some questions need information only you have, such as the size in pixels or whether you're in dark mode. Ghostling registers five more callbacks for those and for title changes: #GHOSTTY_TERMINAL_OPT_SIZE, #GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES, #GHOSTTY_TERMINAL_OPT_XTVERSION, #GHOSTTY_TERMINAL_OPT_COLOR_SCHEME and #GHOSTTY_TERMINAL_OPT_TITLE_CHANGED. That's a good first set.
 
-Callbacks run in the middle of ghostty_terminal_vt_write(), so you can't write to the same terminal from one, and you shouldn't block in one. Ghostling's pty is non-blocking, so if the pty is full it drops the reply. See @ref guide_effects for all 19 effects and the rules.
+Callbacks run in the middle of ghostty_terminal_vt_write(), so you can't write to the same terminal from one, and you shouldn't block in one. Ghostling's pty is non-blocking, so if the pty is full it drops the reply. See @ref guide-effects for all 19 effects and the rules.
 
 ## 3. Render State to Your Renderer {#building-render}
 

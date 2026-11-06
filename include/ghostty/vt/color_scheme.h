@@ -13,7 +13,7 @@
  * Utilities for encoding color scheme reports into terminal escape
  * sequences for color scheme reporting mode (mode 2031).
  *
- * See @ref guide_colors_scheme for when to send one.
+ * See @ref guide-colors-scheme for when to send one.
  *
  * @snippet c-vt-color-scheme/src/main.c color-scheme-report-encode
  *
@@ -37,7 +37,8 @@ extern "C" {
  * query response.
  *
  * Hosts should gate unsolicited sends on GHOSTTY_MODE_COLOR_SCHEME_REPORT
- * (mode 2031) being set, which can be checked via the mode getters.
+ * (mode 2031) being set. Read it with ghostty_terminal_get() and
+ * GHOSTTY_TERMINAL_DATA_MODE.
  *
  * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
  * @p out_written to the size needed. The buffer may then hold part of the

@@ -1,4 +1,4 @@
-# Scrollback {#guide_scrollback}
+# Scrollback {#guide-scrollback}
 
 Scrollback is the history that has scrolled off the top of the screen, kept so you can scroll back and read it.
 
@@ -6,7 +6,7 @@ It's also where a terminal's memory goes. Most of what a terminal holds is its s
 
 The default limit is small, so nearly every terminal wants to set its own. The scrollbar and the compression sections are only for those who need them. Most programs never need compression.
 
-## Limits {#guide_scrollback_limits}
+## Limits {#guide-scrollback-limits}
 
 Scrollback has two limits, and both are set with ghostty_terminal_set(). If you set both, the first one reached is used.
 
@@ -30,7 +30,7 @@ Lowering a limit removes eligible complete pages right away. A byte limit of zer
 
 Read the limits back with `GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES` and `GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES`. They return `GHOSTTY_NO_VALUE` when the limit is unlimited, and they always report the primary screen's value, even while the alternate screen is active.
 
-## Scrolling the viewport {#guide_scrollback_viewport}
+## Scrolling the viewport {#guide-scrollback-viewport}
 
 The viewport is the part of the terminal you're showing. Move it with ghostty_terminal_scroll_viewport(), which takes a tagged union:
 
@@ -56,7 +56,7 @@ Scrolling by prompts needs semantic prompt markers from the shell. Without a mat
 
 `GHOSTTY_TERMINAL_DATA_VIEWPORT_ACTIVE` tells you if the viewport is following the active area, or if someone has scrolled up into history.
 
-## The scrollbar {#guide_scrollback_scrollbar}
+## The scrollbar {#guide-scrollback-scrollbar}
 
 Read `GHOSTTY_TERMINAL_DATA_SCROLLBAR` to get a GhosttyTerminalScrollbar, which has the three numbers you need to draw one: `total` rows in the scrollable area, the `offset` of the viewport into them, and the `len` of the visible area.
 
@@ -78,7 +78,21 @@ ghostty_terminal_scroll_viewport(terminal, behavior);
 
 If you only want counts, `GHOSTTY_TERMINAL_DATA_TOTAL_ROWS` is the rows in the active screen including scrollback, and `GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS` is the rows in scrollback.
 
-## Memory use {#guide_scrollback_memory}
+## Resizing {#guide-scrollback-resize}
+
+By default, a resize can pull rows out of scrollback and back into the active area. Growing the rows reveals scrollback if the cursor is on the bottom row, and a column reflow that needs fewer rows reveals it too.
+
+Most programs want this and can skip this section. But if your pty keeps its own screen buffer without scrollback, it can't pull rows back, and it will disagree with the terminal about the screen after a resize. Windows ConPTY is the case that needs this. Set `GHOSTTY_TERMINAL_OPT_RESIZE_PULL_SCROLLBACK` to false:
+
+```c
+bool pull_scrollback = false;
+ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_RESIZE_PULL_SCROLLBACK,
+                     &pull_scrollback);
+```
+
+Now growing the rows always appends blank rows at the bottom, and a column reflow keeps the top of the active area on the same content. A line that's fully in scrollback stays there, but a soft-wrapped line with at least one row still in the active area can still unwrap back into view. The setting survives a full reset (RIS), and passing `NULL` restores the default of true.
+
+## Memory use {#guide-scrollback-memory}
 
 Read `GHOSTTY_TERMINAL_DATA_MEMORY_USAGE` to see how much memory a terminal holds. This is for applications that host many terminals and have to stay inside a budget, for example by compressing or closing whichever ones hold the most.
 
@@ -96,7 +110,7 @@ On macOS, the system takes back memory freed by compression lazily, when somethi
 
 Full program: @ref c-vt-compression/src/main.c
 
-## Compression {#guide_scrollback_compression}
+## Compression {#guide-scrollback-compression}
 
 Old scrollback is mostly sitting there, so we can compress it. This changes how the history is stored and nothing else. The contents and the scrollback limit stay the same, and reading compressed history restores it transparently.
 
