@@ -756,11 +756,12 @@ jobs:
 
       # Doxygen doesn't create the parent folders of its output directory,
       # so make them first. The docs site does the same in
-      # src/build/docker/lib-c-docs/Dockerfile.
+      # src/build/docker/lib-c-docs/Dockerfile. The Doxyfile says "tip", so
+      # read it from stdin with the real version appended, which wins.
       - name: Build Docs
         run: |
           mkdir -p zig-out/share/ghostty/doc/libghostty
-          nix develop -c doxygen
+          { cat Doxyfile; echo "PROJECT_NUMBER = ${VERSION}"; } | nix develop -c doxygen -
           test -f zig-out/share/ghostty/doc/libghostty/index.html
 
       # The zip unpacks into one folder, such as libghostty-vt-0.1.0-docs/.

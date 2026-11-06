@@ -1,7 +1,10 @@
 # Doxyfile 1.13.2
 
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = "libghostty"
+PROJECT_NAME           = "libghostty-vt"
+# "tip" is right for the docs site and local builds. The release workflow
+# overrides it with the real version by appending to this file on stdin.
+PROJECT_NUMBER         = tip
 PROJECT_LOGO           = images/gnome/64.png
 INPUT                  = include/ghostty
 INPUT_ENCODING         = UTF-8
@@ -10,8 +13,6 @@ FILE_PATTERNS          = *.h
 EXAMPLE_PATH           = example
 EXAMPLE_RECURSIVE      = YES
 EXAMPLE_PATTERNS       = *
-FULL_PATH_NAMES        = NO
-STRIP_FROM_INC_PATH    = include
 SOURCE_BROWSER         = YES
 INLINE_SOURCES         = NO
 REFERENCES_RELATION    = YES
@@ -67,7 +68,6 @@ GENERATE_TREEVIEW      = YES
 HTML_DYNAMIC_SECTIONS  = YES
 SEARCHENGINE           = YES
 ALPHABETICAL_INDEX     = YES
-HTML_TIMESTAMP         = NO
 DISABLE_INDEX          = NO
 FULL_SIDEBAR           = NO
 
@@ -78,16 +78,8 @@ FULL_SIDEBAR           = NO
 HAVE_DOT               = NO
 
 #---------------------------------------------------------------------------
-# Man Output
-#---------------------------------------------------------------------------
-
-GENERATE_MAN           = YES
-MAN_OUTPUT             = zig-out/share/man
-MAN_EXTENSION          = .3
-MAN_LINKS              = YES
-
-#---------------------------------------------------------------------------
 # Other Output
 #---------------------------------------------------------------------------
 
 GENERATE_LATEX         = NO
+GENERATE_MAN           = NO

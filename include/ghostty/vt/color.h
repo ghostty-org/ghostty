@@ -302,8 +302,8 @@ GHOSTTY_API GhosttyResult ghostty_color_parse_x11(
  *
  * Accepts Ghostty's terminal color syntax: X11 color names, hex colors
  * in 3-, 6-, 9-, or 12-digit form (the leading # is optional for 3- and
- * 6-digit values), and rgb:<red>/<green>/<blue> or
- * rgbi:<red>/<green>/<blue> specifications. Leading and trailing spaces
+ * 6-digit values), and `rgb:<red>/<green>/<blue>` or
+ * `rgbi:<red>/<green>/<blue>` specifications. Leading and trailing spaces
  * and tabs are trimmed.
  *
  * @param value The color value bytes (must not be NULL)
