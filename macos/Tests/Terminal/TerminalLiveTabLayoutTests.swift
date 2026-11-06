@@ -229,23 +229,26 @@ struct TerminalLiveTabLayoutTests {
         }
     }
 
-    @Test func historyTitleYieldsToLiveTitlesAndKeepsUserRenamesSeparate() async throws {
+    @Test(arguments: [false, true])
+    func historyTitleYieldsToLiveTitlesAndKeepsUserRenamesSeparate(localRuntime: Bool) async throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
         let controller = try fixture.tab()
         let surface = try #require(controller.surfaceTree.first)
+        surface.runtimeDescriptor = localRuntime
+            ? .init(connection: nil, revision: "title-test", policy: .init(), localWorkingDirectory: "/tmp") : nil
         let descriptor = AgentResumeDescriptor(agent: .codex,
             conversationID: AgentConversationID("title-fallback"), scope: .local, workingDirectory: "/tmp")
         controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "History fallback")
         #expect(controller.presentedTerminalTitle(for: surface, terminalTitle: "") == "History fallback")
         surface.setTitle("Live terminal title")
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForAppKit { controller.window?.title == "Live terminal title" }
         #expect(controller.titleOverride == nil)
         #expect(controller.window?.title == "Live terminal title")
         controller.titleOverride = "User name"
         controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "Another history fallback")
         surface.setTitle("Another live title")
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForAppKit { surface.title == "Another live title" }
         #expect(controller.window?.title == "User name")
         let value = try #require(TerminalTabPresentationResolver.resolve(
             controller, index: 0, selected: true, activities: nil

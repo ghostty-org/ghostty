@@ -507,7 +507,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     func restoredTitleFallback(for surface: Ghostty.SurfaceView, terminalTitle: String) -> String? {
         let title = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard title.isEmpty || title == "👻" else { return nil }
-        if let context = paneSessionContext(for: surface), case .sshReady = context.state { return nil }
+        if let context = paneSessionContext(for: surface) {
+            if case .sshReady = context.state { return nil }
+            if case .local = context.state {
+                // A Published callback can already have updated the context
+                // while SurfaceView.title still contains its previous value.
+                let live = context.local.terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !live.isEmpty && live != "👻" { return nil }
+            }
+        }
         guard let restored = agentResumeDescriptor(for: surface)?.restoredTitle else { return nil }
         let fallback = restored.trimmingCharacters(in: .whitespacesAndNewlines)
         return fallback.isEmpty ? nil : fallback
@@ -1397,12 +1405,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             Publishers.CombineLatest(surface.$pwd, surface.$title)
                 .dropFirst()
                 .sink { [weak self, weak surface] pwd, title in
-                    guard let self, let surface else { return }
+                    guard let self, let surface, self.surfaceTree.contains(surface) else { return }
                     var context = paneSessionContexts[surface.id] ?? .init(
                         workingDirectory: pwd,
                         terminalTitle: title
                     )
                     if let runtime = surface.runtimeDescriptor {
+                        if runtime.isLocal {
+                            context.updateLocalMetadata(workingDirectory: pwd, terminalTitle: title)
+                        }
                         context.applyRuntimeConnection(
                             runtime,
                             workingDirectory: pwd,
