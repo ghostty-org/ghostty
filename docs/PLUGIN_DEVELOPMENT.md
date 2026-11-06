@@ -151,6 +151,11 @@ the user's tab-name override: live terminal titles and ready SSH breadcrumbs
 supersede the fallback, while explicit user names retain their existing priority.
 The startup placeholder is not considered a live title. Older descriptors
 without the optional title field remain readable.
+Agent tabs show their current directory from the first presentation, using the
+resume descriptor's directory until live session metadata is available. Empty
+directory values do not suppress this fallback. During SSH startup the local
+launcher's directory is excluded; the remote directory takes over after handoff.
+History request titles remain window-title fallbacks, not Agent tab names.
 Splitting a resumed SSH pane uses its inline remote session independently of
 whether the host PTY has a local runtime descriptor. Before inline handoff,
 the validated replay opens a new remote shell in the resumed directory without

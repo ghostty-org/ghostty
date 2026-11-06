@@ -698,6 +698,34 @@ struct WorkspaceProviderTests {
         #expect(local.remoteTabBreadcrumb == .init(host: "cloud", directory: "omg"))
     }
 
+    @Test(arguments: [nil, "", "/live/current"])
+    func agentResumeDirectoryYieldsToLiveDirectory(workingDirectory: String?) {
+        let descriptor = AgentResumeDescriptor(agent: .codex,
+            conversationID: AgentConversationID("directory-test"), scope: .local,
+            workingDirectory: "/saved/project/")
+        let context = PaneSessionContext(workingDirectory: workingDirectory, terminalTitle: "Agent title")
+        #expect(context.agentPathTitle(pathDisplay: .folderName, resumeDescriptor: descriptor)
+            == (workingDirectory == "/live/current" ? "current" : "project"))
+        #expect(context.agentPathTitle(pathDisplay: .fullPath, resumeDescriptor: descriptor)
+            == (workingDirectory == "/live/current" ? "/live/current" : "/saved/project/"))
+        let empty = PaneSessionContext(workingDirectory: "", terminalTitle: "")
+        #expect(empty.agentPathTitle(pathDisplay: .folderName) == "Terminal")
+    }
+
+    @Test func remoteAgentResumeNeverDisplaysLauncherDirectory() {
+        let replay = SSHReplayDescriptor(version: 1, ssh: "/usr/bin/ssh",
+            forwardEnv: true, terminfo: true, cache: true, args: ["cloud"])
+        let descriptor = AgentResumeDescriptor(agent: .codex,
+            conversationID: AgentConversationID("remote-directory"), scope: .remote,
+            workingDirectory: "/saved/project", sshReplay: replay)
+        var context = PaneSessionContext(workingDirectory: "/local/launcher", terminalTitle: "SSH")
+        #expect(context.agentPathTitle(pathDisplay: .folderName, resumeDescriptor: descriptor) == "cloud › project")
+        context.apply(.init(action: .start, id: "omg-ssh-directory",
+            metadata: "type=remote;targethost=cloud;cwd=/remote/current"),
+            currentWorkingDirectory: "/remote/current", currentTerminalTitle: "Agent")
+        #expect(context.agentPathTitle(pathDisplay: .folderName, resumeDescriptor: descriptor) == "cloud › current")
+    }
+
     @Test func folderDisplayNameIsSharedByLocalAndRemoteFiles() {
         #expect(WorkspacePathPresentation.folderName("/Users/test/code") == "code")
         #expect(WorkspacePathPresentation.folderName("/home/test/project/omg") == "omg")

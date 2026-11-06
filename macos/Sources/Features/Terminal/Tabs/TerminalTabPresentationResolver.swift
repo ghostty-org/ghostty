@@ -58,10 +58,11 @@ enum TerminalTabPresentationResolver {
         let settings = OhMyGhosttySettings.shared
         let session = controller.paneSessionContext(for: surface) ?? .init(workingDirectory: surface.pwd, terminalTitle: surface.title)
         let activity = controller.focusedAgentActivity() ?? activities?.activity(for: controller.tabSessionID)
-        let agent = activity.flatMap { SupportedAgent(rawValue: $0.source) }
-        let restoredTitle = controller.restoredTitleFallback(for: surface, terminalTitle: surface.title)
+        let descriptor = controller.agentResumeDescriptor(for: surface)
+        let agent = activity.flatMap { SupportedAgent(rawValue: $0.source) } ?? descriptor?.agent
+        let restoredTitle = agent == nil ? controller.restoredTitleFallback(for: surface, terminalTitle: surface.title) : nil
         let base = controller.titleOverride ?? restoredTitle ?? (agent == nil ? session.presentationTitle(pathDisplay: settings.tabPathDisplay)
-            : session.agentPathTitle(pathDisplay: settings.tabPathDisplay))
+            : session.agentPathTitle(pathDisplay: settings.tabPathDisplay, resumeDescriptor: descriptor))
         let title = agent?.normalizedTitle(base) ?? base
         let context = GhosttyTabIconContext(tabID: controller.tabSessionID, title: title, activity: activity,
                                            defaultIcon: session.workspace?.icon ?? .systemSymbol(session.tabIconSystemName))

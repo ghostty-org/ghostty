@@ -109,7 +109,7 @@ struct PaneSessionContext: Equatable, Sendable {
     }
 
     var remoteTabBreadcrumb: RemoteTabBreadcrumb? {
-        guard case .sshReady(let ssh, let workingDirectory) = state else {
+        guard case .sshReady(let ssh, let workingDirectory) = state, !workingDirectory.isEmpty else {
             return nil
         }
         return .init(
@@ -147,20 +147,36 @@ struct PaneSessionContext: Equatable, Sendable {
     }
 
     func agentPathTitle(
-        pathDisplay: OhMyGhosttyTabPathDisplay
+        pathDisplay: OhMyGhosttyTabPathDisplay,
+        resumeDescriptor: AgentResumeDescriptor? = nil
     ) -> String {
-        let path: String? = workingDirectory.map {
+        let restoredDirectory = resumeDescriptor?.workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
+        let directory: String?
+        switch state {
+        case .local where resumeDescriptor?.scope == .remote,
+             .sshConnecting where resumeDescriptor?.scope == .remote:
+            // The local PWD belongs to the SSH launcher until the remote
+            // connection publishes its own directory.
+            directory = restoredDirectory
+        default:
+            directory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? restoredDirectory
+        }
+        let path: String? = directory.map {
             pathDisplay == .folderName
                 ? WorkspacePathPresentation.folderName($0)
                 : $0
         }
         switch state {
         case .local:
+            if resumeDescriptor?.scope == .remote {
+                let host = resumeDescriptor?.sshReplay?.transferTarget
+                return host.map { host in path.map { "\(host) › \($0)" } ?? host } ?? path ?? "Terminal"
+            }
             return path ?? "Terminal"
         case .sshConnecting(let ssh):
             return path.map { "\(ssh.alias) \($0)" } ?? ssh.alias
         case .sshReady(let ssh, _):
-            return remoteTabBreadcrumb?.title ?? ssh.alias
+            return directory.map { "\(ssh.alias) › \(WorkspacePathPresentation.folderName($0))" } ?? ssh.alias
         }
     }
 

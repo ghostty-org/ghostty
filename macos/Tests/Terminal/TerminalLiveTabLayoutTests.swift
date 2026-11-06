@@ -199,12 +199,16 @@ struct TerminalLiveTabLayoutTests {
         }
     }
 
-    @Test func historyResumeKeepsItsTitleForLocalAndRemoteTabs() throws {
+    @Test(arguments: [false, true])
+    func historyResumeImmediatelyShowsDirectoryForLocalAndRemoteTabs(localRuntime: Bool) throws {
         let fixture = try TerminalWorkspaceRefactorTests.Fixture()
         defer { fixture.close() }
         for scope in [AgentExecutionScope.local, .remote] {
             let controller = try fixture.tab()
             let surface = try #require(controller.surfaceTree.first)
+            surface.runtimeDescriptor = localRuntime
+                ? .init(connection: nil, revision: "title-test", policy: .init(), localWorkingDirectory: "/tmp") : nil
+            surface.pwd = ""
             let descriptor = AgentResumeDescriptor(
                 agent: .codex, conversationID: AgentConversationID("history-title"),
                 scope: scope, workingDirectory: "/tmp/project"
@@ -217,7 +221,15 @@ struct TerminalLiveTabLayoutTests {
             let presentation = try #require(TerminalTabPresentationResolver.resolve(
                 controller, index: 0, selected: true, activities: nil
             ))
-            #expect(presentation.title == "History request")
+            let folderOnly = OhMyGhosttySettings.shared.tabPathDisplay == .folderName
+            #expect(presentation.title == (folderOnly ? "project" : "/tmp/project"))
+            surface.pwd = "/live/current"
+            let updated = try #require(TerminalTabPresentationResolver.resolve(
+                controller, index: 0, selected: true, activities: nil
+            ))
+            #expect(updated.title == (scope == .remote
+                ? (folderOnly ? "project" : "/tmp/project")
+                : (folderOnly ? "current" : "/live/current")))
             controller.adoptAgentResumeDescriptor(descriptor, for: surface, title: "  ")
             #expect(controller.titleOverride == nil)
             #expect(surface.agentResumeDescriptor?.restoredTitle == "History request")
