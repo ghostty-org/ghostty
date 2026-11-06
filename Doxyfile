@@ -9,8 +9,10 @@ PROJECT_LOGO           = images/gnome/64.png
 # The group definitions come first because they set the order of the API
 # Reference. See dist/doxygen/pages/groups.dox.
 # Pages with no parent appear in the sidebar in input order, which is by
-# file name inside a directory. The Guides page comes first by name here.
-INPUT                  = dist/doxygen/pages/guides.md \
+# file name inside a directory. Getting Started and Guides come first by name
+# here.
+INPUT                  = dist/doxygen/pages/getting-started.md \
+                         dist/doxygen/pages/guides.md \
                          dist/doxygen/pages \
                          include/ghostty
 INPUT_ENCODING         = UTF-8

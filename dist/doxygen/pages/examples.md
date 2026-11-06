@@ -1,8 +1,8 @@
-# Examples {#example_programs}
+# Examples {#example-programs}
 
 Every example is a complete program you can build and run. Each one lives in
 its own directory under `example/`, with a README that says how to run it. Most
-of them are one `zig build run`. CI compiles all 28 C examples, so they can't
+of them are one `zig build run`. CI compiles all 29 C examples, so they can't
 fall behind the API.
 
 If you want to see everything working together, start with
@@ -14,10 +14,11 @@ If you only want to read a terminal's screen, start with
 
 ## Start Here
 
-| Example                                         | What it does                                                                                                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| @ref c-vt-stream/src/main.c "c-vt-stream"       | Feed VT sequences into a terminal and read the final screen back as plain text. Use this for read-only tools like replay viewers and CI log viewers. |
-| @ref c-vt-formatter/src/main.c "c-vt-formatter" | Write text and cursor movement into a terminal, then stream the screen to stdout as plain text through a GhosttyWriter.                              |
+| Example                                         | What it does                                                                                                                                          |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| @ref c-vt-hello/src/main.c "c-vt-hello"         | The smallest complete program: create a terminal, write text with a color sequence in it, and print the screen. This is the program on the main page. |
+| @ref c-vt-stream/src/main.c "c-vt-stream"       | Feed VT sequences into a terminal and read the final screen back as plain text. Use this for read-only tools like replay viewers and CI log viewers.  |
+| @ref c-vt-formatter/src/main.c "c-vt-formatter" | Write text and cursor movement into a terminal, then stream the screen to stdout as plain text through a GhosttyWriter.                               |
 
 ## Terminal
 

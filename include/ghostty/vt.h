@@ -11,48 +11,9 @@
  * existing programs. See @ref stability for details.
  */
 
-/**
- * @mainpage libghostty-vt - Virtual Terminal Emulator Library
- *
- * libghostty-vt is a C library which implements a modern terminal emulator,
- * extracted from the [Ghostty](https://ghostty.org) terminal emulator.
- *
- * libghostty-vt contains the logic for handling the core parts of a terminal
- * emulator: parsing terminal escape sequences, maintaining terminal state,
- * encoding input events, etc. It can handle scrollback, line wrapping, 
- * reflow on resize, and more.
- *
- * The @ref guides "Guides" explain how to use each part of the library.
- *
- * Complete programs, grouped by what you want to do, are on the
- * @ref example_programs "Examples" page.
- *
- * @section groups_sec API Reference
- *
- * The API is organized into the following groups:
- * - @ref terminal "Terminal" - Complete terminal emulator state and rendering
- * - @ref render "Render State" - Incremental render state updates for custom renderers
- * - @ref formatter "Formatter" - Format terminal content as plain text, VT sequences, or HTML
- * - @ref snapshot "Snapshots" - Encode and incrementally restore terminal state
- * - @ref search "Search" - Search terminal contents, including scrollback
- * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
- * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
- * - @ref paste "Paste" - Paste into a terminal, validate and encode paste data
- * - @ref unicode "Unicode" - Codepoint properties for text layout
- * - @ref version "Version" - Check the version of the headers and the library
- * - @ref build_info "Build Info" - Query compile-time build configuration
- * - @ref allocator "Allocators" - Memory management and custom allocators
- * - @ref io "Readers and Writers" - Reusable synchronous reader and writer callbacks
- * - @ref wasm "WebAssembly" - WebAssembly convenience functions
- *
- * Encoding related APIs:
- * - @ref focus "Focus" - Encode focus in/out events into terminal sequences
- * - @ref key "Keys" - Encode key events into terminal sequences
- * - @ref mouse "Mouse" - Encode mouse events into terminal sequences
- *
- * Every function follows the same rules for results, handles, threads and
- * memory. Those are in @ref conventions, along with what can still
- * break before 1.0.
+/** @example c-vt-hello/src/main.c
+ * The smallest complete program: create a terminal, write text with a color
+ * sequence in it, and print the screen. This is the program on the main page.
  */
 
 /** @example c-vt-stream/src/main.c
@@ -195,7 +156,7 @@
  * Statically link libghostty-vt from a Zig build with the `ghostty-vt-static`
  * artifact. The program is the same as c-vt-osc.
  */
-#ifndef GHOSTTY_VT_H#ifndef GHOSTTY_VT_H
+#ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
 #ifdef __cplusplus
