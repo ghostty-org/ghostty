@@ -332,6 +332,13 @@ fn runInner(
             verbosePrint(opts, stderr, "dest: {s} (cache disabled, will install)", .{dest});
         }
 
+        // With -n or StdinNull, the install connection can't read the
+        // terminfo from stdin, and -o can't override the -n flag.
+        if (config.stdin_null) {
+            verbosePrint(opts, stderr, "stdin is null; skipping terminfo install", .{});
+            break :session .{ .term = "xterm-256color" };
+        }
+
         stderr.print("Setting up xterm-ghostty terminfo on {s}...\n", .{dest}) catch {};
         stderr.flush() catch {};
 
@@ -582,17 +589,17 @@ const Configuration = struct {
 
     /// Whether ssh will open a remote terminal, and so send `TERM`.
     /// `command` is whether the args include a remote command, and
-    /// `stdin_tty` whether our stdin is a terminal.
+    /// `stdin_tty` whether our stdin is a terminal. `stdin_null` is left
+    /// to the caller, which skips the install whenever it's set.
     fn opensTerminal(self: Configuration, command: bool, stdin_tty: bool) bool {
         if (!std.mem.eql(u8, self.session_type, "default")) return false;
         if (self.fork_after_authentication) return false;
 
         // This mirrors ssh's RequestTTY handling.
-        const tty = stdin_tty and !self.stdin_null;
         if (std.mem.eql(u8, self.request_tty, "force")) return true;
-        if (std.mem.eql(u8, self.request_tty, "true")) return tty;
+        if (std.mem.eql(u8, self.request_tty, "true")) return stdin_tty;
         if (std.mem.eql(u8, self.request_tty, "auto")) {
-            return tty and !command and !self.remote_command;
+            return stdin_tty and !command and !self.remote_command;
         }
         return false;
     }
@@ -917,8 +924,6 @@ test "Configuration.opensTerminal" {
         .{ .config = .{ .session_type = "none" }, .opens = false },
         .{ .config = .{ .session_type = "subsystem" }, .opens = false },
         .{ .config = .{ .fork_after_authentication = true }, .opens = false },
-        .{ .config = .{ .stdin_null = true }, .opens = false },
-        .{ .config = .{ .stdin_null = true, .request_tty = "force" }, .opens = true },
         .{ .config = .{ .remote_command = true }, .opens = false },
         .{ .config = .{ .remote_command = true, .request_tty = "true" }, .opens = true },
     };
