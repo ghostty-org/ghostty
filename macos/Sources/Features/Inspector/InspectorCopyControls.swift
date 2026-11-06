@@ -85,9 +85,10 @@ final class InspectorMetadataText: NSButton {
         let shown = feedback.isCopied ? CopyFeedback.confirmationLabel() : displayText
         attributedTitle = NSAttributedString(string: shown, attributes: [
             .font: NSFont.systemFont(ofSize: 10),
-            .foregroundColor: isValueSelected ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.secondaryLabelColor,
         ])
-        layer?.backgroundColor = (isValueSelected ? NSColor.controlAccentColor.withAlphaComponent(0.18) : .clear).cgColor
+        // Clicking copies now, so there is no persistent selection highlight.
+        layer?.backgroundColor = .clear
         let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)
         toolTip = isCopied ? strings.copiedTitle : strings.selectionCopyHint(copyLabel, value: value)
         setAccessibilityValue(isCopied ? strings.copiedTitle : (isValueSelected ? strings.selectedTitle : ""))
