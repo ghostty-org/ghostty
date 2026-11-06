@@ -404,7 +404,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Calls to the writer are synchronous; this function does not flush or make
  * your destination durable.
  *
- * @param terminal Terminal to encode (must not be NULL)
+ * @param terminal Terminal to encode (NULL returns GHOSTTY_INVALID_VALUE)
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
  *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
@@ -429,11 +429,11 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_encode(GhosttyTerminal terminal,
  * have been enabled before the input that produced that state was written;
  * otherwise this returns GHOSTTY_INVALID_VALUE.
  *
- * @param terminal Terminal to encode (must not be NULL)
+ * @param terminal Terminal to encode (NULL returns GHOSTTY_INVALID_VALUE)
  * @param buf Destination buffer, or NULL when buf_len is zero
  * @param buf_len Destination buffer capacity in bytes
  * @param[out] out_written Bytes written, or required capacity on
- *             GHOSTTY_OUT_OF_SPACE (must not be NULL)
+ *             GHOSTTY_OUT_OF_SPACE (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup snapshot
@@ -456,10 +456,10 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_encode_buf(
  * have been enabled before the input that produced that state was written;
  * otherwise this returns GHOSTTY_INVALID_VALUE.
  *
- * @param terminal Terminal to encode (must not be NULL)
+ * @param terminal Terminal to encode (NULL returns GHOSTTY_INVALID_VALUE)
  * @param allocator Allocator for the output, or NULL for the default allocator
- * @param[out] out_ptr Allocated snapshot bytes (must not be NULL)
- * @param[out] out_len Number of allocated snapshot bytes (must not be NULL)
+ * @param[out] out_ptr Allocated snapshot bytes (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param[out] out_len Number of allocated snapshot bytes (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup snapshot
@@ -486,7 +486,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_encode_alloc(
  *
  * @param allocator Allocator for decoder and decoded terminal state, or NULL
  *                  for the default allocator
- * @param decoder Pointer to receive the decoder handle (must not be NULL)
+ * @param decoder Pointer to receive the decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param reader Snapshot source reader
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
@@ -506,7 +506,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_new(
  *
  * @param allocator Allocator for decoder and decoded terminal state, or NULL
  *                  for the default allocator
- * @param decoder Pointer to receive the decoder handle (must not be NULL)
+ * @param decoder Pointer to receive the decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param ptr Snapshot source bytes
  * @param len Number of source bytes
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
@@ -550,7 +550,7 @@ GHOSTTY_API void ghostty_snapshot_decoder_free(GhosttySnapshotDecoder decoder);
  *     decoder, GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION, NULL);
  * @endcode
  *
- * @param decoder Decoder handle (must not be NULL)
+ * @param decoder Decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option Option to change
  * @param value Pointer to the option value, or NULL to restore the default
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if decoding has
@@ -596,8 +596,8 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_set(
  * must be freed. An invalid argument or lifecycle error detected before the
  * operation consumes input does not poison it.
  *
- * @param decoder Decoder handle (must not be NULL)
- * @param[out] terminal Pointer to receive the terminal (must not be NULL)
+ * @param decoder Decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param[out] terminal Pointer to receive the terminal (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup snapshot
@@ -671,7 +671,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_ready(
  * remains caller-owned and usable with its already-restored history, but only
  * ghostty_snapshot_decoder_free() may subsequently be called on the decoder.
  *
- * @param decoder Decoder handle (must not be NULL)
+ * @param decoder Decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS for one page or image, GHOSTTY_NO_VALUE after
  *         FINISH, or an error code on failure
  *
@@ -701,8 +701,8 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_next(
  * lifecycle error detected before the operation consumes input does not
  * poison it.
  *
- * @param decoder Decoder handle (must not be NULL)
- * @param[out] terminal Pointer to receive the terminal (must not be NULL)
+ * @param decoder Decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param[out] terminal Pointer to receive the terminal (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup snapshot
@@ -717,9 +717,9 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_decode(
  * The output pointer must have the type documented by data. A phase-dependent
  * value that is not currently available returns GHOSTTY_NO_VALUE.
  *
- * @param decoder Decoder handle (must not be NULL)
+ * @param decoder Decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data Data kind to query
- * @param[out] out Pointer to receive the value (must not be NULL)
+ * @param[out] out Pointer to receive the value (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the requested data
  *         is unavailable, GHOSTTY_UNSUPPORTED if `data` is not known to this
  *         version of the library, or another error code on failure
@@ -746,7 +746,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_get(
  * the number of values written before the failing key. Invalid array arguments
  * report zero values written.
  *
- * @param decoder Decoder handle (must not be NULL)
+ * @param decoder Decoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param count Number of key/value pairs
  * @param keys Array of data kinds to query
  * @param values Array of output pointers corresponding to keys

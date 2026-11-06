@@ -202,14 +202,16 @@ pub const Style = extern struct {
 };
 
 /// Sets the style to the default style, which is all zero bytes.
-pub fn default_style(result: *Style) callconv(lib.calling_conv) void {
+pub fn default_style(result_: ?*Style) callconv(lib.calling_conv) void {
+    const result = result_ orelse return;
     result.* = .default;
 }
 
 /// Returns true if the style is the default style. Reserved bits are
 /// ignored, so a caller that leaves garbage in them still gets the
 /// right answer.
-pub fn style_is_default(s: *const Style) callconv(lib.calling_conv) bool {
+pub fn style_is_default(s_: ?*const Style) callconv(lib.calling_conv) bool {
+    const s = s_ orelse return false;
     return s.toBits() & ~Style.reserved_bits == 0;
 }
 

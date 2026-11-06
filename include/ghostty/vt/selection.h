@@ -750,8 +750,8 @@ GHOSTTY_API GhosttyResult ghostty_selection_gesture_get(
  * @param gesture Selection gesture handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param terminal Terminal used to validate terminal-backed gesture state
  * @param count Number of data fields to read
- * @param keys Data fields to read (must not be NULL)
- * @param values Output pointers corresponding to keys (must not be NULL)
+ * @param keys Data fields to read (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param values Output pointers corresponding to keys (NULL returns GHOSTTY_INVALID_VALUE)
  * @param out_written Optional number of fields read, or failing index on error
  * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
  *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
@@ -875,8 +875,19 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_all(
  * The returned selection is not installed as the terminal's current
  * selection. It is a snapshot with the same lifetime rules as GhosttySelection.
  *
+ * @code{.c}
+ * GhosttyGridRef ref = {0};
+ * ghostty_terminal_grid_ref(terminal, point, &ref);
+ *
+ * GhosttySelection selection = {0};
+ * if (ghostty_terminal_select_output(terminal, &ref, &selection) == GHOSTTY_SUCCESS) {
+ *   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+ * }
+ * @endcode
+ *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param ref Grid reference within command output to select
+ * @param ref Grid reference within command output to select (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_selection On success, receives the derived selection
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the valid ref is
  *         not selectable command output, or GHOSTTY_INVALID_VALUE if the
@@ -886,7 +897,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_select_all(
  */
 GHOSTTY_API GhosttyResult ghostty_terminal_select_output(
                                     GhosttyTerminal terminal,
-                                    GhosttyGridRef ref,
+                                    const GhosttyGridRef* ref,
                                     GhosttySelection* out_selection);
 
 /** @} */

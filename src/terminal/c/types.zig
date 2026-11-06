@@ -587,6 +587,10 @@ pub const type_decls = [_]TypeDecl{
     .initHandle("GhosttyTerminal", terminal.Terminal),
     .initOpaque("GhosttyTrackedGridRef"),
 
+    .initCallback("GhosttyAllocatorAllocFn", lib.alloc.AllocFn),
+    .initCallback("GhosttyAllocatorFreeFn", lib.alloc.FreeFn),
+    .initCallback("GhosttyAllocatorRemapFn", lib.alloc.RemapFn),
+    .initCallback("GhosttyAllocatorResizeFn", lib.alloc.ResizeFn),
     .initCallback("GhosttyClipboardReadReplyFn", terminal.ClipboardReadReplyFn),
     .initCallback("GhosttyClipboardWriteReplyFn", terminal.ClipboardWriteReplyFn),
     .initCallback("GhosttyMimeReaderFn", io.MimeReaderFn),
@@ -1201,6 +1205,24 @@ const Json = struct {
         {
             try writePointerTypeNamed(T, true, "opaque", jws);
             return;
+        }
+        // Function pointer fields normally have the element type "function".
+        // These name their typedefs so the manifest records each signature.
+        if (comptime std.mem.eql(u8, owner, "GhosttyAllocatorVtable")) {
+            const callback: ?[]const u8 = comptime if (std.mem.eql(u8, field_name, "alloc"))
+                "GhosttyAllocatorAllocFn"
+            else if (std.mem.eql(u8, field_name, "resize"))
+                "GhosttyAllocatorResizeFn"
+            else if (std.mem.eql(u8, field_name, "remap"))
+                "GhosttyAllocatorRemapFn"
+            else if (std.mem.eql(u8, field_name, "free"))
+                "GhosttyAllocatorFreeFn"
+            else
+                null;
+            if (comptime callback) |name| {
+                try writePointerTypeNamed(T, @typeInfo(T) == .optional, name, jws);
+                return;
+            }
         }
 
         if (comptime fieldTypeOverride(owner, field_name)) |name| {

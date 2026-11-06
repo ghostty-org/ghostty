@@ -185,11 +185,12 @@ pub fn all(
 
 pub fn output(
     terminal: terminal_c.Terminal,
-    ref: grid_ref.CGridRef,
+    ref_: ?*const grid_ref.CGridRef,
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
+    const ref = ref_ orelse return .invalid_value;
     const out = out_selection orelse return .invalid_value;
 
     const screen = t.screens.active;

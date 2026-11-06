@@ -167,7 +167,8 @@ typedef struct {
  *
  * @param allocator Pointer to the allocator to use for memory management, or
  * NULL to use the default allocator
- * @param parser Pointer to store the created parser handle
+ * @param parser Pointer to store the created parser handle (NULL returns
+ *               GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup sgr
@@ -195,7 +196,7 @@ GHOSTTY_API void ghostty_sgr_free(GhosttySgrParser parser);
  * After calling this, ghostty_sgr_next() will start from the beginning
  * of the parameter list again.
  *
- * @param parser The parser handle to reset, must not be NULL
+ * @param parser The parser handle to reset (NULL does nothing)
  *
  * @ingroup sgr
  */
@@ -222,8 +223,9 @@ GHOSTTY_API void ghostty_sgr_reset(GhosttySgrParser parser);
  * After calling this function, the parser is automatically reset and ready
  * to iterate from the beginning.
  *
- * @param parser The parser handle, must not be NULL
- * @param params Array of SGR parameter values
+ * @param parser The parser handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param params Array of SGR parameter values (NULL returns
+ * GHOSTTY_INVALID_VALUE)
  * @param separators Optional array of separator characters (';' or ':'), or
  * NULL
  * @param len Number of parameters (and separators if provided)
@@ -243,8 +245,8 @@ GHOSTTY_API GhosttyResult ghostty_sgr_set_params(GhosttySgrParser parser,
  * Call this function repeatedly until it returns false to process
  * all attributes in the sequence.
  *
- * @param parser The parser handle, must not be NULL
- * @param attr Pointer to store the next attribute
+ * @param parser The parser handle (NULL returns false)
+ * @param attr Pointer to store the next attribute (NULL returns false)
  * @return true if an attribute was returned, false if no more attributes
  *
  * @ingroup sgr
@@ -305,7 +307,7 @@ GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(
  * the tag to determine which field of the union is valid. Primarily useful in
  * WebAssembly environments where accessing struct fields directly is difficult.
  *
- * @param attr Pointer to the SGR attribute
+ * @param attr Pointer to the SGR attribute (NULL returns NULL)
  * @return Pointer to the attribute value union
  *
  * @ingroup sgr

@@ -144,7 +144,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Create a new mouse encoder instance.
  *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param encoder Pointer to store the created encoder handle
+ * @param encoder Pointer to store the created encoder handle (NULL returns
+ *                GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup mouse
@@ -174,7 +175,7 @@ GHOSTTY_API void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
  *     encoder, GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, &format);
  * @endcode
  *
- * @param encoder The encoder handle, must not be NULL
+ * @param encoder The encoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
  * @param value Pointer to option value (type depends on option), or NULL to
  *              reset the option to its default
@@ -246,13 +247,13 @@ GHOSTTY_API GhosttyResult ghostty_mouse_encoder_reset(GhosttyMouseEncoder encode
  * }
  * @endcode
  *
- * @param encoder The encoder handle, must not be NULL
- * @param event The mouse event to encode, must not be NULL
+ * @param encoder The encoder handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param event The mouse event to encode (NULL returns GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the sequence into. May be NULL if @p buf_len
  *            is 0.
  * @param buf_len Size of @p buf in bytes
  * @param[out] out_written The number of bytes written, or the size needed
- *             if the result is GHOSTTY_OUT_OF_SPACE. Must not be NULL.
+ *             if the result is GHOSTTY_OUT_OF_SPACE. NULL returns GHOSTTY_INVALID_VALUE.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if buffer is too small,
  *         or another error code
  *

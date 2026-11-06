@@ -120,7 +120,7 @@ pub fn get(
         inline else => |comptime_data| getTyped(
             cell_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }

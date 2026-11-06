@@ -34,6 +34,112 @@
  */
 
 /**
+ * Allocate a block of memory.
+ *
+ * This is the `alloc` function of a GhosttyAllocatorVtable. It's required.
+ *
+ * @param ctx The allocator's context pointer
+ * @param len Number of bytes to allocate
+ * @param alignment The block's address must be a multiple of
+ *   `1 << alignment` bytes. See @ref memory-alignment.
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return The new block, or NULL if it could not be allocated
+ *
+ * @ingroup allocator
+ */
+typedef void* (*GhosttyAllocatorAllocFn)(void *ctx, size_t len, uint8_t alignment, uintptr_t ret_addr);
+
+/**
+ * Try to grow or shrink a block without moving it.
+ *
+ * This is the `resize` function of a GhosttyAllocatorVtable. It's optional,
+ * and leaving it NULL is the same as always returning false.
+ *
+ * Return true only if the block at `memory` is now `new_len` bytes long at
+ * the same address. Return false if that would require moving it. The library
+ * then decides whether to allocate a new block and copy.
+ *
+ * For example, an arena that hands out memory from one buffer can resize its
+ * most recent block, because nothing comes after it:
+ *
+ * @code{.c}
+ * typedef struct {
+ *   uint8_t* base;
+ *   size_t used;
+ *   size_t capacity;
+ * } Arena;
+ *
+ * static bool arena_resize(void* ctx, void* memory, size_t memory_len,
+ *                          uint8_t alignment, size_t new_len,
+ *                          uintptr_t ret_addr) {
+ *   (void)alignment;
+ *   (void)ret_addr;
+ *   Arena* arena = ctx;
+ *   size_t start = (size_t)((uint8_t*)memory - arena->base);
+ *
+ *   // Only the last block can change size in place.
+ *   if (start + memory_len != arena->used) return false;
+ *   if (start + new_len > arena->capacity) return false;
+ *
+ *   arena->used = start + new_len;
+ *   return true;
+ * }
+ * @endcode
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param new_len Requested length, always greater than zero
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return true if the block was resized in place, false otherwise
+ *
+ * @ingroup allocator
+ */
+typedef bool (*GhosttyAllocatorResizeFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+
+/**
+ * Grow or shrink a block, moving it if that is cheaper than a copy.
+ *
+ * This is the `remap` function of a GhosttyAllocatorVtable. It's optional,
+ * and leaving it NULL is the same as always returning NULL.
+ *
+ * Unlike GhosttyAllocatorResizeFn, this may return a new address, for example
+ * after remapping virtual memory pages. The block must hold the old contents
+ * at that address, and the old address is no longer valid.
+ *
+ * Return NULL when the only way to do it would be to allocate, copy, and free.
+ * The library does that itself, so there is no benefit in doing it here.
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param new_len Requested length, always greater than zero
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return The resized block, or NULL to let the library copy instead
+ *
+ * @ingroup allocator
+ */
+typedef void* (*GhosttyAllocatorRemapFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+
+/**
+ * Free a block.
+ *
+ * This is the `free` function of a GhosttyAllocatorVtable. It's required.
+ * After it returns, the library never uses `memory` again.
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ *
+ * @ingroup allocator
+ */
+typedef void (*GhosttyAllocatorFreeFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
+
+/**
  * The functions that make up a custom allocator.
  *
  * `alloc` and `free` are required. `resize` and `remap` are optional, and
@@ -65,77 +171,17 @@
  * @ingroup allocator
  */
 typedef struct {
-    /**
-     * Allocate `len` bytes aligned to `1 << alignment` bytes.
-     *
-     * Required.
-     *
-     * @param ctx The allocator's context pointer
-     * @param len Number of bytes to allocate
-     * @param alignment Alignment as a power of two exponent. See
-     *   @ref memory-alignment for details.
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     * @return Pointer to the new memory, or NULL if it could not be
-     *   allocated
-     */
-    void* (*alloc)(void *ctx, size_t len, uint8_t alignment, uintptr_t ret_addr);
+    /** Allocates a block. Required. */
+    GhosttyAllocatorAllocFn alloc;
 
-    /**
-     * Try to grow or shrink a block without moving it.
-     *
-     * Optional. A NULL `resize` is the same as one that always returns
-     * false.
-     *
-     * Return true only if the block at `memory` is now `new_len` bytes long
-     * at the same address. Return false if that would require moving it.
-     * The library then decides whether to allocate a new block and copy.
-     *
-     * @param ctx The allocator's context pointer
-     * @param memory Start of a block returned by `alloc` or `remap`
-     * @param memory_len Current length of the block
-     * @param alignment The alignment the block was allocated with
-     * @param new_len Requested length, always greater than zero
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     * @return true if the block was resized in place, false otherwise
-     */
-    bool (*resize)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+    /** Resizes a block without moving it. Optional. */
+    GhosttyAllocatorResizeFn resize;
 
-    /**
-     * Grow or shrink a block, moving it if that is cheaper than a copy.
-     *
-     * Optional. A NULL `remap` is the same as one that always returns NULL.
-     *
-     * Return a pointer to a block of `new_len` bytes holding the old
-     * contents. It may be the same address or a new one, for example after
-     * remapping virtual memory pages. If you return a new address, the old
-     * one is no longer valid.
-     *
-     * Return NULL when the only way to do it would be to allocate, copy,
-     * and free. The library does that itself in that case, so there is no
-     * benefit in doing it here.
-     *
-     * @param ctx The allocator's context pointer
-     * @param memory Start of a block returned by `alloc` or `remap`
-     * @param memory_len Current length of the block
-     * @param alignment The alignment the block was allocated with
-     * @param new_len Requested length, always greater than zero
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     * @return The resized block, or NULL to let the library copy instead
-     */
-    void* (*remap)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+    /** Resizes a block and may move it. Optional. */
+    GhosttyAllocatorRemapFn remap;
 
-    /**
-     * Free a block.
-     *
-     * Required. After this returns, the library never uses `memory` again.
-     *
-     * @param ctx The allocator's context pointer
-     * @param memory Start of a block returned by `alloc` or `remap`
-     * @param memory_len Current length of the block
-     * @param alignment The alignment the block was allocated with
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     */
-    void (*free)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
+    /** Frees a block. Required. */
+    GhosttyAllocatorFreeFn free;
 
     /**
      * Reserved for future versions. Must be NULL.

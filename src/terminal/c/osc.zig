@@ -20,8 +20,9 @@ pub const Terminator = osc.Terminator.C;
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Parser,
+    result_: ?*Parser,
 ) callconv(lib.calling_conv) Result {
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(osc.Parser) catch
         return .out_of_memory;
@@ -39,15 +40,18 @@ pub fn free(parser_: Parser) callconv(lib.calling_conv) void {
 }
 
 pub fn reset(parser_: Parser) callconv(lib.calling_conv) void {
-    parser_.?.reset();
+    const parser = parser_ orelse return;
+    parser.reset();
 }
 
 pub fn next(parser_: Parser, byte: u8) callconv(lib.calling_conv) void {
-    parser_.?.next(byte);
+    const parser = parser_ orelse return;
+    parser.next(byte);
 }
 
 pub fn end(parser_: Parser, terminator: u8) callconv(lib.calling_conv) Command {
-    return parser_.?.end(terminator);
+    const parser = parser_ orelse return null;
+    return parser.end(terminator);
 }
 
 /// C: GhosttyOscOption

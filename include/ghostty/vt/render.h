@@ -134,8 +134,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND = 6,
 
   /** Cursor color when explicitly set by terminal state (GhosttyColorRgb).
-   *  Returns GHOSTTY_INVALID_VALUE if no explicit cursor color is set;
-   *  use COLOR_CURSOR_HAS_VALUE to check first. */
+   *  Returns GHOSTTY_NO_VALUE if no explicit cursor color is set. */
   GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR = 7,
 
   /** Whether an explicit cursor color is set (bool). */
@@ -157,19 +156,20 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_RENDER_STATE_DATA_CURSOR_PASSWORD_INPUT = 13,
 
   /** Whether the cursor is visible within the viewport (bool).
-   *  If false, the cursor viewport position values are undefined. */
+   *  If false, querying the cursor viewport position values returns
+   *  GHOSTTY_NO_VALUE. */
   GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE = 14,
 
   /** Cursor viewport x position in cells (uint16_t).
-   *  Only valid when CURSOR_VIEWPORT_HAS_VALUE is true. */
+   *  Returns GHOSTTY_NO_VALUE when CURSOR_VIEWPORT_HAS_VALUE is false. */
   GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X = 15,
 
   /** Cursor viewport y position in cells (uint16_t).
-   *  Only valid when CURSOR_VIEWPORT_HAS_VALUE is true. */
+   *  Returns GHOSTTY_NO_VALUE when CURSOR_VIEWPORT_HAS_VALUE is false. */
   GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y = 16,
 
   /** Whether the cursor is on the tail of a wide character (bool).
-   *  Only valid when CURSOR_VIEWPORT_HAS_VALUE is true. */
+   *  Returns GHOSTTY_NO_VALUE when CURSOR_VIEWPORT_HAS_VALUE is false. */
   GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL = 17,
 
   /** All cursor state in one sized struct (GhosttyRenderStateCursor).
@@ -613,7 +613,8 @@ typedef struct {
  * Create a new render state instance.
  *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param state Pointer to store the created render state handle
+ * @param state Pointer to store the created render state handle (NULL returns
+ *              GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
  * failure
  *
@@ -743,10 +744,11 @@ GHOSTTY_API GhosttyResult ghostty_render_state_clean(GhosttyRenderState state);
  * @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` or
- *         `out` is NULL or a sized output struct is smaller than
- *         `sizeof(size_t)`, or GHOSTTY_UNSUPPORTED if `data` is not known to
- *         this version of the library
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if `data` has no
+ *         value right now, GHOSTTY_INVALID_VALUE if `state` or `out` is NULL
+ *         or a sized output struct is smaller than its base layout, or
+ *         GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
+ *         library
  *
  * @ingroup render
  */
@@ -840,7 +842,7 @@ GHOSTTY_API GhosttyResult ghostty_render_state_set(GhosttyRenderState state,
  * @param allocator Pointer to allocator, or NULL to use the default allocator
  * @param[out] out_iterator On success, receives the created iterator handle
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
+ *         failure, GHOSTTY_INVALID_VALUE if @p out_iterator is NULL
  *
  * @ingroup render
  */
@@ -914,8 +916,8 @@ GHOSTTY_API bool ghostty_render_state_row_iterator_next_dirty(
  * @param iterator The iterator handle to query (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `iterator` is
- *         NULL or the iterator is not positioned on a row, or
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `iterator` or
+ *         `out` is NULL or the iterator is not positioned on a row, or
  *         GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
  *         library
  *
@@ -1034,17 +1036,25 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /** The resolved background color of the cell (GhosttyColorRgb).
    *  Flattens the three possible sources: content-tag bg_color_rgb,
    *  content-tag bg_color_palette (looked up in the palette), or the
-   *  style's bg_color. Returns GHOSTTY_INVALID_VALUE if the cell has
-   *  no background color, in which case you should use whatever
-   *  default background color it wants (e.g. the terminal background). */
+   *  style's bg_color.
+   *
+   *  Returns GHOSTTY_NO_VALUE if the cell has no background color of its
+   *  own. Draw it with your default background, such as the terminal's:
+   *
+   *  @code{.c}
+   *  GhosttyColorRgb bg;
+   *  GhosttyResult result = ghostty_render_state_row_cells_get(
+   *      cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
+   *  if (result == GHOSTTY_NO_VALUE) bg = colors.background;
+   *  @endcode
+   */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR = 5,
 
   /** The resolved foreground color of the cell (GhosttyColorRgb).
    *  Resolves palette indices through the palette. Bold color handling
    *  is not applied; you should handle bold styling separately.
-   *  Returns GHOSTTY_INVALID_VALUE if the cell has no explicit foreground
-   *  color, in which case you should use whatever default foreground
-   *  color it wants (e.g. the terminal foreground). */
+   *  Returns GHOSTTY_NO_VALUE if the cell has no foreground color of its
+   *  own. Draw it with your default foreground, such as the terminal's. */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR = 6,
 
   /** Whether the cell is contained within the current selection (bool).
@@ -1096,7 +1106,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param allocator Pointer to allocator, or NULL to use the default allocator
  * @param[out] out_cells On success, receives the created row cells handle
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
+ *         failure, GHOSTTY_INVALID_VALUE if @p out_cells is NULL
  *
  * @ingroup render
  */
@@ -1147,9 +1157,10 @@ GHOSTTY_API GhosttyResult ghostty_render_state_row_cells_select(
  * @param cells The row cells handle to query (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `cells` is NULL
- *         or the iterator is not positioned on a cell, or GHOSTTY_UNSUPPORTED
- *         if `data` is not known to this version of the library
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the cell has no
+ *         value for `data`, GHOSTTY_INVALID_VALUE if `cells` is NULL or the
+ *         iterator is not positioned on a cell, or GHOSTTY_UNSUPPORTED if
+ *         `data` is not known to this version of the library
  *
  * @ingroup render
  */
@@ -1221,7 +1232,7 @@ GHOSTTY_API void ghostty_render_state_row_cells_free(GhosttyRenderStateRowCells 
  * @param allocator Pointer to allocator, or NULL to use the default allocator
  * @param[out] out_iterator On success, receives the created iterator handle
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
+ *         failure, GHOSTTY_INVALID_VALUE if @p out_iterator is NULL
  *
  * @ingroup render
  */

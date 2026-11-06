@@ -451,8 +451,8 @@ GHOSTTY_API GhosttyResult ghostty_search_get(
  *
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param count Number of data fields to read
- * @param keys Data fields to read (must not be NULL)
- * @param values Output pointers corresponding to keys (must not be NULL)
+ * @param keys Data fields to read (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param values Output pointers corresponding to keys (NULL returns GHOSTTY_INVALID_VALUE)
  * @param out_written Optional number of fields read, or failing index
  *                    on error
  * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the

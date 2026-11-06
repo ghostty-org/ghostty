@@ -46,6 +46,7 @@ pub fn terminal_paste(
     const req = req_ orelse return .invalid_value;
 
     if (!lib.sizedCheck(.input, req)) return .invalid_value;
+    const source = lib.enumFromPtr(Source, &req.source) orelse return .invalid_value;
 
     // The handler always has a write_pty trampoline that no-ops without
     // a C callback, so the "nothing can be written" check is ours.
@@ -69,7 +70,7 @@ pub fn terminal_paste(
     for (mimes, c_mimes) |*mime, c_mime| mime.* = c_mime.ptr[0..c_mime.len];
 
     const written = wrapper.stream.handler.paste(.{
-        .source = switch (req.source) {
+        .source = switch (source) {
             .clipboard => .{ .clipboard = req.location },
             .text => .text,
         },
@@ -141,9 +142,10 @@ pub fn encode(
     bracketed: bool,
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) return .unsupported;
+    const out_written = out_written_ orelse return .invalid_value;
     const slice: []u8 = if (data) |v| v[0..data_len] else &.{};
     const result = paste.encode(slice, .{ .bracketed = bracketed });
 
@@ -404,6 +406,14 @@ test "terminal_paste null handling" {
     unreadable.mimes_len = 0;
     try testing.expectEqual(Result.success, terminal_paste(t, &unreadable, &written));
     try testing.expect(!written);
+
+    // An unknown source is rejected before anything is read.
+    var unknown = req;
+    const raw_source: *c_int = @ptrCast(&unknown.source);
+    raw_source.* = std.math.maxInt(c_int) - 1;
+    contents.reads = @splat(0);
+    try testing.expectEqual(Result.invalid_value, terminal_paste(t, &unknown, &written));
+    try testing.expectEqual(@as(usize, 0), contents.reads[0]);
 }
 
 test "terminal_paste without write_pty is invalid" {

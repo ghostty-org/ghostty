@@ -309,7 +309,7 @@ pub fn decoder_get(
         => |comptime_data| decoderGetTyped(
             decoder_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
         _ => .unsupported,
     };

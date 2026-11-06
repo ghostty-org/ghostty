@@ -270,7 +270,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * no longer needed.
  * 
  * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
- * @param parser Pointer to store the created parser handle
+ * @param parser Pointer to store the created parser handle (NULL returns
+ *               GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  * 
  * @ingroup osc
@@ -296,7 +297,7 @@ GHOSTTY_API void ghostty_osc_free(GhosttyOscParser parser);
  * and returning the parser to its initial state. This is useful for
  * reusing a parser instance or recovering from parse errors.
  * 
- * @param parser The parser handle to reset, must not be null.
+ * @param parser The parser handle to reset (NULL does nothing)
  * 
  * @ingroup osc
  */
@@ -336,7 +337,7 @@ GHOSTTY_API GhosttyResult ghostty_osc_set(GhosttyOscParser parser,
  * When finished pumping the parser with bytes, call ghostty_osc_end
  * to get the final result.
  * 
- * @param parser The parser handle, must not be null.
+ * @param parser The parser handle (NULL does nothing)
  * @param byte The next byte to parse
  * 
  * @ingroup osc
@@ -380,7 +381,7 @@ GHOSTTY_API void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
  * `ghostty_osc_*` function with the same parser instance with the exception
  * of command introspection functions such as `ghostty_osc_command_type`.
  * 
- * @param parser The parser handle, must not be null.
+ * @param parser The parser handle (NULL returns NULL)
  * @param terminator The byte that ended the OSC sequence: 0x07 for BEL,
  *        0x5C for ST, or 0x18 (CAN) or 0x1A (SUB) if it was cancelled
  * @return Handle to the parsed OSC command, or NULL if the sequence is not

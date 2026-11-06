@@ -131,15 +131,17 @@ typedef struct {
  *             the pty (the encoded text or a paste event). False means
  *             there was nothing to paste: no non-empty text
  *             representation. May be NULL.
- * @return GHOSTTY_SUCCESS on success (see @p out_pasted);
+ * @return GHOSTTY_SUCCESS on success (see @p out_pasted).
  *         GHOSTTY_REJECTED if the text could inject commands and
- *         GhosttyPaste::allow_unsafe is false (nothing was written);
- *         GHOSTTY_INVALID_VALUE for a NULL terminal or paste, MIME
- *         types without a reader, or when no write_pty callback is
- *         installed; GHOSTTY_OUT_OF_MEMORY; GHOSTTY_IO_ERROR if the
- *         reader failed or there is no secure entropy source to mint a
- *         paste event password (wasm32-freestanding without
- *         GHOSTTY_SYS_OPT_RANDOM_SECURE set). Errors write nothing.
+ *         GhosttyPaste::allow_unsafe is false.
+ *         GHOSTTY_INVALID_VALUE for a NULL terminal or paste, an unknown
+ *         GhosttyPaste::source, MIME types without a reader, or when no
+ *         write_pty callback is installed.
+ *         GHOSTTY_OUT_OF_MEMORY if an allocation fails.
+ *         GHOSTTY_IO_ERROR if the reader failed or there is no secure
+ *         entropy source to create a paste event password
+ *         (wasm32-freestanding without GHOSTTY_SYS_OPT_RANDOM_SECURE set).
+ *         Errors write nothing.
  */
 GHOSTTY_API GhosttyResult ghostty_terminal_paste(
     GhosttyTerminal terminal,
@@ -161,7 +163,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_paste(
  * terminal-state-aware rule itself (line terminators are safe inside a
  * bracketed paste); use this to apply the stricter rule on top.
  *
- * @param data The paste data to check (must not be NULL)
+ * @param data The paste data to check (NULL is the same as empty data)
  * @param len The length of the data in bytes
  * @return true if the data is safe to paste, false otherwise
  */
@@ -216,7 +218,7 @@ GHOSTTY_API bool ghostty_paste_is_safe(const char* data, size_t len);
  * @param[out] out_written The number of bytes written, or the size needed
  *             if the result is GHOSTTY_OUT_OF_SPACE
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
- *         is too small
+ *         is too small, or GHOSTTY_INVALID_VALUE if @p out_written is NULL
  */
 GHOSTTY_API GhosttyResult ghostty_paste_encode(
     char* data,

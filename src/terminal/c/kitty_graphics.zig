@@ -114,7 +114,7 @@ pub const PlacementData = enum(c_int) {
 };
 
 pub fn get(
-    graphics_: KittyGraphics,
+    graphics_: ?KittyGraphics,
     data: Data,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
@@ -124,9 +124,9 @@ pub fn get(
         .invalid => .invalid_value,
         _ => .unsupported,
         inline else => |comptime_data| getTyped(
-            graphics_,
+            graphics_ orelse return .invalid_value,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -218,14 +218,14 @@ pub const ImageData = enum(c_int) {
 };
 
 pub fn animation_tick(
-    graphics_: KittyGraphics,
+    graphics_: ?KittyGraphics,
     now_ms: u64,
     next_ms: ?*u64,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
 
     const out = next_ms orelse return .invalid_value;
-    const storage = graphics_;
+    const storage = graphics_ orelse return .invalid_value;
 
     // The tick needs an Io only to hand out new generation numbers.
     // The storage handle doesn't carry one, but TinyIo has no state,
@@ -242,12 +242,12 @@ pub fn animation_tick(
 }
 
 pub fn image_get_handle(
-    graphics_: KittyGraphics,
+    graphics_: ?KittyGraphics,
     image_id: u32,
 ) callconv(lib.calling_conv) ImageHandle {
     if (comptime !lib.feature(.kitty_graphics)) return null;
 
-    const storage = graphics_;
+    const storage = graphics_ orelse return null;
     return storage.images.getPtr(image_id);
 }
 
@@ -264,7 +264,7 @@ pub fn image_get(
         inline else => |comptime_data| imageGetTyped(
             image_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -321,12 +321,13 @@ fn imageGetTyped(
 
 pub fn placement_iterator_new(
     alloc_: ?*const CAllocator,
-    out: *PlacementIterator,
+    out_: ?*PlacementIterator,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) {
-        out.* = null;
+        if (out_) |o| o.* = null;
         return .unsupported;
     }
+    const out = out_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(PlacementIteratorWrapper) catch {
         out.* = null;
@@ -405,7 +406,7 @@ pub fn placement_get(
         inline else => |comptime_data| placementGetTyped(
             iter_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -468,9 +469,10 @@ pub fn placement_rect(
     iter_: PlacementIterator,
     image_: ImageHandle,
     terminal_: terminal_c.Terminal,
-    out: *selection_c.CSelection,
+    out_: ?*selection_c.CSelection,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
+    const out = out_ orelse return .invalid_value;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -494,10 +496,12 @@ pub fn placement_pixel_size(
     iter_: PlacementIterator,
     image_: ImageHandle,
     terminal_: terminal_c.Terminal,
-    out_width: *u32,
-    out_height: *u32,
+    out_width_: ?*u32,
+    out_height_: ?*u32,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
+    const out_width = out_width_ orelse return .invalid_value;
+    const out_height = out_height_ orelse return .invalid_value;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -515,10 +519,12 @@ pub fn placement_grid_size(
     iter_: PlacementIterator,
     image_: ImageHandle,
     terminal_: terminal_c.Terminal,
-    out_cols: *u32,
-    out_rows: *u32,
+    out_cols_: ?*u32,
+    out_rows_: ?*u32,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
+    const out_cols = out_cols_ orelse return .invalid_value;
+    const out_rows = out_rows_ orelse return .invalid_value;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -536,10 +542,12 @@ pub fn placement_viewport_pos(
     iter_: PlacementIterator,
     image_: ImageHandle,
     terminal_: terminal_c.Terminal,
-    out_col: *i32,
-    out_row: *i32,
+    out_col_: ?*i32,
+    out_row_: ?*i32,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
+    const out_col = out_col_ orelse return .invalid_value;
+    const out_row = out_row_ orelse return .invalid_value;
 
     const wrapper = terminal_ orelse return .invalid_value;
     const image = image_ orelse return .invalid_value;
@@ -558,12 +566,16 @@ pub fn placement_viewport_pos(
 pub fn placement_source_rect(
     iter_: PlacementIterator,
     image_: ImageHandle,
-    out_x: *u32,
-    out_y: *u32,
-    out_width: *u32,
-    out_height: *u32,
+    out_x_: ?*u32,
+    out_y_: ?*u32,
+    out_width_: ?*u32,
+    out_height_: ?*u32,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.kitty_graphics)) return .unsupported;
+    const out_x = out_x_ orelse return .invalid_value;
+    const out_y = out_y_ orelse return .invalid_value;
+    const out_width = out_width_ orelse return .invalid_value;
+    const out_height = out_height_ orelse return .invalid_value;
 
     const image = image_ orelse return .invalid_value;
     const iter = iter_ orelse return .invalid_value;

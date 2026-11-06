@@ -111,7 +111,8 @@ typedef struct {
 /**
  * Get the cell from a grid reference.
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_cell On success, set to the cell at the ref's position (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL
@@ -124,7 +125,8 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_cell(const GhosttyGridRef *ref,
 /**
  * Get the row from a grid reference.
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_row On success, set to the row at the ref's position (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL
@@ -166,12 +168,14 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_row(const GhosttyGridRef *ref,
  * if (codepoints != stack) free(codepoints);
  * @endcode
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the codepoints into. May be NULL if @p buf_len
  *            is 0.
  * @param buf_len Number of uint32_t elements @p buf can hold
  * @param[out] out_written The number of codepoints written, or the number
- *             needed if the result is GHOSTTY_OUT_OF_SPACE
+ *             needed if the result is GHOSTTY_OUT_OF_SPACE (NULL returns
+ *             GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL, GHOSTTY_OUT_OF_SPACE if the buffer is too small
  *
@@ -207,11 +211,13 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_graphemes(const GhosttyGridRef *ref,
  * }
  * @endcode
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the URI into. May be NULL if @p buf_len is 0.
  * @param buf_len Size of @p buf in bytes
  * @param[out] out_written The number of bytes written, or the size needed
- *             if the result is GHOSTTY_OUT_OF_SPACE
+ *             if the result is GHOSTTY_OUT_OF_SPACE (NULL returns
+ *             GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL, GHOSTTY_OUT_OF_SPACE if the buffer is too small
  *
@@ -226,7 +232,8 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_hyperlink_uri(
 /**
  * Get the style of the cell at the grid reference's position.
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_style On success, set to the cell's style (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL

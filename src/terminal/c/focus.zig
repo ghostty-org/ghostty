@@ -4,12 +4,14 @@ const terminal_focus = @import("../focus.zig");
 const Result = @import("result.zig").Result;
 
 pub fn encode(
-    event: terminal_focus.Event,
+    event_: lib.CEnum(terminal_focus.Event),
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) return .unsupported;
+    const out_written = out_written_ orelse return .invalid_value;
+    const event = lib.enumFromC(terminal_focus.Event, event_) orelse return .invalid_value;
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     terminal_focus.encode(&writer, event) catch |err| switch (err) {
         error.WriteFailed => {

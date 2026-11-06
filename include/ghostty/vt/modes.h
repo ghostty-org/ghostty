@@ -185,7 +185,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param[out] out_written The number of bytes written, or the size needed
  *             if the result is GHOSTTY_OUT_OF_SPACE
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
- *         is too small
+ *         is too small, or GHOSTTY_INVALID_VALUE if @p out_written is NULL
  */
 GHOSTTY_API GhosttyResult ghostty_mode_report_encode(
     GhosttyMode mode,

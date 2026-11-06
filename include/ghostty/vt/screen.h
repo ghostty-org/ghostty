@@ -343,8 +343,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
- *         GHOSTTY_CELL_DATA_INVALID, or GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library
+ *         GHOSTTY_CELL_DATA_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup screen
  */
@@ -399,8 +399,8 @@ GHOSTTY_API GhosttyResult ghostty_cell_get_multi(GhosttyCell cell,
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
- *         GHOSTTY_ROW_DATA_INVALID, or GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library
+ *         GHOSTTY_ROW_DATA_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup screen
  */

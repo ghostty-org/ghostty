@@ -74,7 +74,8 @@ typedef struct {
  * Create a new mouse event instance.
  *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param event Pointer to store the created event handle
+ * @param event Pointer to store the created event handle (NULL returns
+ *              GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup mouse
@@ -170,7 +171,7 @@ GHOSTTY_API GhosttyResult ghostty_mouse_event_clear_button(GhosttyMouseEvent eve
  * @endcode
  *
  * @param event The event handle
- * @param out_button Where to write the button. Must not be NULL.
+ * @param out_button Where to write the button. NULL returns GHOSTTY_INVALID_VALUE.
  * @return GHOSTTY_SUCCESS if the event has a button, GHOSTTY_NO_VALUE if it
  *         has none, or GHOSTTY_INVALID_VALUE if `event` or `out_button` is
  *         NULL. `out_button` is written only on GHOSTTY_SUCCESS.

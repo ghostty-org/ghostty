@@ -94,12 +94,13 @@ pub const Option = enum(c_int) {
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Encoder,
+    result_: ?*Encoder,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(MouseEncoderWrapper) catch
         return .out_of_memory;
@@ -242,11 +243,12 @@ pub fn encode(
     event_: Event,
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = encoder_ orelse return .invalid_value;
     const event = event_ orelse return .invalid_value;
+    const out_written = out_written_ orelse return .invalid_value;
 
     const prev_last_cell = wrapper.last_cell;
 
