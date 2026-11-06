@@ -218,8 +218,7 @@ pub const ImageStorage = struct {
         /// Otherwise this returns false, changes nothing, and the caller
         /// still owns `data`.
         ///
-        /// Completing an image keeps its `generation`, so the image keeps
-        /// its age for eviction purposes.
+        /// Completing an image keeps its `generation`.
         pub fn complete(
             self: PendingImage,
             storage: *ImageStorage,
@@ -1833,7 +1832,7 @@ pub const ImageStorage = struct {
 
         const Candidate = struct {
             id: u32,
-            generation: u64,
+            transmission: u64,
 
             // Lower values are evicted first:
             // 0: transient, unused
@@ -1845,7 +1844,7 @@ pub const ImageStorage = struct {
             fn init(img: *const Image) @This() {
                 return .{
                     .id = img.id,
-                    .generation = img.generation,
+                    .transmission = img.transmission,
                     .priority = (if (img.metadata.transient) @as(u2, 0) else @as(u2, 1)) +
                         (if (img.metadata.placement_count > 0) @as(u2, 2) else @as(u2, 0)),
                 };
@@ -1854,8 +1853,8 @@ pub const ImageStorage = struct {
             fn lessThan(lhs: @This(), rhs: @This()) bool {
                 if (lhs.priority != rhs.priority)
                     return lhs.priority < rhs.priority;
-                if (lhs.generation != rhs.generation)
-                    return lhs.generation < rhs.generation;
+                if (lhs.transmission != rhs.transmission)
+                    return lhs.transmission < rhs.transmission;
                 return lhs.id < rhs.id;
             }
         };
@@ -3843,6 +3842,9 @@ test "storage: eviction releases placement pins" {
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
     });
     try testing.expectEqual(tracked + 2, t.screens.active.pages.countTrackedPins());
+
+    // Showing another frame of the first doesn't make it newer.
+    s.markImageContentChanged(io, s.images.getPtr(1).?);
 
     // Adding a third image evicts the oldest equally-ranked image and its
     // placement. The newer image's placement and tracked pin remain intact.
