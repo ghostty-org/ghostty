@@ -1,13 +1,13 @@
 # Getting and Setting Values {#values}
 
-libghostty-vt has hundreds of values you might want to read or change. A
-function for each one would be a huge API, and every new value would be a new
-symbol to link against.
+libghostty-vt has hundreds of values you may want to read or change.
+In order to provide long-term ABI compatibility and to avoid a massive
+symbol surface area, most values go through the same small set of functions
+using a standard getter and setter format.
 
-So much of the API goes through a small set of functions that take a key. The
-key is an enum value that names what you want. The value itself goes through a
-`void *`, and each key documents its type. This reads the terminal's column
-count:
+The key is an enum value that names what you want. The value itself goes
+through a `void *`, and each key documents its type. This reads the terminal's
+column count, for example:
 
 ```c
 uint16_t cols = 0;
@@ -63,7 +63,9 @@ object unchanged.
 ## Reading Several Values at Once {#values-multi}
 
 The `_get_multi` functions read several keys in one call. They help when each
-call is expensive, such as across FFI.
+call is expensive, such as across FFI. For example, in the libghostty-vt
+[Go bindings](https://tangled.org/mitchellh.com/go-libghostty), `_get_multi`
+APIs improve performance massively.
 
 They process keys in order and stop at the first one that fails. Values for the
 keys before it have already been written, and `out_written` receives the index

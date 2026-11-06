@@ -42,11 +42,10 @@ can break.
 ## Where to Next?
 
 - Getting the library? See @ref installing.
-- Building a terminal? Read @ref first-terminal, then @ref building-a-terminal.
+- Building a terminal? Read @ref first-terminal.
 - Only need one piece? The parsers and encoders work without a terminal. See
   @ref api_building_blocks "Building Blocks" and @ref api_input "Input".
-- Writing bindings for another language? Read @ref conventions first. It will
-  save you time.
+- Read @ref conventions for general library-wide conventions.
 
 ## Example
 

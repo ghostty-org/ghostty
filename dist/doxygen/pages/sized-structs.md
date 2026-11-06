@@ -1,12 +1,13 @@
 # Sized Structs {#sized-structs}
 
-We want to add fields to structs without breaking your program. That's hard in
-C. If we make a struct bigger and your program was compiled against the old one,
-we'd read past the end of your memory.
+Struct size, layout, and alignment is part of the C ABI. We want to
+have the ability to add fields to structs without breaking existing programs.
+To achieve this, we use a common pattern known as "sized structs." Sized
+structs are mildly annoying so we do our best to limit this as much as possible.
 
-So some structs start with a `size_t size` field. It tells us how big the struct
-was when you compiled, and we only touch that much. New fields go at the end. We
-call these sized structs.
+A sized struct starts with a `size_t size` field. It tells us how big the struct
+was when you compiled, and we only touch that much memory. New fields always
+go at the end. That way, we never write beyond the amount of memory you allocate.
 
 In C you never set `size` by hand. Use GHOSTTY_INIT_SIZED():
 

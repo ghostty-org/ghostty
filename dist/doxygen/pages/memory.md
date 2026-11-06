@@ -1,6 +1,6 @@
 # Memory {#memory}
 
-libghostty-vt allocates memory, and you get to decide where it comes from.
+libghostty-vt may allocate memory and fully supports custom allocators.
 
 Most programs never need to think about this. Any function that takes a
 `const GhosttyAllocator*` accepts NULL, which selects the default allocator.

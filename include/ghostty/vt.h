@@ -17,8 +17,9 @@
  */
 
 /** @example c-vt-stream/src/main.c
- * Feed VT sequences into a terminal and read the final screen back as plain
- * text. Use this for read-only tools like replay viewers and CI log viewers.
+ * Feed VT sequences into a terminal, read the final screen back as plain text,
+ * and draw it with a render state. Start here for read-only tools like replay
+ * viewers and CI log viewers.
  */
 
 /** @example c-vt-formatter/src/main.c

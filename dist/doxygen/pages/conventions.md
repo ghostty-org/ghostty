@@ -1,8 +1,8 @@
 # API Conventions {#conventions}
 
 The libghostty-vt API follows the same few rules everywhere. Learn them once and
-every header reads the same way. If you're writing bindings for another
-language, read all of this first.
+every bit of functionality in the library behaves in a predictable, regular
+way.
 
 Four of the rules are short and they're on this page. The others have pages of
 their own:
@@ -35,9 +35,9 @@ built for. See @ref values-older-libraries and @ref features.
 
 ## Handles {#conventions-handles}
 
-A handle is an opaque pointer to something the library manages, such as a
-GhosttyTerminal. You never see inside one. All you need to know is whether it
-belongs to you.
+Much of the libghostty-vt API is handle-based. A handle isan opaque pointer
+to something the library manages; the structure of the thing is not public
+API for you to dig into. For example: GhosttyTerminal.
 
 A handle you create is yours. Most come from a `_new` function, such as
 ghostty_terminal_new(), which takes an allocator first and writes the handle to
@@ -72,12 +72,22 @@ memory-buffers.
 
 ## Threads {#conventions-threads}
 
-The library creates no threads. Every callback runs on the thread whose call
-triggered it.
+The library creates no threads on its own. In general, calls on one handle
+are never thread-safe. But calls across multiple handles are. It is possible
+to build a multi-threaded terminal on libghostty-vt and is how many terminals
+are built.
+
+Every callback runs on the thread whose call triggered it. libghostty-vt
+has no concept at all of main threads or routing calls to different threads;
+you must solve this yourself as the caller.
 
 Calls on one handle, and on any handle borrowed from it, must not run at the
 same time unless a function's documentation says otherwise. Handles that share
 nothing can be used on different threads.
+
+A common example: render state can run on a separate thread from terminal IO,
+so that IO can continue while rendering happens. There is only one function
+in render state that uses the terminal and requires a lock.
 
 ## Output Buffers {#conventions-buffers}
 

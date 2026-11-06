@@ -14,11 +14,11 @@ c-vt-stream/src/main.c "c-vt-stream".
 
 ## Start Here
 
-| Example                                         | What it does                                                                                                                                          |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| @ref c-vt-hello/src/main.c "c-vt-hello"         | The smallest complete program: create a terminal, write text with a color sequence in it, and print the screen. This is the program on the main page. |
-| @ref c-vt-stream/src/main.c "c-vt-stream"       | Feed VT sequences into a terminal and read the final screen back as plain text. Use this for read-only tools like replay viewers and CI log viewers.  |
-| @ref c-vt-formatter/src/main.c "c-vt-formatter" | Write text and cursor movement into a terminal, then stream the screen to stdout as plain text through a GhosttyWriter.                               |
+| Example                                         | What it does                                                                                                                                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| @ref c-vt-hello/src/main.c "c-vt-hello"         | The smallest complete program: create a terminal, write text with a color sequence in it, and print the screen. This is the program on the main page.                                |
+| @ref c-vt-stream/src/main.c "c-vt-stream"       | Feed VT sequences into a terminal, read the final screen back as plain text, and draw it with a render state. Start here for read-only tools like replay viewers and CI log viewers. |
+| @ref c-vt-formatter/src/main.c "c-vt-formatter" | Write text and cursor movement into a terminal, then stream the screen to stdout as plain text through a GhosttyWriter.                                                              |
 
 ## Terminal
 
