@@ -18,96 +18,12 @@
  * terminal, list supported X11 color names, or make UI decisions from
  * luminance and contrast values.
  *
- * ## Parsing Colors
- *
- * ghostty_color_parse() accepts the flexible syntax used by Ghostty for
- * terminal colors:
- *
- * - X11 color names, matched ASCII case-insensitively.
- * - 3- or 6-digit hex colors, with or without a leading `#`.
- * - 9- or 12-digit hex colors, with a leading `#`.
- * - XParseColor-style `rgb:<red>/<green>/<blue>` values.
- * - XParseColor-style `rgbi:<red>/<green>/<blue>` values.
- *
- * Leading and trailing spaces and tabs are ignored. Use
- * ghostty_color_parse_x11() when only X11 names should be accepted.
+ * See the @ref guide_colors "Colors guide" for parsing, palettes, and how a
+ * terminal's colors work.
  *
  * @code{.c}
  * GhosttyColorRgb color;
- *
- * if (ghostty_color_parse(
- *         "ForestGreen",
- *         sizeof("ForestGreen") - 1,
- *         &color) != GHOSTTY_SUCCESS) {
- *   // Handle invalid color input.
- * }
- *
  * ghostty_color_parse("#abc", sizeof("#abc") - 1, &color);
- * ghostty_color_parse("rgb:12/34/56", sizeof("rgb:12/34/56") - 1, &color);
- * @endcode
- *
- * ## Palette Entries
- *
- * ghostty_color_parse_palette_entry() parses a single Ghostty palette
- * override in `INDEX=COLOR` form. The index may be decimal or use a `0x`,
- * `0o`, or `0b` prefix. The color side uses ghostty_color_parse().
- *
- * @code{.c}
- * GhosttyColorRgb palette[256];
- * ghostty_color_palette_default(palette);
- *
- * uint8_t index;
- * GhosttyColorRgb rgb;
- *
- * if (ghostty_color_parse_palette_entry(
- *         "0x10=#282c34",
- *         sizeof("0x10=#282c34") - 1,
- *         &index,
- *         &rgb) == GHOSTTY_SUCCESS) {
- *   palette[index] = rgb;
- * }
- * @endcode
- *
- * ## Palette Generation
- *
- * ghostty_color_palette_generate() derives the 216-color cube and grayscale
- * ramp from a base palette, background, and foreground. Set bits in
- * GhosttyColorPaletteMask preserve specific indices from the base palette.
- * The output may alias the base input.
- *
- * @code{.c}
- * GhosttyColorRgb palette[256];
- * ghostty_color_palette_default(palette);
- *
- * GhosttyColorPaletteMask skip = {0};
- * GHOSTTY_COLOR_PALETTE_MASK_SET(&skip, 16);
- *
- * GhosttyColorRgb background = {40, 44, 52};
- * GhosttyColorRgb foreground = {220, 223, 228};
- *
- * ghostty_color_palette_generate(
- *     palette,
- *     &skip,
- *     &background,
- *     &foreground,
- *     true,
- *     palette);
- * @endcode
- *
- * ## X11 Color Names
- *
- * The X11 name table is static program-lifetime memory. Entries are in
- * rgb.txt order and are terminated by an entry with `name == NULL`.
- * ghostty_color_x11_name_count() returns the number of non-terminator
- * entries.
- *
- * @code{.c}
- * const GhosttyColorX11Entry* names = ghostty_color_x11_names();
- * size_t count = ghostty_color_x11_name_count();
- *
- * for (size_t i = 0; i < count; i++) {
- *   // names[i].name and names[i].color are valid here.
- * }
  * @endcode
  *
  * @{

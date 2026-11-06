@@ -13,14 +13,7 @@
  * Utilities for encoding color scheme reports into terminal escape
  * sequences for color scheme reporting mode (mode 2031).
  *
- * ## Basic Usage
- *
- * Use ghostty_color_scheme_report_encode() to encode a color scheme report
- * into a caller-provided buffer. If the buffer is too small, the function
- * returns GHOSTTY_OUT_OF_SPACE and sets the required size in the output
- * parameter.
- *
- * ## Example
+ * See @ref guide_colors_scheme for when to send one.
  *
  * @snippet c-vt-color-scheme/src/main.c color-scheme-report-encode
  *

@@ -22,6 +22,8 @@
  * encoding input events, etc. It can handle scrollback, line wrapping, 
  * reflow on resize, and more.
  *
+ * The @ref guides "Guides" explain how to use each part of the library.
+ *
  * Complete programs, grouped by what you want to do, are on the
  * @ref example_programs "Examples" page.
  *

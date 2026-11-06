@@ -38,153 +38,14 @@ extern "C" {
  * Once a terminal session is up and running, you can configure a key encoder
  * to write keyboard input via ghostty_key_encoder_set_from_terminal().
  *
+ * The guides cover the rest: @ref guide_effects "Effects" for what programs
+ * ask of the terminal, @ref guide_colors "Colors",
+ * @ref guide_scrollback "Scrollback", and
+ * @ref guide_custom_sequences "Custom Sequences".
+ *
  * ### Example: VT stream processing
  * @snippet c-vt-stream/src/main.c vt-stream-init
  * @snippet c-vt-stream/src/main.c vt-stream-write
- *
- * ## Scrollback Compression
- *
- * Scrollback compression is caller-driven. The terminal exposes an opaque
- * activity token so an embedding application can restart an idle timer only
- * when compression-relevant state changes. Once idle, call incremental
- * compression until it no longer reports pending work. libghostty-vt does not
- * create a timer or background thread.
- *
- * @snippet c-vt-compression/src/main.c compression-activity
- * @snippet c-vt-compression/src/main.c compression-idle-step
- *
- * ## Effects
- *
- * The terminal ignores sequences that have side effects or need a reply,
- * such as the bell, title changes and device attribute queries, until you
- * register callbacks for them. See @ref effects "Effects".
- *
- * ## Unsupported Sequences {#terminal_unsupported_sequences}
- *
- * Programs sometimes send escape sequences that libghostty-vt does not
- * implement, such as a newer protocol or one specific to your application.
- * The terminal discards these by default. You can ask it to hand them to
- * you instead, so your application can implement the protocol itself.
- *
- * Two options work together, and both must be set:
- *
- * - `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` installs the callback.
- * - `GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES` sets how many bytes of each
- *   sequence to keep. It defaults to zero, which turns the feature off.
- *
- * The callback receives a `GhosttyTerminalUnknownSequence`. Its tag says
- * which kind of sequence arrived. APC and OSC sequences are reported today,
- * and more kinds may be added later, so ignore any tag you don't handle.
- *
- * For OSC, the content is everything between `ESC ]` and the terminator,
- * including the number that identifies the sequence. As an example,
- * suppose your application invents its own OSC 7400 so that programs can
- * report their status. If a program writes
- * `ESC ] 7400;status=busy BEL`, the callback receives the content
- * `7400;status=busy` and the terminator `GHOSTTY_OSC_TERMINATOR_BEL`.
- * Match on the number followed by `;`, so that `7400;` does not also
- * match an unrelated `74000;` sequence.
- *
- * Only numbers libghostty-vt does not recognize are reported. A sequence
- * that uses a number it does implement, such as OSC 2 for the window title,
- * is never reported, even when its contents are malformed.
- *
- * The callback runs while the terminal is processing input, so it can
- * answer a query by writing straight to the pty. The reply stays in order
- * with the terminal's own replies. Use the terminator from the request in
- * your reply, since that is what the program expects.
- *
- * @code{.c}
- * static void on_unknown_sequence(GhosttyTerminal terminal,
- *                                 void* userdata,
- *                                 const GhosttyTerminalUnknownSequence* seq) {
- *   (void)terminal;
- *   if (seq->tag != GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_OSC) return;
- *
- *   const GhosttyTerminalUnknownOscSequence* osc = &seq->value.osc;
- *
- *   // This protocol needs the whole sequence, so skip cut-off ones.
- *   if (osc->truncated) return;
- *
- *   // Only handle OSC 7400. Everything else is ignored.
- *   const char prefix[] = "7400;";
- *   const size_t prefix_len = sizeof(prefix) - 1;
- *   if (osc->content.len < prefix_len ||
- *       memcmp(osc->content.ptr, prefix, prefix_len) != 0) return;
- *
- *   // The content is only valid during this call. Copy it if you need it
- *   // later. my_app_handle_status is your own function.
- *   my_app_handle_status(userdata,
- *                        osc->content.ptr + prefix_len,
- *                        osc->content.len - prefix_len);
- * }
- *
- * // Keep up to 4 KiB of each unknown sequence and report them.
- * size_t max_bytes = 4096;
- * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE,
- *                      (const void*)on_unknown_sequence);
- * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES,
- *                      &max_bytes);
- * @endcode
- *
- * ## Color Theme
- *
- * The terminal maintains a set of colors used for rendering: a foreground
- * color, a background color, a cursor color, and a 256-color palette. Each
- * of these has two layers: a **default** value set by the embedder, and an
- * **override** value that programs running in the terminal can set via OSC
- * escape sequences (e.g. OSC 10/11/12 for foreground/background/cursor,
- * OSC 4 for individual palette entries).
- *
- * ### Default Colors
- *
- * Use ghostty_terminal_set() with the color options to configure the
- * default colors. These represent the theme or configuration chosen by
- * the embedder. Passing `NULL` clears the default, leaving the color
- * unset.
- *
- * | Option                                  | Input Type              | Description                          |
- * |-----------------------------------------|-------------------------|--------------------------------------|
- * | `GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND` | `GhosttyColorRgb*`      | Default foreground color             |
- * | `GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND` | `GhosttyColorRgb*`      | Default background color             |
- * | `GHOSTTY_TERMINAL_OPT_COLOR_CURSOR`     | `GhosttyColorRgb*`      | Default cursor color                 |
- * | `GHOSTTY_TERMINAL_OPT_COLOR_PALETTE`    | `GhosttyColorRgb[256]*` | Default 256-color palette            |
- *
- * For the palette, passing `NULL` resets to the built-in default palette.
- * The palette set operation preserves any per-index OSC overrides that
- * programs have applied; only unmodified indices are updated.
- *
- * ### Reading colors
- *
- * Use ghostty_terminal_get() to read colors. There are two variants for
- * each color: the **effective** value (which returns the OSC override if
- * one is active, otherwise the default) and the **default** value (which
- * ignores any OSC overrides).
- *
- * | Data                                              | Output Type             | Description                                    |
- * |---------------------------------------------------|-------------------------|------------------------------------------------|
- * | `GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND`          | `GhosttyColorRgb*`      | Effective foreground (override or default)      |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND`          | `GhosttyColorRgb*`      | Effective background (override or default)      |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_CURSOR`              | `GhosttyColorRgb*`      | Effective cursor (override or default)          |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_PALETTE`             | `GhosttyColorRgb[256]*` | Current palette (with any OSC overrides)        |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND_DEFAULT`  | `GhosttyColorRgb*`      | Default foreground only (ignores OSC override)  |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND_DEFAULT`  | `GhosttyColorRgb*`      | Default background only (ignores OSC override)  |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_CURSOR_DEFAULT`      | `GhosttyColorRgb*`      | Default cursor only (ignores OSC override)      |
- * | `GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT`     | `GhosttyColorRgb[256]*` | Default palette only (ignores OSC overrides)    |
- *
- * For foreground, background, and cursor colors, the getters return
- * `GHOSTTY_NO_VALUE` if no color is configured (neither a default nor an
- * OSC override). The palette getters always succeed since the palette
- * always has a value (the built-in default if nothing else is set).
- *
- * ### Setting a color theme
- * @snippet c-vt-colors/src/main.c colors-set-defaults
- *
- * ### Reading effective and default colors
- * @snippet c-vt-colors/src/main.c colors-read
- *
- * ### Full example with OSC overrides
- * @snippet c-vt-colors/src/main.c colors-main
  *
  * @{
  */
@@ -684,78 +545,13 @@ typedef struct {
 
 /** @addtogroup effects
  *
- * By default, terminal sequence processing with the VT write functions only
- * processes sequences that directly affect terminal state and
- * ignores sequences that have side effect behavior or require responses.
- * These sequences include things like bell characters, title changes, device
- * attributes queries, and more. To handle these sequences, the embedder
- * must configure "effects."
- *
  * Effects are callbacks that the terminal invokes in response to VT
  * sequences processed during VT writes. They let the embedding application
  * react to terminal-initiated events such as bell characters, title changes,
  * device status report responses, and more.
  *
- * Each effect is registered with ghostty_terminal_set() using the
- * corresponding `GhosttyTerminalOption` identifier. A `NULL` value
- * pointer clears the callback and disables the effect.
- *
- * A userdata pointer can be attached via `GHOSTTY_TERMINAL_OPT_USERDATA`
- * and is passed to every callback, allowing callers to route events
- * back to their own application state without global variables.
- * You cannot specify different userdata for different callbacks.
- *
- * All callbacks are invoked synchronously during VT writes. Callbacks
- * **must not** call ghostty_terminal_vt_write() or
- * ghostty_terminal_vt_write_until() on the same terminal
- * (no reentrancy).
- * And callbacks must be very careful to not block for too long or perform
- * expensive operations, since they are blocking further IO processing.
- *
- * The available effects are:
- *
- * | Option                                  | Callback Type                     | Trigger                                   |
- * |-----------------------------------------|-----------------------------------|-------------------------------------------|
- * | `GHOSTTY_TERMINAL_OPT_WRITE_PTY`        | `GhosttyTerminalWritePtyFn`       | VT query and mode reports written back to the PTY |
- * | `GHOSTTY_TERMINAL_OPT_BELL`             | `GhosttyTerminalBellFn`           | BEL character (0x07)                      |
- * | `GHOSTTY_TERMINAL_OPT_TITLE_CHANGED`    | `GhosttyTerminalTitleChangedFn`   | Title change via OSC 0 / OSC 2            |
- * | `GHOSTTY_TERMINAL_OPT_PWD_CHANGED`      | `GhosttyTerminalPwdChangedFn`     | Pwd change via OSC 7 / OSC 9 / OSC 1337   |
- * | `GHOSTTY_TERMINAL_OPT_ENQUIRY`          | `GhosttyTerminalEnquiryFn`        | ENQ character (0x05)                      |
- * | `GHOSTTY_TERMINAL_OPT_XTVERSION`        | `GhosttyTerminalXtversionFn`      | XTVERSION query (CSI > q)                 |
- * | `GHOSTTY_TERMINAL_OPT_SIZE`             | `GhosttyTerminalSizeFn`           | XTWINOPS query (CSI 14/16/18/19 t) or mode 2048 enable |
- * | `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME`     | `GhosttyTerminalColorSchemeFn`    | Color scheme query (CSI ? 996 n)          |
- * | `GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES`| `GhosttyTerminalDeviceAttributesFn`| Device attributes query (CSI c / > c / = c)|
- * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE`  | `GhosttyTerminalClipboardWriteFn` | Clipboard write via OSC 52 / OSC 1337 / OSC 5522 |
- * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ`   | `GhosttyTerminalClipboardReadFn`  | Clipboard read via OSC 52 "?" / OSC 5522  |
- * | `GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION`| `GhosttyTerminalDesktopNotificationFn` | Desktop notification via OSC 9 / OSC 777 |
- * | `GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT`  | `GhosttyTerminalProgressReportFn` | Progress report via OSC 9;4               |
- * | `GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS`   | `GhosttyTerminalProgramStatusFn`  | Program status report via OSC 7501        |
- * | `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` | `GhosttyTerminalUnknownSequenceFn` | APC or OSC sequence that libghostty-vt does not implement (see @ref terminal_unsupported_sequences "Unsupported Sequences") |
- * | `GHOSTTY_TERMINAL_OPT_RENDER_HOLD`      | `GhosttyTerminalRenderHoldFn`     | Synchronized output (mode 2026) begins or ends |
- * | `GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT`  | `GhosttyTerminalSemanticPromptFn` | Shell reports a prompt or command step via OSC 133 |
- * | `GHOSTTY_TERMINAL_OPT_RESET`            | `GhosttyTerminalResetFn`          | Full reset (RIS, ESC c)                   |
- * | `GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW`    | `GhosttyTerminalResizeWindowFn`   | Window resize request (CSI 8 t)           |
- *
- * ## Defining a write_pty callback
- * @snippet c-vt-effects/src/main.c effects-write-pty
- *
- * ## Defining a bell callback
- * @snippet c-vt-effects/src/main.c effects-bell
- *
- * ## Defining a title_changed callback
- * @snippet c-vt-effects/src/main.c effects-title-changed
- *
- * ## Defining a clipboard_write callback
- * @snippet c-vt-effects/src/main.c effects-clipboard-write
- *
- * ## Defining a clipboard_read callback
- * @snippet c-vt-effects/src/main.c effects-clipboard-read
- *
- * ## Defining an unknown_sequence callback
- * @snippet c-vt-effects/src/main.c effects-unknown-sequence
- *
- * ## Registering effects and processing VT data
- * @snippet c-vt-effects/src/main.c effects-register
+ * See the @ref guide_effects "Effects guide" for how to register them, the
+ * rules for callbacks, the list of effects, and examples.
  *
  * @{
  */
@@ -821,8 +617,8 @@ typedef struct {
  * @endcode
  *
  * For that sequence, `content` is `7400;status=busy` and `terminator`
- * is GHOSTTY_OSC_TERMINATOR_BEL. See the Unsupported Sequences section of
- * the terminal documentation for a complete example.
+ * is GHOSTTY_OSC_TERMINATOR_BEL. See @ref guide_custom_sequences_unknown
+ * for a complete example.
  *
  * @ingroup effects
  */
@@ -2667,8 +2463,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Set to NULL to stop receiving them.
    *
    * GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES must also be set, or the
-   * callback is never called. See the Unsupported Sequences section of the
-   * terminal documentation for an example.
+   * callback is never called. See @ref guide_custom_sequences_unknown for
+   * an example.
    *
    * Input type: GhosttyTerminalUnknownSequenceFn
    */
@@ -3479,85 +3275,8 @@ GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
  * ends up in the same state as if you had called
  * ghostty_terminal_vt_write() with all of it.
  *
- * ## Finding string content
- *
- * After a START stop, the string's content begins at the first byte that
- * was not consumed. For a Kitty graphics command that byte is `G`. For an
- * OSC it is the first digit of the command number. An END stop consumes
- * the byte that ended the string, which is not part of the content. A
- * string can start in one call and end several calls later.
- *
- * This loop handles one chunk of output and finds the content of the APC
- * strings in it. DCS and OSC strings work the same way with their own
- * flags:
- *
- * @code{.c}
- * uint32_t want = GHOSTTY_TERMINAL_BOUNDARY_APC_START |
- *                 GHOSTTY_TERMINAL_BOUNDARY_APC_END;
- * size_t off = 0;
- * while (off < len) {
- *   GhosttyTerminalWriteStop stop =
- *       GHOSTTY_INIT_SIZED(GhosttyTerminalWriteStop);
- *   GhosttyResult r = ghostty_terminal_vt_write_until(
- *       terminal, data + off, len - off, want, &stop);
- *   if (r == GHOSTTY_NO_VALUE) {
- *     // No boundary in the rest of the chunk. Everything was consumed.
- *     break;
- *   }
- *
- *   off += stop.consumed;
- *   if (stop.reached & GHOSTTY_TERMINAL_BOUNDARY_APC_START) {
- *     // The content starts at data + off.
- *   }
- *   if (stop.reached & GHOSTTY_TERMINAL_BOUNDARY_APC_END) {
- *     // The ending byte is at data + off - 1. The content stops just
- *     // before it.
- *   }
- * }
- * @endcode
- *
- * ## Strings that end with ESC
- *
- * The usual string terminator is the two bytes `ESC \`. The call stops
- * after the ESC with GHOSTTY_TERMINAL_STRING_END_ST_ESC and does not
- * consume the `\`. The loop above needs no special case for this. The
- * `\` is simply the first byte of the next call, where it completes the
- * terminator and brings the stream back to ground.
- *
- * ## DCS strings
- *
- * A DCS_START stop lands on the introducer, before the header. The bytes
- * after it are the parameters, intermediates and final byte of the header,
- * then the payload. For `ESC P 1 ; 2 | data ESC \` the stop lands on `P`,
- * and `1;2|` is the header that follows.
- *
- * The string can end in its header. CAN, SUB, 0x9C, ESC or another 8-bit
- * control byte there gives a DCS_END stop for a DCS that never had a
- * payload. Past the header, only ESC, CAN and SUB end the string, and
- * every other byte is payload, 8-bit bytes included. A 0x90 in the header
- * restarts the header without ending the string, so it does not stop.
- *
- * ## One byte that ends a string and starts another
- *
- * An 8-bit introducer of a different kind inside an APC, or inside a DCS
- * header, ends that string and starts the new one on the same byte. The
- * stop has both an END flag and a START flag in `reached`, `end` is
- * ABORTED and `introducer` is C1. The content of the new string begins
- * right after the stop.
- *
- * For example, in `ESC _ a 0x9D 2 ; t BEL` the 0x9D ends the APC and
- * starts an OSC. Asking for APC_END and OSC_START gives one stop on the
- * 0x9D with both flags set, `kind` APC and `byte` 0x9D. The OSC content
- * `2;t` begins right after it, and the BEL then gives an OSC_END stop.
- * GhosttyTerminalWriteStop.reached lists which bytes do this.
- *
- * ## Waiting for ground
- *
- * GHOSTTY_TERMINAL_BOUNDARY_GROUND is a state, not an event. If the
- * stream is already at ground, the call returns GHOSTTY_SUCCESS right away
- * with `consumed` set to 0. If you keep asking for ground with the same
- * input, you never make progress. After a ground stop, write the next
- * bytes without the GROUND flag, or with ghostty_terminal_vt_write().
+ * See @ref guide_custom_sequences_write_until for how to find string
+ * content, the cases that need care, and waiting for ground.
  *
  * @param terminal The terminal handle (must not be NULL)
  * @param data Pointer to the data to write, or NULL when len is zero
