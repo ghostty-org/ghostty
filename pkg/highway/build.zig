@@ -55,6 +55,9 @@ pub fn build(b: *std.Build) !void {
         // against the headers with the same define.
         "-DHWY_NO_LIBCXX",
 
+        // Only linked statically into libghostty-vt and the app: export nothing.
+        "-fvisibility=hidden",
+
         // Avoid changing binaries based on the current time and date.
         "-Wno-builtin-macro-redefined",
         "-D__DATE__=\"redacted\"",
