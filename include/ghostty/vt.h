@@ -7,8 +7,7 @@
  * escape sequences as well as maintaining terminal state such as styles,
  * cursor position, screen, scrollback, and more.
  *
- * Until 1.0, each minor release (such as 0.2) may make changes that break
- * existing programs. See @ref stability for details.
+ * The C ABI is stable from 1.0. See @ref stability for details.
  */
 
 /** @example c-vt-hello/src/main.c

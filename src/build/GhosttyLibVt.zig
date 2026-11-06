@@ -548,7 +548,8 @@ fn initLibApple(
 /// The version metadata of the libghostty-vt shared library. All of it is
 /// derived from `lib_version` here, so every link path agrees.
 /// CMakeLists.txt, nix/libghostty-vt.nix and the CI checks compute the same
-/// values, so update them together with this.
+/// values, so update them together with this. The version string in
+/// nix/libghostty-vt.nix must move with `lib_version`.
 ///
 /// The file names are Zig's usual ones. For version 0.1.0:
 ///
@@ -561,6 +562,9 @@ fn initLibApple(
 /// Except on Windows, the runtime name and the unversioned name
 /// (libghostty-vt.so or libghostty-vt.dylib) are installed as symlinks to
 /// the real file.
+///
+/// The Windows DLL and import library names carry no major version, so
+/// side-by-side installs are not supported on Windows.
 ///
 /// The runtime name only carries the major version. Before 1.0 there is no
 /// ABI promise: any minor release may break the ABI, even though 0.1 and
@@ -786,7 +790,7 @@ const CMakeFiles = struct {
         // release may break the ABI, and from 1.0 on only a new major
         // release does. So an install of 0.1.2 satisfies a request for
         // 0.1 or 0.1.1, but not 0.2, and an install of 1.4.2 satisfies
-        // 1.0 or 1.3, but not 2.0.
+        // 1.0 or 1.3.
         //
         // These are the same rules as CMake's
         // write_basic_package_version_file() with COMPATIBILITY

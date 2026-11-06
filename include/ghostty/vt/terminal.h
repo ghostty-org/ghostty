@@ -1767,7 +1767,8 @@ typedef bool (*GhosttyTerminalColorSchemeFn)(GhosttyTerminal terminal,
  *
  * Called when the terminal receives a device attributes query (CSI c,
  * CSI > c, or CSI = c). Return true and fill *out_attrs with the
- * response data, or return false to silently ignore the query.
+ * response data, or return false to answer with the library's default
+ * attributes, which GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES describes.
  *
  * The terminal uses whichever sub-struct (primary, secondary, tertiary)
  * matches the request type, but all three should be filled for simplicity.
@@ -1799,7 +1800,7 @@ typedef bool (*GhosttyTerminalColorSchemeFn)(GhosttyTerminal terminal,
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param[out] out_attrs Pointer to store the device attributes response
- * @return true if attributes were filled, false to ignore the query
+ * @return true if attributes were filled, false to use the defaults
  *
  * @ingroup effects
  */
@@ -2103,8 +2104,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Callback invoked in response to a device attributes query
    * (CSI c, CSI > c, or CSI = c). Return true and fill the out
-   * pointer with response data, or return false to silently ignore.
-   * Set to NULL to ignore device attributes queries.
+   * pointer with response data, or return false to answer with the
+   * library's default attributes.
+   *
+   * Set to NULL to answer with the library's default attributes (a VT220
+   * with ANSI color). The default replies are CSI ? 62 ; 22 c to CSI c,
+   * CSI > 1 ; 0 ; 0 c to CSI > c, and DCS ! | 00000000 ST to CSI = c.
    *
    * Input type: GhosttyTerminalDeviceAttributesFn
    */

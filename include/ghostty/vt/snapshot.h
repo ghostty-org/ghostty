@@ -28,6 +28,9 @@ extern "C" {
  * partway through a sequence, turn on
  * #GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES before you write it.
  *
+ * The snapshot byte format is versioned separately from the library and isn't
+ * covered by the ABI promise in @ref stability.
+ *
  * ## Example
  *
  * @snippet c-vt-snapshot/src/main.c snapshot-decode

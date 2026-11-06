@@ -14,7 +14,7 @@ Add the following to your project's `CMakeLists.txt`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(ghostty
-    URL https://release.files.ghostty.org/libghostty-vt/0.1.0/libghostty-vt-0.1.0.tar.gz
+    URL https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
     URL_HASH SHA256=<sha256 of the tarball>
 )
 FetchContent_MakeAvailable(ghostty)
@@ -27,15 +27,15 @@ This downloads the source tarball of a libghostty-vt release, builds
 libghostty-vt via Zig during your CMake build, and links it into your
 target. Headers are added to the include path automatically.
 
-Replace `0.1.0` with the release you want, in both places in the URL. Then
+Replace `1.0.0` with the release you want, in both places in the URL. Then
 replace the hash with the tarball's SHA-256 checksum, which you can find in
-the `SHA256SUMS` file next to it. For 0.1.0, that is
-`https://release.files.ghostty.org/libghostty-vt/0.1.0/SHA256SUMS`.
+the `SHA256SUMS` file next to it. For 1.0.0, that is
+`https://release.files.ghostty.org/libghostty-vt/1.0.0/SHA256SUMS`.
 See [`PACKAGING-LIBGHOSTTY.md`](../../PACKAGING-LIBGHOSTTY.md) for the
 other release files and how to verify their signatures.
 
 Use the release tarball, not the archive GitHub generates for the
-`vt-0.1.0` tag. The GitHub archive is missing a file that the build
+`vt-1.0.0` tag. The GitHub archive is missing a file that the build
 needs to know it should build the library.
 
 ### Using a local checkout
@@ -54,14 +54,14 @@ Build and install libghostty-vt first. From an unpacked release tarball,
 either use Zig directly:
 
 ```shell-session
-cd libghostty-vt-0.1.0
+cd libghostty-vt-1.0.0
 zig build -Doptimize=ReleaseFast --prefix /usr/local
 ```
 
 or through the CMake wrapper:
 
 ```shell-session
-cd libghostty-vt-0.1.0
+cd libghostty-vt-1.0.0
 cmake -B build
 cmake --build build
 cmake --install build --prefix /usr/local
@@ -95,20 +95,18 @@ The package provides two targets:
 To require a version, pass it to `find_package`:
 
 ```cmake
-find_package(ghostty-vt 0.1 REQUIRED)
+find_package(ghostty-vt 1.0 REQUIRED)
 ```
 
 This accepts an installed version that is at least as new as the one
-you asked for and has the same ABI. Before 1.0, any minor release may
-change the ABI, so the major and minor versions must both match. From
-1.0 on, only the major version must match. For example, here is which
+you asked for and has the same major version. For example, here is which
 installed versions each request accepts:
 
-| Requested | 0.1.0 | 0.1.3 | 0.2.0 | 1.4.2 |
-| --------- | ----- | ----- | ----- | ----- |
-| `0.1`     | yes   | yes   | no    | no    |
-| `0.1.2`   | no    | yes   | no    | no    |
-| `1.0`     | no    | no    | no    | yes   |
+| Requested | 1.0.0 | 1.0.3 | 1.4.2 |
+| --------- | ----- | ----- | ----- |
+| `1.0`     | yes   | yes   | yes   |
+| `1.0.2`   | no    | yes   | yes   |
+| `1.4`     | no    | no    | yes   |
 
 ## Notes for packagers
 

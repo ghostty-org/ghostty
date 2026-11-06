@@ -13,8 +13,9 @@ arriving.
 Most programs never need this. If you do, you can restore a snapshot in one
 call, or in pieces if you want the terminal on screen first.
 
-The format isn't stable yet. Snapshot format version 1 is a work in progress and
-doesn't carry a binary-compatibility guarantee.
+The snapshot byte format is versioned separately from the library and isn't
+covered by the ABI promise in @ref stability. Snapshot format version 1 is a work
+in progress and doesn't carry a binary-compatibility guarantee.
 
 ## Encoding {#guide-snapshots-encoding}
 

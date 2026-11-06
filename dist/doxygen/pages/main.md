@@ -34,10 +34,8 @@ and commercial. We don't have any tracking of course but by our best estimates
 libghostty-vt is used by tens of millions of people daily across every major
 desktop and mobile platform.
 
-@important libghostty-vt is pre-1.0. The core code is extremely stable and
-already in use by millions worldwide, but we're still stabilizing the ABI.
-We will ship a stable ABI with 1.0 soon. See @ref stability for exactly what
-can break.
+The C ABI is stable from 1.0. See @ref stability for exactly what each release
+can change.
 
 ## Where to Next?
 
