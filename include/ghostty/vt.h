@@ -332,92 +332,239 @@
  *
  * @section examples_sec Examples
  *
- * Complete working examples:
- * - @ref c-vt-build-info/src/main.c - Build info query example
- * - @ref c-vt/src/main.c - OSC parser example
- * - @ref c-vt-encode-key/src/main.c - Key encoding example
- * - @ref c-vt-encode-mouse/src/main.c - Mouse encoding example
- * - @ref c-vt-paste/src/main.c - Paste example
- * - @ref c-vt-sgr/src/main.c - SGR parser example
- * - @ref c-vt-formatter/src/main.c - Terminal formatter example
- * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
- * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
- * - @ref c-vt-compression/src/main.c - Idle scrollback compression example
- * - @ref c-vt-search/src/main.c - Terminal search example
+ * Complete working examples, each in its own directory under `example/`.
+ *
+ * @subsection examples_start_sec Start Here
+ *
+ * - @ref c-vt-stream/src/main.c - Feed VT sequences into a terminal and read
+ *   the final screen back as plain text. Use this for read-only tools like
+ *   replay viewers and CI log viewers.
+ * - @ref c-vt-formatter/src/main.c - Write text and cursor movement into a
+ *   terminal, then stream the screen to stdout as plain text through a
+ *   GhosttyWriter.
+ *
+ * @subsection examples_terminal_sec Terminal
+ *
+ * - @ref c-vt-colors/src/main.c - Set the default colors and palette, then
+ *   read effective and default values as an OSC 10 override layers on top.
+ * - @ref c-vt-effects/src/main.c - Register callbacks for what a program asks
+ *   of the terminal: pty replies, the bell, title changes, OSC 52 clipboard
+ *   reads and writes, and unknown sequences. You need these as soon as a real
+ *   program runs in the terminal.
+ * - @ref c-vt-compression/src/main.c - Compress scrollback while the terminal
+ *   is idle.
+ * - @ref c-vt-snapshot/src/main.c - Encode a terminal's full state and
+ *   restore it three ways: in one shot, with scrollback kept compressed, and
+ *   page by page. The page by page path gives you a terminal you can draw
+ *   before the old history arrives.
+ * - @ref c-vt-grid-traverse/src/main.c - Walk the whole grid cell by cell
+ *   with grid refs, reading codepoints, row wrap state and styles.
+ * - @ref c-vt-grid-ref-tracked/src/main.c - Keep a reference to one cell
+ *   while the terminal scrolls under it.
+ * - @ref c-vt-render/src/main.c - Draw a frame from a render state: check
+ *   what's dirty, walk the rows and cells, and read styles, colors, the
+ *   cursor and the selection. Use this when you render the terminal yourself.
+ * - @ref c-vt-search/src/main.c - Search the terminal for a string, step
+ *   through the matches like a find bar, and read the viewport matches to
+ *   draw highlights.
+ * - @ref c-vt-selection/src/main.c - Select a word, a line, a command's
+ *   output or the whole screen, then format each selection as text. The line
+ *   and output selections use OSC 133 prompt markers.
+ * - @ref c-vt-selection-gesture/src/main.c - Feed press, drag, release and
+ *   deep press events to ghostty_selection_gesture_event() and get back
+ *   selections you can show or copy.
+ * - @ref c-vt-kitty-graphics/src/main.c - Accept images sent with the Kitty
+ *   Graphics Protocol and find out what to draw. It installs a stand-in PNG
+ *   decoder, reads placements from the render state, and plays an animation.
+ *
+ * @subsection examples_input_sec Input
+ *
+ * - @ref c-vt-encode-key/src/main.c - Encode Ctrl+C as an escape sequence
+ *   with the Kitty keyboard protocol.
+ * - @ref c-vt-encode-mouse/src/main.c - Encode a left button press at a pixel
+ *   position as an SGR mouse sequence.
+ * - @ref c-vt-encode-focus/src/main.c - Encode a focus gained event as CSI I,
+ *   for programs that turn on focus reporting (mode 1004).
+ * - @ref c-vt-paste/src/main.c - Paste into a terminal with
+ *   ghostty_terminal_paste(): plain text, bracketed paste (mode 2004), the
+ *   unsafe-paste confirmation, and Kitty paste events (mode 5522). It also
+ *   checks paste safety and encodes paste data without a terminal.
+ *
+ * @subsection examples_blocks_sec Building Blocks
+ *
+ * - @ref c-vt-osc/src/main.c - Parse an OSC sequence and read the window
+ *   title out of it.
+ * - @ref c-vt-sgr/src/main.c - Parse SGR sequences into text attributes,
+ *   including a real one from Kakoune with a curly underline and RGB colors.
+ * - @ref c-vt-modes/src/main.c - Pack DEC and ANSI mode numbers into a
+ *   GhosttyMode and encode a DECRPM report.
+ * - @ref c-vt-color-scheme/src/main.c - Encode a color scheme report, the
+ *   reply to a CSI ? 996 n query.
+ * - @ref c-vt-size-report/src/main.c - Encode an in-band size report (mode
+ *   2048) from the grid and cell size.
+ * - @ref c-vt-allocator/src/main.c - Run a terminal on your own allocator,
+ *   built on `malloc` and `free`. It counts live bytes to check that the
+ *   terminal frees everything.
+ * - @ref c-vt-build-info/src/main.c - Query build options like SIMD and Kitty
+ *   graphics, then check that the loaded library matches the headers you
+ *   compiled against.
+ *
+ * @subsection examples_build_sec Build Systems
+ *
+ * - @ref c-vt-cmake/src/main.c - Build and link libghostty-vt from a CMake
+ *   project with `FetchContent`.
+ * - @ref c-vt-cmake-static/src/main.c - Build and statically link
+ *   libghostty-vt from a CMake project with `FetchContent`.
+ * - @ref c-vt-cmake-cross/src/main.c - Cross-compile and statically link
+ *   libghostty-vt from CMake with `ghostty_vt_add_target()`. The default
+ *   target is a different OS from your host.
+ * - @ref c-vt-static/src/main.c - Statically link libghostty-vt from a Zig
+ *   build with the `ghostty-vt-static` artifact. The program is the same as
+ *   c-vt-osc.
  *
  */
 
-/** @example c-vt-build-info/src/main.c
- * This example demonstrates how to query compile-time build configuration
- * such as SIMD support, Kitty graphics, and tmux control mode availability,
- * and how to check that the library matches the headers.
- */
-
-/** @example c-vt/src/main.c
- * This example demonstrates how to use the OSC parser to parse an OSC sequence,
- * extract command information, and retrieve command-specific data like window titles.
- */
-
-/** @example c-vt-encode-key/src/main.c
- * This example demonstrates how to use the key encoder to convert key events
- * into terminal escape sequences using the Kitty keyboard protocol.
- */
-
-/** @example c-vt-encode-mouse/src/main.c
- * This example demonstrates how to use the mouse encoder to convert mouse events
- * into terminal escape sequences using the SGR mouse format.
- */
-
-/** @example c-vt-paste/src/main.c
- * This example demonstrates how to paste into a terminal, including the
- * unsafe-paste confirmation flow and Kitty clipboard protocol paste events
- * (mode 5522), as well as the terminal-free paste safety and encoding
- * utilities.
- */
-
-/** @example c-vt-sgr/src/main.c
- * This example demonstrates how to use the SGR parser to parse terminal
- * styling sequences and extract text attributes like colors and underline styles.
+/** @example c-vt-stream/src/main.c
+ * Feed VT sequences into a terminal and read the final screen back as plain
+ * text. Use this for read-only tools like replay viewers and CI log viewers.
  */
 
 /** @example c-vt-formatter/src/main.c
- * This example demonstrates how to use the terminal and formatter APIs to
- * create a terminal, write VT-encoded content into it, and format the screen
- * contents as plain text.
+ * Write text and cursor movement into a terminal, then stream the screen to
+ * stdout as plain text through a GhosttyWriter.
  */
 
-/** @example c-vt-grid-traverse/src/main.c
- * This example demonstrates how to traverse the entire terminal grid using
- * grid refs to inspect cell codepoints, row wrap state, and cell styles.
+/** @example c-vt-colors/src/main.c
+ * Set the default colors and palette, then read effective and default values
+ * as an OSC 10 override layers on top.
  */
 
-/** @example c-vt-grid-ref-tracked/src/main.c
- * This example demonstrates how to track a grid ref as the terminal scrolls,
- * detect when it loses its value, and move it to a new point.
+/** @example c-vt-effects/src/main.c
+ * Register callbacks for what a program asks of the terminal: pty replies,
+ * the bell, title changes, OSC 52 clipboard reads and writes, and unknown
+ * sequences. You need these as soon as a real program runs in the terminal.
  */
 
 /** @example c-vt-compression/src/main.c
- * This example demonstrates how to schedule incremental scrollback compression
- * after compression-relevant terminal activity becomes idle.
+ * Compress scrollback while the terminal is idle.
  */
 
-/** @example c-vt-selection-gesture/src/main.c
- * This example demonstrates how to use synthetic selection gesture events to
- * derive drag and deep-press selection snapshots.
+/** @example c-vt-snapshot/src/main.c
+ * Encode a terminal's full state and restore it three ways: in one shot, with
+ * scrollback kept compressed, and page by page. The page by page path gives
+ * you a terminal you can draw before the old history arrives.
  */
 
-/** @example c-vt-kitty-graphics/src/main.c
- * This example demonstrates how to use the system interface to install a
- * PNG decoder callback and send a Kitty Graphics Protocol image.
+/** @example c-vt-grid-traverse/src/main.c
+ * Walk the whole grid cell by cell with grid refs, reading codepoints, row
+ * wrap state and styles.
+ */
+
+/** @example c-vt-grid-ref-tracked/src/main.c
+ * Keep a reference to one cell while the terminal scrolls under it.
+ */
+
+/** @example c-vt-render/src/main.c
+ * Draw a frame from a render state: check what's dirty, walk the rows and
+ * cells, and read styles, colors, the cursor and the selection. Use this when
+ * you render the terminal yourself.
  */
 
 /** @example c-vt-search/src/main.c
- * This example demonstrates how to search terminal contents for a
- * string, navigate between the matches like a find bar, and read the
- * viewport matches used to draw highlights.
+ * Search the terminal for a string, step through the matches like a find bar,
+ * and read the viewport matches to draw highlights.
  */
 
-#ifndef GHOSTTY_VT_H
+/** @example c-vt-selection/src/main.c
+ * Select a word, a line, a command's output or the whole screen, then format
+ * each selection as text. The line and output selections use OSC 133 prompt
+ * markers.
+ */
+
+/** @example c-vt-selection-gesture/src/main.c
+ * Feed press, drag, release and deep press events to
+ * ghostty_selection_gesture_event() and get back selections you can show or
+ * copy.
+ */
+
+/** @example c-vt-kitty-graphics/src/main.c
+ * Accept images sent with the Kitty Graphics Protocol and find out what to
+ * draw. It installs a stand-in PNG decoder, reads placements from the render
+ * state, and plays an animation.
+ */
+
+/** @example c-vt-encode-key/src/main.c
+ * Encode Ctrl+C as an escape sequence with the Kitty keyboard protocol.
+ */
+
+/** @example c-vt-encode-mouse/src/main.c
+ * Encode a left button press at a pixel position as an SGR mouse sequence.
+ */
+
+/** @example c-vt-encode-focus/src/main.c
+ * Encode a focus gained event as CSI I, for programs that turn on focus
+ * reporting (mode 1004).
+ */
+
+/** @example c-vt-paste/src/main.c
+ * Paste into a terminal with ghostty_terminal_paste(): plain text, bracketed
+ * paste (mode 2004), the unsafe-paste confirmation, and Kitty paste events
+ * (mode 5522). It also checks paste safety and encodes paste data without a
+ * terminal.
+ */
+
+/** @example c-vt-osc/src/main.c
+ * Parse an OSC sequence and read the window title out of it.
+ */
+
+/** @example c-vt-sgr/src/main.c
+ * Parse SGR sequences into text attributes, including a real one from Kakoune
+ * with a curly underline and RGB colors.
+ */
+
+/** @example c-vt-modes/src/main.c
+ * Pack DEC and ANSI mode numbers into a GhosttyMode and encode a DECRPM
+ * report.
+ */
+
+/** @example c-vt-color-scheme/src/main.c
+ * Encode a color scheme report, the reply to a CSI ? 996 n query.
+ */
+
+/** @example c-vt-size-report/src/main.c
+ * Encode an in-band size report (mode 2048) from the grid and cell size.
+ */
+
+/** @example c-vt-allocator/src/main.c
+ * Run a terminal on your own allocator, built on `malloc` and `free`. It
+ * counts live bytes to check that the terminal frees everything.
+ */
+
+/** @example c-vt-build-info/src/main.c
+ * Query build options like SIMD and Kitty graphics, then check that the
+ * loaded library matches the headers you compiled against.
+ */
+
+/** @example c-vt-cmake/src/main.c
+ * Build and link libghostty-vt from a CMake project with `FetchContent`.
+ */
+
+/** @example c-vt-cmake-static/src/main.c
+ * Build and statically link libghostty-vt from a CMake project with
+ * `FetchContent`.
+ */
+
+/** @example c-vt-cmake-cross/src/main.c
+ * Cross-compile and statically link libghostty-vt from CMake with
+ * `ghostty_vt_add_target()`. The default target is a different OS from your
+ * host.
+ */
+
+/** @example c-vt-static/src/main.c
+ * Statically link libghostty-vt from a Zig build with the `ghostty-vt-static`
+ * artifact. The program is the same as c-vt-osc.
+ */
+#ifndef GHOSTTY_VT_H#ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
 #ifdef __cplusplus

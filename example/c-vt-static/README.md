@@ -2,7 +2,7 @@
 
 This contains a simple example of how to statically link the `ghostty-vt`
 C library with a C program using the `ghostty-vt-static` artifact. It is
-otherwise identical to the `c-vt` example.
+otherwise identical to the `c-vt-osc` example.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source
