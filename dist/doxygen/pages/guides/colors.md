@@ -176,7 +176,7 @@ return false to ignore the query. See @ref guide-effects.
 Or a program can set mode 2031 and expect you to tell it when the scheme
 changes. For this one, encode the report yourself with
 ghostty_color_scheme_report_encode() and write it to the pty. Only send it if
-`GHOSTTY_MODE_COLOR_SCHEME_REPORT` is set, which you read with
+`GHOSTTY_MODE_REPORT_COLOR_SCHEME` is set, which you read with
 ghostty_terminal_get() and `GHOSTTY_TERMINAL_DATA_MODE`. Dark schemes encode as
 `ESC [ ? 997 ; 1 n` and light schemes as `ESC [ ? 997 ; 2 n`, which are the same
 bytes as the terminal's reply to the query.

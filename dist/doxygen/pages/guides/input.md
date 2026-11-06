@@ -172,7 +172,7 @@ one installed. See @ref guide-effects.
 The terminal sends the program a paste event instead of the data if all three of
 these are true:
 
-- Kitty clipboard protocol paste events (mode 5522, #GHOSTTY_MODE_PASTE_EVENTS)
+- Kitty clipboard protocol paste events (mode 5522, #GHOSTTY_MODE_KITTY_PASTE_EVENTS)
   are on.
 - The person pasted from a clipboard (#GHOSTTY_PASTE_SOURCE_CLIPBOARD).
 - You've installed a clipboard read callback.

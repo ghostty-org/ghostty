@@ -44,7 +44,7 @@ extern "C" {
  * The encoded bytes are identical to the terminal's internal CSI ? 996 n
  * query response.
  *
- * Hosts should gate unsolicited sends on GHOSTTY_MODE_COLOR_SCHEME_REPORT
+ * Hosts should gate unsolicited sends on GHOSTTY_MODE_REPORT_COLOR_SCHEME
  * (mode 2031) being set. Read it with ghostty_terminal_get() and
  * GHOSTTY_TERMINAL_DATA_MODE.
  *
