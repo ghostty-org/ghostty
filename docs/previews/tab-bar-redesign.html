@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghostty X Tab Bar</title>
+<style>
+:root{
+  --page:#0f1017;--panel:#16171f;--panel-2:#1c1d27;--line:rgba(192,202,245,.09);--line-2:rgba(192,202,245,.16);
+  --text:#c0caf5;--text-2:#9aa5ce;--muted:#565f89;--term:#1a1b26;--term-text:#a9b1d6;
+  --accent:#7aa2f7;--accent-2:#bb9af7;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 24px 80px}
+header h1{font-size:26px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px}
+header p{margin:0;color:var(--text-2);font-size:14px;line-height:1.6;max-width:720px}
+.kicker{font:500 11px/1 var(--mono);color:var(--accent);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px}
+h2{font-size:15px;font-weight:600;margin:56px 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+
+/* settings window */
+.settings{margin-top:28px;display:grid;grid-template-columns:268px minmax(0,1fr);border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.side{border-right:1px solid var(--line);padding:0 0 18px;background:var(--panel-2)}
+.chrome{height:40px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line)}
+.dot{width:12px;height:12px;border-radius:50%}
+.chrome .t{flex:1;text-align:center;font-size:12px;font-weight:600;color:var(--text-2);margin-right:52px}
+.group{padding:14px 16px 4px}
+.group h3{font:600 10.5px/1 var(--sans);color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px}
+.field{margin-bottom:12px}
+.field label.l{display:block;font-size:12px;color:var(--text-2);margin-bottom:6px}
+.seg{display:flex;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px}
+.seg button{flex:1;border:0;background:transparent;color:var(--text-2);font:500 11.5px var(--sans);padding:5px 4px;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:rgba(192,202,245,.12);color:var(--text);box-shadow:inset 0 0 0 1px var(--line-2)}
+.slider{display:grid;grid-template-columns:1fr 36px;gap:10px;align-items:center}
+.slider output{font:500 11px var(--mono);color:var(--text-2);text-align:right}
+input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;background:rgba(192,202,245,.14);outline:none;width:100%}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--text);border:0;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.toggle{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text-2);margin-bottom:10px;cursor:pointer;user-select:none}
+.switch{width:30px;height:18px;border-radius:9px;background:rgba(192,202,245,.16);position:relative;transition:background .15s;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
+.toggle.on .switch{background:var(--accent)}
+.toggle.on .switch::after{transform:translateX(12px)}
+.swatches{display:flex;gap:8px}
+.sw{width:22px;height:22px;border-radius:50%;border:0;cursor:pointer;position:relative}
+.sw.on{box-shadow:0 0 0 2px var(--panel-2),0 0 0 3.5px var(--text)}
+.foot{display:flex;gap:8px;padding:8px 16px 0}
+.btn{flex:1;font:500 12px var(--sans);color:var(--text-2);background:transparent;border:1px solid var(--line-2);border-radius:8px;padding:7px;cursor:pointer}
+.btn:hover{color:var(--text);background:rgba(192,202,245,.05)}
+.stage{padding:28px;display:flex;flex-direction:column;gap:12px;background:radial-gradient(ellipse at 30% 0%,rgba(122,162,247,.07),transparent 60%)}
+.stage .cap{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}
+.stage .cap b{color:var(--text-2);font-weight:500}
+
+/* mock terminal window */
+.win{border-radius:12px;overflow:hidden;background:var(--term);border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.titlebar{height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;flex:none;position:relative}
+.titlebar .ttl{position:absolute;left:0;right:0;text-align:center;font-size:12px;font-weight:500;color:#787c99;pointer-events:none}
+.titlebar .lights{display:flex;gap:8px;flex:none;z-index:1}
+.body{flex:1;display:flex;min-height:0}
+.term{flex:1;min-width:0;font:12px/1.65 var(--mono);color:var(--term-text);padding:16px 20px;white-space:pre;overflow:hidden}
+.term .p{color:var(--accent)} .term .g{color:#9ece6a} .term .m{color:var(--muted)}
+.bar{display:flex;flex:none;min-width:0}
+.tab{display:flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap;overflow:hidden;font-family:var(--sans);transition:background .18s,border-color .18s,color .18s;flex:none;position:relative;user-select:none}
+.tab .ttxt{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tab .num{font:600 10px var(--mono);flex:none;min-width:8px;text-align:center}
+.tab .cdot{width:7px;height:7px;border-radius:50%;flex:none}
+.tab .x{margin-left:auto;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;opacity:0;transition:opacity .12s,background .12s;color:currentColor}
+.tab .x svg{width:8px;height:8px}
+.tab .x:hover{background:rgba(192,202,245,.16)}
+.bar.close-hover .tab:hover .x,.bar.close-hover .tab.sel .x,.bar.close-always .tab .x{opacity:.75}
+.bar.close-never .tab .x{display:none}
+.add{justify-content:center;color:#787c99}
+.add:hover{color:var(--text)}
+.add svg{width:12px;height:12px;flex:none}
+.sbhead{font:600 10.5px var(--sans);color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px 6px;display:flex;justify-content:space-between}
+
+/* gallery */
+.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.card .head b{font-size:13px;font-weight:600}
+.card .head span{font-size:12px;color:var(--muted)}
+.card .win{box-shadow:none}
+
+/* before / after */
+.ba{display:grid;gap:16px}
+.ba .row{display:grid;grid-template-columns:90px minmax(0,1fr);gap:16px;align-items:center}
+.ba .lab{font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ba .lab.after{color:#9ece6a}
+.old{display:flex;align-items:center;height:44px;background:var(--term);border-radius:10px;padding:0 6px;overflow:hidden;border:1px solid var(--line)}
+.old .ot{width:194px;margin-right:6px;height:30px;border-radius:8px;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#787c99;position:relative;flex:none}
+.old .ot.sel{background:linear-gradient(90deg,rgba(122,162,247,.3),rgba(187,154,247,.2));border:1px solid rgba(122,162,247,.8);color:var(--text);font-weight:600}
+.old .ot i{position:absolute;left:12px;right:12px;bottom:1px;height:2px;border-radius:1px}
+.old .ot b{font:700 11px var(--mono);margin-right:10px;color:#565f89;font-weight:700}
+.old .ot.sel b{color:var(--accent)}
+
+/* spec */
+.spec{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.spec div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.spec small{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
+.spec strong{font:600 18px var(--mono);color:var(--text)}
+.spec em{display:block;font-style:normal;font-size:11.5px;color:var(--text-2);margin-top:4px;line-height:1.5}
+.notes{margin-top:20px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.notes div{border-left:2px solid var(--line-2);padding:2px 0 2px 14px;font-size:12.5px;color:var(--text-2);line-height:1.6}
+.notes b{display:block;color:var(--text);font-weight:600;margin-bottom:2px}
+@media (max-width:900px){.settings{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line)}.gallery,.spec,.notes{grid-template-columns:minmax(0,1fr)}}
+/* Illustrative split panes, matching the native layout's corner and gutter sizes. */
+.term{display:flex;gap:6px;padding:6px;white-space:normal}
+.pane{flex:1;min-width:0;border:1px solid rgba(192,202,245,.12);border-radius:8px;padding:14px;white-space:pre;overflow:hidden}
+.pane.focused{border-color:rgba(122,162,247,.7);flex:1.2}
+.pane-stack{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">Ghostty X · Design proposal · local only</div>
+  <h1>Tabs and split panes</h1>
+  <p>Capsule tabs with even spacing, in four positions: top (titlebar), bottom, left sidebar or right sidebar. Everything is set from a <b style="color:var(--text);font-weight:500">Tab Bar</b> settings window, and changes show up live in every open window. You don't edit the config file.</p>
+</header>
+
+<section class="settings" aria-label="Tab bar settings window mockup">
+  <aside class="side">
+    <div class="chrome"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="t">Tab Bar</span></div>
+    <div class="group">
+      <h3>Layout</h3>
+      <div class="field"><label class="l">Position</label>
+        <div class="seg" data-k="pos">
+          <button data-v="top" title="Top">Top</button><button data-v="bottom">Bottom</button><button data-v="left">Left</button><button data-v="right">Right</button>
+        </div></div>
+      <div class="field" data-show="h"><label class="l">Alignment</label>
+        <div class="seg" data-k="align"><button data-v="start">Leading</button><button data-v="center">Centered</button></div></div>
+      <div class="field" data-show="h"><label class="l">Tab width</label>
+        <div class="seg" data-k="width"><button data-v="fit">Fit title</button><button data-v="equal">Equal</button></div></div>
+      <div class="field" data-show="v"><label class="l">Sidebar width</label>
+        <div class="slider"><input type="range" data-k="sw" min="160" max="320" step="10"><output></output></div></div>
+    </div>
+    <div class="group">
+      <h3>Capsules</h3>
+      <div class="field"><label class="l">Style</label>
+        <div class="seg" data-k="style"><button data-v="capsule">Filled</button><button data-v="outline">Outline</button><button data-v="minimal">Minimal</button></div></div>
+      <div class="field"><label class="l">Height</label>
+        <div class="slider"><input type="range" data-k="h" min="22" max="36" step="1"><output></output></div></div>
+      <div class="field"><label class="l">Spacing</label>
+        <div class="slider"><input type="range" data-k="gap" min="2" max="14" step="1"><output></output></div></div>
+      <div class="field"><label class="l">Roundness</label>
+        <div class="slider"><input type="range" data-k="round" min="0" max="100" step="5"><output></output></div></div>
+      <div class="field"><label class="l">Close button</label>
+        <div class="seg" data-k="close"><button data-v="hover">On hover</button><button data-v="always">Always</button><button data-v="never">Never</button></div></div>
+    </div>
+    <div class="group">
+      <h3>Details</h3>
+      <div class="toggle" data-k="nums">Tab numbers<span class="switch"></span></div>
+      <div class="toggle" data-k="tray">Bar background<span class="switch"></span></div>
+      <div class="toggle" data-k="single">Show with one tab<span class="switch"></span></div>
+      <div class="field"><label class="l">Tab colors</label>
+        <div class="seg" data-k="colors"><button data-v="off">Off</button><button data-v="random">Random</button></div></div>
+      <div class="field"><label class="l">Shown as</label>
+        <div class="seg" data-k="colorStyle"><button data-v="cap">Cap</button><button data-v="tint">Tint</button><button data-v="dot">Dot</button><button data-v="both">Both</button></div></div>
+      <div class="field"><label class="l">Accent (from theme palette)</label><div class="swatches" id="sw"></div></div>
+    </div>
+    <div class="foot"><button class="btn" id="shuffle">Shuffle colors</button><button class="btn" id="reset">Restore defaults</button></div>
+  </aside>
+  <div class="stage">
+    <div class="cap"><span>Live preview · <b id="caption"></b></span><span>Click tabs, × to close, + to add</span></div>
+    <div id="live"></div>
+  </div>
+</section>
+
+<h2>All four positions</h2>
+<p class="sub">Four tab positions above the same illustrative nested split layout. HTML design preview, not a running native terminal.</p>
+<div class="gallery" id="gallery"></div>
+
+<h2>Random tab colors</h2>
+<p class="sub">Each new tab gets a color from your theme palette, never the same as the tab beside it. A color you pick by hand always wins.</p>
+<div class="gallery" id="colorGallery"></div>
+
+<h2>Before and after</h2>
+<p class="sub">The current strip compared with the new default (filled capsules, fit to title, 6pt spacing).</p>
+<div class="ba">
+  <div class="row"><span class="lab">Before</span>
+    <div class="old">
+      <div class="ot sel"><b>1</b>terminal</div>
+      <div class="ot"><b>2</b>dev server<i style="background:#bb9af7"></i></div>
+      <div class="ot"><b>3</b>✱ logs</div>
+      <div class="ot"><b>4</b>tests<i style="background:#7aa2f7"></i></div>
+      <div class="ot"><b>5</b>shell<i style="background:#e0af68"></i></div>
+    </div></div>
+  <div class="row"><span class="lab after">After</span><div id="after"></div></div>
+</div>
+
+<h2>Spec</h2>
+<p class="sub">Default values. All of them except padding can be changed in the settings window.</p>
+<div class="spec">
+  <div><small>Capsule height</small><strong>28pt</strong><em>Radius = height ÷ 2 at 100% roundness</em></div>
+  <div><small>Spacing</small><strong>6pt</strong><em>Same between tabs and before the + button</em></div>
+  <div><small>Bar padding</small><strong>8 / 12pt</strong><em>Vertical / horizontal, so tabs sit centered in the bar</em></div>
+  <div><small>Tab width</small><strong>84–200pt</strong><em>Fit title; titles truncate in the middle</em></div>
+  <div><small>Type</small><strong>12pt</strong><em>Medium for other tabs, semibold for the selected one; mono numbers</em></div>
+  <div><small>Selected fill</small><strong>22%</strong><em>Accent fill with a 55% accent hairline</em></div>
+  <div><small>Other tabs</small><strong>6%</strong><em>Foreground wash; 10% on hover; 0.18s fade</em></div>
+  <div><small>Sidebar</small><strong>200pt</strong><em>Full-width rows, "New tab" row at the end</em></div>
+</div>
+<div class="notes">
+  <div><b>Tab colors</b>A 7pt dot at the start of the capsule replaces the full-width underline.</div>
+  <div><b>Titlebar</b>With bottom or sidebar tabs, the titlebar shows the focused tab's title, like a normal window.</div>
+  <div><b>Native tabs underneath</b>The bar still drives macOS tab groups, so restore, drag reorder and detach keep working.</div>
+</div>
+</div>
+
+<script>
+const DEFAULTS={pos:'top',align:'start',width:'fit',sw:200,style:'capsule',h:28,gap:6,round:100,close:'hover',nums:true,tray:true,single:true,acc:0,colors:'random',colorStyle:'cap'};
+const PAL=['#f7768e','#9ece6a','#e0af68','#7aa2f7','#bb9af7','#7dcfff','#ff9e64','#73daca'];
+function pickColor(prev){let r;do{r=Math.floor(Math.random()*PAL.length)}while(r===prev&&PAL.length>1);return r}
+function shuffle(tabs){let prev=-1;tabs.forEach(t=>{t.r=pickColor(prev);prev=t.r})}
+const ACC=[['#7aa2f7','Blue'],['#bb9af7','Magenta'],['#7dcfff','Cyan'],['#9ece6a','Green'],['#e0af68','Yellow'],['#c0caf5','Mono']];
+let S=Object.assign({},DEFAULTS);
+try{const saved=JSON.parse(localStorage.getItem('gx-tabbar-v2')||'null');if(saved)S=Object.assign(S,saved)}catch(e){}
+const SAMPLE=[{t:'terminal',c:null,r:3},{t:'dev server',c:null,r:4},{t:'logs',c:null,r:1},{t:'tests',c:null,r:5},{t:'shell',c:null,r:2}];
+let live={tabs:SAMPLE.map(x=>({...x})),sel:0,n:1};
+const X='<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 2l6 6M8 2l-6 6"/></svg>';
+const PLUS='<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>';
+function rgba(h,a){const n=parseInt(h.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`}
+function radius(s){return Math.round(s.h/2*s.round/100)}
+
+function tabEl(s,st,tb,i,vert,interactive){
+  const a=ACC[s.acc][0],on=i===st.sel,d=document.createElement('div'),r=radius(s);
+  d.className='tab'+(on?' sel':'');
+  const padL=Math.max(10,Math.round(r*.65)),padR=Math.max(6,Math.round(r*.4));
+  Object.assign(d.style,{height:s.h+'px',borderRadius:r+'px',padding:`0 ${padR}px 0 ${padL}px`,fontSize:(s.h>=32?13:12)+'px',fontWeight:on?600:500});
+  let bg='transparent',bd='transparent',hov='rgba(192,202,245,.10)';
+  if(s.style==='capsule'){bg=on?rgba(a,.22):'rgba(192,202,245,.06)';bd=on?rgba(a,.55):'transparent'}
+  if(s.style==='outline'){bg=on?rgba(a,.12):'transparent';bd=on?rgba(a,.7):'rgba(192,202,245,.16)';hov='rgba(192,202,245,.05)'}
+  if(s.style==='minimal'){bg=on?rgba(a,.2):'transparent';hov='rgba(192,202,245,.07)'}
+  const col=tb.c||(s.colors==='random'?PAL[tb.r%PAL.length]:null);
+  const cap=!!col&&s.colorStyle==='cap';
+  const tint=!!col&&(s.colorStyle==='tint'||s.colorStyle==='both'), dot=!!col&&(s.colorStyle==='dot'||s.colorStyle==='both');
+  if(cap){bg=on?rgba(col,.13):'rgba(192,202,245,.055)';hov=rgba(col,.09);bd=on?rgba(col,.6):(s.style==='outline'?'rgba(192,202,245,.16)':'transparent');d.style.paddingLeft='0'}
+  if(tint){bg=rgba(col,on?.28:.11);hov=rgba(col,.19);bd=on?rgba(col,.7):(s.style==='outline'?rgba(col,.38):'transparent')}
+  d.style.background=bg;d.style.border='1px solid '+bd;d.style.color=on?'#c0caf5':'#8089b3';
+  if(vert){d.style.width='100%'}
+  else if(s.width==='equal'){d.style.flex='1 1 0';d.style.maxWidth='200px';d.style.minWidth='60px'}
+  else{d.style.maxWidth='200px';d.style.minWidth='84px'}
+  if(!on){d.onmouseenter=()=>{d.style.background=hov;d.style.color='#a9b1d6'};d.onmouseleave=()=>{d.style.background=bg;d.style.color='#8089b3'}}
+  if(cap){
+    const k=document.createElement('span');k.className='cap';
+    Object.assign(k.style,{alignSelf:'stretch',minWidth:Math.round(s.h*(s.nums?1.05:0.5))+'px',padding:'0 2px',display:'flex',alignItems:'center',justifyContent:'center',
+      background:on?col:rgba(col,.24),color:on?'#16161e':col,font:'700 11px var(--mono)',flex:'none',transition:'background .18s,color .18s'});
+    if(s.nums)k.textContent=i+1;d.appendChild(k);
+    if(!on){d.addEventListener('mouseenter',()=>k.style.background=rgba(col,.36));d.addEventListener('mouseleave',()=>k.style.background=rgba(col,.24))}
+  }
+  if(dot){const c=document.createElement('span');c.className='cdot';c.style.background=col;d.appendChild(c)}
+  if(s.nums&&!cap){const n=document.createElement('span');n.className='num';n.textContent=i+1;n.style.color=tint?(on?col:rgba(col,.75)):(on?a:'#565f89');d.appendChild(n)}
+  const t=document.createElement('span');t.className='ttxt';t.textContent=tb.t;d.appendChild(t);
+  const x=document.createElement('span');x.className='x';x.innerHTML=X;x.title='Close tab';d.appendChild(x);
+  if(interactive){
+    d.onclick=()=>{st.sel=i;renderLive()};
+    x.onclick=e=>{e.stopPropagation();if(st.tabs.length<2)return;st.tabs.splice(i,1);if(st.sel>=st.tabs.length)st.sel=st.tabs.length-1;else if(i<st.sel)st.sel--;renderLive()};
+  }
+  return d;
+}
+function addEl(s,st,vert,interactive){
+  const b=document.createElement('div'),r=radius(s);b.className='tab add';b.title='New tab';
+  Object.assign(b.style,{height:s.h+'px',borderRadius:r+'px',fontSize:'12px',fontWeight:500});
+  if(vert){Object.assign(b.style,{width:'100%',padding:'0 12px',justifyContent:'flex-start',border:'1px dashed rgba(192,202,245,.14)'});b.innerHTML=PLUS+'<span>New tab</span>'}
+  else{Object.assign(b.style,{width:s.h+'px',padding:'0',background:'rgba(192,202,245,.05)',border:'1px solid transparent'});b.innerHTML=PLUS}
+  if(interactive)b.onclick=()=>{const last=st.tabs[st.tabs.length-1];st.tabs.push({t:'zsh '+(st.n++),c:null,r:pickColor(last?last.r:-1)});st.sel=st.tabs.length-1;renderLive()};
+  return b;
+}
+function termText(st){
+  return `<span class="m">~/project</span> <span class="m">on</span> <span class="g">main</span>
+<span class="p">❯</span> git status
+
+On branch main
+<span class="g">working tree clean</span>
+
+<span class="p">❯</span> ▌`;
+}
+function windowEl(s,st,height,interactive){
+  const vert=s.pos==='left'||s.pos==='right',showBar=s.single||st.tabs.length>1;
+  const w=document.createElement('div');w.className='win';w.style.height=height+'px';
+  const tb=document.createElement('div');tb.className='titlebar';
+  tb.innerHTML='<div class="lights"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span></div>';
+  const body=document.createElement('div');body.className='body';
+  const term=document.createElement('div');term.className='term';term.innerHTML=`<div class="pane focused">${termText(st)}</div><div class="pane-stack"><div class="pane"><span class="p">❯</span> npm run dev
+
+<span class="g">Ready on localhost</span></div><div class="pane"><span class="p">❯</span> tail -f app.log
+
+[info] Waiting for requests</div></div>`;
+  const bar=document.createElement('div');bar.className='bar close-'+s.close;
+  const tray=s.tray?'rgba(192,202,245,.035)':'transparent',line='1px solid rgba(192,202,245,.07)';
+  if(s.pos==='top'){
+    Object.assign(bar.style,{flex:'1',alignItems:'center',gap:s.gap+'px',padding:'0 0 0 8px',justifyContent:s.align==='center'?'center':'flex-start',overflow:'hidden',minWidth:'0'});
+    if(showBar){st.tabs.forEach((t,i)=>bar.appendChild(tabEl(s,st,t,i,false,interactive)));bar.appendChild(addEl(s,st,false,interactive))}
+    tb.style.height=Math.max(38,s.h+16)+'px';
+    if(s.tray)tb.style.background=tray;tb.style.borderBottom=s.tray?line:'0';
+    if(showBar)tb.appendChild(bar);else tb.insertAdjacentHTML('beforeend',`<div class="ttl">${st.tabs[st.sel].t}</div>`);
+    body.appendChild(term);
+  }else{
+    tb.insertAdjacentHTML('beforeend',`<div class="ttl">${st.tabs[st.sel].t}</div>`);
+    if(vert){
+      body.style.flexDirection=s.pos==='left'?'row':'row-reverse';
+      Object.assign(bar.style,{width:s.sw+'px',flexDirection:'column',gap:s.gap+'px',padding:'10px 10px',background:tray,overflow:'hidden'});
+      bar.style[s.pos==='left'?'borderRight':'borderLeft']=line;
+      const h=document.createElement('div');h.className='sbhead';h.innerHTML=`<span>Tabs</span><span>${st.tabs.length}</span>`;bar.appendChild(h);
+      st.tabs.forEach((t,i)=>bar.appendChild(tabEl(s,st,t,i,true,interactive)));bar.appendChild(addEl(s,st,true,interactive));
+    }else{
+      body.style.flexDirection='column-reverse';
+      Object.assign(bar.style,{alignItems:'center',gap:s.gap+'px',padding:'8px 12px',justifyContent:s.align==='center'?'center':'flex-start',background:tray,borderTop:line,overflow:'hidden'});
+      st.tabs.forEach((t,i)=>bar.appendChild(tabEl(s,st,t,i,false,interactive)));bar.appendChild(addEl(s,st,false,interactive));
+    }
+    tb.style.borderBottom=line;
+    if(showBar)body.appendChild(bar);body.appendChild(term);
+  }
+  w.appendChild(tb);w.appendChild(body);return w;
+}
+function renderLive(){
+  const el=document.getElementById('live');el.innerHTML='';el.appendChild(windowEl(S,live,420,true));
+  const names={top:'Top, in the titlebar',bottom:'Bottom bar',left:'Left sidebar',right:'Right sidebar'};
+  document.getElementById('caption').textContent=names[S.pos];
+}
+function renderStatic(){
+  const g=document.getElementById('gallery');g.innerHTML='';
+  [['top','Top','In the titlebar'],['bottom','Bottom','Under the terminal'],['left','Left sidebar','Vertical, 170pt'],['right','Right sidebar','Mirrored']].forEach(([p,title,sub])=>{
+    const c=document.createElement('div');c.className='card';
+    c.innerHTML=`<div class="head"><b>${title}</b><span>${sub}</span></div>`;
+    const s=Object.assign({},DEFAULTS,{pos:p,sw:170});
+    c.appendChild(windowEl(s,{tabs:SAMPLE.slice(0,4).map(x=>({...x})),sel:0,n:1},340,false));g.appendChild(c);
+  });
+  const cg=document.getElementById('colorGallery');cg.innerHTML='';
+  [['top','cap','Cap','Number in a colored cap, title stays calm'],['left','cap','Cap in the sidebar','Each row leads with its color'],['bottom','cap','Cap at the bottom','Same capsule, under the terminal'],['top','tint','Tint','The whole capsule takes the color']].forEach(([p,cs,title,sub])=>{
+    const c=document.createElement('div');c.className='card';
+    c.innerHTML=`<div class="head"><b>${title}</b><span>${sub}</span></div>`;
+    const s=Object.assign({},DEFAULTS,{pos:p,sw:170,colors:'random',colorStyle:cs});
+    c.appendChild(windowEl(s,{tabs:SAMPLE.slice(0,4).map(x=>({...x})),sel:1,n:1},230,false));cg.appendChild(c);
+  });
+  const a=document.getElementById('after');a.innerHTML='';
+  const s=Object.assign({},DEFAULTS);const st={tabs:SAMPLE.map(x=>({...x})),sel:0};
+  const bar=document.createElement('div');bar.className='bar close-hover';
+  Object.assign(bar.style,{alignItems:'center',gap:s.gap+'px',padding:'8px 12px',background:'var(--term)',border:'1px solid var(--line)',borderRadius:'10px',height:'44px',overflow:'hidden'});
+  st.tabs.forEach((t,i)=>bar.appendChild(tabEl(s,st,t,i,false,false)));bar.appendChild(addEl(s,st,false,false));a.appendChild(bar);
+}
+function syncControls(){
+  document.querySelectorAll('.seg').forEach(g=>g.querySelectorAll('button').forEach(b=>b.classList.toggle('on',S[g.dataset.k]===b.dataset.v)));
+  document.querySelectorAll('input[type=range]').forEach(i=>{i.value=S[i.dataset.k];i.nextElementSibling.textContent=i.dataset.k==='round'?S.round+'%':S[i.dataset.k]});
+  document.querySelectorAll('.toggle').forEach(t=>t.classList.toggle('on',!!S[t.dataset.k]));
+  document.querySelectorAll('#sw .sw').forEach((b,i)=>b.classList.toggle('on',i===S.acc));
+  const vert=S.pos==='left'||S.pos==='right';
+  document.querySelectorAll('[data-show]').forEach(f=>f.style.display=(f.dataset.show==='v')===vert?'':'none');
+}
+function update(){syncControls();renderLive();try{localStorage.setItem('gx-tabbar-v2',JSON.stringify(S))}catch(e){}}
+ACC.forEach(([c,n],i)=>{const b=document.createElement('button');b.className='sw';b.style.background=c;b.title=n;b.setAttribute('aria-label','Accent '+n);b.onclick=()=>{S.acc=i;update()};document.getElementById('sw').appendChild(b)});
+document.querySelectorAll('.seg').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{S[g.dataset.k]=b.dataset.v;update()}));
+document.querySelectorAll('input[type=range]').forEach(i=>i.oninput=()=>{S[i.dataset.k]=+i.value;update()});
+document.querySelectorAll('.toggle').forEach(t=>t.onclick=()=>{S[t.dataset.k]=!S[t.dataset.k];update()});
+document.getElementById('shuffle').onclick=()=>{shuffle(live.tabs);renderLive()};
+document.getElementById('reset').onclick=()=>{S=Object.assign({},DEFAULTS);live={tabs:SAMPLE.map(x=>({...x})),sel:0,n:1};update()};
+renderStatic();update();
+</script>
+</body>
+</html>

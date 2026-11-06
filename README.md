@@ -3,17 +3,67 @@
 Ghostty X is a personal macOS appearance fork of Ghostty with a new rounded
 tab design, theme-matched colors, and rounded split panes.
 
-## New UI design
+## Terminal UI and split panes
 
-- Rounded tabs with selection and hover effects, theme-based accents, and
-  optional per-tab colors shown as caps, tints, dots, or both.
-- Place the tab bar at the top, bottom, left, or right of the terminal.
-- Select, rename, close, reorder, and detach tabs using native window groups.
-- Split panes with eight-point corners, six-point gutters, a focus outline,
-  and drag resizing that accounts for the full divider gap.
+Four tab layouts, each shown with a large terminal pane beside two stacked
+panes. Select a position in **Tab Bar… → Position** to use it in the app.
+
+| Top tabs | Bottom tabs |
+| --- | --- |
+| ![Top titlebar tabs with nested split panes](docs/images/ghostty-x-top.png) | ![Bottom tabs with nested split panes](docs/images/ghostty-x-bottom.png) |
+| Tabs share the titlebar above the terminal. | Tabs sit below the terminal content. |
+
+| Left sidebar | Right sidebar |
+| --- | --- |
+| ![Left sidebar tabs with nested split panes](docs/images/ghostty-x-left.png) | ![Right sidebar tabs with nested split panes](docs/images/ghostty-x-right.png) |
+| Vertical tabs on the left, with an adjustable sidebar width. | The mirrored layout with vertical tabs on the right. |
+
+*These are renders of the local HTML design preview with sample terminal
+content, not screenshots of a running native terminal.*
+
+[Download the interactive HTML preview](docs/previews/tab-bar-redesign.html)
+and open it in a browser to try all four positions, tab styles, colors, and
+sizing controls. The preview is self-contained and works locally.
+
+### What changed
+
+| Area | Ghostty X changes |
+| --- | --- |
+| Tabs | Rounded capsules with selection and hover effects, theme accents, and optional per-tab color caps, tints, or dots. |
+| Tab placement | Top titlebar, bottom bar, or left/right sidebar. |
+| Tab controls | A custom visible strip for selecting, renaming, closing, reordering, and detaching native tabs; scrollable overflow keeps the selected tab visible. |
+| Split panes | Eight-point rounded corners, six-point gaps between panes, and six-point padding around a split layout. |
+| Focus | The active split pane gets a blue outline; other panes have a subtle border. |
+| Split resizing | Divider calculations include the full gap, and dragging uses translation to avoid an initial jump. |
+| Gutter appearance | Gaps use the terminal background color and configured opacity. |
+| Appearance settings | A dedicated **Tab Bar…** window with an interactive preview and settings that apply live. |
+| App identity | Builds as `GhosttyX.app` with bundle identifier `com.amsynist.ghosttyx`. |
+
+Horizontal, vertical, and nested splits continue to use Ghostty's split tree.
+Existing pane drag/drop, zoom, equalize, and keyboard actions are retained.
+The terminal engine, themes, fonts, and key bindings continue to use Ghostty.
 
 The custom tab strip requires macOS 26 or later and the `tabs` titlebar style.
 macOS 13–15 retains the upstream tab appearance.
+
+### Tab appearance preview
+
+![Tab Bar settings and the actual tab component with sample terminal content](docs/images/ghostty-x-tab-settings.png)
+
+*Rendered settings fixture using the actual tab component and sample content.*
+
+### Still to add or verify
+
+- Add screenshots of a running terminal with horizontal, vertical, and nested
+  splits; the four layouts above are currently HTML illustrations.
+- Complete real-window checks for fullscreen, session restoration, tab overflow,
+  close confirmation, split resizing, and physical mouse/keyboard input.
+- Make the documented `ReleaseLocal` test invocation work with Swift test
+  imports: the latest attempt stopped before tests ran because the app module
+  was built without `-enable-testing`.
+- Pane corner radius, gutter width, and focus-outline appearance are currently
+  fixed in code. User-facing controls for these would be a future addition;
+  **Tab Bar…** currently customizes tabs only.
 
 ## Configuration
 
