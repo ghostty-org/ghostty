@@ -1,3 +1,52 @@
+# Ghostty X
+
+Ghostty X is a personal macOS appearance fork of Ghostty with a new rounded
+tab design, theme-matched colors, and rounded split panes.
+
+## New UI design
+
+- Rounded tabs with selection and hover effects, theme-based accents, and
+  optional per-tab colors shown as caps, tints, dots, or both.
+- Place the tab bar at the top, bottom, left, or right of the terminal.
+- Select, rename, close, reorder, and detach tabs using native window groups.
+- Split panes with eight-point corners, six-point gutters, a focus outline,
+  and drag resizing that accounts for the full divider gap.
+
+The custom tab strip requires macOS 26 or later and the `tabs` titlebar style.
+macOS 13–15 retains the upstream tab appearance.
+
+## Configuration
+
+Add this to your existing Ghostty configuration to enable the custom tabs:
+
+```ini
+macos-titlebar-style = tabs
+```
+
+Open **Tab Bar…** beside **Open Config** in the app menu to customize the
+appearance with a live preview. Settings apply to all windows immediately
+and are saved in the app's preferences, separately from the Ghostty config.
+
+| Setting | Options |
+| --- | --- |
+| Position | Top, bottom, left, right |
+| Style | Filled, outline, minimal |
+| Width and alignment | Fit title or equal width; leading or centered |
+| Dimensions | Tab height, spacing, roundness, sidebar width |
+| Close button | On hover, always, never |
+| Colors | Theme accent, random tab colors, color indicators, shuffle |
+| Details | Tab numbers, bar background, visibility with a single tab |
+
+Terminal themes, fonts, and key bindings continue to use the existing Ghostty
+configuration. Use **Restore defaults** in the Tab Bar window to reset its
+appearance settings.
+
+The app builds as `GhosttyX.app` with bundle identifier
+`com.amsynist.ghosttyx`. See [Ghostty X build and implementation notes](GHOSTTY_X.md)
+for build commands, tests, and validation details.
+
+---
+
 <!-- LOGO -->
 <h1>
 <p align="center">

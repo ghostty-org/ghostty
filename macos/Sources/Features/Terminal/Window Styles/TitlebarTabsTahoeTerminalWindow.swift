@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// `macos-titlebar-style = tabs` for macOS 26 (Tahoe) and later.
@@ -9,9 +10,27 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
 
+    private lazy var roundedTabs = RoundedTerminalTabBar(hostWindow: self)
+    private var tabBarSettings: AnyCancellable?
+
+    /// Whether AppKit currently shows its (hidden) native tab bar in our titlebar.
+    private var nativeHasTabBar = false {
+        didSet { syncTitleVisibility() }
+    }
+
     /// Titlebar tabs can't support the update accessory because of the way we layout
     /// the native tabs back into the menu bar.
     override var supportsUpdateAccessory: Bool { false }
+    override var usesNativeTabTitleEditor: Bool { false }
+    override var drawsCustomTabStrip: Bool { true }
+
+    /// The toolbar title hides while AppKit's tab bar is attached. With tabs at the bottom
+    /// or in a sidebar, the titlebar placeholder strip draws the title itself (the toolbar
+    /// title would sit underneath the accessory), so this only tracks the native bar.
+    private func syncTitleVisibility() {
+        if viewModel.hasTabBar != nativeHasTabBar { viewModel.hasTabBar = nativeHasTabBar }
+        roundedTabs.needsDisplay = true
+    }
 
     deinit {
         tabBarObserver = nil
@@ -50,6 +69,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         toolbar.centeredItemIdentifiers.insert(.title)
         self.toolbar = toolbar
         toolbarStyle = .unifiedCompact
+
+        tabBarSettings = TabBarSettingsStore.shared.$settings.sink { [weak self] _ in
+            self?.syncTitleVisibility()
+        }
     }
     // Called after new tab finishes adjusting and setupTabBar is called in order to prevent Tab Bar hiding/size bug that occurs with some interactions with Mac UI
     override func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
@@ -68,6 +91,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // Check if we have a tab bar and set it up if we have to. See the comment
         // on this function to learn why we need to check this here.
         setupTabBar()
+        if let tabBarView { hideNativeTabBar(tabBarView) }
+        roundedTabs.refresh()
 
         viewModel.isMainWindow = true
     }
@@ -76,6 +101,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         super.resignMain()
 
         viewModel.isMainWindow = false
+        roundedTabs.needsDisplay = true
     }
     // This is called by macOS for native tabbing in order to add the tab bar. We hook into
     // this, detect the tab bar being added, and override its behavior.
@@ -84,7 +110,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard isTabBar(childViewController) else {
             // After dragging a tab into a new window, `hasTabBar` needs to be
             // updated to properly review window title
-            viewModel.hasTabBar = false
+            nativeHasTabBar = false
 
             super.addTitlebarAccessoryViewController(childViewController)
             return
@@ -160,7 +186,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
 
         // View model updates must happen on their own ticks.
         DispatchQueue.main.async { [weak self] in
-            self?.viewModel.hasTabBar = true
+            self?.nativeHasTabBar = true
         }
 
         // Find our clip view
@@ -205,6 +231,22 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             accessoryView.heightAnchor.constraint(equalTo: clipView.heightAnchor),
         ])
 
+        // Keep AppKit's native tab group and lifecycle, but render our own chrome.
+        // The existing accessory retains native fullscreen/titlebar placement.
+        hideNativeTabBar(tabBarView)
+        if roundedTabs.superview !== accessoryView {
+            roundedTabs.removeFromSuperview()
+            roundedTabs.translatesAutoresizingMaskIntoConstraints = false
+            accessoryView.addSubview(roundedTabs)
+            NSLayoutConstraint.activate([
+                roundedTabs.leadingAnchor.constraint(equalTo: accessoryView.leadingAnchor),
+                roundedTabs.trailingAnchor.constraint(equalTo: accessoryView.trailingAnchor),
+                roundedTabs.topAnchor.constraint(equalTo: accessoryView.topAnchor),
+                roundedTabs.bottomAnchor.constraint(equalTo: accessoryView.bottomAnchor),
+            ])
+        }
+        roundedTabs.refresh()
+
         clipView.needsLayout = true
         accessoryView.needsLayout = true
 
@@ -238,11 +280,48 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         }
     }
 
+    /// The native NSTabBar stays in the hierarchy so AppKit keeps managing the tab group,
+    /// but it must never receive mouse events. It is invisible (alpha 0), yet NSTabBar
+    /// still hit-tests while transparent and even while hidden, and AppKit re-inserts it
+    /// above our strip whenever the selected tab changes. If it ends up in front, clicks
+    /// land on invisible native tab buttons at different positions and tabs never switch.
+    private func hideNativeTabBar(_ tabBarView: NSView) {
+        if tabBarView.alphaValue != 0 { tabBarView.alphaValue = 0 }
+        if !tabBarView.isAccessibilityHidden() { tabBarView.setAccessibilityHidden(true) }
+        keepRoundedTabsFrontmost()
+    }
+
+    /// Moves our strip to the end of its superview's subviews (frontmost for hit-testing).
+    /// `sortSubviews` reorders in place, so the strip's Auto Layout constraints survive,
+    /// unlike remove/re-add.
+    private func keepRoundedTabsFrontmost() {
+        guard let parent = roundedTabs.superview, parent.subviews.last !== roundedTabs else { return }
+        parent.sortSubviews({ lhs, rhs, _ in
+            let lhsTabs = lhs is RoundedTerminalTabBar
+            let rhsTabs = rhs is RoundedTerminalTabBar
+            if lhsTabs == rhsTabs { return .orderedSame }
+            return lhsTabs ? .orderedDescending : .orderedAscending
+        }, context: nil)
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        // Enforce right before AppKit hit-tests the click: the native tab bar may have
+        // been moved back in front of our strip since we last configured it.
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            if let tabBarView { hideNativeTabBar(tabBarView) }
+            keepRoundedTabsFrontmost()
+        default:
+            break
+        }
+        super.sendEvent(event)
+    }
+
     func removeTabBar() {
         // View model needs to be updated on another tick because it
         // triggers view updates.
         DispatchQueue.main.async {
-            self.viewModel.hasTabBar = false
+            self.nativeHasTabBar = false
         }
 
         // Clear our observations

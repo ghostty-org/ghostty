@@ -229,6 +229,9 @@ class AppDelegate: NSObject,
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
 
+        // Ghostty X: tab bar appearance lives in its own window with a live preview.
+        installTabBarSettingsMenuItem()
+
         // Start our update checker.
         updateController.startUpdater()
 
@@ -998,6 +1001,20 @@ class AppDelegate: NSObject,
 
     @IBAction func openConfig(_ sender: Any?) {
         ghostty.openConfig()
+    }
+
+    @IBAction func openTabBarSettings(_ sender: Any?) {
+        TabBarSettingsController.shared.show()
+    }
+
+    /// Adds "Tab Bar…" right after "Open Config" in the app menu.
+    private func installTabBarSettingsMenuItem() {
+        guard let openConfig = menuOpenConfig, let menu = openConfig.menu,
+              !menu.items.contains(where: { $0.action == #selector(openTabBarSettings(_:)) }) else { return }
+        let item = NSMenuItem(title: "Tab Bar…", action: #selector(openTabBarSettings(_:)), keyEquivalent: "")
+        item.target = self
+        item.setImageIfDesired(systemSymbolName: "rectangle.topthird.inset.filled")
+        menu.insertItem(item, at: menu.index(of: openConfig) + 1)
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {

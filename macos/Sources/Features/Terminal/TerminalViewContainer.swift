@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Use this container to achieve a glass effect at the window level.
@@ -9,6 +10,15 @@ class TerminalViewContainer: NSView {
     /// Background color applied with glass effect
     private(set) var glassEffectView: NSView?
     private var derivedConfig: DerivedConfig?
+
+    /// Ghostty X: the tab strip when it sits beside the terminal (bottom, left or right).
+    /// Only windows that draw the custom strip get one; others keep native tabs.
+    private(set) var edgeTabs: RoundedTerminalTabBar?
+    /// Hairline under the titlebar, separating it from the terminal like the tab bar design.
+    private let titlebarRule = NSView()
+    private var edgeSettings: AnyCancellable?
+    private var keyObserver: NSObjectProtocol?
+    private var terminalInsets: [NSLayoutConstraint] = []
 
     var windowThemeFrameView: NSView? {
         window?.contentView?.superview
@@ -45,33 +55,112 @@ class TerminalViewContainer: NSView {
         // with the correct idealWidth/idealHeight. Before that (when
         // @FocusedValue hasn't propagated), it returns a tiny default.
         // Fall back to initialContentSize in that case.
+        var size = hostingSize
         if let initialContentSize,
            hostingSize.width < initialContentSize.width || hostingSize.height < initialContentSize.height {
-            return initialContentSize
+            size = initialContentSize
         }
-        return hostingSize
+        // Make room for a visible edge tab strip so default window sizes keep the terminal size.
+        if let edgeTabs, !edgeTabs.isHidden {
+            let settings = TabBarSettingsStore.shared.settings
+            if settings.position.isVertical { size.width += settings.edgeThickness } else { size.height += settings.edgeThickness }
+        }
+        return size
     }
 
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
+        terminalInsets = [
             terminalView.topAnchor.constraint(equalTo: topAnchor),
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(terminalInsets)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateGlassEffectIfNeeded()
         updateGlassEffectTopInsetIfNeeded()
+        updateEdgeTabs()
     }
 
     override func layout() {
         super.layout()
         updateGlassEffectTopInsetIfNeeded()
+        layoutEdgeTabs()
+    }
+
+    // MARK: Edge tab strip
+
+    private func updateEdgeTabs() {
+        guard let window = window as? TerminalWindow, window.drawsCustomTabStrip else {
+            if window != nil { removeEdgeTabs() }
+            return
+        }
+        if edgeTabs?.model.hostWindow !== window {
+            removeEdgeTabs()
+            let bar = RoundedTerminalTabBar(hostWindow: window, placement: .edge)
+            bar.onTabCountChange = { [weak self] _ in self?.applyEdgeSettings(TabBarSettingsStore.shared.settings) }
+            addSubview(bar)
+            edgeTabs = bar
+            titlebarRule.wantsLayer = true
+            addSubview(titlebarRule)
+            // The published value arrives before the store updates, so use the one passed in.
+            edgeSettings = TabBarSettingsStore.shared.$settings.sink { [weak self] settings in
+                self?.applyEdgeSettings(settings)
+            }
+            // Every tab is its own window with its own strip; refresh as it comes forward.
+            keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { [weak bar] _ in
+                MainActor.assumeIsolated { bar?.refresh() }
+            }
+        }
+        edgeTabs?.refresh()
+        applyEdgeSettings(TabBarSettingsStore.shared.settings)
+    }
+
+    private func removeEdgeTabs() {
+        edgeTabs?.removeFromSuperview()
+        edgeTabs = nil
+        titlebarRule.removeFromSuperview()
+        edgeSettings = nil
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = nil
+        applyTerminalInsets(position: .top, thickness: 0)
+    }
+
+    private func applyEdgeSettings(_ settings: TabBarSettings) {
+        guard let edgeTabs else { return }
+        let visible = settings.position != .top
+            && (settings.showWithSingleTab || edgeTabs.displayedTabs.count > 1)
+        edgeTabs.isHidden = !visible
+        titlebarRule.layer?.backgroundColor = edgeTabs.theme.foreground.withAlphaComponent(0.08).cgColor
+        applyTerminalInsets(position: settings.position, thickness: visible ? settings.edgeThickness : 0)
+        needsLayout = true
+        invalidateIntrinsicContentSize()
+    }
+
+    private func applyTerminalInsets(position: TabBarSettings.Position, thickness: CGFloat) {
+        guard terminalInsets.count == 4 else { return }
+        terminalInsets[1].constant = position == .left ? thickness : 0
+        terminalInsets[2].constant = position == .bottom ? -thickness : 0
+        terminalInsets[3].constant = position == .right ? -thickness : 0
+    }
+
+    private func layoutEdgeTabs() {
+        titlebarRule.frame = NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
+        guard let edgeTabs, !edgeTabs.isHidden else { return }
+        let settings = TabBarSettingsStore.shared.settings
+        let t = settings.edgeThickness
+        edgeTabs.frame = switch settings.position {
+        case .top, .bottom: NSRect(x: 0, y: 0, width: bounds.width, height: t)
+        case .left: NSRect(x: 0, y: 0, width: t, height: bounds.height)
+        case .right: NSRect(x: bounds.width - t, y: 0, width: t, height: bounds.height)
+        }
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {

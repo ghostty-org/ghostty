@@ -44,6 +44,17 @@ class TerminalWindow: NSWindow {
         delegate: self
     )
 
+    /// Custom tab strips own their title editing and must not hit-test the hidden native tabs.
+    var usesNativeTabTitleEditor: Bool { true }
+
+    /// Ghostty X: windows that replace native tabs with the capsule strip. Only these can
+    /// show the strip at the bottom or as a sidebar.
+    var drawsCustomTabStrip: Bool { false }
+
+    /// Ghostty X: this tab's slot in `TabBarSettings.randomPaletteIndices`, picked when
+    /// the tab first appears so every strip in the tab group shows the same color.
+    var autoTabColorSlot: Int?
+
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
     var supportsUpdateAccessory: Bool {

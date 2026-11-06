@@ -7,9 +7,17 @@ def main [
     --scheme: string = "Ghostty"       # Xcode scheme (Ghostty, DockTilePlugin)
     --configuration: string = "Debug"  # Build configuration (Debug, Release, ReleaseLocal)
     --action: string = "build"         # xcodebuild action (build, test, clean, etc.)
+    --arch: string                    # Build one architecture, matching a native-only xcframework
 ] {
     let project = ($env.FILE_PWD | path join "Ghostty.xcodeproj")
     let build_dir = ($env.FILE_PWD | path join "build")
+
+    let architecture = if ($arch | is-not-empty) {
+        if $arch not-in [arm64 x86_64] { error make {msg: "--arch must be arm64 or x86_64"} }
+        [$"ARCHS=($arch)" "ONLY_ACTIVE_ARCH=YES"]
+    } else {
+        []
+    }
 
     # Skip UI tests for CLI-based invocations because it requires
     # special permissions.
@@ -28,5 +36,6 @@ def main [
         -configuration $configuration
         $"SYMROOT=($build_dir)"
         ...$skip_testing
+        ...$architecture
         $action)
 }

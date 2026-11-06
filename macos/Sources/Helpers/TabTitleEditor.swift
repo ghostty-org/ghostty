@@ -80,7 +80,7 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
         guard event.type == .leftMouseDown else { return false }
 
         // If we don't have a host window to look up the click, we do nothing.
-        guard let hostWindow else { return false }
+        guard let hostWindow, (hostWindow as? TerminalWindow)?.usesNativeTabTitleEditor ?? true else { return false }
 
         // In native fullscreen, AppKit can route titlebar clicks through a detached
         // NSToolbarFullScreenWindow. Only allow clicks from the host window or its
@@ -140,7 +140,7 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
     func beginEditing(for targetWindow: NSWindow) -> Bool {
         // Resolve the visual tab button for the target tab window. We rely on visual order
         // since native tab view hierarchy order does not necessarily match what is on screen.
-        guard let hostWindow,
+        guard let hostWindow, (hostWindow as? TerminalWindow)?.usesNativeTabTitleEditor ?? true,
               let tabbedWindows = hostWindow.tabbedWindows,
               let tabIndex = tabbedWindows.firstIndex(of: targetWindow),
               let tabButton = hostWindow.tabButtonsInVisualOrder()[safe: tabIndex],
