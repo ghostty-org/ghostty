@@ -1,30 +1,36 @@
 # Stability {#stability}
 
-libghostty-vt isn't stable yet. Until 1.0, your program can break on any minor
-release. libghostty-vt is released separately from Ghostty, with its own version
-numbers, so these are the numbers to watch.
+libghostty-vt is extremely stable and production proven software.
 
-## Before 1.0 {#stability-before-1}
+It has been used by millions of users for years and is shipped in a diverse
+set of free and commercial software across every major operating system and
+mobile device. It is covered by a significant set of unit tests. It is fuzzed
+via an [AFL++](https://aflplus.plus/) harness on multiple dedicated machines
+24/7, and we're continuously expanding our fuzz coverage.
 
-Each minor release may change the API (the functions and types in these headers)
-and the ABI (how compiled programs call the library). A program built against
-0.1 may not compile against 0.2, or may not run with a 0.2 library installed.
-
-Patch releases, such as 0.1.1, never break programs built against an earlier 0.1
-release.
-
-## From 1.0 {#stability-after-1}
-
-From 1.0, only a new major version can break your program, and it comes with a
-new shared library name such as `libghostty-vt.so.2`. Minor and patch releases
-only add to the library.
+@important The one part that _isn't fully stable yet_ is the C ABI.
+Prior to 1.0, we may change the C ABI. We believe all C ABI changes at
+this point are complete and plan to release a 1.0 tag soon, but we aren't
+promising it until we tag 1.0.
 
 ## Checking the Version {#stability-check}
 
-Every 0.x release uses the same shared library name, so the system can't stop a
-program built against 0.1 from loading a 0.2 library. You can check this
-yourself when your program starts, by comparing the library's version with the
-version of the headers you compiled against:
+Like any C library, libghostty-vt has two versions: the version you
+compile against and the version that is loaded at runtime. They're the
+same when statically linking, but can differ when dynamically linking and
+programs should be resilient to this.
+
+To check the headers when compiling, use GHOSTTY_VT_VERSION_AT_LEAST(). It works
+in any `#if`, so you can also use it to enable code that needs a newer release:
+
+@snippet c-vt-build-info/src/main.c version-check
+
+To read the library's version when your program runs, use ghostty_version() for
+the string and ghostty_build_info() for the numbers:
+
+@snippet c-vt-build-info/src/main.c version-library
+
+To make sure the two work together, compare them when your program starts:
 
 @snippet c-vt-build-info/src/main.c version-compatible
 

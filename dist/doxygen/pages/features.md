@@ -5,23 +5,23 @@ doesn't need search or snapshots, for example, so the library can be built
 without them to make it smaller. You choose features when you build the library,
 with the `-Dvt-features` build option.
 
-Your program doesn't change with the build. Every function in these headers
-exists in every build, whichever features it includes, so a program links and
-loads the same way against any of them. When you call a function whose feature
-was left out, the function does nothing and returns GHOSTTY_UNSUPPORTED.
+Optional features don't require program changes. Every function in our
+C headers exist in every build, so a program links and loads the same way against
+any set of enabled features. When you call a function whose feature was disabled,
+the function does nothing and returns GHOSTTY_UNSUPPORTED.
 
 | Feature               | Functions                                                                                                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `%snapshot`           | `ghostty_snapshot_*`                                                                                                                                                    |
-| `%formatter`          | `ghostty_formatter_*`                                                                                                                                                   |
-| `%selection`          | `ghostty_terminal_select_*`, `ghostty_terminal_selection_*`, `ghostty_selection_gesture_*`                                                                              |
-| `%search`             | `ghostty_search_*`                                                                                                                                                      |
-| `%render_state`       | `ghostty_render_state_*`                                                                                                                                                |
-| `%input_encode`       | `ghostty_key_event_*`, `ghostty_key_encoder_*`, `ghostty_mouse_event_*`, `ghostty_mouse_encoder_*`, ghostty_focus_encode(), `ghostty_paste_*`, ghostty_terminal_paste() |
 | `%color`              | `ghostty_color_*`                                                                                                                                                       |
-| `%grid_introspection` | `ghostty_grid_ref_*`, `ghostty_tracked_grid_ref_*`, `ghostty_cell_get*`, `ghostty_row_get*`, ghostty_terminal_grid_ref_track()                                          |
+| `%formatter`          | `ghostty_formatter_*`                                                                                                                                                   |
 | `%glyph_protocol`     | None. It lets applications register custom glyphs with Ghostty's glyph protocol.                                                                                        |
+| `%grid_introspection` | `ghostty_grid_ref_*`, `ghostty_tracked_grid_ref_*`, `ghostty_cell_get*`, `ghostty_row_get*`, ghostty_terminal_grid_ref_track()                                          |
+| `%input_encode`       | `ghostty_key_event_*`, `ghostty_key_encoder_*`, `ghostty_mouse_event_*`, `ghostty_mouse_encoder_*`, ghostty_focus_encode(), `ghostty_paste_*`, ghostty_terminal_paste() |
 | `%kitty_graphics`     | `ghostty_kitty_graphics_*`, and the Kitty options and data of ghostty_terminal_set() and ghostty_terminal_get()                                                         |
+| `%render_state`       | `ghostty_render_state_*`                                                                                                                                                |
+| `%search`             | `ghostty_search_*`                                                                                                                                                      |
+| `%selection`          | `ghostty_terminal_select_*`, `ghostty_terminal_selection_*`, `ghostty_selection_gesture_*`                                                                              |
+| `%snapshot`           | `ghostty_snapshot_*`                                                                                                                                                    |
 
 A few functions depend on two features:
 

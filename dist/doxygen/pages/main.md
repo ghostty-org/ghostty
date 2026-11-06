@@ -1,15 +1,54 @@
 # libghostty-vt {#mainpage}
 
-libghostty-vt is a C library for building terminal emulators. You give it the
-bytes a program writes, and it gives you back the state of the terminal: the
-screen, the cursor, the styles, the scrollback, and more.
+libghostty-vt is a portable, high-performance C library for terminal emulation.
+It is [open source](https://github.com/ghostty-org/ghostty) and
+[MIT licensed](https://github.com/ghostty-org/ghostty/blob/main/LICENSE).
 
-This is the same core that runs inside [Ghostty](https://ghostty.org). We didn't
-write a new terminal for the library. We extracted the one we already had. You
-get the SIMD-optimized parser, the Unicode support, the Kitty protocols, and
-years of fuzzing and bug fixes along with it.
+- **It is highly generic:** you give it the bytes a program writes, and it
+  processes and exposes the state of the terminal such as the screen, the
+  cursor, the scrollback, etc.
+- **It is highly portable:** we build and test libghostty-vt for Linux, macOS,
+  iOS, Android, FreeBSD, Windows, WebAssembly, and bare-metal RISC-V and ARM. It
+  works on 32-bit and 64-bit systems.
+- **It is high-performance:** the IO throughput is best-in-class and faster than
+  any other known terminal emulator. Memory usage is highly optimized, one
+  libghostty-vt consumer was able to run 10,000 active (input/output) terminals
+  with a running shell on a 4 core 8 GB Linux machine.
+- **It has no dependencies:** For the highest performance, the library only
+  needs libc, but you can optionally build it without that requirement and it
+  can be fully freestanding on its own and run directly on hardware.
 
-The library needs nothing but libc, and you can build it without that too.
+You can use libghostty-vt to build:
+
+- Terminal emulators and multiplexers
+- Web terminals and remote sessions
+- Session recording and playback
+- Test harnesses for TUI apps
+- Agents and automation that read what a TUI is showing
+- Etc.
+
+libghostty-vt was originally extracted from [Ghostty](https://ghostty.org), but
+since then is in use by
+[hundreds of projects](https://github.com/Uzaaft/awesome-libghostty) both free
+and commercial. We don't have any tracking of course but by our best estimates
+libghostty-vt is used by tens of millions of people daily across every major
+desktop and mobile platform.
+
+@important libghostty-vt is pre-1.0. The core code is extremely stable and
+already in use by millions worldwide, but we're still stabilizing the ABI.
+We will ship a stable ABI with 1.0 soon. See @ref stability for exactly what
+can break.
+
+## Where to Next?
+
+- Getting the library? See @ref installing.
+- Building a terminal? Read @ref first-terminal, then @ref building-a-terminal.
+- Only need one piece? The parsers and encoders work without a terminal. See
+  @ref api_building_blocks "Building Blocks" and @ref api_input "Input".
+- Writing bindings for another language? Read @ref conventions first. It will
+  save you time.
+
+## Example
 
 Here is a complete program. It creates a terminal, writes some text with a color
 sequence in it, and prints what ended up on the screen. We left out the error
@@ -19,19 +58,7 @@ checks to keep it short.
 
 Full program: @ref c-vt-hello/src/main.c
 
-It prints `Hello, world!`. The color is in the terminal's state, and plain text
-just doesn't show it. That's a terminal emulator. It has no window and no pty,
-but the text went through the same parser Ghostty uses.
-
-Where to go next:
-
-- Getting the library? See @ref installing.
-- Building a terminal? Read @ref first-terminal, then @ref building-a-terminal.
-- Only need one piece? The parsers and encoders work without a terminal. See
-  @ref api_building_blocks "Building Blocks" and @ref api_input "Input".
-- Writing bindings for another language? Read @ref conventions first. It will
-  save you time.
-
-libghostty-vt is pre-1.0. The core is the code Ghostty ships and it is very
-stable. The API is not: any minor release may change it. See @ref stability for
-exactly what can break.
+It prints `Hello, world!` in plain text. The color is in the terminal's state
+but the way we configured the formatter doesn't show it. This has no GUI window
+and doesn't use a real PTY, but it is hopefully demonstrative of libghostty-vt
+and how you could hook it up to both.
