@@ -2798,7 +2798,7 @@ pub fn Mask(
         }
 
         /// Returns the raw backing bits of a single value.
-        pub inline fn bits(v: T) Backing {
+        inline fn bits(v: T) Backing {
             return @bitCast(v);
         }
 
@@ -2846,7 +2846,8 @@ pub fn Mask(
             assert(expected & ~mask == 0);
 
             // OR the differences together and check the masked bits once.
-            // This avoids emulated 64-bit lane comparisons on baseline x86-64.
+            // This takes fewer vector operations on aarch64 and baseline
+            // x86-64 than masking and comparing every lane.
             const diff = load(values, i) ^ @as(Group, @splat(expected));
             return @reduce(.Or, diff) & mask == 0;
         }
@@ -2918,10 +2919,19 @@ pub fn Mask(
         ) usize {
             var end = i;
             if (end < values.len and eqlScalar(values[end], expected)) {
-                end += 1;
+                // The first group starts at the value we just checked
+                // instead of the one after it. This checks that value
+                // twice, but a run that is a whole number of groups
+                // long then ends on a group boundary. Starting after it
+                // would leave such a run with a tail of group_len - 1
+                // values that are each checked on their own.
                 while (values.len - end >= group_len) : (end += group_len) {
                     if (!eql(values, end, expected)) break;
                 }
+
+                // If the first group didn't match we still know that
+                // the first value did.
+                end = @max(end, i + 1);
                 while (end < values.len and
                     eqlScalar(values[end], expected)) end += 1;
             }
@@ -2993,7 +3003,37 @@ test "Mask" {
         cells[6] = styled2;
         cells[9] = styled2;
         cells[10] = other;
-        try testing.expectEqual(10, M.eqlEnd(&cells, 2, expected));
+        try testing.expectEqual(10, M.eqlEnd(&cells, 3, expected));
+    }
+
+    // eqlEnd: every length, start index, and position of the first
+    // non-matching value, for a style run and for a plain (zero) run.
+    {
+        const Case = struct { a: Cell, b: Cell, stop: Cell, expected: M.Backing };
+        const cases = [_]Case{
+            .{ .a = styled, .b = styled2, .stop = other, .expected = M.pattern(styled) },
+            .{ .a = styled, .b = styled2, .stop = plain, .expected = M.pattern(styled) },
+            .{ .a = plain, .b = .init('Z'), .stop = styled, .expected = 0 },
+        };
+        var buf: [3 * M.group_len + 3]Cell = undefined;
+        for (cases) |case| for (0..buf.len + 1) |len| {
+            // stop == len means every value matches.
+            for (0..len + 1) |stop| for (0..len + 1) |i| {
+                for (buf[0..len], 0..) |*c, j| c.* = if (j == stop)
+                    case.stop
+                else if (j % 2 == 0)
+                    case.a
+                else
+                    case.b;
+
+                // Values before i are never looked at.
+                const want = if (stop >= i) stop else len;
+                try testing.expectEqual(
+                    want,
+                    M.eqlEnd(buf[0..len], i, case.expected),
+                );
+            };
+        };
     }
 
     // strip: compare values while ignoring the masked fields

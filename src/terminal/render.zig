@@ -837,7 +837,10 @@ pub const RenderState = struct {
         grapheme: []const u21,
 
         /// The style data for the cell. This is undefined unless
-        /// the style_id is non-default on raw.
+        /// the style_id is non-default on raw. In particular it is
+        /// undefined for background color cells (content tags
+        /// `bg_color_palette` and `bg_color_rgb`): their color is
+        /// stored in raw, so use `Style.bg` to get it.
         style: Style,
     };
 
@@ -2749,6 +2752,13 @@ const RowBuilder = struct {
                 .{ b, false, true, p, page_cells, cells_slice, arena_alloc, vy, {} },
             );
         } else {
+            // The scan below never looks at the content tag, so a
+            // grapheme cell on this row would keep an undefined
+            // grapheme slice in the render state.
+            if (build_options.slow_runtime_safety) {
+                for (page_cells) |cell| assert(!cell.hasGrapheme());
+            }
+
             try @call(
                 .always_inline,
                 scan,
@@ -2809,8 +2819,12 @@ const RowBuilder = struct {
             // operations. On placeholder rows a plain cell can be a
             // placeholder, so those rows still check each cell. Without
             // graphemes or placeholders, we skip background color cells too.
+            //
+            // The skip starts at this cell rather than the next one so
+            // that the first group starts here. A plain run of a whole
+            // number of groups then needs no scalar checks after this one.
             if (!placeholders and Mask.matchScalar(cell)) {
-                x = Mask.eqlEnd(page_cells, x + 1, 0);
+                x = Mask.eqlEnd(page_cells, x, 0);
                 continue;
             }
 
@@ -3371,6 +3385,13 @@ test "bg color cells" {
             Style.bg(.{}, &cell.raw, &t.colors.palette.current),
         );
     }
+
+    // The background color cells have no style run of their own.
+    // The only run on the row is the styled cell.
+    const applied = row_data.items(.applied_styles)[0].items;
+    try testing.expectEqual(1, applied.len);
+    try testing.expectEqual(0, applied[0].start);
+    try testing.expectEqual(1, applied[0].end);
 }
 
 test "grapheme" {
@@ -3418,6 +3439,57 @@ test "grapheme" {
         const cell = cells[0].get(2);
         try testing.expectEqual(0, cell.raw.codepoint());
         try testing.expectEqual(.spacer_tail, cell.raw.wide);
+    }
+}
+
+test "grapheme runs" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 2,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Two adjacent grapheme cells with no style.
+    s.nextSlice("e\u{301}o\u{308}");
+    // A bold run with two adjacent grapheme cells in the middle.
+    s.nextSlice("\x1b[1mXa\u{300}u\u{302}Y");
+    // Background color cells to the end of the row.
+    s.nextSlice("\x1b[0;41m\x1b[K");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const cells = state.row_data.items(.cells)[0];
+    const Expect = struct { cp: u21, grapheme: ?u21, bold: bool };
+    const expected = [_]Expect{
+        .{ .cp = 'e', .grapheme = 0x301, .bold = false },
+        .{ .cp = 'o', .grapheme = 0x308, .bold = false },
+        .{ .cp = 'X', .grapheme = null, .bold = true },
+        .{ .cp = 'a', .grapheme = 0x300, .bold = true },
+        .{ .cp = 'u', .grapheme = 0x302, .bold = true },
+        .{ .cp = 'Y', .grapheme = null, .bold = true },
+    };
+    for (expected, 0..) |e, x| {
+        errdefer std.log.warn("mismatch on cell x={}", .{x});
+        const cell = cells.get(x);
+        try testing.expectEqual(e.cp, cell.raw.codepoint());
+        try testing.expectEqual(e.grapheme != null, cell.raw.hasGrapheme());
+        if (e.grapheme) |g| try testing.expectEqualSlices(u21, &.{g}, cell.grapheme);
+        try testing.expectEqual(e.bold, cell.raw.style_id != 0);
+        if (e.bold) try testing.expect(cell.style.flags.bold);
+    }
+    for (expected.len..10) |x| {
+        const cell = cells.get(x);
+        try testing.expectEqual(.bg_color_palette, cell.raw.content_tag);
+        try testing.expectEqual(1, cell.raw.content.color_palette.data);
     }
 }
 
