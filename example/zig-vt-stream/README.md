@@ -1,8 +1,8 @@
 # Example: `vtStream` API for Parsing Terminal Streams
 
-This example demonstrates how to use the `vtStream` API to parse and process
-VT sequences. The `vtStream` API is ideal for read-only terminal applications
-that need to parse terminal output without responding to queries, such as:
+Parse and process VT sequences with the `vtStream` API. The `vtStream` API
+is ideal for read-only terminal applications that need to parse terminal
+output without responding to queries, such as:
 
 - Replay tooling
 - CI log viewers

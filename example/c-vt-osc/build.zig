@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
 
     // Exe
     const exe = b.addExecutable(.{
-        .name = "c_vt",
+        .name = "c_vt_osc",
         .root_module = exe_mod,
     });
     b.installArtifact(exe);

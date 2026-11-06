@@ -16,14 +16,28 @@
 extern "C" {
 #endif
 
-/** @defgroup screen Screen
+/** @addtogroup screen
  *
- * Terminal screen cell and row types.
+ * A GhosttyCell is a single grid cell and a GhosttyRow is a single row.
  *
- * These types represent the contents of a terminal screen. A GhosttyCell
- * is a single grid cell and a GhosttyRow is a single row. Cell fields can
- * be accessed via ghostty_cell_get() or decoded from the packed layout in
- * ghostty_type_json(). Rows are opaque and accessed via ghostty_row_get().
+ * You get these from a grid reference or a render state. You need them to read
+ * what's on the screen, one cell at a time. Cell fields can be accessed via
+ * ghostty_cell_get() or decoded from the packed layout in ghostty_type_json().
+ * Rows are opaque and accessed via ghostty_row_get().
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyCell cell;
+ * ghostty_grid_ref_cell(&ref, &cell);
+ *
+ * uint32_t codepoint = 0;
+ * ghostty_cell_get(cell, GHOSTTY_CELL_DATA_CODEPOINT, &codepoint);
+ * @endcode
+ *
+ * Full program: @ref c-vt-grid-traverse/src/main.c
+ *
+ * See the @ref guide-grid "Grid guide".
  *
  * @{
  */

@@ -7,23 +7,22 @@
 #ifndef GHOSTTY_VT_SIZE_REPORT_H
 #define GHOSTTY_VT_SIZE_REPORT_H
 
-/** @defgroup size_report Size Report Encoding
+/** @addtogroup size_report
  *
- * Utilities for encoding terminal size reports into escape sequences,
- * supporting in-band size reports (mode 2048) and XTWINOPS responses
- * (CSI 14 t, CSI 16 t, CSI 18 t, CSI 19 t).
+ * A size report tells a program how big your terminal is, in cells and pixels.
  *
- * ## Basic Usage
- *
- * Fill in a GhosttySizeReportSize with the terminal geometry and pass a
- * pointer to it to ghostty_size_report_encode(). The function encodes
- * the report into a caller-provided buffer. If the buffer is too small,
- * the function returns GHOSTTY_OUT_OF_SPACE and sets the required size
- * in the output parameter.
+ * These answer in-band size reports (mode 2048) and XTWINOPS queries
+ * (CSI 14 t, CSI 16 t, CSI 18 t, CSI 19 t). A terminal answers those for you
+ * through a GhosttyTerminalSizeFn, so you only need this without one. Fill in a
+ * GhosttySizeReportSize and pass it to ghostty_size_report_encode().
  *
  * ## Example
  *
  * @snippet c-vt-size-report/src/main.c size-report-encode
+ *
+ * Full program: @ref c-vt-size-report/src/main.c
+ *
+ * See the @ref guide-effects "Effects guide" for the terminal's callback.
  *
  * @{
  */

@@ -7,21 +7,27 @@
 #ifndef GHOSTTY_VT_BUILD_INFO_H
 #define GHOSTTY_VT_BUILD_INFO_H
 
-/** @defgroup build_info Build Info
+/** @addtogroup build_info
  *
- * Query compile-time build configuration of libghostty-vt.
+ * Build info is what this copy of the library knows about how it was compiled:
+ * its version, its optimization mode, and which features it has.
  *
- * These values reflect the options the library was built with and are
- * constant for the lifetime of the process.
+ * You need this when your program has to adapt to the library it loaded, such
+ * as checking for Kitty graphics before you offer images. You don't need a
+ * terminal. These values are constant for the lifetime of the process, so you
+ * only have to read them once.
  *
- * ## Basic Usage
+ * ## Example
  *
- * Use ghostty_build_info() to query individual build options:
+ * @code{.c}
+ * bool simd = false;
+ * ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd);
+ * @endcode
  *
- * @snippet c-vt-build-info/src/main.c build-info-query
+ * Full program: @ref c-vt-build-info/src/main.c
  *
  * To check the version of the headers rather than the library, see
- * @ref version "Version".
+ * @ref version "Version". To choose what a build contains, see @ref features.
  *
  * @{
  */
@@ -66,7 +72,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Whether this build includes the `%kitty_graphics` feature, which
    * provides the Kitty graphics protocol and the `ghostty_kitty_graphics_*`
    * functions. It is always false on targets without an operating system,
-   * such as wasm32-freestanding. See @ref features_sec.
+   * such as wasm32-freestanding. See @ref features.
    *
    * Output type: bool *
    */
@@ -132,7 +138,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%snapshot` feature, which provides
-   * the `ghostty_snapshot_*` functions. See @ref features_sec.
+   * the `ghostty_snapshot_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -140,7 +146,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%formatter` feature, which provides
-   * the `ghostty_formatter_*` functions. See @ref features_sec.
+   * the `ghostty_formatter_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -149,7 +155,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Whether this build includes the `%selection` feature, which provides
    * the `ghostty_terminal_select_*`, `ghostty_terminal_selection_*` and
-   * `ghostty_selection_gesture_*` functions. See @ref features_sec.
+   * `ghostty_selection_gesture_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -157,7 +163,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%search` feature, which provides the
-   * `ghostty_search_*` functions. See @ref features_sec.
+   * `ghostty_search_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -165,7 +171,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%render_state` feature, which provides
-   * the `ghostty_render_state_*` functions. See @ref features_sec.
+   * the `ghostty_render_state_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -174,7 +180,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Whether this build includes the `%input_encode` feature, which provides
    * the key, mouse, focus and paste encoding functions. See
-   * @ref features_sec for the full list.
+   * @ref features for the full list.
    *
    * Output type: bool *
    */
@@ -182,7 +188,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /**
    * Whether this build includes the `%color` feature, which provides the
-   * `ghostty_color_*` functions. See @ref features_sec.
+   * `ghostty_color_*` functions. See @ref features.
    *
    * Output type: bool *
    */
@@ -192,7 +198,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Whether this build includes the `%grid_introspection` feature, which
    * provides the `ghostty_grid_ref_*`, `ghostty_tracked_grid_ref_*`,
    * `ghostty_cell_get*` and `ghostty_row_get*` functions. See
-   * @ref features_sec for the full list.
+   * @ref features for the full list.
    *
    * Output type: bool *
    */
@@ -201,7 +207,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Whether this build includes the `%glyph_protocol` feature, which lets
    * applications register custom glyphs with Ghostty's glyph protocol. It
-   * has no functions of its own. See @ref features_sec.
+   * has no functions of its own. See @ref features.
    *
    * Output type: bool *
    */
@@ -212,8 +218,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * Query a compile-time build configuration value.
  *
- * The caller must pass a pointer to the correct output type for the
+ * You must pass a pointer to the correct output type for the
  * requested data (see GhosttyBuildInfo variants for types).
+ *
+ * @snippet c-vt-build-info/src/main.c build-info-query
+ *
+ * Full program: @ref c-vt-build-info/src/main.c
  *
  * @param data The build info field to query
  * @param out Pointer to store the result (type depends on data parameter)

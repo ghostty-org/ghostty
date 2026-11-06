@@ -1,8 +1,7 @@
 # WebAssembly VT Terminal Example
 
-This example demonstrates how to use the Ghostty VT library from WebAssembly
-to initialize a terminal, write VT-encoded data to it, and format the
-terminal contents as plain text.
+Initialize a terminal, write VT-encoded data to it, and format the terminal
+contents as plain text using the Ghostty VT library from WebAssembly.
 
 ## Building
 

@@ -7,20 +7,21 @@
 #ifndef GHOSTTY_VT_FOCUS_H
 #define GHOSTTY_VT_FOCUS_H
 
-/** @defgroup focus Focus Encoding
+/** @addtogroup focus
  *
- * Utilities for encoding focus gained/lost events into terminal escape
- * sequences (CSI I / CSI O) for focus reporting mode (mode 1004).
+ * Encode focus gained and lost events into terminal escape sequences
+ * (CSI I / CSI O) for focus reporting mode (mode 1004).
  *
- * ## Basic Usage
- *
- * Use ghostty_focus_encode() to encode a focus event into a caller-provided
- * buffer. If the buffer is too small, the function returns
- * GHOSTTY_OUT_OF_SPACE and sets the required size in the output parameter.
+ * Only send these to a program that turned that mode on. There's no encoder to
+ * create, and you don't need a terminal to encode one.
  *
  * ## Example
  *
  * @snippet c-vt-encode-focus/src/main.c focus-encode
+ *
+ * Full program: @ref c-vt-encode-focus/src/main.c
+ *
+ * See the @ref guide-input "Input guide".
  *
  * @{
  */

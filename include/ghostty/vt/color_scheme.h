@@ -8,21 +8,22 @@
 #ifndef GHOSTTY_VT_COLOR_SCHEME_H
 #define GHOSTTY_VT_COLOR_SCHEME_H
 
-/** @defgroup color_scheme Color Scheme Report Encoding
+/** @addtogroup color_scheme
  *
- * Utilities for encoding color scheme reports into terminal escape
- * sequences for color scheme reporting mode (mode 2031).
+ * A color scheme report tells a program whether your terminal is light or dark.
  *
- * ## Basic Usage
- *
- * Use ghostty_color_scheme_report_encode() to encode a color scheme report
- * into a caller-provided buffer. If the buffer is too small, the function
- * returns GHOSTTY_OUT_OF_SPACE and sets the required size in the output
- * parameter.
+ * You need this when a program sets mode 2031 and expects to hear when the
+ * scheme changes. Encode the report and write it to the pty yourself. You don't
+ * need it to answer a `CSI ? 996 n` query. A terminal does that for you through
+ * a GhosttyTerminalColorSchemeFn.
  *
  * ## Example
  *
  * @snippet c-vt-color-scheme/src/main.c color-scheme-report-encode
+ *
+ * Full program: @ref c-vt-color-scheme/src/main.c
+ *
+ * See @ref guide-colors-scheme for when to send one.
  *
  * @{
  */
@@ -44,7 +45,8 @@ extern "C" {
  * query response.
  *
  * Hosts should gate unsolicited sends on GHOSTTY_MODE_COLOR_SCHEME_REPORT
- * (mode 2031) being set, which can be checked via the mode getters.
+ * (mode 2031) being set. Read it with ghostty_terminal_get() and
+ * GHOSTTY_TERMINAL_DATA_MODE.
  *
  * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
  * @p out_written to the size needed. The buffer may then hold part of the

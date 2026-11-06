@@ -1,7 +1,7 @@
-# Example: `ghostty-vt` C Program
+# Example: `ghostty-vt` OSC Parser
 
-This contains a simple example of how to use the `ghostty-vt` C library
-with a C program.
+Parse an OSC sequence and read the window title out of it with the
+`ghostty-vt` OSC parser.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

@@ -17,13 +17,25 @@
 extern "C" {
 #endif
 
-/** @defgroup style Style
+/** @addtogroup style
  *
- * Terminal cell style attributes.
+ * A GhosttyStyle is how a cell looks: its foreground, background, and underline
+ * colors, and flags for bold, italic, underline, and other text decorations.
  *
- * A style describes the visual attributes of a terminal cell, including
- * foreground, background, and underline colors, as well as flags for
- * bold, italic, underline, and other text decorations.
+ * You get one from ghostty_grid_ref_style(), or from a render state when you
+ * draw. Its colors can be unset, which means you use your default.
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyStyle style;
+ * ghostty_grid_ref_style(&ref, &style);
+ * bool bold = style.flags & GHOSTTY_STYLE_FLAG_BOLD;
+ * @endcode
+ *
+ * Full program: @ref c-vt-grid-traverse/src/main.c
+ *
+ * See the @ref guide-grid "Grid guide".
  *
  * @{
  */

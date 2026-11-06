@@ -20,123 +20,22 @@
 extern "C" {
 #endif
 
-/** @defgroup snapshot Terminal Snapshot
+/** @addtogroup snapshot
  *
  * Encode and restore the complete state of a terminal via a binary format.
  *
- * A snapshot is an ordered, CRC-protected record stream. Its READY marker
- * follows enough state to render and resume the terminal, including any
- * unfinished VT parser input. Older scrollback pages follow READY and the
- * FINISH marker terminates the complete snapshot.
+ * Use this to save a terminal and bring it back later. If the input can stop
+ * partway through a sequence, turn on
+ * #GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES before you write it.
  *
- * End-of-file before an operation's required READY or FINISH marker is
- * malformed, truncated snapshot data and returns GHOSTTY_INVALID_VALUE.
- * GHOSTTY_IO_ERROR is reserved for a reader callback that returns false.
+ * ## Example
  *
- * ## Examples
- *
- * The complete working example is available in `example/c-vt-snapshot`.
- *
- * ### Encode a terminal and its unfinished VT continuation
- * @snippet c-vt-snapshot/src/main.c snapshot-encode
- *
- * ### Restore a complete snapshot in one call
  * @snippet c-vt-snapshot/src/main.c snapshot-decode
  *
- * ### Adapt a byte source to GhosttyReader
- * @snippet c-vt-snapshot/src/main.c snapshot-buffer-reader
+ * Full program: @ref c-vt-snapshot/src/main.c
  *
- * ### Restore READY first, then incrementally prepend history
- * @snippet c-vt-snapshot/src/main.c snapshot-incremental
- *
- * ## Format
- *
- * Every integer is unsigned and little-endian. The stream begins with this
- * fixed ten-byte envelope:
- *
- * @code{.unparsed}
- * byte  0               8       10
- *       +---------------+--------+
- *       | "GHOSTSNP"    | version|
- *       | 8-byte magic  | u16    |
- *       +---------------+--------+
- * @endcode
- *
- * The envelope is followed by independently checksummed records. A record's
- * CRC32C covers its encoded tag and payload length followed by its payload; it
- * does not cover the CRC field itself.
- *
- * @code{.unparsed}
- * byte  0       2             6          10             10 + payload_len
- *       +-------+-------------+-----------+----------------+
- *       | tag   | payload_len | CRC32C    | payload        |
- *       | u16   | u32         | u32       | payload_len B  |
- *       +-------+-------------+-----------+----------------+
- *       \____________________/             \______________/
- *          CRC prefix                         CRC suffix
- * @endcode
- *
- * Record groups occur in this strict order. SCREEN and HISTORY groups contain
- * one entry for each screen declared by TERMINAL. Each manifest is followed
- * by the number of PAGE records it declares. Active SCREEN pages make the
- * terminal renderable; HISTORY pages are older scrollback ordered newest to
- * oldest so an incremental decoder can prepend them as they arrive.
- *
- * @code{.unparsed}
- * +---------------- TERMINAL ----------------+
- * | terminal-wide state and screen count     |
- * +----------------- SCREEN -----------------+  repeated per screen
- * | active-screen manifest                   |
- * +------------------ PAGE ------------------+  repeated per manifest
- * | active screen rows                       |
- * +---------- KITTY_IMAGE_STORAGE -----------+  optional, per screen
- * | images, placements, in-progress load     |
- * +------------- CONTINUATION ---------------+
- * | unfinished VT/UTF-8 input, or ground     |
- * +------------------ READY -----------------+
- * | empty renderable-state marker            |  ready() returns here
- * +---------- KITTY_IMAGE_PAYLOAD -----------+  optional, anywhere until FINISH,
- * | one image's or frame's pixels            |  next() consumes one
- * +----------------- HISTORY ----------------+  repeated per screen
- * | scrollback manifest                      |
- * +------------------ PAGE ------------------+  next() consumes one page
- * | older screen rows                        |
- * +------ KITTY_IMAGE_PAGE_PLACEMENTS -------+  optional, after a PAGE
- * | placements pinned to that page           |
- * +------------------ FINISH ----------------+
- * | empty end-of-snapshot marker              |  next() returns NO_VALUE
- * +------------------------------------------+
- * | trailing transport bytes (not consumed) |
- * +------------------------------------------+
- * @endcode
- *
- * READY separates the renderable prefix through CONTINUATION from history.
- * FINISH terminates the record sequence. Both are empty records protected by
- * CRC32C, like every other record. Declared record counts, tags, and strict
- * decoding enforce the stream's ordering and completeness.
- *
- * A decoder skips any record whose tag it does not know, wherever it
- * appears. This lets a newer library add optional kinds of records that
- * older libraries ignore, without changing the snapshot version. Skipped
- * records are still checked, so a damaged record fails decoding even when
- * its tag is unknown.
- *
- * The Kitty graphics records are optional in this way. A library built
- * without Kitty graphics skips them and restores the same terminal without
- * its images, and a terminal without images writes none of them.
- *
- * Images are restored at READY with their pixels pending, and the pixels
- * arrive later through ghostty_snapshot_decoder_next(). A pending image can
- * be placed and queried, but GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns
- * GHOSTTY_NO_VALUE for it until its pixels arrive. When they do, the
- * image keeps its GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION, but
- * GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes, so a renderer that
- * watches that value picks up the new pixels on its next frame.
- *
- * Snapshot format version 1 is a work in progress and does not yet carry a
- * binary-compatibility guarantee.
- *
- * @see <a href="https://github.com/ghostty-org/ghostty/blob/main/src/terminal/snapshot/main.zig">Snapshot format and Zig codec documentation</a>
+ * The @ref guide-snapshots "Snapshots guide" covers encoding, restoring in one
+ * call or in pieces, and the format.
  *
  * @{
  */
@@ -492,7 +391,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Encode a complete terminal snapshot to a writer.
  *
  * The terminal's persistent VT stream supplies the continuation bytes needed
- * to reconstruct unfinished parser state. The caller must prevent concurrent
+ * to reconstruct unfinished parser state. You must prevent concurrent
  * writes or other terminal mutation for the duration of this call. The writer
  * callback must not call terminal APIs with the same terminal handle.
  * A terminal can be encoded with tracking disabled when its VT parser and
@@ -503,7 +402,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Encoding begins at the writer's current position. If an error occurs, the
  * writer may contain a partial snapshot without a valid FINISH marker.
  * Calls to the writer are synchronous; this function does not flush or make
- * the caller's destination durable.
+ * your destination durable.
  *
  * @param terminal Terminal to encode (must not be NULL)
  * @param writer Destination writer whose write callback must not be NULL
@@ -549,7 +448,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_encode_buf(
  * Encode a complete terminal snapshot to an allocated buffer.
  *
  * The returned buffer is allocated with allocator, or the default allocator
- * when allocator is NULL. The caller must release it with ghostty_free(),
+ * when allocator is NULL. You must release it with ghostty_free(),
  * passing the same allocator used here.
  *
  * A terminal can be encoded with tracking disabled when its VT parser and
@@ -623,7 +522,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_new_buf(
 /**
  * Free a snapshot decoder.
  *
- * This does not release the caller's ownership of a terminal returned by
+ * This does not release your ownership of a terminal returned by
  * ready or decode. Abandoning an incremental decode leaves that terminal
  * usable with whatever history had already been restored.
  *
@@ -687,7 +586,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_set(
  * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and before
  * writing any post-snapshot bytes, because later input may change it.
  *
- * The caller must keep the returned terminal alive until FINISH validates or
+ * You must keep the returned terminal alive until FINISH validates or
  * the decoder is freed. The decoder borrows this terminal handle while it
  * restores history; ghostty_snapshot_decoder_next() uses it automatically.
  *
@@ -761,7 +660,7 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_ready(
  * validated and progress reports zero rows. Image pixels work the same way:
  * if live input deleted the image, or sent a new image with the same ID, the
  * pixels are consumed and validated and progress reports zero bytes. The
- * decoder applies history and pixels to the caller-owned terminal produced
+ * decoder applies history and pixels to your terminal produced
  * by its READY operation.
  *
  * If GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY is true, the page is

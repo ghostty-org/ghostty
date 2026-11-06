@@ -35,25 +35,25 @@ typedef struct GhosttyKeyEncoderImpl *GhosttyKeyEncoder;
  */
 typedef uint8_t GhosttyKittyKeyFlags;
 
-/** Kitty keyboard protocol disabled (all flags off) */
+/** Kitty keyboard protocol disabled (all flags off). @ingroup key */
 #define GHOSTTY_KITTY_KEY_DISABLED 0
 
-/** Disambiguate escape codes */
+/** Disambiguate escape codes. @ingroup key */
 #define GHOSTTY_KITTY_KEY_DISAMBIGUATE (1 << 0)
 
-/** Report key press and release events */
+/** Report key press and release events. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_EVENTS (1 << 1)
 
-/** Report alternate key codes */
+/** Report alternate key codes. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_ALTERNATES (1 << 2)
 
-/** Report all key events including those normally handled by the terminal */
+/** Report all key events including those normally handled by the terminal. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_ALL (1 << 3)
 
-/** Report associated text with key events */
+/** Report associated text with key events. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_ASSOCIATED (1 << 4)
 
-/** All Kitty keyboard protocol flags enabled */
+/** All Kitty keyboard protocol flags enabled. @ingroup key */
 #define GHOSTTY_KITTY_KEY_ALL (GHOSTTY_KITTY_KEY_DISAMBIGUATE | GHOSTTY_KITTY_KEY_REPORT_EVENTS | GHOSTTY_KITTY_KEY_REPORT_ALTERNATES | GHOSTTY_KITTY_KEY_REPORT_ALL | GHOSTTY_KITTY_KEY_REPORT_ASSOCIATED)
 
 /**
@@ -200,8 +200,9 @@ GHOSTTY_API GhosttyResult ghostty_key_encoder_set(GhosttyKeyEncoder encoder, Gho
  *
  * Reads the terminal's current modes and flags and applies them to the
  * encoder's options. This sets cursor key application mode, keypad mode,
- * alt escape prefix, modifyOtherKeys state, and Kitty keyboard protocol
- * flags from the terminal state.
+ * backarrow key mode, ignore-keypad-with-numlock, alt escape prefix,
+ * modifyOtherKeys state, and Kitty keyboard protocol flags from the terminal
+ * state.
  *
  * Note that the `macos_option_as_alt` option cannot be determined from
  * terminal state and is reset to `GHOSTTY_OPTION_AS_ALT_FALSE` by this

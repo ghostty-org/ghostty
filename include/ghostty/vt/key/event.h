@@ -56,37 +56,45 @@ typedef enum GHOSTTY_ENUM_TYPED {
  */
 typedef uint16_t GhosttyMods;
 
-/** Shift key is pressed */
+/** Shift key is pressed. @ingroup key */
 #define GHOSTTY_MODS_SHIFT (1 << 0)
-/** Control key is pressed */
+/** Control key is pressed. @ingroup key */
 #define GHOSTTY_MODS_CTRL (1 << 1)
-/** Alt/Option key is pressed */
+/** Alt/Option key is pressed. @ingroup key */
 #define GHOSTTY_MODS_ALT (1 << 2)
-/** Super/Command/Windows key is pressed */
+/** Super/Command/Windows key is pressed. @ingroup key */
 #define GHOSTTY_MODS_SUPER (1 << 3)
-/** Caps Lock is active */
+/** Caps Lock is active. @ingroup key */
 #define GHOSTTY_MODS_CAPS_LOCK (1 << 4)
-/** Num Lock is active */
+/** Num Lock is active. @ingroup key */
 #define GHOSTTY_MODS_NUM_LOCK (1 << 5)
 
 /**
  * Right shift is pressed (0 = left, 1 = right).
  * Only meaningful when GHOSTTY_MODS_SHIFT is set.
+ *
+ * @ingroup key
  */
 #define GHOSTTY_MODS_SHIFT_SIDE (1 << 6)
 /**
  * Right ctrl is pressed (0 = left, 1 = right).
  * Only meaningful when GHOSTTY_MODS_CTRL is set.
+ *
+ * @ingroup key
  */
 #define GHOSTTY_MODS_CTRL_SIDE (1 << 7)
 /**
  * Right alt is pressed (0 = left, 1 = right).
  * Only meaningful when GHOSTTY_MODS_ALT is set.
+ *
+ * @ingroup key
  */
 #define GHOSTTY_MODS_ALT_SIDE (1 << 8)
 /**
  * Right super is pressed (0 = left, 1 = right).
  * Only meaningful when GHOSTTY_MODS_SUPER is set.
+ *
+ * @ingroup key
  */
 #define GHOSTTY_MODS_SUPER_SIDE (1 << 9)
 

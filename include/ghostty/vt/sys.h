@@ -13,29 +13,24 @@
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 
-/** @defgroup sys System Interface
+/** @addtogroup sys
  *
- * Runtime-swappable function pointers for operations that depend on
- * external implementations (e.g. image decoding).
+ * The system interface is a set of process-global function pointers for things
+ * the library can't do by itself, such as decoding a PNG.
  *
- * These are process-global settings that must be configured at startup
- * before any terminal functionality that depends on them is used.
- * ghostty_sys_set() is not thread-safe: call it before any other thread
- * uses the library, never while one does. Setting these enables various optional features of the terminal. For
- * example, setting a PNG decoder enables PNG image support in the Kitty
- * Graphics Protocol.
- *
- * Use ghostty_sys_set() with a `GhosttySysOption` to install or clear
- * an implementation. Passing NULL as the value clears the implementation
- * and disables the corresponding feature.
+ * Setting one enables the feature that depends on it. For example, setting a
+ * PNG decoder enables PNG image support in the Kitty Graphics Protocol. Set
+ * them at startup with ghostty_sys_set() and a `GhosttySysOption`. It is not
+ * thread-safe, so call it before any other thread uses the library, never while
+ * one does. Passing NULL clears an implementation and disables the feature.
  *
  * ## Example
  *
- * ### Defining a PNG decode callback
  * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-decode-png
  *
- * ### Installing the callback and sending a PNG image
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-main
+ * Full program: @ref c-vt-kitty-graphics/src/main.c
+ *
+ * See @ref guide-images-png for how to write a PNG decoder.
  *
  * @{
  */
@@ -92,7 +87,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Callback type for logging.
  *
  * When installed, internal library log messages are delivered through
- * this callback instead of being discarded. The embedder is responsible
+ * this callback instead of being discarded. You are responsible
  * for formatting and routing log output.
  *
  * @p scope is the log scope name as UTF-8 bytes (e.g. "osc", "kitty").

@@ -3,7 +3,7 @@
  *
  * Kitty graphics protocol 
  *
- * See @ref kitty_graphics for a full usage guide.
+ * See @ref guide-images for a full usage guide.
  */
 
 #ifndef GHOSTTY_VT_KITTY_GRAPHICS_H
@@ -19,213 +19,23 @@
 extern "C" {
 #endif
 
-/** @defgroup kitty_graphics Kitty Graphics
+/** @addtogroup kitty_graphics
  *
- * API for the images that programs send with the
+ * GhosttyKittyGraphics is a handle to the image storage of the active screen,
+ * where the terminal keeps every image a program sends with the
  * [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
  *
- * The terminal keeps every image a program sends, and every placement
- * of an image on screen, in an image storage. Each screen (main and
- * alternate) has its own. @ref GhosttyKittyGraphics is a handle to the
- * storage of the active screen. Use it to:
- *
- *   - Read the pixels of an image so you can draw it.
- *   - Play animated images.
- *   - Inspect the images and placements the storage holds.
- *
- * This API doesn't tell you where to draw images. The render state does
- * that. See "Drawing Images" below.
- *
- * ## Setting Up
- *
- * Kitty graphics are off until you give the terminal a storage limit
- * with @ref GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT. To accept PNG
- * images, also install a PNG decoder with ghostty_sys_set() and
- * @ref GHOSTTY_SYS_OPT_DECODE_PNG, as in this example:
- *
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-decode-png
- *
- * Get the storage handle with ghostty_terminal_get() and
- * @ref GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS. The handle is borrowed from
- * the terminal. It stays valid until the next call that changes the
- * terminal, such as ghostty_terminal_vt_write() or
- * ghostty_terminal_reset(), so get it again after each of those.
- *
- * ## Drawing Images
- *
- * Use the render state's image list to find what to draw. It lists
- * every Kitty image on screen, however the program placed it:
- *
- *   - At a cell, so the image scrolls with the text.
- *   - With placeholder cells (see "Unicode Placeholders" below).
- *   - Relative to another image.
- *
- * Each entry already has its position, size, source rectangle, layer
- * and z-index worked out, so one drawing routine handles all of them.
- * See "Images" in the @ref render documentation for the details.
- *
- * The storage only provides the pixels. Each entry in the list has an
- * image ID. Look it up with ghostty_kitty_graphics_image(), then read
- * the image's size, pixel format and pixels with
- * ghostty_kitty_graphics_image_get(). The pixels are always decoded and
- * uncompressed, so you can upload them as they are:
- *
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-draw
- *
- * Don't also draw images from this API's placement iterator. The render
- * state's list already includes those placements, so they would be
- * drawn twice. See "Inspecting the Storage" below for what the iterator
- * is for.
- *
- * ## Knowing What Changed
- *
- * Most frames don't change any image, so a renderer can skip most of
- * its image work. Two values tell you what to redo:
- *
- *   - @ref GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION belongs
- *     to the render state's whole list. It tells you when to read the
- *     list again, for example after an image moved because the text
- *     scrolled.
- *   - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION belongs to a single
- *     image. It tells you when to upload that image's pixels again. It changes
- *     when a program sends the image again and on every animation frame.
- *     The render state reports the same value for each entry as
- *     @ref GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION, so you can
- *     check your texture cache without touching the storage.
- *
- * Use the image generation as part of your texture cache key. Don't rely
- * on the image's size or data length instead: a program can send new
- * pixels with the same size under the same ID.
- *
- * Here is a frame loop that reads the list only when it changed:
- *
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-frame
- *
- * The storage also has a generation of its own,
- * @ref GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION. It changes whenever a
- * program sends, places or deletes an image, but not when images only
- * move on screen. It can't tell you when to read the render state's list
- * again. It is useful for work that only depends on what the storage
- * holds, such as freeing textures of images that were deleted.
- *
- * The two storage generations are never reused, not even across the
- * main and alternate screens, terminal resets, or different terminals.
- * That makes either one safe to use as a cache key on its own. The
- * render state's placements generation is different: only compare it
- * with the last value you read from the same render state.
- *
- * ## Animation
- *
- * The Kitty graphics protocol lets programs send images with several
- * frames and ask the terminal to play them, much like an animated GIF.
- * The terminal stores every frame, but it does not keep its own timer.
- * Your application drives playback by calling
- * ghostty_kitty_graphics_animation_tick().
- *
- * Each call shows whichever frame is due at the time you pass in. When
- * an image moves to a new frame, two things change:
- *
- * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS returns the pixels of the
- *   new frame.
- * - @ref GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION returns a new value.
- *
- * If you already cache textures by image generation (see "Knowing What
- * Changed" above), new frames appear without any extra work.
- *
- * The tick also tells you when the next frame is due. Use that time to
- * schedule a single redraw instead of calling the tick in a loop:
- *
- * 1. Call the tick each time you prepare a frame to draw, as long as
- *    the storage holds at least one image.
- * 2. If it returns GHOSTTY_SUCCESS, schedule one redraw at the returned
- *    time. Don't schedule it sooner than your shortest frame interval
- *    (for example 8 ms for a 120 Hz display).
- * 3. If it returns GHOSTTY_NO_VALUE, nothing is playing. Don't schedule
- *    anything.
- *
- * You never need to watch for animations starting. A program starts or
- * resumes playback by writing a command to the terminal, and that write
- * already gives you a reason to redraw. The tick on that redraw picks
- * up the animation. A terminal with no playing animations costs nothing
- * extra.
- *
- * Here is a helper that follows these steps. A renderer calls it once
- * per frame and uses the result to schedule the next redraw:
- *
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-animation-tick
- *
- * The example below plays a two-frame animation with that helper. It
- * uses a pretend clock so that it runs instantly:
- *
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-animation-play
- *
- * ## Unicode Placeholders
- *
- * A program can place an image with text instead of at a cell. It
- * creates a virtual placement, which has no position of its own, and
- * prints placeholder characters (U+10EEEE) where the image should
- * appear. The image then moves with those characters, like text.
- * Programs such as tmux use this so that images scroll, move and
- * disappear along with the text around them.
- *
- * Only the cells know where these images are, so the storage can't tell
- * you. The render state finds the placeholder cells and lists each part
- * of the image like any other entry, so you draw them the same way as
- * every other image. See "Kitty Graphics Placeholders" in the
- * @ref render documentation.
- *
- * ## Inspecting the Storage
- *
- * A @ref GhosttyKittyGraphicsPlacementIterator lists every placement in
- * the storage, including placements that are off screen and virtual
- * placements. Use it for tools such as debuggers or tests that need to
- * see what the storage holds. A renderer doesn't need it.
- *
- *   1. Create an iterator with ghostty_kitty_graphics_placement_iterator_new().
- *   2. Fill it from the storage with ghostty_kitty_graphics_get() and
- *      @ref GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR.
- *   3. Optionally limit it to one layer with
- *      ghostty_kitty_graphics_placement_iterator_set().
- *   4. Move to each placement with ghostty_kitty_graphics_placement_next()
- *      and read its values with ghostty_kitty_graphics_placement_get().
- *   5. Free the iterator with ghostty_kitty_graphics_placement_iterator_free().
- *
- * These functions work out the geometry of the iterator's current
- * placement from the storage:
- *
- *   - ghostty_kitty_graphics_placement_pixel_size(): the size to draw
- *     the image at, in pixels.
- *   - ghostty_kitty_graphics_placement_grid_size(): the number of
- *     columns and rows of cells it covers.
- *   - ghostty_kitty_graphics_placement_viewport_pos(): the top-left
- *     cell, relative to the viewport.
- *   - ghostty_kitty_graphics_placement_source_rect(): the part of the
- *     image to draw, in image pixels.
- *   - ghostty_kitty_graphics_placement_rect(): the cells it covers, as a
- *     @ref GhosttySelection.
- *   - ghostty_kitty_graphics_placement_render_info(): all of the above
- *     except the selection, in one call.
- *
- * They only know about placements at a cell, and placements relative to
- * one. They can't find virtual placements, or placements relative to a
- * virtual placement, because those depend on the cells. The render
- * state gives the same values for every entry in its list, so prefer it
- * whenever you are drawing.
- *
- * ## Lifetime and Thread Safety
- *
- * All handles borrowed from the terminal (GhosttyKittyGraphics,
- * GhosttyKittyGraphicsImage) become invalid after any call that changes
- * the terminal. The placement iterator belongs to you and must be freed,
- * but the values it returns are only valid until the terminal changes.
+ * Read it from a terminal with #GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS. Use it to
+ * read pixels, play animations, and inspect what the storage holds. It doesn't
+ * tell you where to draw. The render state does that.
  *
  * ## Example
  *
- * The following example creates a terminal, places one image at a cell
- * and another with placeholder cells, lists both from the render state,
- * and reads each image's pixels from the storage:
+ * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-animation-tick
  *
- * @snippet c-vt-kitty-graphics/src/main.c kitty-graphics-main
+ * Full program: @ref c-vt-kitty-graphics/src/main.c
+ *
+ * See @ref guide-images for how to set up, decode PNGs, and draw images.
  *
  * @{
  */
@@ -258,8 +68,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * moved on screen, because scrolling and resizing move them without
    * changing the storage. So this value can't tell you when to read the
    * render state's image list again. For that, use
-   * GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION. See "Knowing
-   * What Changed" in the @ref kitty_graphics documentation.
+   * GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION. See
+   * @ref guide-images-changes.
    *
    * A value is never reused, not even by another screen, after a reset,
    * or by another terminal. You can use it as a cache key on its own.
@@ -300,8 +110,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * A virtual placement appears wherever its placeholder cells are, so
    * the storage has no position for it. The render state's image list
    * positions it from its cells like any other placement, so a renderer
-   * doesn't need to check this. See "Unicode Placeholders" in the
-   * @ref kitty_graphics documentation.
+   * doesn't need to check this. See @ref guide-images-placeholders.
    *
    * Output type: bool *
    */
@@ -600,10 +409,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * This is for inspecting the storage. To draw, use the render state's
  * image list, which gives the same values for every image on screen.
- * See "Drawing Images" in the @ref kitty_graphics documentation.
+ * See @ref guide-images-drawing.
  *
  * This is a sized struct. Initialize it with GHOSTTY_INIT_SIZED() before
- * each call. See @ref sized_sec.
+ * each call. See @ref sized-structs.
  *
  * @code{.c}
  * GhosttyKittyGraphicsPlacementRenderInfo info =
@@ -645,6 +454,10 @@ typedef struct {
   /** The height of the part of the image to draw, in image pixels. */
   uint32_t source_height;
 } GhosttyKittyGraphicsPlacementRenderInfo;
+
+/** @name Storage
+ * @{
+ */
 
 /**
  * Get data from a kitty graphics storage instance.
@@ -691,7 +504,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  * The @ref GhosttyKittyGraphics handle itself stays valid.
  *
  * Call this once each time you prepare a frame to draw, not in a loop.
- * The "Animation" section of @ref kitty_graphics explains how to
+ * @ref guide-images-animation explains how to
  * schedule redraws with the returned time and includes an example.
  *
  * @param graphics The kitty graphics handle
@@ -710,6 +523,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_animation_tick(
     GhosttyKittyGraphics graphics,
     uint64_t now_ms,
     uint64_t* next_ms);
+
+/** @} */
+
+/** @name Images
+ * @{
+ */
 
 /**
  * Look up a Kitty graphics image by its image ID.
@@ -784,6 +603,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_image_get_multi(
     const GhosttyKittyGraphicsImageData* keys,
     void** values,
     size_t* out_written);
+
+/** @} */
+
+/** @name Placements
+ * @{
+ */
 
 /**
  * Create a new placement iterator instance.
@@ -910,6 +735,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_get_multi(
     void** values,
     size_t* out_written);
 
+/** @} */
+
+/** @name Placement Geometry
+ * @{
+ */
+
 /**
  * Compute the grid rectangle occupied by the current placement.
  *
@@ -994,7 +825,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_grid_size(
  * image list instead. It positions every image on screen, including
  * virtual placements and placements relative to them, and covers
  * overscan rows. If you draw from both, images are drawn twice. See
- * "Drawing Images" in the @ref kitty_graphics documentation.
+ * @ref guide-images-drawing.
  *
  * The row is negative when the top of the placement scrolled above the
  * viewport. For example, an image 4 rows tall that scrolled up by 2
@@ -1061,8 +892,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_source_rect(
  * This is for inspecting the storage. To draw, use the render state's
  * image list instead. It gives the same values for every image on
  * screen, including virtual placements and placements relative to them.
- * If you draw from both, images are drawn twice. See "Drawing Images"
- * in the @ref kitty_graphics documentation.
+ * If you draw from both, images are drawn twice. See
+ * @ref guide-images-drawing.
  *
  * The call succeeds even when the placement isn't in the viewport.
  * Check `viewport_visible` before using `viewport_col` and
@@ -1085,6 +916,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_render_info(
     GhosttyKittyGraphicsImage image,
     GhosttyTerminal terminal,
     GhosttyKittyGraphicsPlacementRenderInfo* out_info);
+
+/** @} */
 
 /** @} */
 
