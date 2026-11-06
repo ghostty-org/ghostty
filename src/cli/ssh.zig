@@ -557,11 +557,11 @@ fn installRemoteTerminfo(
     // is suppressed unless --verbose.
     const remote_script = if (opts.verbose)
         \\command -v tic >/dev/null 2>&1 || exit 1
-        \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - && exit 0
+        \\tic -x -o ~/.terminfo - && infocmp -x xterm-ghostty >/dev/null && exit 0
         \\exit 1
     else
         \\command -v tic >/dev/null 2>&1 || exit 1
-        \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
+        \\tic -x -o ~/.terminfo - 2>/dev/null && infocmp -x xterm-ghostty >/dev/null 2>&1 && exit 0
         \\exit 1
     ;
 
