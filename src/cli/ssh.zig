@@ -294,12 +294,6 @@ fn runInner(
         };
         const dest = config.destination;
 
-        const stdin_tty = std.Io.File.stdin().isTty(global.io()) catch false;
-        if (!config.opensTerminal(connection_args.command, stdin_tty)) {
-            verbosePrint(opts, stderr, "no remote terminal; skipping terminfo install", .{});
-            break :session .{ .term = "xterm-256color" };
-        }
-
         const cache: ?DiskCache = if (opts.cache) cache: {
             const path = DiskCache.defaultPath(alloc, "ghostty") catch |err| {
                 warnPrint(stderr, "ghostty terminfo cache unavailable: {t}", .{err});
@@ -326,10 +320,16 @@ fn runInner(
                 verbosePrint(opts, stderr, "dest: {s} (cached, skipping install)", .{dest});
                 break :session .{ .term = "xterm-ghostty" };
             } else {
-                verbosePrint(opts, stderr, "dest: {s} (not cached, will install)", .{dest});
+                verbosePrint(opts, stderr, "dest: {s} (not cached)", .{dest});
             }
         } else {
-            verbosePrint(opts, stderr, "dest: {s} (cache disabled, will install)", .{dest});
+            verbosePrint(opts, stderr, "dest: {s} (cache disabled)", .{dest});
+        }
+
+        const stdin_tty = std.Io.File.stdin().isTty(global.io()) catch false;
+        if (!config.opensTerminal(connection_args.command, stdin_tty)) {
+            verbosePrint(opts, stderr, "no remote terminal; skipping terminfo install", .{});
+            break :session .{ .term = "xterm-256color" };
         }
 
         // With -n or StdinNull, the install connection can't read the
