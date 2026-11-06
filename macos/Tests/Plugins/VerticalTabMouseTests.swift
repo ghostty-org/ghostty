@@ -187,6 +187,8 @@ struct VerticalTabMouseTests {
         #expect(outline.selectedRowIndexes == IndexSet(integer: selectedRow))
     }
     @Test func mouseSelectionKeepsWorkingAcrossNativeWindows() async throws {
+        try #require(CGPreflightPostEventAccess(),
+                     "Desktop tab interaction requires permission to post mouse and keyboard events.")
         let app = try #require(NSApp.delegate as? AppDelegate)
         let settings = OhMyGhosttySettings.shared
         let previousGrouping = settings.groupingMode
