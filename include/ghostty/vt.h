@@ -52,22 +52,22 @@
  * - @ref terminal "Terminal" - Complete terminal emulator state and rendering
  * - @ref render "Render State" - Incremental render state updates for custom renderers
  * - @ref formatter "Formatter" - Format terminal content as plain text, VT sequences, or HTML
- * - @ref snapshot "Terminal Snapshot" - Encode and incrementally restore terminal state
+ * - @ref snapshot "Snapshots" - Encode and incrementally restore terminal state
  * - @ref search "Search" - Search terminal contents, including scrollback
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
  * - @ref paste "Paste" - Paste into a terminal, validate and encode paste data
- * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
+ * - @ref unicode "Unicode" - Codepoint properties for text layout
  * - @ref version "Version" - Check the version of the headers and the library
  * - @ref build_info "Build Info" - Query compile-time build configuration
- * - @ref allocator "Memory Management" - Memory management and custom allocators
- * - @ref io "Byte-stream I/O" - Reusable synchronous reader and writer callbacks
- * - @ref wasm "WebAssembly Utilities" - WebAssembly convenience functions
+ * - @ref allocator "Allocators" - Memory management and custom allocators
+ * - @ref io "Readers and Writers" - Reusable synchronous reader and writer callbacks
+ * - @ref wasm "WebAssembly" - WebAssembly convenience functions
  *
  * Encoding related APIs:
- * - @ref focus "Focus Encoding" - Encode focus in/out events into terminal sequences
- * - @ref key "Key Encoding" - Encode key events into terminal sequences
- * - @ref mouse "Mouse Encoding" - Encode mouse events into terminal sequences
+ * - @ref focus "Focus" - Encode focus in/out events into terminal sequences
+ * - @ref key "Keys" - Encode key events into terminal sequences
+ * - @ref mouse "Mouse" - Encode mouse events into terminal sequences
  *
  * @section keys_sec Reading and Writing Values by Key
  *

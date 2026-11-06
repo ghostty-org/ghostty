@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-/** @defgroup selection Selection
+/** @addtogroup selection
  *
  * A snapshot selection range defined by two grid references that identifies
  * a contiguous or rectangular region of terminal content.

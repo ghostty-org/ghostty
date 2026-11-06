@@ -8,7 +8,7 @@
 #ifndef GHOSTTY_VT_COLOR_SCHEME_H
 #define GHOSTTY_VT_COLOR_SCHEME_H
 
-/** @defgroup color_scheme Color Scheme Report Encoding
+/** @addtogroup color_scheme
  *
  * Utilities for encoding color scheme reports into terminal escape
  * sequences for color scheme reporting mode (mode 2031).

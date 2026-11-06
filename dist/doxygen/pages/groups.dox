@@ -1,0 +1,252 @@
+/*
+ * The table of contents for the API Reference.
+ *
+ * Doxygen orders groups by where each one is first defined, and this file
+ * comes first in the INPUT of the Doxyfile. So the order here is the order
+ * of the sidebar and of the topics page. Headers add to these groups with
+ * `@addtogroup`, which is where the text of each group lives.
+ *
+ * The id of a group is its URL, so don't change one.
+ */
+
+/**
+ * @defgroup api_terminal Terminal
+ * @brief The terminal itself.
+ *
+ * Start with @ref terminal. It holds the screen, scrollback, cursor and
+ * modes, and it's where you write VT data. @ref effects are the callbacks
+ * that answer what a program asks of the terminal.
+ */
+
+/**
+ * @defgroup terminal Terminal
+ * @ingroup api_terminal
+ * @brief Create a terminal, write VT data to it, and read its state.
+ */
+
+/**
+ * @defgroup effects Effects
+ * @ingroup api_terminal
+ * @brief Respond to what programs ask of the terminal, such as the bell,
+ * title changes, and queries.
+ */
+
+/**
+ * @defgroup modes Modes
+ * @ingroup api_terminal
+ * @brief Pack DEC and ANSI mode numbers and encode DECRPM reports.
+ */
+
+/**
+ * @defgroup snapshot Snapshots
+ * @ingroup api_terminal
+ * @brief Save a terminal's full state and restore it later.
+ */
+
+/**
+ * @defgroup api_screen Screen Contents
+ * @brief Read what is on the screen.
+ *
+ * A terminal's contents are a grid of cells. Find a cell with a @ref point
+ * "point" or a @ref grid_ref "grid reference", then read its text and
+ * @ref style "style". @ref selection, @ref search and @ref formatter work
+ * across many cells at once.
+ */
+
+/**
+ * @defgroup screen Cells and Rows
+ * @ingroup api_screen
+ * @brief Read the contents of grid cells and rows.
+ */
+
+/**
+ * @defgroup point Points
+ * @ingroup api_screen
+ * @brief Name a grid position in the active area, viewport, screen, or
+ * history.
+ */
+
+/**
+ * @defgroup grid_ref Grid References
+ * @ingroup api_screen
+ * @brief Point at a cell, read it, and keep track of it as the terminal
+ * scrolls.
+ */
+
+/**
+ * @defgroup style Style
+ * @ingroup api_screen
+ * @brief Read a cell's colors and text attributes.
+ */
+
+/**
+ * @defgroup selection Selection
+ * @ingroup api_screen
+ * @brief Select words, lines, and ranges, and turn pointer gestures into
+ * selections.
+ */
+
+/**
+ * @defgroup search Search
+ * @ingroup api_screen
+ * @brief Find a string in a terminal, including its scrollback.
+ */
+
+/**
+ * @defgroup formatter Formatter
+ * @ingroup api_screen
+ * @brief Turn terminal content into plain text, VT sequences, or HTML.
+ */
+
+/**
+ * @defgroup api_rendering Rendering
+ * @brief Draw a terminal.
+ *
+ * @ref render tells you what changed since the last frame and gives you the
+ * rows and cells to draw. @ref kitty_graphics tells you which images to draw
+ * and where.
+ */
+
+/**
+ * @defgroup render Render State
+ * @ingroup api_rendering
+ * @brief Find out what changed since the last frame and read the rows and
+ * cells to draw.
+ */
+
+/**
+ * @defgroup kitty_graphics Kitty Graphics
+ * @ingroup api_rendering
+ * @brief Read the images that programs send with the Kitty graphics
+ * protocol.
+ */
+
+/**
+ * @defgroup api_input Input
+ * @brief Turn user input into bytes for the pty.
+ *
+ * Keys, mouse events, focus changes and pastes all reach a program as bytes
+ * on the pty. These topics produce those bytes.
+ */
+
+/**
+ * @defgroup key Keys
+ * @ingroup api_input
+ * @brief Encode key events with the legacy encoding or the Kitty keyboard
+ * protocol.
+ */
+
+/**
+ * @defgroup mouse Mouse
+ * @ingroup api_input
+ * @brief Encode mouse events with the X10, UTF-8, SGR, URxvt, or SGR-Pixels
+ * protocols.
+ */
+
+/**
+ * @defgroup focus Focus
+ * @ingroup api_input
+ * @brief Encode focus gained and lost events, for mode 1004.
+ */
+
+/**
+ * @defgroup paste Paste
+ * @ingroup api_input
+ * @brief Paste into a terminal, and check paste data for unsafe content.
+ */
+
+/**
+ * @defgroup api_building_blocks Building Blocks
+ * @brief Parsers and encoders that work without a terminal.
+ *
+ * Each of these works on its own, with no GhosttyTerminal. Use them when you
+ * need one piece of terminal behavior and not a whole terminal.
+ */
+
+/**
+ * @defgroup osc OSC Parser
+ * @ingroup api_building_blocks
+ * @brief Parse OSC sequences into commands.
+ */
+
+/**
+ * @defgroup sgr SGR Parser
+ * @ingroup api_building_blocks
+ * @brief Parse SGR sequences into text attributes.
+ */
+
+/**
+ * @defgroup size_report Size Reports
+ * @ingroup api_building_blocks
+ * @brief Encode size reports, for mode 2048 and XTWINOPS queries.
+ */
+
+/**
+ * @defgroup color_scheme Color Scheme Reports
+ * @ingroup api_building_blocks
+ * @brief Encode the reply to a color scheme query (CSI ? 996 n).
+ */
+
+/**
+ * @defgroup color Colors
+ * @ingroup api_building_blocks
+ * @brief Parse colors, generate palettes, and look up X11 color names.
+ */
+
+/**
+ * @defgroup unicode Unicode
+ * @ingroup api_building_blocks
+ * @brief Measure codepoints and graphemes the way the terminal does.
+ */
+
+/**
+ * @defgroup api_library Library
+ * @brief Types and settings shared by every API.
+ *
+ * These apply across the library: the result codes and buffers that every
+ * function uses, what this build of the library contains, and how it reaches
+ * memory and the system.
+ */
+
+/**
+ * @defgroup core_types Core Types
+ * @ingroup api_library
+ * @brief The result codes, strings, and buffers that every API uses.
+ */
+
+/**
+ * @defgroup version Version
+ * @ingroup api_library
+ * @brief Check which version of libghostty-vt you are using.
+ */
+
+/**
+ * @defgroup build_info Build Info
+ * @ingroup api_library
+ * @brief Find out how this copy of the library was built and which features
+ * it has.
+ */
+
+/**
+ * @defgroup allocator Allocators
+ * @ingroup api_library
+ * @brief Run the library on your own memory allocator.
+ */
+
+/**
+ * @defgroup io Readers and Writers
+ * @ingroup api_library
+ * @brief Stream bytes in and out through your own callbacks.
+ */
+
+/**
+ * @defgroup sys System Interface
+ * @ingroup api_library
+ * @brief Plug in your own system functions, such as a PNG decoder.
+ */
+
+/**
+ * @defgroup wasm WebAssembly
+ * @ingroup api_library
+ * @brief Allocate memory and pass pointers from a WebAssembly host.
+ */

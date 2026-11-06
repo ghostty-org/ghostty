@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_PASTE_H
 #define GHOSTTY_VT_PASTE_H
 
-/** @defgroup paste Paste
+/** @addtogroup paste
  *
  * Pasting into a terminal, plus the terminal-free utilities for
  * validating and encoding paste data.

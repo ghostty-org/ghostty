@@ -13,7 +13,7 @@
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 
-/** @defgroup sys System Interface
+/** @addtogroup sys
  *
  * Runtime-swappable function pointers for operations that depend on
  * external implementations (e.g. image decoding).

@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_VERSION_H
 #define GHOSTTY_VT_VERSION_H
 
-/** @defgroup version Version
+/** @addtogroup version
  *
  * Check which version of libghostty-vt you are using.
  *

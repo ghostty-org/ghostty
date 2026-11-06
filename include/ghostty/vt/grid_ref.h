@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-/** @defgroup grid_ref Grid Reference
+/** @addtogroup grid_ref
  *
  * A grid reference is a reference to a specific cell position in the 
  * terminal. Obtain a grid reference from `ghostty_terminal_grid_ref`

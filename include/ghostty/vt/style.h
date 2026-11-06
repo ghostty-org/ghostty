@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-/** @defgroup style Style
+/** @addtogroup style
  *
  * Terminal cell style attributes.
  *

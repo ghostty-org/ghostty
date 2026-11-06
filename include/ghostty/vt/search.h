@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-/** @defgroup search Search
+/** @addtogroup search
  *
  * Search a terminal for a string, covering the active area and
  * scrollback of both the primary and alternate screens.

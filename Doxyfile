@@ -6,10 +6,15 @@ PROJECT_NAME           = "libghostty-vt"
 # overrides it with the real version by appending to this file on stdin.
 PROJECT_NUMBER         = tip
 PROJECT_LOGO           = images/gnome/64.png
-INPUT                  = include/ghostty
+# The group definitions come first because they set the order of the API
+# Reference. See dist/doxygen/pages/groups.dox.
+INPUT                  = dist/doxygen/pages \
+                         include/ghostty
 INPUT_ENCODING         = UTF-8
 RECURSIVE              = YES
-FILE_PATTERNS          = *.h
+FILE_PATTERNS          = *.h \
+                         *.dox \
+                         *.md
 EXAMPLE_PATH           = example
 EXAMPLE_RECURSIVE      = YES
 EXAMPLE_PATTERNS       = *

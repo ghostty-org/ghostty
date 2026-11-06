@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup io I/O
+/** @addtogroup io
  *
  * Synchronous callback interfaces used by APIs that consume or produce byte
  * streams. The callback and userdata pointers must remain valid for the full

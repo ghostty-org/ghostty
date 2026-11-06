@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup allocator Memory Management
+/** @addtogroup allocator
  *
  * Control how libghostty-vt allocates memory.
  *

@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_COLOR_H
 #define GHOSTTY_VT_COLOR_H
 
-/** @defgroup color Color Utilities
+/** @addtogroup color
  *
  * Color parsing, palette generation, color math, and X11 color name
  * utilities shared by libghostty-vt.

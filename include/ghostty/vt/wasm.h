@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup wasm WebAssembly Utilities
+/** @addtogroup wasm
  *
  * Convenience functions for working with the low-level C ABI in WebAssembly
  * builds.

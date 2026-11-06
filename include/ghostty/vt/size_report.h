@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_SIZE_REPORT_H
 #define GHOSTTY_VT_SIZE_REPORT_H
 
-/** @defgroup size_report Size Report Encoding
+/** @addtogroup size_report
  *
  * Utilities for encoding terminal size reports into escape sequences,
  * supporting in-band size reports (mode 2048) and XTWINOPS responses

@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_BUILD_INFO_H
 #define GHOSTTY_VT_BUILD_INFO_H
 
-/** @defgroup build_info Build Info
+/** @addtogroup build_info
  *
  * Query compile-time build configuration of libghostty-vt.
  *

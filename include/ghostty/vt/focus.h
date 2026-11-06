@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_FOCUS_H
 #define GHOSTTY_VT_FOCUS_H
 
-/** @defgroup focus Focus Encoding
+/** @addtogroup focus
  *
  * Utilities for encoding focus gained/lost events into terminal escape
  * sequences (CSI I / CSI O) for focus reporting mode (mode 1004).

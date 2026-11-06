@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-/** @defgroup terminal Terminal
+/** @addtogroup terminal
  *
  * Complete terminal emulator state and rendering.
  *
@@ -55,80 +55,11 @@ extern "C" {
  *
  * ## Effects
  *
- * By default, terminal sequence processing with the VT write functions only
- * processes sequences that directly affect terminal state and
- * ignores sequences that have side effect behavior or require responses.
- * These sequences include things like bell characters, title changes, device
- * attributes queries, and more. To handle these sequences, the embedder
- * must configure "effects."
+ * The terminal ignores sequences that have side effects or need a reply,
+ * such as the bell, title changes and device attribute queries, until you
+ * register callbacks for them. See @ref effects "Effects".
  *
- * Effects are callbacks that the terminal invokes in response to VT
- * sequences processed during VT writes. They let the embedding application
- * react to terminal-initiated events such as bell characters, title changes,
- * device status report responses, and more.
- *
- * Each effect is registered with ghostty_terminal_set() using the
- * corresponding `GhosttyTerminalOption` identifier. A `NULL` value
- * pointer clears the callback and disables the effect.
- *
- * A userdata pointer can be attached via `GHOSTTY_TERMINAL_OPT_USERDATA`
- * and is passed to every callback, allowing callers to route events
- * back to their own application state without global variables.
- * You cannot specify different userdata for different callbacks.
- *
- * All callbacks are invoked synchronously during VT writes. Callbacks
- * **must not** call ghostty_terminal_vt_write() or
- * ghostty_terminal_vt_write_until() on the same terminal
- * (no reentrancy).
- * And callbacks must be very careful to not block for too long or perform 
- * expensive operations, since they are blocking further IO processing.
- *
- * The available effects are:
- *
- * | Option                                  | Callback Type                     | Trigger                                   |
- * |-----------------------------------------|-----------------------------------|-------------------------------------------|
- * | `GHOSTTY_TERMINAL_OPT_WRITE_PTY`        | `GhosttyTerminalWritePtyFn`       | VT query and mode reports written back to the PTY |
- * | `GHOSTTY_TERMINAL_OPT_BELL`             | `GhosttyTerminalBellFn`           | BEL character (0x07)                      |
- * | `GHOSTTY_TERMINAL_OPT_TITLE_CHANGED`    | `GhosttyTerminalTitleChangedFn`   | Title change via OSC 0 / OSC 2            |
- * | `GHOSTTY_TERMINAL_OPT_PWD_CHANGED`      | `GhosttyTerminalPwdChangedFn`     | Pwd change via OSC 7 / OSC 9 / OSC 1337   |
- * | `GHOSTTY_TERMINAL_OPT_ENQUIRY`          | `GhosttyTerminalEnquiryFn`        | ENQ character (0x05)                      |
- * | `GHOSTTY_TERMINAL_OPT_XTVERSION`        | `GhosttyTerminalXtversionFn`      | XTVERSION query (CSI > q)                 |
- * | `GHOSTTY_TERMINAL_OPT_SIZE`             | `GhosttyTerminalSizeFn`           | XTWINOPS query (CSI 14/16/18/19 t) or mode 2048 enable |
- * | `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME`     | `GhosttyTerminalColorSchemeFn`    | Color scheme query (CSI ? 996 n)          |
- * | `GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES`| `GhosttyTerminalDeviceAttributesFn`| Device attributes query (CSI c / > c / = c)|
- * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE`  | `GhosttyTerminalClipboardWriteFn` | Clipboard write via OSC 52 / OSC 1337 / OSC 5522 |
- * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ`   | `GhosttyTerminalClipboardReadFn`  | Clipboard read via OSC 52 "?" / OSC 5522  |
- * | `GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION`| `GhosttyTerminalDesktopNotificationFn` | Desktop notification via OSC 9 / OSC 777 |
- * | `GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT`  | `GhosttyTerminalProgressReportFn` | Progress report via OSC 9;4               |
- * | `GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS`   | `GhosttyTerminalProgramStatusFn`  | Program status report via OSC 7501        |
- * | `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` | `GhosttyTerminalUnknownSequenceFn` | APC or OSC sequence that libghostty-vt does not implement (see Unsupported Sequences) |
- * | `GHOSTTY_TERMINAL_OPT_RENDER_HOLD`      | `GhosttyTerminalRenderHoldFn`     | Synchronized output (mode 2026) begins or ends |
- * | `GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT`  | `GhosttyTerminalSemanticPromptFn` | Shell reports a prompt or command step via OSC 133 |
- * | `GHOSTTY_TERMINAL_OPT_RESET`            | `GhosttyTerminalResetFn`          | Full reset (RIS, ESC c)                   |
- * | `GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW`    | `GhosttyTerminalResizeWindowFn`   | Window resize request (CSI 8 t)           |
- *
- * ### Defining a write_pty callback
- * @snippet c-vt-effects/src/main.c effects-write-pty
- *
- * ### Defining a bell callback
- * @snippet c-vt-effects/src/main.c effects-bell
- *
- * ### Defining a title_changed callback
- * @snippet c-vt-effects/src/main.c effects-title-changed
- *
- * ### Defining a clipboard_write callback
- * @snippet c-vt-effects/src/main.c effects-clipboard-write
- *
- * ### Defining a clipboard_read callback
- * @snippet c-vt-effects/src/main.c effects-clipboard-read
- *
- * ### Defining an unknown_sequence callback
- * @snippet c-vt-effects/src/main.c effects-unknown-sequence
- *
- * ### Registering effects and processing VT data
- * @snippet c-vt-effects/src/main.c effects-register
- *
- * ## Unsupported Sequences
+ * ## Unsupported Sequences {#terminal_unsupported_sequences}
  *
  * Programs sometimes send escape sequences that libghostty-vt does not
  * implement, such as a newer protocol or one specific to your application.
@@ -749,6 +680,86 @@ typedef struct {
   uint64_t alternate_image_bytes;
 } GhosttyTerminalMemoryUsage;
 
+/** @} */
+
+/** @addtogroup effects
+ *
+ * By default, terminal sequence processing with the VT write functions only
+ * processes sequences that directly affect terminal state and
+ * ignores sequences that have side effect behavior or require responses.
+ * These sequences include things like bell characters, title changes, device
+ * attributes queries, and more. To handle these sequences, the embedder
+ * must configure "effects."
+ *
+ * Effects are callbacks that the terminal invokes in response to VT
+ * sequences processed during VT writes. They let the embedding application
+ * react to terminal-initiated events such as bell characters, title changes,
+ * device status report responses, and more.
+ *
+ * Each effect is registered with ghostty_terminal_set() using the
+ * corresponding `GhosttyTerminalOption` identifier. A `NULL` value
+ * pointer clears the callback and disables the effect.
+ *
+ * A userdata pointer can be attached via `GHOSTTY_TERMINAL_OPT_USERDATA`
+ * and is passed to every callback, allowing callers to route events
+ * back to their own application state without global variables.
+ * You cannot specify different userdata for different callbacks.
+ *
+ * All callbacks are invoked synchronously during VT writes. Callbacks
+ * **must not** call ghostty_terminal_vt_write() or
+ * ghostty_terminal_vt_write_until() on the same terminal
+ * (no reentrancy).
+ * And callbacks must be very careful to not block for too long or perform
+ * expensive operations, since they are blocking further IO processing.
+ *
+ * The available effects are:
+ *
+ * | Option                                  | Callback Type                     | Trigger                                   |
+ * |-----------------------------------------|-----------------------------------|-------------------------------------------|
+ * | `GHOSTTY_TERMINAL_OPT_WRITE_PTY`        | `GhosttyTerminalWritePtyFn`       | VT query and mode reports written back to the PTY |
+ * | `GHOSTTY_TERMINAL_OPT_BELL`             | `GhosttyTerminalBellFn`           | BEL character (0x07)                      |
+ * | `GHOSTTY_TERMINAL_OPT_TITLE_CHANGED`    | `GhosttyTerminalTitleChangedFn`   | Title change via OSC 0 / OSC 2            |
+ * | `GHOSTTY_TERMINAL_OPT_PWD_CHANGED`      | `GhosttyTerminalPwdChangedFn`     | Pwd change via OSC 7 / OSC 9 / OSC 1337   |
+ * | `GHOSTTY_TERMINAL_OPT_ENQUIRY`          | `GhosttyTerminalEnquiryFn`        | ENQ character (0x05)                      |
+ * | `GHOSTTY_TERMINAL_OPT_XTVERSION`        | `GhosttyTerminalXtversionFn`      | XTVERSION query (CSI > q)                 |
+ * | `GHOSTTY_TERMINAL_OPT_SIZE`             | `GhosttyTerminalSizeFn`           | XTWINOPS query (CSI 14/16/18/19 t) or mode 2048 enable |
+ * | `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME`     | `GhosttyTerminalColorSchemeFn`    | Color scheme query (CSI ? 996 n)          |
+ * | `GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES`| `GhosttyTerminalDeviceAttributesFn`| Device attributes query (CSI c / > c / = c)|
+ * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE`  | `GhosttyTerminalClipboardWriteFn` | Clipboard write via OSC 52 / OSC 1337 / OSC 5522 |
+ * | `GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ`   | `GhosttyTerminalClipboardReadFn`  | Clipboard read via OSC 52 "?" / OSC 5522  |
+ * | `GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION`| `GhosttyTerminalDesktopNotificationFn` | Desktop notification via OSC 9 / OSC 777 |
+ * | `GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT`  | `GhosttyTerminalProgressReportFn` | Progress report via OSC 9;4               |
+ * | `GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS`   | `GhosttyTerminalProgramStatusFn`  | Program status report via OSC 7501        |
+ * | `GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE` | `GhosttyTerminalUnknownSequenceFn` | APC or OSC sequence that libghostty-vt does not implement (see @ref terminal_unsupported_sequences "Unsupported Sequences") |
+ * | `GHOSTTY_TERMINAL_OPT_RENDER_HOLD`      | `GhosttyTerminalRenderHoldFn`     | Synchronized output (mode 2026) begins or ends |
+ * | `GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT`  | `GhosttyTerminalSemanticPromptFn` | Shell reports a prompt or command step via OSC 133 |
+ * | `GHOSTTY_TERMINAL_OPT_RESET`            | `GhosttyTerminalResetFn`          | Full reset (RIS, ESC c)                   |
+ * | `GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW`    | `GhosttyTerminalResizeWindowFn`   | Window resize request (CSI 8 t)           |
+ *
+ * ## Defining a write_pty callback
+ * @snippet c-vt-effects/src/main.c effects-write-pty
+ *
+ * ## Defining a bell callback
+ * @snippet c-vt-effects/src/main.c effects-bell
+ *
+ * ## Defining a title_changed callback
+ * @snippet c-vt-effects/src/main.c effects-title-changed
+ *
+ * ## Defining a clipboard_write callback
+ * @snippet c-vt-effects/src/main.c effects-clipboard-write
+ *
+ * ## Defining a clipboard_read callback
+ * @snippet c-vt-effects/src/main.c effects-clipboard-read
+ *
+ * ## Defining an unknown_sequence callback
+ * @snippet c-vt-effects/src/main.c effects-unknown-sequence
+ *
+ * ## Registering effects and processing VT data
+ * @snippet c-vt-effects/src/main.c effects-register
+ *
+ * @{
+ */
+
 /**
  * Callback function type for bell.
  *
@@ -757,7 +768,7 @@ typedef struct {
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalBellFn)(GhosttyTerminal terminal,
                                       void* userdata);
@@ -769,7 +780,7 @@ typedef void (*GhosttyTerminalBellFn)(GhosttyTerminal terminal,
  * New kinds may be added in later versions. Callbacks should ignore any
  * tag they don't handle.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** Application Program Command (APC). */
@@ -787,7 +798,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * contains the bytes between the sequence introducer and terminator, may
  * contain arbitrary binary data, and is not null-terminated.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Whether content was shortened by the byte limit or allocation failure. */
@@ -813,7 +824,7 @@ typedef struct {
  * is GHOSTTY_OSC_TERMINATOR_BEL. See the Unsupported Sequences section of
  * the terminal documentation for a complete example.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /**
@@ -841,7 +852,7 @@ typedef struct {
 /**
  * Unsupported terminal sequence value.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef union {
   /** Application Program Command (APC). */
@@ -863,7 +874,7 @@ typedef union {
 /**
  * An unsupported terminal sequence.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   GhosttyTerminalUnknownSequenceTag tag;
@@ -898,7 +909,7 @@ typedef struct {
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param sequence Borrowed unsupported sequence
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalUnknownSequenceFn)(
     GhosttyTerminal terminal,
@@ -911,7 +922,7 @@ typedef void (*GhosttyTerminalUnknownSequenceFn)(
  * Protocol-specific destination identifiers are normalized to these values
  * before the clipboard write callback is invoked.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** The standard system clipboard. */
@@ -935,7 +946,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * This struct has a frozen layout and will not gain fields in future versions.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** MIME type of the representation. */
@@ -948,7 +959,7 @@ typedef struct {
 /**
  * Result of a clipboard write reply.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** The clipboard write completed successfully. */
@@ -988,7 +999,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * discard the reply. `remember` is ignored on any result other than
  * GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Size of this struct in bytes. */
@@ -1014,7 +1025,7 @@ typedef struct GhosttyClipboardWrite GhosttyClipboardWrite;
  * @param write The request being answered
  * @param reply The reply, borrowed only for the duration of this call
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyClipboardWriteReplyFn)(
     const GhosttyClipboardWrite* write,
@@ -1043,7 +1054,7 @@ typedef void (*GhosttyClipboardWriteReplyFn)(
  * libghostty-vt has more to report, it will add a new option with a new
  * struct, and this callback will keep receiving this struct unchanged.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 struct GhosttyClipboardWrite {
   /** Clipboard destination. */
@@ -1105,7 +1116,7 @@ struct GhosttyClipboardWrite {
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param write Borrowed atomic clipboard write request
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalClipboardWriteFn)(
     GhosttyTerminal terminal,
@@ -1115,7 +1126,7 @@ typedef void (*GhosttyTerminalClipboardWriteFn)(
 /**
  * Result of a clipboard read reply.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** The clipboard was read; the reply carries its contents. */
@@ -1155,7 +1166,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * single text value (OSC 52) use the first entry with a text MIME type
  * such as "text/plain".
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Size of this struct in bytes. */
@@ -1196,7 +1207,7 @@ typedef struct GhosttyClipboardRead GhosttyClipboardRead;
  * @param read The request being answered
  * @param reply The reply, borrowed only for the duration of this call
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyClipboardReadReplyFn)(
     const GhosttyClipboardRead* read,
@@ -1218,7 +1229,7 @@ typedef void (*GhosttyClipboardReadReplyFn)(
  * libghostty-vt has more to report, it will add a new option with a new
  * struct, and this callback will keep receiving this struct unchanged.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 struct GhosttyClipboardRead {
   /** Clipboard to read. */
@@ -1303,7 +1314,7 @@ struct GhosttyClipboardRead {
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param read Borrowed clipboard read request
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalClipboardReadFn)(
     GhosttyTerminal terminal,
@@ -1321,7 +1332,7 @@ typedef void (*GhosttyTerminalClipboardReadFn)(
  * libghostty-vt has more to report, it will add a new option with a new
  * struct, and this callback will keep receiving this struct unchanged.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Notification title, or an empty string when the protocol omits it. */
@@ -1340,7 +1351,7 @@ typedef struct {
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param notification Borrowed desktop notification request
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalDesktopNotificationFn)(
     GhosttyTerminal terminal,
@@ -1350,7 +1361,7 @@ typedef void (*GhosttyTerminalDesktopNotificationFn)(
 /**
  * State of a terminal progress report.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** Remove any visible progress indication. */
@@ -1378,7 +1389,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * it will add a new option with a new struct, and this callback will keep
  * receiving this struct unchanged.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Literal progress state reported by the running program. */
@@ -1397,7 +1408,7 @@ typedef struct {
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param report Borrowed progress report
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalProgressReportFn)(
     GhosttyTerminal terminal,
@@ -1409,7 +1420,7 @@ typedef void (*GhosttyTerminalProgressReportFn)(
  *
  * See GhosttyTerminalProgramStatus for an overview of the protocol.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** At rest, waiting for the user's next instruction. For example, an
@@ -1441,7 +1452,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * What a blocked program needs from the user, in a program status report
  * (OSC 7501).
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** The program didn't say, or the state isn't
@@ -1500,7 +1511,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * libghostty-vt has more to report, it will add a new option with a new
  * struct, and this callback will keep receiving this struct unchanged.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** What the program is doing. */
@@ -1621,7 +1632,7 @@ typedef struct {
  * @param report The report. It and its strings are only valid during the
  *               call.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalProgramStatusFn)(
     GhosttyTerminal terminal,
@@ -1634,7 +1645,7 @@ typedef void (*GhosttyTerminalProgramStatusFn)(
  * More kinds may be added in later versions, so ignore any kind you don't
  * handle.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** Never reported. This exists so that a zeroed value is not mistaken
@@ -1663,7 +1674,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * right side of the line, or a prompt at the start of each extra line
  * when a command spans several lines.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /** The main prompt shown before each command. This is used when the
@@ -1710,7 +1721,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * Neither exists yet.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Which step of the command this event reports. */
@@ -1766,7 +1777,7 @@ typedef struct {
  * @param event The event. It and its strings are only valid during the
  *              call.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalSemanticPromptFn)(
     GhosttyTerminal terminal,
@@ -1797,7 +1808,7 @@ typedef void (*GhosttyTerminalSemanticPromptFn)(
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalResetFn)(GhosttyTerminal terminal,
                                        void* userdata);
@@ -1809,7 +1820,7 @@ typedef void (*GhosttyTerminalResetFn)(GhosttyTerminal terminal,
  * New kinds may be added in later versions. Callbacks should ignore any
  * tag they don't handle.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
@@ -1823,7 +1834,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * A request to resize the window's text area to a size in rows and columns.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   /** Requested height in rows, or 0 to keep the current height. */
@@ -1836,7 +1847,7 @@ typedef struct {
 /**
  * Window resize request value.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef union {
   /** Size in rows and columns (GHOSTTY_TERMINAL_RESIZE_WINDOW_GRID). */
@@ -1849,7 +1860,7 @@ typedef union {
 /**
  * A request from the running program to resize the window.
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef struct {
   GhosttyTerminalResizeWindowTag tag;
@@ -1871,7 +1882,7 @@ typedef struct {
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param request Borrowed resize request
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalResizeWindowFn)(
     GhosttyTerminal terminal,
@@ -1895,7 +1906,7 @@ typedef void (*GhosttyTerminalResizeWindowFn)(
  * @param[out] out_scheme Pointer to store the current color scheme
  * @return true if the color scheme was filled, false to ignore the query
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef bool (*GhosttyTerminalColorSchemeFn)(GhosttyTerminal terminal,
                                              void* userdata,
@@ -1940,7 +1951,7 @@ typedef bool (*GhosttyTerminalColorSchemeFn)(GhosttyTerminal terminal,
  * @param[out] out_attrs Pointer to store the device attributes response
  * @return true if attributes were filled, false to ignore the query
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef bool (*GhosttyTerminalDeviceAttributesFn)(GhosttyTerminal terminal,
                                                    void* userdata,
@@ -1958,7 +1969,7 @@ typedef bool (*GhosttyTerminalDeviceAttributesFn)(GhosttyTerminal terminal,
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @return The response bytes to write back to the pty
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef GhosttyString (*GhosttyTerminalEnquiryFn)(GhosttyTerminal terminal,
                                                    void* userdata);
@@ -2000,7 +2011,7 @@ typedef GhosttyString (*GhosttyTerminalEnquiryFn)(GhosttyTerminal terminal,
  * @return true if size was filled, false to suppress the XTWINOPS response or
  * mode 2048 report
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef bool (*GhosttyTerminalSizeFn)(GhosttyTerminal terminal,
                                       void* userdata,
@@ -2016,7 +2027,7 @@ typedef bool (*GhosttyTerminalSizeFn)(GhosttyTerminal terminal,
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalTitleChangedFn)(GhosttyTerminal terminal,
                                               void* userdata);
@@ -2135,7 +2146,7 @@ typedef void (*GhosttyTerminalTitleChangedFn)(GhosttyTerminal terminal,
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @param held True when a hold begins, false when it ends
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalRenderHoldFn)(GhosttyTerminal terminal,
                                             void* userdata,
@@ -2161,7 +2172,7 @@ typedef void (*GhosttyTerminalRenderHoldFn)(GhosttyTerminal terminal,
  * @param terminal The terminal handle
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalPwdChangedFn)(GhosttyTerminal terminal,
                                             void* userdata);
@@ -2179,7 +2190,7 @@ typedef void (*GhosttyTerminalPwdChangedFn)(GhosttyTerminal terminal,
  * @param data Pointer to the response bytes
  * @param len Length of the response in bytes
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef void (*GhosttyTerminalWritePtyFn)(GhosttyTerminal terminal,
                                           void* userdata,
@@ -2198,10 +2209,17 @@ typedef void (*GhosttyTerminalWritePtyFn)(GhosttyTerminal terminal,
  * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
  * @return The version string to report
  *
- * @ingroup terminal
+ * @ingroup effects
  */
 typedef GhosttyString (*GhosttyTerminalXtversionFn)(GhosttyTerminal terminal,
                                                      void* userdata);
+
+/** @} */
+
+/** @addtogroup terminal
+ *
+ * @{
+ */
 
 /**
  * A terminal mode and boolean value used for mode configuration and queries.

@@ -13,7 +13,7 @@
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 
-/** @defgroup osc OSC Parser
+/** @addtogroup osc
  *
  * OSC (Operating System Command) sequence parser and command handling.
  *

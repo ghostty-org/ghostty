@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-/** @defgroup kitty_graphics Kitty Graphics
+/** @addtogroup kitty_graphics
  *
  * API for the images that programs send with the
  * [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).

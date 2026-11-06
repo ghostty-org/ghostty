@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @defgroup snapshot Terminal Snapshot
+/** @addtogroup snapshot
  *
  * Encode and restore the complete state of a terminal via a binary format.
  *

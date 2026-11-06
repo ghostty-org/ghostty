@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-/** @defgroup render Render State
+/** @addtogroup render
  *
  * Represents the state required to render a visible screen (a viewport)
  * of a terminal instance. This is stateful and optimized for repeated

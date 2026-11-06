@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_KEY_H
 #define GHOSTTY_VT_KEY_H
 
-/** @defgroup key Key Encoding
+/** @addtogroup key
  *
  * Utilities for encoding key events into terminal escape sequences,
  * supporting both legacy encoding as well as Kitty Keyboard Protocol.

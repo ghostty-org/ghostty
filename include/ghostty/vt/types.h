@@ -66,6 +66,8 @@
  * #define GHOSTTY_DEPRECATED(msg)
  * #include <ghostty/vt.h>
  * @endcode
+ *
+ * @ingroup core_types
  */
 #ifndef GHOSTTY_DEPRECATED
 #if defined(__GNUC__) || defined(__clang__)
@@ -110,6 +112,8 @@
  *     FOO_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
  * } Foo;
  * @endcode
+ *
+ * @ingroup core_types
  */
 #if defined(__cplusplus) && \
     (__cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1700))
@@ -133,6 +137,8 @@
  * that to support older versions of the library. Functions of an
  * optional feature that this build leaves out return it too. See
  * @ref features_sec.
+ *
+ * @ingroup core_types
  */
 typedef enum GHOSTTY_ENUM_TYPED {
     /** Operation completed successfully */
@@ -406,15 +412,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * The GHOSTTY_IMAGE_LAYER_MASK_* macros select layers in a filter such
  * as GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER. Combine them
  * with `|`.
+ *
+ * @ingroup render
  */
 #define GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND \
   (1u << GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND)
 
-/** Mask bit for GHOSTTY_IMAGE_LAYER_BELOW_TEXT. */
+/** Mask bit for GHOSTTY_IMAGE_LAYER_BELOW_TEXT. @ingroup render */
 #define GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT \
   (1u << GHOSTTY_IMAGE_LAYER_BELOW_TEXT)
 
-/** Mask bit for GHOSTTY_IMAGE_LAYER_ABOVE_TEXT. */
+/** Mask bit for GHOSTTY_IMAGE_LAYER_ABOVE_TEXT. @ingroup render */
 #define GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT \
   (1u << GHOSTTY_IMAGE_LAYER_ABOVE_TEXT)
 
@@ -425,6 +433,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * for the lifetime documented by the API that produces or consumes it.
  * Empty strings produced by the library have a non-NULL pointer to valid
  * storage.
+ *
+ * @ingroup core_types
  */
 typedef struct {
   /** Pointer to the string bytes. */
@@ -439,6 +449,8 @@ typedef struct {
  *
  * APIs that write to this type use `len` for the number of bytes written on
  * GHOSTTY_SUCCESS and the required byte capacity on GHOSTTY_OUT_OF_SPACE.
+ *
+ * @ingroup core_types
  */
 typedef struct {
   /** Destination buffer for bytes. May be NULL when cap is 0 to query required size. */
@@ -457,6 +469,8 @@ typedef struct {
  * This is not a terminal grid coordinate. It represents an x/y position in the
  * rendered surface coordinate space, with (0, 0) at the top-left of the
  * surface.
+ *
+ * @ingroup selection
  */
 typedef struct {
   /** X position in surface pixels. */
@@ -474,6 +488,8 @@ typedef struct {
  * consumes or produces it.
  *
  * APIs may document special handling for NULL + len 0, such as “use defaults”.
+ *
+ * @ingroup core_types
  */
 typedef struct {
   /** Pointer to Unicode scalar values. */
@@ -496,6 +512,8 @@ typedef struct {
  *
  * This struct has a frozen layout and will not gain fields in future
  * versions.
+ *
+ * @ingroup core_types
  */
 typedef struct {
   /** Where codepoints are written. May be NULL when cap is 0. */
@@ -526,6 +544,8 @@ typedef struct {
  *     GHOSTTY_INIT_SIZED(GhosttyTerminalSelectLineOptions);
  * opts.ref = ref;
  * @endcode
+ *
+ * @ingroup core_types
  */
 #ifdef __cplusplus
 #define GHOSTTY_INIT_SIZED(type)                                      \
@@ -558,6 +578,8 @@ typedef struct {
  *
  * @param ptr The struct to initialize, or NULL
  * @param size The size of the struct in bytes
+ *
+ * @ingroup core_types
  */
 GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
 
@@ -646,6 +668,8 @@ GHOSTTY_API void ghostty_sized_init(void* ptr, size_t size);
  * The returned pointer is valid for the lifetime of the process.
  *
  * @return Pointer to the null-terminated JSON string.
+ *
+ * @ingroup core_types
  */
 GHOSTTY_API const char *ghostty_type_json(void);
 

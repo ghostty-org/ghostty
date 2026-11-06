@@ -8,7 +8,7 @@
 #ifndef GHOSTTY_VT_UNICODE_H
 #define GHOSTTY_VT_UNICODE_H
 
-/** @defgroup unicode Unicode Utilities
+/** @addtogroup unicode
  *
  * Unicode codepoint properties matching the terminal's text layout
  * semantics.

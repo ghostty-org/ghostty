@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_MODES_H
 #define GHOSTTY_VT_MODES_H
 
-/** @defgroup modes Mode Utilities
+/** @addtogroup modes
  *
  * Utilities for working with terminal modes. A mode is a compact
  * 16-bit representation of a terminal mode identifier that encodes both

@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-/** @defgroup screen Screen
+/** @addtogroup screen
  *
  * Terminal screen cell and row types.
  *

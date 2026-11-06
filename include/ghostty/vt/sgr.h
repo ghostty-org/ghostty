@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_SGR_H
 #define GHOSTTY_VT_SGR_H
 
-/** @defgroup sgr SGR Parser
+/** @addtogroup sgr
  *
  * SGR (Select Graphic Rendition) attribute parser.
  *

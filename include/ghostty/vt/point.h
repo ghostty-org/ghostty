@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-/** @defgroup point Point
+/** @addtogroup point
  *
  * Types for referencing x/y positions in the terminal grid under
  * different coordinate systems (active area, viewport, full screen,

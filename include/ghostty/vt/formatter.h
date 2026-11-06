@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @defgroup formatter Formatter
+/** @addtogroup formatter
  *
  * Format terminal content as plain text, VT sequences, or HTML.
  *

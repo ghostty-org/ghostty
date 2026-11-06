@@ -7,7 +7,7 @@
 #ifndef GHOSTTY_VT_MOUSE_H
 #define GHOSTTY_VT_MOUSE_H
 
-/** @defgroup mouse Mouse Support
+/** @addtogroup mouse
  *
  * Utilities for encoding mouse events into terminal escape sequences,
  * supporting X10, UTF-8, SGR, URxvt, and SGR-Pixels mouse protocols.
