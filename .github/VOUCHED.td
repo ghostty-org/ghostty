@@ -372,6 +372,7 @@ silveirapf
 simonbcn
 slowdub
 slsrepo
+sm010422
 stepankandrushin
 steven-tk
 sunshine-syz
