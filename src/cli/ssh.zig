@@ -462,6 +462,44 @@ fn checkExit(term: std.process.Child.Term, label: []const u8) error{ChildFailed}
     }
 }
 
+/// ssh options that take a value: the `x:` letters in the getopt() string
+/// in OpenSSH's ssh.c, as of OpenSSH 10.5.
+const ssh_value_options = "BbcDEeFIiJLlmOoPpQRSWw";
+
+/// Return the leading `args` that define the connection, without the
+/// remote command, if any. This follows ssh's own parsing: options can
+/// appear before and after the destination, and the command starts at the
+/// next non-option argument or after `--`.
+fn connectionArgs(args: []const []const u8) []const []const u8 {
+    var found_dest = false;
+    var skip_value = false;
+    for (args, 0..) |arg, i| {
+        if (skip_value) {
+            skip_value = false;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--")) {
+            // Drop a `--` after the destination so options can follow.
+            return if (found_dest) args[0..i] else args[0..@min(i + 2, args.len)];
+        }
+        if (arg.len < 2 or arg[0] != '-') {
+            if (found_dest) return args[0..i];
+            found_dest = true;
+            continue;
+        }
+
+        // In a cluster like `-vp22` or `-vp 22`, the first option that
+        // takes a value consumes the rest of the arg, or else the next one.
+        for (arg[1..], 2..) |c, end| {
+            if (std.mem.indexOfScalar(u8, ssh_value_options, c) != null) {
+                skip_value = end == arg.len;
+                break;
+            }
+        }
+    }
+    return args;
+}
+
 /// Run `ssh -G <args>` and parse the output for `user` and `hostname`.
 /// Returns the resolved `user@hostname`, or null if the destination
 /// could not be resolved.
@@ -567,6 +605,9 @@ fn installRemoteTerminfo(
     //   - ControlMaster=yes makes our client also act as the master.
     //   - ControlPersist=no tears the master down when our client
     //     exits; no socket lingers on the remote side.
+    //
+    // -T follows the user's args to override any -t: a remote tty never
+    // passes on the end of stdin, so tic would wait forever under -tt.
     const argv = try std.mem.concat(alloc, []const u8, &.{
         &.{opts.ssh},
         &.{
@@ -574,8 +615,8 @@ fn installRemoteTerminfo(
             "-o", "ControlPersist=no",
             "-o", control_path_opt,
         },
-        opts._ssh_args.items,
-        &.{remote_script},
+        connectionArgs(opts._ssh_args.items),
+        &.{ "-T", remote_script },
     });
     verbosePrint(opts, stderr, "exec: {f}", .{Joined{ .items = argv }});
 
@@ -669,6 +710,28 @@ test "parseManuallyHook: explicit -- separator" {
     try testing.expectEqual(@as(usize, 2), opts._ssh_args.items.len);
     try testing.expectEqualStrings("--some-rare-ssh-arg", opts._ssh_args.items[0]);
     try testing.expectEqualStrings("user@example.com", opts._ssh_args.items[1]);
+}
+
+test "connectionArgs" {
+    const testing = std.testing;
+    const cases = [_]struct { args: []const []const u8, len: usize }{
+        .{ .args = &.{}, .len = 0 },
+        .{ .args = &.{"host"}, .len = 1 },
+        .{ .args = &.{ "host", "ls", "-la" }, .len = 1 },
+        .{ .args = &.{ "-p", "2222", "host", "vim" }, .len = 3 },
+        .{ .args = &.{ "host", "-p", "2222", "vim" }, .len = 3 },
+        .{ .args = &.{ "host", "-t", "vim", "-p", "2222" }, .len = 2 },
+        .{ .args = &.{ "-vp2222", "host", "ls" }, .len = 2 },
+        .{ .args = &.{ "-vp", "2222", "host", "ls" }, .len = 3 },
+        .{ .args = &.{ "-o", "User=bob", "host", "ls" }, .len = 3 },
+        .{ .args = &.{ "--", "host", "-p", "2222" }, .len = 2 },
+        .{ .args = &.{ "host", "--", "-p", "2222" }, .len = 1 },
+        .{ .args = &.{"--"}, .len = 1 },
+        .{ .args = &.{"-p"}, .len = 1 },
+    };
+    for (cases) |case| {
+        try testing.expectEqual(case.len, connectionArgs(case.args).len);
+    }
 }
 
 test "parseDestination: typical ssh -G output" {
