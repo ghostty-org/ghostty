@@ -6043,3 +6043,30 @@ test "placements_generation: changes on a region scroll that moves a fixed place
     try testing.expectEqual(2, (try testOnlyPlacement(&state)).y);
     try testing.expect(generation != state.imagePlacementsGeneration());
 }
+
+test "render update retries rows after OOM" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{ .cols = 2, .rows = 1 });
+    defer t.deinit(alloc);
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+    stream.nextSlice("x");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+    state.clean();
+    stream.nextSlice("e\xcc\x81");
+
+    // The next render-state allocation is the grapheme copy.
+    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    try testing.expectError(error.OutOfMemory, state.update(failing.allocator(), &t));
+    try state.update(alloc, &t);
+
+    const cells = state.row_data.items(.cells)[0].slice();
+    try testing.expectEqualSlices(u21, &.{0x301}, cells.items(.grapheme)[1]);
+}
