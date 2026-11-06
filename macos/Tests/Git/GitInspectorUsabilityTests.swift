@@ -88,7 +88,7 @@ struct GitInspectorUsabilityTests {
         identity.pasteboard = board
         InspectorCopyMenu.copy("unchanged", to: board)
         identity.performClick(nil)
-        #expect(identity.isValueSelected && board.string(forType: .string) == "unchanged")
+        #expect(identity.isValueSelected && board.string(forType: .string) == commit.authorEmail)
         #expect(EditorCommandRouter.shared.handle(try key("c", in: host)))
         #expect(board.string(forType: .string) == commit.authorEmail)
         #expect(identity.isCopied)
@@ -122,7 +122,7 @@ struct GitInspectorUsabilityTests {
             let frame = button.frame
             InspectorCopyMenu.copy("unchanged", to: board)
             button.activate(clickCount: 1)
-            #expect(button.isValueSelected && board.string(forType: .string) == "unchanged")
+            #expect(button.isValueSelected && board.string(forType: .string) == value)
             #expect(buttons.filter(\.isValueSelected).count == 1)
             #expect(EditorCommandRouter.shared.handle(try key("c", in: host)))
             #expect(board.string(forType: .string) == value)

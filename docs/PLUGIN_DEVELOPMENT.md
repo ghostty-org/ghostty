@@ -2702,11 +2702,11 @@ untracked working-tree files are represented as additions.
 History keeps the subject first, followed by two secondary metadata lines:
 Author and Email, then Time and Short SHA, separated by whitespace rather
 than dot labels. Clicking a metadata field selects and highlights its complete
-value without changing the clipboard; Command-C copies that selected field
-(including the full SHA behind a short hash). Only one field owns keyboard focus,
-and changing focus clears its selection highlight. Copy feedback shows the
-shared confirmation and then restores the original text. Double-clicking a
-summary, including metadata and blank space,
+value by copying it immediately (including the full SHA behind a short hash).
+The field keeps keyboard focus, so Command-C still copies it, and only one field
+owns focus at a time. Copy feedback shows the shared confirmation in place and
+then restores the original text. Double-clicking a summary, including metadata
+and blank space,
 toggles the commit without copying or waiting on a single-click timer.
 The trailing 7-point chevron remains available; the graph gutter is topology only.
 Subjects and bodies use row selection/whole-value copying without word selection.
@@ -2716,8 +2716,9 @@ They occupy one 17-point row, cap each name at 104 points, and aggregate local
 branches, remote branches and tags separately when needed. Clicking a badge
 opens References. That popover separates HEAD, Branches, Remote Branches and
 Tags; branches use slash-delimited folders while leaves retain exact ref names.
-Clicking a ref leaf copies its full name with light feedback. Folder clicks do
-not copy; folder double-clicks toggle expansion. Keyboard/context-menu copying
+Clicking a ref leaf copies its full name and shows the shared inline
+confirmation on that row. Folder clicks do not copy; folder double-clicks toggle
+expansion. Keyboard/context-menu copying
 and the selectable full-name footer remain available. No permanent
 copy-icon column or expanded inline ref list is added to the timeline.
 

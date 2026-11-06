@@ -81,6 +81,8 @@ struct GitCollectionView: NSViewRepresentable {
     var favoriteBranchIDs: Set<String> = []
     var favoritesOnly = false
     var toggleBranchFavorite: ((String) -> Void)?
+    /// Row showing the shared copy confirmation after a click-to-copy.
+    var copiedRowID: String?
     var pasteboard = NSPasteboard.general
     var referenceAction: (GitRefDecoration) -> Void = { InspectorCopyMenu.copy($0.name) }
     var controller: GitCollectionController?
@@ -207,7 +209,8 @@ struct GitCollectionView: NSViewRepresentable {
                     }
                 }
             }
-            if old?.effectiveColors != value.effectiveColors || old?.favoriteBranchIDs != value.favoriteBranchIDs {
+            if old?.effectiveColors != value.effectiveColors || old?.favoriteBranchIDs != value.favoriteBranchIDs ||
+                old?.copiedRowID != value.copiedRowID {
                 table.enumerateAvailableRowViews { view, index in
                     (view as? GitCollectionRowView)?.colors = value.effectiveColors
                     if self.rows.indices.contains(index), let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? GitCollectionCell {
@@ -369,7 +372,8 @@ struct GitCollectionView: NSViewRepresentable {
                            stage: { [weak self] in self?.toggleStage(rowID: row.id) },
                            favorite: input?.toggleBranchFavorite.map { toggle in
                                (isFavorite: input?.favoriteBranchIDs.contains(row.id) == true, toggle: { toggle(row.id) })
-                           })
+                           },
+                           copied: input?.copiedRowID == row.id)
             cell.favoriteButton.setRowHovered(table?.hoveredRowID == row.id)
         }
         func tableViewSelectionDidChange(_ notification: Notification) {

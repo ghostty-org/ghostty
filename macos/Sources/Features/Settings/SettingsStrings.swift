@@ -38,7 +38,7 @@ struct SettingsStrings: Equatable, Sendable {
     var selectedTitle: String { t("Selected", "已选中") }
     func copyTitle(_ label: String) -> String { t("Copy " + label.lowercased(), "复制" + label) }
     func selectionCopyHint(_ label: String, value: String) -> String {
-        t("Select " + label.lowercased() + " · ⌘C to copy · " + value, "选择" + label + " · ⌘C 复制 · " + value)
+        t("Click " + label.lowercased() + " to copy · " + value, "点击" + label + "复制 · " + value)
     }
 
     func t(_ en: String, _ zh: String) -> String {

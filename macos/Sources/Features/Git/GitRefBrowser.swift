@@ -26,7 +26,8 @@ struct GitRefBrowser: View {
     @Environment(\.gitCollectionColors) private var colors
     @State private var query = ""
     @ObservedObject private var settings = OhMyGhosttySettings.shared
-    @State private var copied: String?
+    @State private var copiedRowID: String?
+    @State private var copyFeedback = CopyFeedbackState()
     @State private var controller = GitCollectionController()
     @State private var favoritesRevision = 0
     @AppStorage("git.refs.viewMode") private var mode: GitCollectionMode = .tree
@@ -68,22 +69,20 @@ struct GitRefBrowser: View {
                     store.toggle(id)
                     favoritesRevision += 1
                 } },
+                copiedRowID: copiedRowID,
                 pasteboard: pasteboard,
                 referenceAction: { ref in
                     CopyFeedback.copy(ref.name, to: pasteboard)
-                    copied = ref.name
+                    copiedRowID = GitCollectionBuilder.referenceID(ref)
+                    copyFeedback.flash { isCopied in
+                        guard !isCopied else { return }
+                        copiedRowID = nil
+                    }
                 },
                 controller: externalController ?? controller, cancel: cancel, perform: { action in
                     if isPicker { close() }
                     perform(action)
                 })
-            if let copied {
-                HStack {
-                    Text(CopyFeedback.confirmationLabel()).font(.caption).foregroundStyle(.secondary)
-                    InspectorCopyText(text: copied)
-                }
-                    .padding(.horizontal, 10).frame(height: 20)
-            }
         }.environment(\.locale, Locale(identifier: SettingsStrings(language: settings.language).languageCode))
     }
     private func cancel() {

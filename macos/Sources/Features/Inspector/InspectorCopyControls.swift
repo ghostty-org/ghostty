@@ -116,7 +116,10 @@ final class InspectorMetadataText: NSButton {
     @objc private func selectValue(_ sender: Any?) { activate(clickCount: 1) }
     func activate(clickCount: Int) {
         if clickCount >= 2, let onDoubleClick { onDoubleClick(); return }
+        // Metadata values copy on a single click, matching the Agent History
+        // confirmation instead of requiring select-then-Command-C.
         window?.makeFirstResponder(self)
+        copy(nil)
     }
     @objc func copy(_ sender: Any?) {
         CopyFeedback.copy(value, to: pasteboard)

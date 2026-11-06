@@ -46,9 +46,18 @@ struct GitReferencePopoverNativeTests {
             if case .ref(let ref) = row.item.kind { return ref.name == "release/2026" }
             return false
         })
+        guard case .ref(let copiedRef) = coordinator.rows[row].item.kind else {
+            Issue.record("Expected a ref row")
+            return
+        }
         coordinator.activate(row: row)
         #expect(pasteboard.string(forType: .string) == "release/2026")
-        #expect(controller.copiedLabelForTesting.stringValue == GitL10n.text("Copied"))
+        #expect(controller.copiedRowIDForTesting == GitCollectionBuilder.referenceID(copiedRef))
+        let cell = try #require(table.view(atColumn: 0, row: row, makeIfNecessary: true) as? GitCollectionCell)
+        cell.layoutSubtreeIfNeeded()
+        #expect(find(NSTextField.self, in: cell).contains {
+            $0.stringValue == CopyFeedback.confirmationLabel()
+        })
         #expect(controller.control(controller.searchFieldForTesting, textView: NSTextView(),
                                    doCommandBy: NSSelectorFromString("cancelOperation:")))
         #expect(closed)

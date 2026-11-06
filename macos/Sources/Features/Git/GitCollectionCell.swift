@@ -45,7 +45,8 @@ final class GitCollectionCell: NSTableCellView {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(_ row: GitCollectionRow, colors: GitCollectionColors, toggle: @escaping () -> Void,
-                   stage: @escaping () -> Void, favorite: (isFavorite: Bool, toggle: () -> Void)? = nil) {
+                   stage: @escaping () -> Void, favorite: (isFavorite: Bool, toggle: () -> Void)? = nil,
+                   copied: Bool = false) {
         self.row = row
         self.toggle = toggle
         self.toggleFavorite = favorite?.toggle ?? {}
@@ -75,7 +76,7 @@ final class GitCollectionCell: NSTableCellView {
             favoriteButton.setAccessibilityIdentifier(item.id + "/favorite")
         }
         progress.setAnimating(false)
-        name.stringValue = item.title
+        name.stringValue = copied ? CopyFeedback.confirmationLabel() : item.title
         name.font = .systemFont(ofSize: 11, weight: item.isCategory ? .medium : .regular)
         name.textColor = item.isCategory ? colors.secondary : colors.text
         subtitle.stringValue = item.subtitle ?? ""

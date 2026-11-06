@@ -11,8 +11,8 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
     private let close: () -> Void
     private let searchField = GitCollectionSearchField.Field()
     private let modeControl = GitPopoverSegments()
-    private let copiedLabel = NSTextField(labelWithString: "")
     private let copyFeedback = CopyFeedbackState()
+    private var copiedRowID: String?
     private let collectionCoordinator = GitCollectionView.Coordinator()
     private let collectionController = GitCollectionController()
     private var query = ""
@@ -20,7 +20,7 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
         rawValue: UserDefaults.standard.string(forKey: "git.refs.viewMode") ?? ""
     ) ?? .tree
     var searchFieldForTesting: NSSearchField { searchField }
-    var copiedLabelForTesting: NSTextField { copiedLabel }
+    var copiedRowIDForTesting: String? { copiedRowID }
     var refsForTesting: [GitRefDecoration] { refs }
 
     init(refs: [GitRefDecoration], selected: GitRefDecoration?, state: GitCollectionState,
@@ -76,12 +76,8 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
         modeControl.onSelect = { [weak self] id in self?.selectMode(id) }
 
         let scroll = makeCollection().makeNativeView(coordinator: collectionCoordinator, colors: colors)
-        copiedLabel.stringValue = ""
-        copiedLabel.textColor = .secondaryLabelColor
-        copiedLabel.font = .systemFont(ofSize: 10)
-        copiedLabel.lineBreakMode = .byTruncatingMiddle
 
-        let stack = NSStackView(views: [searchRow, scroll, copiedLabel])
+        let stack = NSStackView(views: [searchRow, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -100,8 +96,6 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
             modeControl.heightAnchor.constraint(equalToConstant: 26),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 280),
-            copiedLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20),
-            copiedLabel.heightAnchor.constraint(equalToConstant: 14),
         ])
         view = root
         root.onThemeChange = { [weak self] theme in self?.applyTheme(theme) }
@@ -121,7 +115,6 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
         (searchField.currentEditor() as? NSTextView)?.textColor = colors.text
         searchField.needsDisplay = true
         modeControl.applyTheme(theme)
-        copiedLabel.textColor = theme.secondary
         collectionCoordinator.update(makeCollection())
     }
 
@@ -167,14 +160,17 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
             state: state,
             stateKey: "decoration-refs",
             selectedID: initialSelection.map(GitCollectionBuilder.referenceID),
+            copiedRowID: copiedRowID,
             pasteboard: pasteboard,
             referenceAction: { [weak self] ref in
                 guard let self else { return }
                 CopyFeedback.copy(ref.name, to: self.pasteboard)
+                self.copiedRowID = GitCollectionBuilder.referenceID(ref)
+                self.collectionCoordinator.update(self.makeCollection())
                 self.copyFeedback.flash { [weak self] isCopied in
-                    guard let self else { return }
-                    self.copiedLabel.stringValue = isCopied ? CopyFeedback.confirmationLabel() : ""
-                    if isCopied { CopyFeedback.animate(self.copiedLabel) }
+                    guard let self, !isCopied else { return }
+                    self.copiedRowID = nil
+                    self.collectionCoordinator.update(self.makeCollection())
                 }
             },
             controller: collectionController,
