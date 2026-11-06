@@ -45,7 +45,14 @@ final class InspectorMetadataText: NSButton {
     private let feedback = CopyFeedbackState()
     var onDoubleClick: (() -> Void)?
     var contextMenuProvider: (() -> NSMenu?)?
-    var naturalWidth: CGFloat { max(40, ceil((displayText as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10)]).width) + 4) }
+    /// Reserve room for the copy confirmation so it never truncates mid-word.
+    var naturalWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: 10)
+        return max(40, ceil(max(
+            (displayText as NSString).size(withAttributes: [.font: font]).width,
+            (CopyFeedback.confirmationLabel() as NSString).size(withAttributes: [.font: font]).width
+        )) + 4)
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -53,6 +60,7 @@ final class InspectorMetadataText: NSButton {
         alignment = .left
         imagePosition = .noImage
         cell?.lineBreakMode = .byTruncatingMiddle
+        focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 3
         target = self
