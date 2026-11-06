@@ -41,14 +41,14 @@
           "offset": 0,
           "size": 8,
           "type": "pointer",
-          "elem": "function",
+          "elem": "GhosttyAllocatorAllocFn",
           "const": true
         },
         "resize": {
           "offset": 8,
           "size": 8,
           "type": "pointer",
-          "elem": "function",
+          "elem": "GhosttyAllocatorResizeFn",
           "const": true,
           "nullable": true
         },
@@ -56,7 +56,7 @@
           "offset": 16,
           "size": 8,
           "type": "pointer",
-          "elem": "function",
+          "elem": "GhosttyAllocatorRemapFn",
           "const": true,
           "nullable": true
         },
@@ -64,7 +64,7 @@
           "offset": 24,
           "size": 8,
           "type": "pointer",
-          "elem": "function",
+          "elem": "GhosttyAllocatorFreeFn",
           "const": true
         },
         "reserved": {
@@ -4285,7 +4285,7 @@
         "CURSOR_VISIBLE": 7,
         "KITTY_KEYBOARD_FLAGS": 8,
         "SCROLLBAR": 9,
-        "CURSOR_STYLE": 10,
+        "CURSOR_SGR_STYLE": 10,
         "MOUSE_TRACKING": 11,
         "TITLE": 12,
         "PWD": 13,
@@ -4357,7 +4357,7 @@
           "direction": "out",
           "type": "GhosttyTerminalScrollbar"
         },
-        "CURSOR_STYLE": {
+        "CURSOR_SGR_STYLE": {
           "direction": "out",
           "type": "GhosttyStyle"
         },
@@ -5154,6 +5154,133 @@
       "kind": "opaque",
       "size": 8,
       "align": 8
+    },
+    "GhosttyAllocatorAllocFn": {
+      "kind": "callback",
+      "size": 8,
+      "align": 8,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "u64"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u64"
+        }
+      ],
+      "return": {
+        "type": "pointer",
+        "elem": "opaque",
+        "const": false,
+        "nullable": true
+      }
+    },
+    "GhosttyAllocatorFreeFn": {
+      "kind": "callback",
+      "size": 8,
+      "align": 8,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false
+        },
+        {
+          "type": "u64"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u64"
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyAllocatorRemapFn": {
+      "kind": "callback",
+      "size": 8,
+      "align": 8,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false
+        },
+        {
+          "type": "u64"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u64"
+        },
+        {
+          "type": "u64"
+        }
+      ],
+      "return": {
+        "type": "pointer",
+        "elem": "opaque",
+        "const": false,
+        "nullable": true
+      }
+    },
+    "GhosttyAllocatorResizeFn": {
+      "kind": "callback",
+      "size": 8,
+      "align": 8,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false
+        },
+        {
+          "type": "u64"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u64"
+        },
+        {
+          "type": "u64"
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
     },
     "GhosttyClipboardReadReplyFn": {
       "kind": "callback",

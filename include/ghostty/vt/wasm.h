@@ -22,6 +22,22 @@
  * and the `_opaque` functions for handles. They only add to the C API. They
  * don't change it.
  *
+ * ghostty_key_event_get_utf8() returns a GhosttyString by value. A Wasm
+ * function can't return a struct, so the export takes an extra first argument:
+ * a pointer to memory that receives the result.
+ *
+ * @code
+ * const out = exports.ghostty_wasm_alloc(8); // Pointer and length, 4 bytes each.
+ * exports.ghostty_key_event_get_utf8(out, event);
+ *
+ * const view = new DataView(memory.buffer);
+ * const ptr = view.getUint32(out, true);
+ * const len = view.getUint32(out + 4, true);
+ * const text = new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len));
+ *
+ * exports.ghostty_wasm_free(out, 8);
+ * @endcode
+ *
  * ## Example
  *
  * This creates a terminal, writes bytes, and safely handles memory growth. It's

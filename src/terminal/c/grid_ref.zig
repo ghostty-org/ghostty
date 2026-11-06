@@ -53,32 +53,36 @@ pub const CGridRef = extern struct {
 };
 
 pub fn grid_ref_cell(
-    ref: *const CGridRef,
+    ref_: ?*const CGridRef,
     out: ?*cell_c.CCell,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.grid_introspection)) return .unsupported;
+    const ref = ref_ orelse return .invalid_value;
     const p = ref.toPin() orelse return .invalid_value;
     if (out) |o| o.* = @bitCast(p.rowAndCell().cell.*);
     return .success;
 }
 
 pub fn grid_ref_row(
-    ref: *const CGridRef,
+    ref_: ?*const CGridRef,
     out: ?*row_c.CRow,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.grid_introspection)) return .unsupported;
+    const ref = ref_ orelse return .invalid_value;
     const p = ref.toPin() orelse return .invalid_value;
     if (out) |o| o.* = @bitCast(p.rowAndCell().row.*);
     return .success;
 }
 
 pub fn grid_ref_graphemes(
-    ref: *const CGridRef,
+    ref_: ?*const CGridRef,
     buf_: ?[*]u32,
     buf_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.grid_introspection)) return .unsupported;
+    const ref = ref_ orelse return .invalid_value;
+    const out_written = out_written_ orelse return .invalid_value;
     const p = ref.toPin() orelse return .invalid_value;
     const cell = p.rowAndCell().cell;
 
@@ -107,12 +111,14 @@ pub fn grid_ref_graphemes(
 }
 
 pub fn grid_ref_hyperlink_uri(
-    ref: *const CGridRef,
+    ref_: ?*const CGridRef,
     buf_: ?[*]u8,
     buf_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.grid_introspection)) return .unsupported;
+    const ref = ref_ orelse return .invalid_value;
+    const out_written = out_written_ orelse return .invalid_value;
     const p = ref.toPin() orelse return .invalid_value;
     const terminal_page = p.node.page();
     const rac = terminal_page.getRowAndCell(p.x, p.y);
@@ -144,10 +150,11 @@ pub fn grid_ref_hyperlink_uri(
 }
 
 pub fn grid_ref_style(
-    ref: *const CGridRef,
+    ref_: ?*const CGridRef,
     out: ?*style_c.Style,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.grid_introspection)) return .unsupported;
+    const ref = ref_ orelse return .invalid_value;
     const p = ref.toPin() orelse return .invalid_value;
     if (out) |o| {
         const cell = p.rowAndCell().cell;

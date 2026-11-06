@@ -228,8 +228,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param data The build info field to query
  * @param out Pointer to store the result (type depends on data parameter)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
- *         GHOSTTY_BUILD_INFO_INVALID, or GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library
+ *         GHOSTTY_BUILD_INFO_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup build_info
  */

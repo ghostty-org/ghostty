@@ -315,7 +315,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * ghostty_key_event_free() when no longer needed.
  * 
  * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
- * @param event Pointer to store the created key event handle
+ * @param event Pointer to store the created key event handle (NULL returns
+ *              GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  * 
  * @ingroup key

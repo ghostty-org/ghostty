@@ -265,12 +265,13 @@ pub const Colors = extern struct {
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *RenderState,
+    result_: ?*RenderState,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.render_state)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     result.* = new_(alloc_) catch |err| {
         result.* = null;
         return switch (err) {
@@ -432,7 +433,7 @@ fn getTyped(
         .color_background => out.* = state.state.colors.background.cval(),
         .color_foreground => out.* = state.state.colors.foreground.cval(),
         .color_cursor => {
-            const cursor = state.state.colors.cursor orelse return .invalid_value;
+            const cursor = state.state.colors.cursor orelse return .no_value;
             out.* = cursor.cval();
         },
         .color_cursor_has_value => out.* = state.state.colors.cursor != null,
@@ -443,15 +444,15 @@ fn getTyped(
         .cursor_password_input => out.* = state.state.cursor.password_input,
         .cursor_viewport_has_value => out.* = state.state.cursor.viewport != null,
         .cursor_viewport_x => {
-            const vp = state.state.cursor.viewport orelse return .invalid_value;
+            const vp = state.state.cursor.viewport orelse return .no_value;
             out.* = vp.x;
         },
         .cursor_viewport_y => {
-            const vp = state.state.cursor.viewport orelse return .invalid_value;
+            const vp = state.state.cursor.viewport orelse return .no_value;
             out.* = vp.y;
         },
         .cursor_viewport_wide_tail => {
-            const vp = state.state.cursor.viewport orelse return .invalid_value;
+            const vp = state.state.cursor.viewport orelse return .no_value;
             out.* = vp.wide_tail;
         },
         .cursor => return writeCursor(state, out),
@@ -564,12 +565,13 @@ fn writeColors(
 
 pub fn row_iterator_new(
     alloc_: ?*const CAllocator,
-    result: *RowIterator,
+    result_: ?*RowIterator,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.render_state)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(RowIteratorWrapper) catch {
         result.* = null;
@@ -642,12 +644,13 @@ pub fn row_iterator_next_dirty(
 
 pub fn row_cells_new(
     alloc_: ?*const CAllocator,
-    result: *RowCells,
+    result_: ?*RowCells,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.render_state)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(RowCellsWrapper) catch {
         result.* = null;
@@ -846,9 +849,9 @@ fn rowCellsGetTypedInner(
                 .codepoint_grapheme,
                 => {
                     // The default style has no background.
-                    if (!cell.hasStyling()) return .invalid_value;
+                    if (!cell.hasStyling()) return .no_value;
                     switch (cells.styles[x].bg_color.value()) {
-                        .none => return .invalid_value,
+                        .none => return .no_value,
                         .palette => |idx| out.* = cells.palette[idx].cval(),
                         .rgb => |rgb| out.* = rgb.cval(),
                     }
@@ -856,9 +859,9 @@ fn rowCellsGetTypedInner(
             }
         },
         .fg_color => {
-            if (!cell.hasStyling()) return .invalid_value;
+            if (!cell.hasStyling()) return .no_value;
             switch (cells.styles[x].fg_color.value()) {
-                .none => return .invalid_value,
+                .none => return .no_value,
                 .palette => |idx| out.* = cells.palette[idx].cval(),
                 .rgb => |rgb| out.* = rgb.cval(),
             }
@@ -1033,7 +1036,7 @@ inline fn rowGetDispatch(
             it,
             y,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -1178,12 +1181,13 @@ pub const ImageData = enum(c_int) {
 
 pub fn image_iterator_new(
     alloc_: ?*const CAllocator,
-    result: *ImageIterator,
+    result_: ?*ImageIterator,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.render_state)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(ImageIteratorWrapper) catch {
         result.* = null;
@@ -2527,6 +2531,27 @@ test "render: cursor data get size rule" {
     try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
 }
 
+test "render: absent cursor values return no_value" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(&lib.alloc.test_allocator, &terminal, 80, 24));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &state));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var rgb: colorpkg.RGB.C = undefined;
+    try testing.expectEqual(Result.no_value, get(state, .color_cursor, @ptrCast(&rgb)));
+
+    state.?.state.cursor.viewport = null;
+    var pos: size.CellCountInt = undefined;
+    var wide_tail: bool = undefined;
+    try testing.expectEqual(Result.no_value, get(state, .cursor_viewport_x, @ptrCast(&pos)));
+    try testing.expectEqual(Result.no_value, get(state, .cursor_viewport_y, @ptrCast(&pos)));
+    try testing.expectEqual(Result.no_value, get(state, .cursor_viewport_wide_tail, @ptrCast(&wide_tail)));
+}
+
 test "render: row cells bg_color no background" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
@@ -2571,7 +2596,7 @@ test "render: row cells bg_color no background" {
 
     // No background set, should return invalid_value.
     var bg: colorpkg.RGB.C = undefined;
-    try testing.expectEqual(Result.invalid_value, row_cells_get(cells, .bg_color, @ptrCast(&bg)));
+    try testing.expectEqual(Result.no_value, row_cells_get(cells, .bg_color, @ptrCast(&bg)));
 }
 
 test "render: row cells bg_color from style" {
@@ -2718,7 +2743,7 @@ test "render: row cells fg_color no foreground" {
 
     // No foreground set, should return invalid_value.
     var fg: colorpkg.RGB.C = undefined;
-    try testing.expectEqual(Result.invalid_value, row_cells_get(cells, .fg_color, @ptrCast(&fg)));
+    try testing.expectEqual(Result.no_value, row_cells_get(cells, .fg_color, @ptrCast(&fg)));
 }
 
 test "render: row cells fg_color from style" {

@@ -21,12 +21,24 @@ pub const ZigVTable = std.mem.Allocator.VTable;
 ///
 /// C: GhosttyAllocatorVtable
 pub const VTable = extern struct {
-    alloc: *const fn (?*anyopaque, len: usize, alignment: u8, ret_addr: usize) callconv(.c) ?[*]u8,
-    resize: ?*const fn (?*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) bool,
-    remap: ?*const fn (?*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) ?[*]u8,
-    free: *const fn (?*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, ret_addr: usize) callconv(.c) void,
+    alloc: AllocFn,
+    resize: ?ResizeFn,
+    remap: ?RemapFn,
+    free: FreeFn,
     reserved: [4]?*anyopaque = @splat(null),
 };
+
+/// C: GhosttyAllocatorAllocFn
+pub const AllocFn = *const fn (?*anyopaque, len: usize, alignment: u8, ret_addr: usize) callconv(.c) ?*anyopaque;
+
+/// C: GhosttyAllocatorResizeFn
+pub const ResizeFn = *const fn (?*anyopaque, memory: *anyopaque, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) bool;
+
+/// C: GhosttyAllocatorRemapFn
+pub const RemapFn = *const fn (?*anyopaque, memory: *anyopaque, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) ?*anyopaque;
+
+/// C: GhosttyAllocatorFreeFn
+pub const FreeFn = *const fn (?*anyopaque, memory: *anyopaque, memory_len: usize, alignment: u8, ret_addr: usize) callconv(.c) void;
 
 /// Returns the Zig allocator for a C API allocator argument. A null
 /// argument selects the platform default. In Debug builds this also
@@ -119,12 +131,12 @@ pub const Allocator = extern struct {
         ra: usize,
     ) ?[*]u8 {
         const self: *Allocator = @ptrCast(@alignCast(ctx));
-        return self.vtable.alloc(
+        return @ptrCast(self.vtable.alloc(
             self.ctx,
             len,
             @backingInt(alignment),
             ra,
-        );
+        ));
     }
 
     fn resize(
@@ -155,14 +167,14 @@ pub const Allocator = extern struct {
     ) ?[*]u8 {
         const self: *Allocator = @ptrCast(@alignCast(ctx));
         const func = self.vtable.remap orelse return null;
-        return func(
+        return @ptrCast(func(
             self.ctx,
             old_mem.ptr,
             old_mem.len,
             @backingInt(alignment),
             new_len,
             ra,
-        );
+        ));
     }
 
     fn free(
@@ -198,7 +210,7 @@ const ZigAllocator = struct {
         len: usize,
         alignment: u8,
         ra: usize,
-    ) callconv(.c) ?[*]u8 {
+    ) callconv(.c) ?*anyopaque {
         const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         return zig_alloc.vtable.alloc(
             zig_alloc.ptr,
@@ -210,7 +222,7 @@ const ZigAllocator = struct {
 
     fn resize(
         ctx: ?*anyopaque,
-        memory: [*]u8,
+        memory: *anyopaque,
         memory_len: usize,
         alignment: u8,
         new_len: usize,
@@ -219,7 +231,7 @@ const ZigAllocator = struct {
         const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         return zig_alloc.vtable.resize(
             zig_alloc.ptr,
-            memory[0..memory_len],
+            @as([*]u8, @ptrCast(memory))[0..memory_len],
             @fromBackingInt(@truncate(alignment)),
             new_len,
             ra,
@@ -228,16 +240,16 @@ const ZigAllocator = struct {
 
     fn remap(
         ctx: ?*anyopaque,
-        memory: [*]u8,
+        memory: *anyopaque,
         memory_len: usize,
         alignment: u8,
         new_len: usize,
         ra: usize,
-    ) callconv(.c) ?[*]u8 {
+    ) callconv(.c) ?*anyopaque {
         const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         return zig_alloc.vtable.remap(
             zig_alloc.ptr,
-            memory[0..memory_len],
+            @as([*]u8, @ptrCast(memory))[0..memory_len],
             @fromBackingInt(@truncate(alignment)),
             new_len,
             ra,
@@ -246,7 +258,7 @@ const ZigAllocator = struct {
 
     fn free(
         ctx: ?*anyopaque,
-        memory: [*]u8,
+        memory: *anyopaque,
         memory_len: usize,
         alignment: u8,
         ra: usize,
@@ -254,7 +266,7 @@ const ZigAllocator = struct {
         const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         return zig_alloc.vtable.free(
             zig_alloc.ptr,
-            memory[0..memory_len],
+            @as([*]u8, @ptrCast(memory))[0..memory_len],
             @fromBackingInt(@truncate(alignment)),
             ra,
         );
@@ -313,14 +325,14 @@ test "null resize and remap fall back to alloc, copy, free" {
     // An allocator with only alloc and free, like one built on plain
     // malloc and free. The context is the backing Zig allocator.
     const Minimal = struct {
-        fn alloc(ctx: ?*anyopaque, len: usize, alignment: u8, ra: usize) callconv(.c) ?[*]u8 {
+        fn alloc(ctx: ?*anyopaque, len: usize, alignment: u8, ra: usize) callconv(.c) ?*anyopaque {
             const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
             return zig_alloc.rawAlloc(len, @fromBackingInt(@truncate(alignment)), ra);
         }
 
-        fn free(ctx: ?*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, ra: usize) callconv(.c) void {
+        fn free(ctx: ?*anyopaque, memory: *anyopaque, memory_len: usize, alignment: u8, ra: usize) callconv(.c) void {
             const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
-            zig_alloc.rawFree(memory[0..memory_len], @fromBackingInt(@truncate(alignment)), ra);
+            zig_alloc.rawFree(@as([*]u8, @ptrCast(memory))[0..memory_len], @fromBackingInt(@truncate(alignment)), ra);
         }
 
         const vtable: VTable = .{

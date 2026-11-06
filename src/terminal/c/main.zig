@@ -505,9 +505,16 @@ test "out-of-range enum values passed as data return invalid_value" {
     try testing.expectEqual(Result.success, mouse_encode.new(alloc, &mouse_enc));
     defer mouse_encode.free(mouse_enc);
 
+    var term: terminal.Terminal = null;
+    try testing.expectEqual(Result.success, terminal.new(alloc, &term, 10, 3));
+    defer terminal.free(term);
+    var ref: grid_ref.CGridRef = undefined;
+    try testing.expectEqual(Result.success, terminal.grid_ref(term, comptime std.mem.zeroes(@import("../point.zig").Point.C), &ref));
+
     var gesture_ev: selection_gesture.Event = null;
     var buf: [64]u8 = undefined;
     var written: usize = 0;
+    var coord: @import("../point.zig").Coordinate = undefined;
     const bad_int: c_int = bad;
 
     const cases = .{
@@ -521,6 +528,8 @@ test "out-of-range enum values passed as data return invalid_value" {
         .{ "selection_gesture_event_new", selection_gesture.event_new(alloc, &gesture_ev, @fromBackingInt(@intCast(bad))) },
         .{ "size_report_encode", size_report.encode(@fromBackingInt(@intCast(bad)), &.{ .rows = 1, .columns = 1, .cell_width = 1, .cell_height = 1 }, &buf, buf.len, &written) },
         .{ "color_scheme_report_encode", color_scheme.report_encode(@fromBackingInt(@intCast(bad)), &buf, buf.len, &written) },
+        .{ "focus_encode", focus.encode(@fromBackingInt(@intCast(bad)), &buf, buf.len, &written) },
+        .{ "terminal_point_from_grid_ref", terminal.point_from_grid_ref(term, &ref, @fromBackingInt(@intCast(bad)), &coord) },
     };
 
     inline for (cases) |case| {
@@ -572,6 +581,147 @@ test "out-of-range enum values passed as data return invalid_value" {
         terminal.vt_write(t, query, query.len);
         try testing.expectEqual(@as(usize, 1), S.replies);
         try testing.expectEqualStrings("\x1B[?997;2n", S.reply[0..S.reply_len]);
+    }
+}
+
+test "null output pointers return invalid_value" {
+    const testing = std.testing;
+    const alloc = &lib.alloc.test_allocator;
+
+    var term: terminal.Terminal = null;
+    try testing.expectEqual(Result.success, terminal.new(alloc, &term, 10, 3));
+    defer terminal.free(term);
+
+    var buf: [64]u8 = undefined;
+    var len: usize = 0;
+    var ptr: ?[*]u8 = null;
+    var sel: selection.CSelection = undefined;
+
+    try testing.expectEqual(Result.invalid_value, build_info(.simd, null));
+    try testing.expectEqual(Result.invalid_value, terminal.new(alloc, null, 10, 3));
+    try testing.expectEqual(Result.invalid_value, osc.new(alloc, null));
+    try testing.expectEqual(Result.invalid_value, sgr.new(alloc, null));
+    try testing.expectEqual(Result.invalid_value, color_scheme.report_encode(.dark, &buf, buf.len, null));
+    try testing.expectEqual(Result.invalid_value, size_report.encode(.mode_2048, &.{ .rows = 1, .columns = 1, .cell_width = 1, .cell_height = 1 }, &buf, buf.len, null));
+    osc.reset(null);
+    osc.next(null, 'a');
+    try testing.expectEqual(null, osc.end(null, 0x07));
+    try testing.expect(!sgr.next(null, null));
+    try testing.expectEqual(null, sgr.attribute_value(null));
+    style.default_style(null);
+    try testing.expect(!style.style_is_default(null));
+    terminal.vt_write(term, null, 4);
+    try testing.expectEqual(Result.invalid_value, modes.report_encode(@bitCast(@import("../modes.zig").ModeTag{ .value = 1, .ansi = false }), @fromBackingInt(1), &buf, buf.len, null));
+
+    if (comptime lib.feature(.grid_introspection)) {
+        try testing.expectEqual(Result.invalid_value, cell.get(0, .codepoint, null));
+        try testing.expectEqual(Result.invalid_value, row.get(0, .wrap, null));
+        var written: usize = 0;
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_cell(null, null));
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_row(null, null));
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_graphemes(null, null, 0, &written));
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_hyperlink_uri(null, null, 0, &written));
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_style(null, null));
+        var ref: grid_ref.CGridRef = undefined;
+        try testing.expectEqual(Result.success, terminal.grid_ref(term, comptime std.mem.zeroes(@import("../point.zig").Point.C), &ref));
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_graphemes(&ref, null, 0, null));
+        try testing.expectEqual(Result.invalid_value, grid_ref.grid_ref_hyperlink_uri(&ref, null, 0, null));
+        try testing.expectEqual(Result.invalid_value, terminal.point_from_grid_ref(term, null, .active, null));
+    }
+    if (comptime lib.feature(.input_encode)) {
+        try testing.expectEqual(Result.invalid_value, key_event.new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, key_encode.new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, mouse_event.new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, mouse_encode.new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, focus.encode(.gained, &buf, buf.len, null));
+        try testing.expectEqual(Result.invalid_value, paste.encode(null, 0, false, &buf, buf.len, null));
+
+        var ke: key_event.Event = null;
+        try testing.expectEqual(Result.success, key_event.new(alloc, &ke));
+        defer key_event.free(ke);
+        var kenc: key_encode.Encoder = null;
+        try testing.expectEqual(Result.success, key_encode.new(alloc, &kenc));
+        defer key_encode.free(kenc);
+        try testing.expectEqual(Result.invalid_value, key_encode.encode(null, ke, &buf, buf.len, &len));
+        try testing.expectEqual(Result.invalid_value, key_encode.encode(kenc, null, &buf, buf.len, &len));
+        try testing.expectEqual(Result.invalid_value, key_encode.encode(kenc, ke, &buf, buf.len, null));
+
+        var me: mouse_event.Event = null;
+        try testing.expectEqual(Result.success, mouse_event.new(alloc, &me));
+        defer mouse_event.free(me);
+        var menc: mouse_encode.Encoder = null;
+        try testing.expectEqual(Result.success, mouse_encode.new(alloc, &menc));
+        defer mouse_encode.free(menc);
+        try testing.expectEqual(Result.invalid_value, mouse_encode.encode(menc, me, &buf, buf.len, null));
+    }
+    if (comptime lib.feature(.selection)) {
+        try testing.expectEqual(Result.invalid_value, selection.output(term, null, &sel));
+    }
+    if (comptime lib.feature(.formatter)) {
+        try testing.expectEqual(Result.invalid_value, formatter.terminal_new(alloc, null, term));
+        var f: formatter.Formatter = null;
+        try testing.expectEqual(Result.success, formatter.terminal_new(alloc, &f, term));
+        defer formatter.free(f);
+        try testing.expectEqual(Result.invalid_value, formatter.format_alloc(f, null, null, &len));
+        try testing.expectEqual(Result.invalid_value, formatter.format_alloc(f, null, &ptr, null));
+        try testing.expectEqual(Result.invalid_value, formatter.format_buf(f, &buf, buf.len, null));
+    }
+    if (comptime lib.feature(.render_state)) {
+        try testing.expectEqual(Result.invalid_value, render.new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, render.row_iterator_new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, render.row_cells_new(alloc, null));
+        try testing.expectEqual(Result.invalid_value, render.image_iterator_new(alloc, null));
+
+        var state: render.RenderState = null;
+        try testing.expectEqual(Result.success, render.new(alloc, &state));
+        defer render.free(state);
+        try testing.expectEqual(Result.success, render.update(state, term));
+        var it: render.RowIterator = null;
+        try testing.expectEqual(Result.success, render.row_iterator_new(alloc, &it));
+        defer render.row_iterator_free(it);
+        try testing.expectEqual(Result.success, render.get(state, .row_iterator, @ptrCast(&it)));
+        try testing.expect(render.row_iterator_next(it));
+        try testing.expectEqual(Result.invalid_value, render.row_get(it, .dirty, null));
+    }
+    if (comptime lib.feature(.kitty_graphics)) {
+        try testing.expectEqual(Result.invalid_value, kitty_graphics.placement_iterator_new(alloc, null));
+        var graphics: kitty_graphics.KittyGraphics = undefined;
+        try testing.expectEqual(Result.success, terminal.get(term, .kitty_graphics, @ptrCast(&graphics)));
+        try testing.expectEqual(Result.invalid_value, kitty_graphics.get(graphics, .generation, null));
+        var generation: u64 = 0;
+        var next_ms: u64 = 0;
+        try testing.expectEqual(Result.invalid_value, kitty_graphics.get(null, .generation, @ptrCast(&generation)));
+        try testing.expectEqual(Result.invalid_value, kitty_graphics.animation_tick(null, 0, &next_ms));
+        try testing.expectEqual(null, kitty_graphics.image_get_handle(null, 1));
+    }
+    if (comptime lib.feature(.snapshot)) {
+        var scratch: u64 = 0;
+        var dec: snapshot.Decoder = null;
+        try testing.expectEqual(Result.invalid_value, snapshot.decoder_get(dec, .source_offset, @ptrCast(&scratch)));
+        dec = @ptrFromInt(0x1000); // Never dereferenced, the output check is first.
+        try testing.expectEqual(Result.invalid_value, snapshot.decoder_get(dec, .source_offset, null));
+    }
+    if (comptime lib.feature(.color)) {
+        const c = @import("../color.zig");
+        var rgb: c.RGB.C = .{ .r = 1, .g = 2, .b = 3 };
+        var r: u8 = 0;
+        var index: u8 = 0;
+        try testing.expectEqual(Result.invalid_value, color.parse("#ffffff", 7, null));
+        try testing.expectEqual(Result.invalid_value, color.parse_x11("red", 3, null));
+        try testing.expectEqual(Result.invalid_value, color.parse_palette_entry("1=#000000", 9, null, &rgb));
+        try testing.expectEqual(Result.invalid_value, color.parse_palette_entry("1=#000000", 9, &index, null));
+        color.rgb_get(null, &r, null, null);
+        try testing.expectEqual(@as(u8, 0), r);
+        color.rgb_get(&rgb, &r, null, null);
+        try testing.expectEqual(@as(u8, 1), r);
+        color.palette_default(null);
+        color.palette_generate(null, null, &rgb, &rgb, false, null);
+        var palette: c.PaletteC = @splat(rgb);
+        color.palette_generate(null, null, null, &rgb, false, &palette);
+        try testing.expectEqual(@as(u8, 1), palette[0].r);
+        try testing.expectEqual(@as(f64, 0), color.luminance(null));
+        try testing.expectEqual(@as(f64, 0), color.perceived_luminance(null));
+        try testing.expectEqual(@as(f64, 0), color.contrast(null, &rgb));
     }
 }
 
@@ -659,6 +809,7 @@ test "compiled-out features return unsupported" {
                 var rgb: @import("../color.zig").RGB.C = undefined;
                 try testing.expectEqual(Result.unsupported, color.parse("#ffffff", 7, &rgb));
                 try testing.expectEqual(@as(usize, 0), color.x11_name_count());
+                try testing.expectEqual(null, color.x11_names()[0].name);
                 var palette: @import("../color.zig").PaletteC = undefined;
                 color.palette_default(&palette);
                 try testing.expectEqual(std.mem.zeroes(@TypeOf(palette)), palette);

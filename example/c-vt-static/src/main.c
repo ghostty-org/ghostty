@@ -18,7 +18,7 @@ int main() {
   }
   
   // End parsing and get command
-  GhosttyOscCommand command = ghostty_osc_end(parser, 0);
+  GhosttyOscCommand command = ghostty_osc_end(parser, 0x07);
   
   // Get and print command type
   GhosttyOscCommandType type = ghostty_osc_command_type(command);

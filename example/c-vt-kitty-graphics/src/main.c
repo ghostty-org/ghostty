@@ -101,8 +101,14 @@ void print_image(GhosttyKittyGraphics graphics, uint32_t image_id) {
       ghostty_kitty_graphics_image(graphics, image_id);
   GhosttyString pixels = {0};
   uint64_t generation = 0;
-  ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
-                                   &pixels);
+
+  /* The image may be gone, and the first pixel below needs three bytes. */
+  if (ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
+                                       &pixels) != GHOSTTY_SUCCESS ||
+      pixels.len < 3) {
+    printf("no pixels");
+    return;
+  }
   ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION,
                                    &generation);
   printf("pixel=(%u,%u,%u) generation=%llu", pixels.ptr[0], pixels.ptr[1],

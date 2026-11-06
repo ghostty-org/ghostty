@@ -2276,7 +2276,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * support/query/register/clear responses are emitted. Disabling also clears
    * the terminal session's glyph glossary.
    *
-   * Enabled by default, and a NULL value pointer enables it again.
+   * Disabled by default, and a NULL value pointer disables it again. An
+   * application opts in because registered glyphs change what the terminal
+   * draws.
    *
    * Input type: bool*
    */
@@ -2736,11 +2738,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * The current SGR style of the cursor.
    *
-   * This is the style that will be applied to newly printed characters.
+   * This is the style that will be applied to newly printed characters, such
+   * as bold or a foreground color. It isn't the shape of the cursor. For that,
+   * see GhosttyCursorStyle.
    *
    * Output type: GhosttyStyle *
    */
-  GHOSTTY_TERMINAL_DATA_CURSOR_STYLE = 10,
+  GHOSTTY_TERMINAL_DATA_CURSOR_SGR_STYLE = 10,
 
   /**
    * Whether any mouse tracking mode is active.
@@ -3094,7 +3098,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * prior to using the terminal.
  *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param terminal Pointer to store the created terminal handle
+ * @param terminal Pointer to store the created terminal handle (NULL returns
+ *                 GHOSTTY_INVALID_VALUE)
  * @param cols Terminal width in cells (must be greater than zero)
  * @param rows Terminal height in cells (must be greater than zero)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
@@ -3187,11 +3192,11 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  * return GHOSTTY_INVALID_VALUE for NULL.
  *
  * @code{.c}
- * bool enabled = false;
+ * bool enabled = true;
  * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL,
  *                      &enabled);
  *
- * // Later, turn it back on by restoring the default.
+ * // Later, turn it back off by restoring the default.
  * ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL, NULL);
  * @endcode
  *
@@ -3203,7 +3208,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  * so they can be lost or make that sequence run a second time. See
  * @ref guide-effects-rules.
  *
- * @param terminal The terminal handle, must not be NULL
+ * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
  * @param value Pointer to the value to set (type depends on the option),
  *              or NULL to restore the option's default
@@ -3240,8 +3245,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
  * source; so the primary goal is to keep the terminal state consistent and 
  * not allow malformed input to corrupt or crash.
  *
- * @param terminal The terminal handle
- * @param data Pointer to the data to write
+ * @param terminal The terminal handle (NULL does nothing)
+ * @param data Pointer to the data to write (NULL does nothing)
  * @param len Length of the data in bytes
  *
  * @ingroup terminal
@@ -3278,12 +3283,12 @@ GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
  * See @ref guide-custom-sequences-write-until for how to find string
  * content, the cases that need care, and waiting for ground.
  *
- * @param terminal The terminal handle (must not be NULL)
+ * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data Pointer to the data to write, or NULL when len is zero
  * @param len Length of the data in bytes
  * @param boundaries GhosttyTerminalBoundary flags to stop at. Must be
  *                   nonzero and contain only defined flags.
- * @param[out] out Where the call stopped. Must not be NULL, and its `size`
+ * @param[out] out Where the call stopped. NULL returns GHOSTTY_INVALID_VALUE. Its `size`
  *                 must be set with GHOSTTY_INIT_SIZED().
  * @return GHOSTTY_SUCCESS if a boundary was reached.
  *         GHOSTTY_NO_VALUE if all input was consumed without reaching a
@@ -3317,7 +3322,7 @@ GHOSTTY_API GhosttyResult ghostty_terminal_vt_write_until(
  * You must serialize this operation with both VT write functions and
  * all other access to the same terminal.
  *
- * @param terminal Terminal to read from (must not be NULL)
+ * @param terminal Terminal to read from (NULL returns GHOSTTY_INVALID_VALUE)
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the callback rejects
  *         a write, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
@@ -3347,12 +3352,12 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_write(
  * You must serialize this operation with all other access to the same
  * terminal.
  *
- * @param terminal Terminal to read from (must not be NULL)
+ * @param terminal Terminal to read from (NULL returns GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the continuation into. May be NULL if
  *            @p buf_len is 0.
  * @param buf_len Size of @p buf in bytes
  * @param[out] out_written The number of bytes written, or the size needed
- *             if the result is GHOSTTY_OUT_OF_SPACE. Must not be NULL.
+ *             if the result is GHOSTTY_OUT_OF_SPACE. NULL returns GHOSTTY_INVALID_VALUE.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the
  *         continuation does not fit in @p buf, or GHOSTTY_INVALID_VALUE if an
  *         argument is invalid, tracking is disabled, or the current
@@ -3381,10 +3386,10 @@ GHOSTTY_API GhosttyResult ghostty_terminal_continuation_buf(
  * You must serialize this operation with all other access to the same
  * terminal.
  *
- * @param terminal Terminal to read from (must not be NULL)
+ * @param terminal Terminal to read from (NULL returns GHOSTTY_INVALID_VALUE)
  * @param allocator Allocator for the output, or NULL for the default allocator
- * @param[out] out_ptr Allocated continuation bytes (must not be NULL)
- * @param[out] out_len Number of continuation bytes (must not be NULL)
+ * @param[out] out_ptr Allocated continuation bytes (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param[out] out_len Number of continuation bytes (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
  *         failure, or GHOSTTY_INVALID_VALUE if an argument is invalid,
  *         tracking is disabled, or the current continuation is unavailable
@@ -3649,7 +3654,8 @@ GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref_track(
  * GHOSTTY_NO_VALUE.
  *
  * @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)
- * @param ref Pointer to the grid reference to convert
+ * @param ref Pointer to the grid reference to convert (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param tag The target coordinate system
  * @param[out] out On success, set to the coordinate in the requested system (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal

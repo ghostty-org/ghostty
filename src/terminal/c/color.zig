@@ -39,29 +39,35 @@ const x11_entries: [x11_color.entries.len + 1]X11Entry = entries: {
     break :entries result;
 };
 
+/// The table returned when the color feature is compiled out. It holds only
+/// the terminating entry, so callers that walk to the terminator see no colors.
+const x11_entries_empty: [1]X11Entry = .{
+    .{ .name = null, .color = .{ .r = 0, .g = 0, .b = 0 } },
+};
+
 pub fn rgb_get(
-    c: *const color.RGB.C,
-    r: *u8,
-    g: *u8,
-    b: *u8,
+    c_: ?*const color.RGB.C,
+    r_: ?*u8,
+    g_: ?*u8,
+    b_: ?*u8,
 ) callconv(lib.calling_conv) void {
-    if (comptime !lib.feature(.color)) {
-        r.* = 0;
-        g.* = 0;
-        b.* = 0;
-        return;
-    }
-    r.* = c.r;
-    g.* = c.g;
-    b.* = c.b;
+    const zero: color.RGB.C = .{ .r = 0, .g = 0, .b = 0 };
+    const c: *const color.RGB.C = if (comptime lib.feature(.color))
+        c_ orelse return
+    else
+        &zero;
+    if (r_) |r| r.* = c.r;
+    if (g_) |g| g.* = c.g;
+    if (b_) |b| b.* = c.b;
 }
 
 pub fn parse_x11(
     name_: ?[*]const u8,
     len: usize,
-    out: *color.RGB.C,
+    out_: ?*color.RGB.C,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.color)) return .unsupported;
+    const out = out_ orelse return .invalid_value;
     const name = (name_ orelse return .invalid_value)[0..len];
     const trimmed = std.mem.trim(u8, name, " \t");
     const rgb = x11_color.map.get(trimmed) orelse return .invalid_value;
@@ -72,16 +78,18 @@ pub fn parse_x11(
 pub fn parse(
     value_: ?[*]const u8,
     len: usize,
-    out: *color.RGB.C,
+    out_: ?*color.RGB.C,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.color)) return .unsupported;
+    const out = out_ orelse return .invalid_value;
     const value = (value_ orelse return .invalid_value)[0..len];
     const rgb = color.RGB.parse(value) catch return .invalid_value;
     out.* = rgb.cval();
     return .success;
 }
 
-pub fn palette_default(out: *color.PaletteC) callconv(lib.calling_conv) void {
+pub fn palette_default(out_: ?*color.PaletteC) callconv(lib.calling_conv) void {
+    const out = out_ orelse return;
     if (comptime !lib.feature(.color)) {
         out.* = std.mem.zeroes(color.PaletteC);
         return;
@@ -93,15 +101,18 @@ pub fn palette_default(out: *color.PaletteC) callconv(lib.calling_conv) void {
 pub fn palette_generate(
     base_: ?*const color.PaletteC,
     skip_: ?*const PaletteMask,
-    bg: *const color.RGB.C,
-    fg: *const color.RGB.C,
+    bg_: ?*const color.RGB.C,
+    fg_: ?*const color.RGB.C,
     harmonious: bool,
-    out: *color.PaletteC,
+    out_: ?*color.PaletteC,
 ) callconv(lib.calling_conv) void {
+    const out = out_ orelse return;
     if (comptime !lib.feature(.color)) {
         out.* = std.mem.zeroes(color.PaletteC);
         return;
     }
+    const bg = bg_ orelse return;
+    const fg = fg_ orelse return;
     const base: color.Palette = if (base_) |base|
         color.paletteZval(base)
     else
@@ -121,10 +132,7 @@ pub fn palette_generate(
 }
 
 pub fn x11_names() callconv(lib.calling_conv) [*]const X11Entry {
-    if (comptime !lib.feature(.color)) {
-        const empty: [0]X11Entry = .{};
-        return &empty;
-    }
+    if (comptime !lib.feature(.color)) return x11_entries_empty[0..].ptr;
     return x11_entries[0..].ptr;
 }
 
@@ -136,10 +144,12 @@ pub fn x11_name_count() callconv(lib.calling_conv) usize {
 pub fn parse_palette_entry(
     value_: ?[*]const u8,
     len: usize,
-    out_index: *u8,
-    out_rgb: *color.RGB.C,
+    out_index_: ?*u8,
+    out_rgb_: ?*color.RGB.C,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.color)) return .unsupported;
+    const out_index = out_index_ orelse return .invalid_value;
+    const out_rgb = out_rgb_ orelse return .invalid_value;
     const value = (value_ orelse return .invalid_value)[0..len];
     const entry = color.parsePaletteEntry(value) catch return .invalid_value;
     out_index.* = entry.index;
@@ -147,18 +157,22 @@ pub fn parse_palette_entry(
     return .success;
 }
 
-pub fn luminance(c: *const color.RGB.C) callconv(lib.calling_conv) f64 {
+pub fn luminance(c_: ?*const color.RGB.C) callconv(lib.calling_conv) f64 {
     if (comptime !lib.feature(.color)) return 0;
+    const c = c_ orelse return 0;
     return color.RGB.fromC(c.*).luminance();
 }
 
-pub fn perceived_luminance(c: *const color.RGB.C) callconv(lib.calling_conv) f64 {
+pub fn perceived_luminance(c_: ?*const color.RGB.C) callconv(lib.calling_conv) f64 {
     if (comptime !lib.feature(.color)) return 0;
+    const c = c_ orelse return 0;
     return color.RGB.fromC(c.*).perceivedLuminance();
 }
 
-pub fn contrast(a: *const color.RGB.C, b: *const color.RGB.C) callconv(lib.calling_conv) f64 {
+pub fn contrast(a_: ?*const color.RGB.C, b_: ?*const color.RGB.C) callconv(lib.calling_conv) f64 {
     if (comptime !lib.feature(.color)) return 0;
+    const a = a_ orelse return 0;
+    const b = b_ orelse return 0;
     return color.RGB.fromC(a.*).contrast(.fromC(b.*));
 }
 

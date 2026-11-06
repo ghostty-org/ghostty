@@ -30,6 +30,12 @@ every error is negative, so `result < 0` tests for any error.
 | @ref GHOSTTY_REJECTED       | A safety check refused the operation, such as pasted text that could inject commands. Nothing was done.             |
 | @ref GHOSTTY_UNSUPPORTED    | This library can't do what you asked. The key is newer than the library, or the feature was left out of this build. |
 
+A NULL handle or NULL output pointer returns GHOSTTY_INVALID_VALUE, unless the
+documentation says the pointer may be NULL. A function that can't return a
+result does nothing with NULL, or returns false, 0 or NULL. This applies to
+function arguments. Fields inside a struct must follow that struct's
+documentation.
+
 GHOSTTY_UNSUPPORTED is how a program handles a library that isn't the one it was
 built for. See @ref values-older-libraries and @ref features.
 

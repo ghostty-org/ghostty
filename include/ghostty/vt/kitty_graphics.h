@@ -467,12 +467,12 @@ typedef struct {
  *
  * Returns GHOSTTY_UNSUPPORTED when Kitty graphics are disabled at build time.
  *
- * @param graphics The kitty graphics handle
+ * @param graphics The kitty graphics handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The type of data to extract
  * @param[out] out Pointer to store the extracted data
- * @return GHOSTTY_SUCCESS on success, or GHOSTTY_UNSUPPORTED if `data` is
- *         not known to this version of the library or Kitty graphics are
- *         disabled at build time
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `out` is
+ *         NULL, or GHOSTTY_UNSUPPORTED if `data` is not known to this version
+ *         of the library or Kitty graphics are disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -507,7 +507,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  * @ref guide-images-animation explains how to
  * schedule redraws with the returned time and includes an example.
  *
- * @param graphics The kitty graphics handle
+ * @param graphics The kitty graphics handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param now_ms The current time in milliseconds
  * @param[out] next_ms Set to the time the next frame is due, in
  *   milliseconds on the same clock as `now_ms`. Only written when the
@@ -536,7 +536,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_animation_tick(
  * Returns NULL if no image with the given ID exists or if Kitty graphics
  * are disabled at build time.
  *
- * @param graphics The kitty graphics handle
+ * @param graphics The kitty graphics handle (NULL returns NULL)
  * @param image_id The image ID to look up
  * @return An opaque image handle, or NULL if not found
  *
@@ -555,9 +555,9 @@ GHOSTTY_API GhosttyKittyGraphicsImage ghostty_kitty_graphics_image(
  * @param image The image handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
- * @return GHOSTTY_SUCCESS on success, or GHOSTTY_UNSUPPORTED if `data` is
- *         not known to this version of the library or Kitty graphics are
- *         disabled at build time
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `out` is
+ *         NULL, or GHOSTTY_UNSUPPORTED if `data` is not known to this version
+ *         of the library or Kitty graphics are disabled at build time
  *
  * @ingroup kitty_graphics
  */
@@ -620,7 +620,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_image_get_multi(
  * @param allocator Pointer to allocator, or NULL to use the default allocator
  * @param[out] out_iterator On success, receives the created iterator handle
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
+ *         failure, GHOSTTY_INVALID_VALUE if @p out_iterator is NULL
  *
  * @ingroup kitty_graphics
  */
@@ -687,8 +687,9 @@ GHOSTTY_API bool ghostty_kitty_graphics_placement_next(
  * @param data The data kind to query
  * @param[out] out Pointer to receive the queried value
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the iterator is
- *         NULL or not positioned on a placement, or GHOSTTY_UNSUPPORTED if
- *         `data` is not known to this version of the library
+ *         NULL or not positioned on a placement or `out` is NULL, or
+ *         GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
+ *         library
  *
  * @ingroup kitty_graphics
  */
@@ -748,12 +749,12 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_get_multi(
  * cell/pixel geometry to calculate the bounding rectangle. Virtual
  * placements (unicode placeholders) return GHOSTTY_NO_VALUE.
  *
- * @param terminal The terminal handle
- * @param image The image handle for this placement's image
  * @param iterator The placement iterator positioned on a placement
+ * @param image The image handle for this placement's image
+ * @param terminal The terminal handle
  * @param[out] out_selection On success, receives the bounding rectangle
  *             as a selection with rectangle=true
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle or output pointer
  *         is NULL or the iterator is not positioned, GHOSTTY_NO_VALUE for
  *         virtual placements, GHOSTTY_UNSUPPORTED when Kitty graphics are
  *         disabled at build time
@@ -778,7 +779,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_rect(
  * @param terminal The terminal handle
  * @param[out] out_width On success, receives the width in pixels
  * @param[out] out_height On success, receives the height in pixels
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle or output pointer
  *         is NULL or the iterator is not positioned, GHOSTTY_UNSUPPORTED
  *         when Kitty graphics are disabled at build time
  *
@@ -804,7 +805,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_pixel_size(
  * @param terminal The terminal handle
  * @param[out] out_cols On success, receives the number of columns
  * @param[out] out_rows On success, receives the number of rows
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle or output pointer
  *         is NULL or the iterator is not positioned, GHOSTTY_UNSUPPORTED
  *         when Kitty graphics are disabled at build time
  *
@@ -843,7 +844,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_grid_size(
  *         viewport or if it is a virtual placement or relative to one.
  *         GHOSTTY_UNSUPPORTED if Kitty graphics are disabled at build
  *         time.
- *         GHOSTTY_INVALID_VALUE if any handle is NULL or the iterator is
+ *         GHOSTTY_INVALID_VALUE if any handle or output pointer is NULL or the iterator is
  *         not on a placement.
  *
  * @ingroup kitty_graphics
@@ -869,8 +870,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_viewport_pos(
  * @param[out] out_y Source rect y origin in pixels
  * @param[out] out_width Source rect width in pixels
  * @param[out] out_height Source rect height in pixels
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any
- *         handle is NULL or the iterator is not positioned
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if any handle or output pointer is NULL or the iterator is not positioned
  *
  * @ingroup kitty_graphics
  */
@@ -903,8 +903,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_source_rect(
  * @param image The image of this placement
  * @param terminal The terminal the storage belongs to
  * @param[out] out_info Receives the geometry
- * @return GHOSTTY_SUCCESS on success. GHOSTTY_INVALID_VALUE if any
- *         handle or `out_info` is NULL, the iterator is not on a
+ * @return GHOSTTY_SUCCESS on success. GHOSTTY_INVALID_VALUE if any handle or output pointer or `out_info` is NULL, the iterator is not on a
  *         placement, or `out_info->size` is too small.
  *         GHOSTTY_UNSUPPORTED if Kitty graphics are disabled at build
  *         time.

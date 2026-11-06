@@ -24,12 +24,13 @@ pub const Encoder = ?*KeyEncoderWrapper;
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Encoder,
+    result_: ?*Encoder,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(KeyEncoderWrapper) catch
         return .out_of_memory;
@@ -150,15 +151,19 @@ pub fn encode(
     event_: KeyEvent,
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) return .unsupported;
+    const encoder = encoder_ orelse return .invalid_value;
+    const event = event_ orelse return .invalid_value;
+    const out_written = out_written_ orelse return .invalid_value;
+
     // Attempt to write to this buffer
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     key_encode.encode(
         &writer,
-        event_.?.event,
-        encoder_.?.opts,
+        event.event,
+        encoder.opts,
     ) catch |err| switch (err) {
         error.WriteFailed => {
             // If we don't have space, use a discarding writer to count
@@ -166,8 +171,8 @@ pub fn encode(
             var discarding: std.Io.Writer.Discarding = .init(&.{});
             key_encode.encode(
                 &discarding.writer,
-                event_.?.event,
-                encoder_.?.opts,
+                event.event,
+                encoder.opts,
             ) catch unreachable;
 
             // Discarding always uses a u64. If we're on 32-bit systems

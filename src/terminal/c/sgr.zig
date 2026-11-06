@@ -19,8 +19,9 @@ pub const Parser = ?*ParserWrapper;
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Parser,
+    result_: ?*Parser,
 ) callconv(lib.calling_conv) Result {
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(ParserWrapper) catch
         return .out_of_memory;
@@ -48,11 +49,12 @@ pub fn reset(parser_: Parser) callconv(lib.calling_conv) void {
 
 pub fn setParams(
     parser_: Parser,
-    params: [*]const u16,
+    params_: ?[*]const u16,
     seps_: ?[*]const u8,
     len: usize,
 ) callconv(lib.calling_conv) Result {
     const wrapper = parser_ orelse return .invalid_value;
+    const params = params_ orelse return .invalid_value;
     const alloc = wrapper.alloc;
     const parser: *sgr.Parser = &wrapper.parser;
 
@@ -86,9 +88,10 @@ pub fn setParams(
 
 pub fn next(
     parser_: Parser,
-    result: *sgr.Attribute.C,
+    result_: ?*sgr.Attribute.C,
 ) callconv(lib.calling_conv) bool {
     const wrapper = parser_ orelse return false;
+    const result = result_ orelse return false;
     const parser: *sgr.Parser = &wrapper.parser;
     if (parser.next()) |attr| {
         result.* = attr.cval();
@@ -122,8 +125,9 @@ pub fn attribute_tag(
 }
 
 pub fn attribute_value(
-    attr: *sgr.Attribute.C,
-) callconv(lib.calling_conv) *sgr.Attribute.CValue {
+    attr_: ?*sgr.Attribute.C,
+) callconv(lib.calling_conv) ?*sgr.Attribute.CValue {
+    const attr = attr_ orelse return null;
     return &attr.value;
 }
 

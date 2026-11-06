@@ -247,7 +247,7 @@ typedef struct {
  * Initializes the style to the default values (no colors, no flags).
  * The default style is all zero bytes.
  *
- * @param style Pointer to the style to initialize
+ * @param style Pointer to the style to initialize (NULL does nothing)
  *
  * @ingroup style
  */
@@ -259,7 +259,7 @@ GHOSTTY_API void ghostty_style_default(GhosttyStyle* style);
  * Returns true if all colors are unset and all flags are off. Reserved
  * bits are ignored.
  *
- * @param style Pointer to the style to check
+ * @param style Pointer to the style to check (NULL returns false)
  * @return true if the style is the default style
  *
  * @ingroup style

@@ -33,12 +33,13 @@ pub const Mods = key.Mods;
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Event,
+    result_: ?*Event,
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.input_encode)) {
-        result.* = null;
+        if (result_) |o| o.* = null;
         return .unsupported;
     }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(MouseEventWrapper) catch
         return .out_of_memory;
