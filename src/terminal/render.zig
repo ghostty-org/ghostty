@@ -1251,24 +1251,30 @@ pub const RenderState = struct {
 
                     for (page_rows[i..][0..RowDirtyMask.group_len], i..) |*page_row, j| {
                         if (!page_row.dirty) continue;
-                        page_row.dirty = false;
                         any_dirty = true;
                         try builder.row(p, page_row, y + j);
+                        page_row.dirty = false;
                     }
                 }
                 while (i < take) : (i += 1) {
                     const page_row = &page_rows[i];
                     if (!page_row.dirty) continue;
-                    page_row.dirty = false;
                     any_dirty = true;
                     try builder.row(p, page_row, y + i);
+                    page_row.dirty = false;
                 }
             } else {
                 // Rebuild every row in the chunk.
                 any_dirty = true;
                 for (page_rows, 0..) |*page_row, i| {
+                    builder.row(p, page_row, y + i) catch |err| {
+                        // A failed row and every row not yet rebuilt must stay
+                        // dirty so the next update cannot skip them and expose
+                        // partially initialized managed cell data.
+                        for (page_rows[i..]) |*remaining| remaining.dirty = true;
+                        return err;
+                    };
                     page_row.dirty = false;
-                    try builder.row(p, page_row, y + i);
                 }
             }
 
@@ -2686,8 +2692,10 @@ const RowBuilder = struct {
         // Get all our cells in the page.
         const page_cells: []const page.Cell = page_row.cells.ptr(p.memory)[0..b.cols];
 
-        // Copy our raw row data
+        // Copy our raw row data. The terminal row stays dirty until the
+        // build succeeds, but the render-state snapshot is always rebuilt.
         b.raws[vy] = page_row.*;
+        b.raws[vy].dirty = false;
 
         // Note: our cells MultiArrayList uses our general allocator.
         // We do this on purpose because as rows become dirty, we do
