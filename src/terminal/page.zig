@@ -3863,6 +3863,72 @@ test "Page cloneFrom hyperlinks exact capacity" {
     try testing.expectEqual(page2.hyperlinkCount(), page.hyperlinkCount());
 }
 
+test "Page insertHyperlink reclaims dead IDs once IDs run out" {
+    var page = try Page.init(.{
+        .cols = 20,
+        .rows = 1,
+        .hyperlink_bytes = 16 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 1024,
+    });
+    defer page.deinit();
+
+    // Hand out every ID, one link per cell. Every link has an explicit
+    // ID, so it owns two strings. All URIs and IDs are the same length,
+    // so each link uses the same amount of string memory.
+    const n = page.hyperlink_set.layout.cap - 1;
+    var ids: [32]hyperlink.Id = undefined;
+    var uri_buf: [32]u8 = undefined;
+    var id_buf: [32]u8 = undefined;
+    for (0..n) |x| {
+        const uri = try std.fmt.bufPrint(&uri_buf, "https://example.com/{d:0>2}", .{x});
+        const link_id = try std.fmt.bufPrint(&id_buf, "a{d:0>2}", .{x});
+        ids[x] = try page.insertHyperlink(.{ .id = .{ .explicit = link_id }, .uri = uri });
+        const rac = page.getRowAndCell(x, 0);
+        try page.setHyperlink(rac.row, rac.cell, ids[x]);
+    }
+    try testing.expectEqual(n + 1, page.hyperlink_set.next_id);
+    const link_bytes = page.string_alloc.usedBytes(page.memory) / n;
+
+    // Clear the even cells. Their items are dead but still in the table.
+    // The last cell keeps its link so `add` can't just free IDs from the end.
+    for (0..n) |x| if (x % 2 == 0) {
+        page.clearHyperlink(page.getRowAndCell(x, 0).cell);
+    };
+    const strings_used = page.string_alloc.usedBytes(page.memory);
+
+    // New links reuse dead IDs, and removing a dead item frees both of its
+    // strings, so string memory never grows. Stop before 90% of IDs are
+    // live.
+    var x: usize = 0;
+    while (x < 8) : (x += 2) {
+        const uri = try std.fmt.bufPrint(&uri_buf, "https://example.org/{d:0>2}", .{x});
+        const link_id = try std.fmt.bufPrint(&id_buf, "b{d:0>2}", .{x});
+        const id = try page.insertHyperlink(.{ .id = .{ .explicit = link_id }, .uri = uri });
+        const rac = page.getRowAndCell(x, 0);
+        try page.setHyperlink(rac.row, rac.cell, id);
+        try testing.expectEqualStrings(
+            uri,
+            page.hyperlink_set.get(page.memory, id).uri.slice(page.memory),
+        );
+        try testing.expect(page.string_alloc.usedBytes(page.memory) <= strings_used);
+    }
+
+    // Live links' strings were not freed.
+    try testing.expect(page.string_alloc.usedBytes(page.memory) >=
+        page.hyperlink_set.count() * link_bytes);
+
+    // Cells that kept their links still have the same ID and URI.
+    for (0..n) |cx| if (cx % 2 == 1) {
+        const cell = page.getRowAndCell(cx, 0).cell;
+        try testing.expectEqual(ids[cx], page.lookupHyperlink(cell).?);
+        const uri = try std.fmt.bufPrint(&uri_buf, "https://example.com/{d:0>2}", .{cx});
+        try testing.expectEqualStrings(
+            uri,
+            page.hyperlink_set.get(page.memory, ids[cx]).uri.slice(page.memory),
+        );
+    };
+}
+
 test "Page cloneFrom graphemes" {
     var page = try Page.init(.{
         .cols = 10,
