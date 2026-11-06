@@ -1,8 +1,11 @@
 # API Conventions {#conventions}
 
-The libghostty-vt API follows the same few rules everywhere. Learn them once and every header reads the same way. If you're writing bindings for another language, read all of this first.
+The libghostty-vt API follows the same few rules everywhere. Learn them once and
+every header reads the same way. If you're writing bindings for another
+language, read all of this first.
 
-Four of the rules are short and they're on this page. The others have pages of their own:
+Four of the rules are short and they're on this page. The others have pages of
+their own:
 
 - @subpage values
 - @subpage sized-structs
@@ -12,7 +15,8 @@ Four of the rules are short and they're on this page. The others have pages of t
 
 ## Results {#conventions-results}
 
-Functions that can fail return a GhosttyResult. GHOSTTY_SUCCESS is zero and every error is negative, so `result < 0` tests for any error.
+Functions that can fail return a GhosttyResult. GHOSTTY_SUCCESS is zero and
+every error is negative, so `result < 0` tests for any error.
 
 | Result                      | What it means                                                                                                       |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -26,35 +30,65 @@ Functions that can fail return a GhosttyResult. GHOSTTY_SUCCESS is zero and ever
 | @ref GHOSTTY_REJECTED       | A safety check refused the operation, such as pasted text that could inject commands. Nothing was done.             |
 | @ref GHOSTTY_UNSUPPORTED    | This library can't do what you asked. The key is newer than the library, or the feature was left out of this build. |
 
-GHOSTTY_UNSUPPORTED is how a program handles a library that isn't the one it was built for. See @ref values-older-libraries and @ref features.
+GHOSTTY_UNSUPPORTED is how a program handles a library that isn't the one it was
+built for. See @ref values-older-libraries and @ref features.
 
 ## Handles {#conventions-handles}
 
-A handle is an opaque pointer to something the library manages, such as a GhosttyTerminal. You never see inside one. All you need to know is whether it belongs to you.
+A handle is an opaque pointer to something the library manages, such as a
+GhosttyTerminal. You never see inside one. All you need to know is whether it
+belongs to you.
 
-A handle you create is yours. Most come from a `_new` function, such as ghostty_terminal_new(), which takes an allocator first and writes the handle to the pointer you pass next. Pass NULL for the allocator unless you have a reason not to. See @ref memory.
+A handle you create is yours. Most come from a `_new` function, such as
+ghostty_terminal_new(), which takes an allocator first and writes the handle to
+the pointer you pass next. Pass NULL for the allocator unless you have a reason
+not to. See @ref memory.
 
-Free your handles with the `_free` function that matches, such as ghostty_terminal_free(). The handle is invalid after that. Every `_free` function accepts NULL and does nothing, so your cleanup code doesn't need to check.
+Free your handles with the `_free` function that matches, such as
+ghostty_terminal_free(). The handle is invalid after that. Every `_free`
+function accepts NULL and does nothing, so your cleanup code doesn't need to
+check.
 
-A borrowed handle belongs to something else, so you don't free it. It also doesn't last. The GhosttyKittyGraphics handle you get from ghostty_terminal_get() is only valid until the next call that changes the terminal, such as ghostty_terminal_vt_write(). Each borrowed handle documents how long it lasts.
+A borrowed handle belongs to something else, so you don't free it. It also
+doesn't last. The GhosttyKittyGraphics handle you get from
+ghostty_terminal_get() is only valid until the next call that changes the
+terminal, such as ghostty_terminal_vt_write(). Each borrowed handle documents
+how long it lasts.
 
-Some handles you create still point at a terminal, and it matters which one you free first:
+Some handles you create still point at a terminal, and it matters which one you
+free first:
 
-- A GhosttyFormatter borrows its terminal. The terminal must outlive the formatter.
-- A GhosttySearch or a GhosttyTrackedGridRef can outlive its terminal. If the terminal is freed first, a search fails cleanly on any call that needs the terminal, a tracked reference reports no value, and you can still free both.
+- A GhosttyFormatter borrows its terminal. The terminal must outlive the
+  formatter.
+- A GhosttySearch or a GhosttyTrackedGridRef can outlive its terminal. If the
+  terminal is freed first, a search fails cleanly on any call that needs the
+  terminal, a tracked reference reports no value, and you can still free both.
 
-Memory works the same way as handles. A GhosttyString is a pointer and a length that owns nothing, and it's valid for as long as the function that gave it to you says. A buffer the library allocates for you, such as the output of ghostty_formatter_format_alloc(), is yours to free with ghostty_free(). See @ref memory-buffers.
+Memory works the same way as handles. A GhosttyString is a pointer and a length
+that owns nothing, and it's valid for as long as the function that gave it to
+you says. A buffer the library allocates for you, such as the output of
+ghostty_formatter_format_alloc(), is yours to free with ghostty_free(). See @ref
+memory-buffers.
 
 ## Threads {#conventions-threads}
 
-The library creates no threads. Every callback runs on the thread whose call triggered it.
+The library creates no threads. Every callback runs on the thread whose call
+triggered it.
 
-Calls on one handle, and on any handle borrowed from it, must not run at the same time unless a function's documentation says otherwise. Handles that share nothing can be used on different threads.
+Calls on one handle, and on any handle borrowed from it, must not run at the
+same time unless a function's documentation says otherwise. Handles that share
+nothing can be used on different threads.
 
 ## Output Buffers {#conventions-buffers}
 
-Functions that write bytes for you take a buffer, its length and an `out_written` pointer. You usually don't know how much space the output needs, so you can ask. Pass NULL with a length of 0 and the call tells you the size.
+Functions that write bytes for you take a buffer, its length and an
+`out_written` pointer. You usually don't know how much space the output needs,
+so you can ask. Pass NULL with a length of 0 and the call tells you the size.
 
-When there's nothing to write, the call returns GHOSTTY_SUCCESS and sets `out_written` to 0, even for a size query.
+When there's nothing to write, the call returns GHOSTTY_SUCCESS and sets
+`out_written` to 0, even for a size query.
 
-When the buffer is too small, the call returns GHOSTTY_OUT_OF_SPACE and sets `out_written` to the size needed. The contents of the buffer are then unspecified unless the function says otherwise. Throw them away and retry with a larger buffer.
+When the buffer is too small, the call returns GHOSTTY_OUT_OF_SPACE and sets
+`out_written` to the size needed. The contents of the buffer are then
+unspecified unless the function says otherwise. Throw them away and retry with a
+larger buffer.

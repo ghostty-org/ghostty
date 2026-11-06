@@ -1,16 +1,16 @@
 # Examples {#example-programs}
 
-Every example is a complete program you can build and run. Each one lives in
-its own directory under `example/`, with a README that says how to run it. Most
-of them are one `zig build run`. CI compiles all 29 C examples, so they can't
-fall behind the API.
+Every example is a complete program you can build and run. Each one lives in its
+own directory under `example/`, with a README that says how to run it. Most of
+them are one `zig build run`. CI compiles all 29 C examples, so they can't fall
+behind the API.
 
 If you want to see everything working together, start with
 [Ghostling](https://github.com/ghostty-org/ghostling). It's a minimal but
 complete terminal built on libghostty-vt.
 
-If you only want to read a terminal's screen, start with
-@ref c-vt-stream/src/main.c "c-vt-stream".
+If you only want to read a terminal's screen, start with @ref
+c-vt-stream/src/main.c "c-vt-stream".
 
 ## Start Here
 
@@ -68,7 +68,8 @@ If you only want to read a terminal's screen, start with
 
 ## Other Languages
 
-These aren't C, so they have no page here. Each link goes to the directory in the repo.
+These aren't C, so they have no page here. Each link goes to the directory in
+the repo.
 
 | Example                                                                                               | Language    | What it does                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
