@@ -338,8 +338,8 @@ fn runInner(
         installRemoteTerminfo(
             alloc,
             opts,
-            connection_args.args,
-            config.remote_command,
+            connection_args,
+            config,
             stderr,
         ) catch |err| {
             warnPrint(stderr, "failed to install terminfo: {t}", .{err});
@@ -505,6 +505,10 @@ const ConnectionArgs = struct {
     /// False when an option means ssh won't open a remote session.
     session: bool = true,
 
+    /// Index of a `--` before the destination. ssh reads no options after
+    /// it, so any options we add must go before it.
+    options_end: ?usize = null,
+
     /// Whether `args` produce a remote command. ssh joins the args with spaces
     /// and treats an empty result as no command, so a lone `""` doesn't count.
     fn hasCommand(args: []const []const u8) bool {
@@ -532,6 +536,7 @@ const ConnectionArgs = struct {
                 } else {
                     result.args = args[0 .. i + 1 + @min(rest.len, 1)];
                     result.command = hasCommand(rest[@min(rest.len, 1)..]);
+                    result.options_end = i;
                 }
                 return result;
             }
@@ -671,8 +676,8 @@ const Configuration = struct {
 fn installRemoteTerminfo(
     alloc: Allocator,
     opts: *const Options,
-    connection_args: []const []const u8,
-    remote_command: bool,
+    connection_args: ConnectionArgs,
+    config: Configuration,
     stderr: *std.Io.Writer,
 ) !void {
     var buf: std.Io.Writer.Allocating = .init(alloc);
@@ -712,13 +717,15 @@ fn installRemoteTerminfo(
     // RemoteCommand=none overrides a RemoteCommand from ssh_config, which ssh
     // refuses to combine with our command. It's only passed when needed
     // because OpenSSH before 7.6 rejects the option.
-    //
-    // -T follows the user's args to override any -t: a remote tty never
-    // passes on the end of stdin, so tic would wait forever under -tt.
-    const remote_command_opts: []const []const u8 = if (remote_command)
+    const remote_command_opts: []const []const u8 = if (config.remote_command)
         &.{ "-o", "RemoteCommand=none" }
     else
         &.{};
+
+    // -T follows the user's options to override any -t: a remote tty never
+    // passes on the end of stdin, so tic would wait forever under -tt.
+    const args = connection_args.args;
+    const options_end = connection_args.options_end orelse args.len;
     const argv = try std.mem.concat(alloc, []const u8, &.{
         &.{opts.ssh},
         &.{
@@ -728,8 +735,10 @@ fn installRemoteTerminfo(
             "-o", "ClearAllForwardings=yes",
         },
         remote_command_opts,
-        connection_args,
-        &.{ "-T", remote_script },
+        args[0..options_end],
+        &.{"-T"},
+        args[options_end..],
+        &.{remote_script},
     });
     verbosePrint(opts, stderr, "exec: {f}", .{Joined{ .items = argv }});
 
@@ -832,6 +841,7 @@ test "ConnectionArgs.parse" {
         len: usize,
         command: bool = false,
         session: bool = true,
+        options_end: ?usize = null,
     }{
         .{ .args = &.{}, .len = 0 },
         .{ .args = &.{"host"}, .len = 1 },
@@ -842,14 +852,15 @@ test "ConnectionArgs.parse" {
         .{ .args = &.{ "-vp2222", "host", "ls" }, .len = 2, .command = true },
         .{ .args = &.{ "-vp", "2222", "host", "ls" }, .len = 3, .command = true },
         .{ .args = &.{ "-o", "User=bob", "host", "ls" }, .len = 3, .command = true },
-        .{ .args = &.{ "--", "host", "-p", "2222" }, .len = 2, .command = true },
-        .{ .args = &.{ "--", "host" }, .len = 2 },
+        .{ .args = &.{ "--", "host", "-p", "2222" }, .len = 2, .command = true, .options_end = 0 },
+        .{ .args = &.{ "--", "host" }, .len = 2, .options_end = 0 },
+        .{ .args = &.{ "-p", "2222", "--", "host" }, .len = 4, .options_end = 2 },
         .{ .args = &.{ "host", "--", "-p", "2222" }, .len = 1, .command = true },
         .{ .args = &.{ "host", "--" }, .len = 1 },
         .{ .args = &.{ "host", "" }, .len = 1 },
         .{ .args = &.{ "host", "", "" }, .len = 1, .command = true },
         .{ .args = &.{ "host", "--", "" }, .len = 1 },
-        .{ .args = &.{"--"}, .len = 1 },
+        .{ .args = &.{"--"}, .len = 1, .options_end = 0 },
         .{ .args = &.{"-p"}, .len = 1 },
         .{ .args = &.{ "-G", "host" }, .len = 2, .session = false },
         .{ .args = &.{ "-O", "check", "host" }, .len = 3, .session = false },
@@ -862,6 +873,7 @@ test "ConnectionArgs.parse" {
         try testing.expectEqual(case.len, got.args.len);
         try testing.expectEqual(case.command, got.command);
         try testing.expectEqual(case.session, got.session);
+        try testing.expectEqual(case.options_end, got.options_end);
     }
 }
 
