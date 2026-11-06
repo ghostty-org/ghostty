@@ -8,10 +8,27 @@ mobile device. It is covered by a significant set of unit tests. It is fuzzed
 via an [AFL++](https://aflplus.plus/) harness on multiple dedicated machines
 24/7, and we're continuously expanding our fuzz coverage.
 
-@important The one part that _isn't fully stable yet_ is the C ABI.
-Prior to 1.0, we may change the C ABI. We believe all C ABI changes at
-this point are complete and plan to release a 1.0 tag soon, but we aren't
-promising it until we tag 1.0.
+## ABI
+
+The C ABI is stable. A program built against one 1.x release keeps
+working with every later 1.x release. CI checks every change against these
+rules.
+
+A minor release may only add:
+
+- New functions.
+- New types.
+- New enum values.
+- New fields at the end of a @ref sized-structs "sized struct".
+
+Nothing is removed, resized, reordered or re-typed. A behavior change ships as a
+new function with a new descriptive name, and the old function is marked
+GHOSTTY_DEPRECATED until the next major version.
+
+The snapshot byte format is versioned separately from the library and isn't
+covered by the ABI promise. The snapshot functions are part of the C ABI, but
+the bytes they produce and accept may change in any release. See the
+@ref guide-snapshots "Snapshots guide".
 
 ## Checking the Version {#stability-check}
 

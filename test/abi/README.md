@@ -23,7 +23,7 @@ the baseline, so the break is visible in review.
 
 > [!NOTE]
 >
-> There is no baseline yet. The first one will be taken after `vt-0.1.0`
+> There is no baseline yet. The first one will be taken after `vt-1.0.0`
 > is tagged. Until then, the job dumps the ABI and uploads it as an
 > artifact, but doesn't compare it to anything.
 
@@ -77,7 +77,7 @@ it, the step summary shows the full libabigail report.
 
 ## Breaking the ABI on Purpose
 
-Before 1.0, any minor release of libghostty-vt may break the ABI (see
+Only a new major version of libghostty-vt may break the ABI (see
 [`PACKAGING-LIBGHOSTTY.md`](../../PACKAGING-LIBGHOSTTY.md)). A pull
 request that breaks the ABI on purpose must update `baseline.abi` and
 `baseline.txt` in the same pull request. The diff of the baseline is how
@@ -85,7 +85,7 @@ reviewers see the break.
 
 > [!IMPORTANT]
 >
-> From 1.0, a change to the baseline must come with a major version bump
+> A change to the baseline must come with a major version bump
 > and a new SONAME. The job doesn't enforce this yet, so reviewers must.
 
 ## Updating the Baseline

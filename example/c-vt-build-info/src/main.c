@@ -48,15 +48,15 @@ void query_build_info() {
 
 //! [version-check]
 // Stop the build if the headers are older than this program needs.
-#if !GHOSTTY_VT_VERSION_AT_LEAST(0, 1, 0)
-#error "libghostty-vt 0.1.0 or newer is required"
+#if !GHOSTTY_VT_VERSION_AT_LEAST(1, 0, 0)
+#error "libghostty-vt 1.0.0 or newer is required"
 #endif
 //! [version-check]
 
 //! [version-library]
 void print_library_version() {
   // The full version, which is the easiest form to log or display. A
-  // development build has a suffix, such as "0.2.0-dev+abc1234".
+  // development build has a suffix, such as "1.1.0-dev+abc1234".
   printf("Library version: %s\n", ghostty_version());
 
   // The same version as numbers, which is the easiest form to compare.
@@ -79,13 +79,7 @@ bool library_is_compatible() {
   ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MAJOR, &major);
   ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MINOR, &minor);
 
-  // Until 1.0, any minor release may change the ABI, so the minor
-  // versions must match exactly.
-  if (GHOSTTY_VT_VERSION_MAJOR == 0) {
-    return major == 0 && minor == GHOSTTY_VT_VERSION_MINOR;
-  }
-
-  // From 1.0, the major versions must match. The library may be newer
+  // The major versions must match. The library may be newer
   // than the headers but not older, because an older library is missing
   // the functions that newer headers declare.
   return major == GHOSTTY_VT_VERSION_MAJOR &&

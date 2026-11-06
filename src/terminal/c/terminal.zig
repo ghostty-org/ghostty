@@ -7374,6 +7374,12 @@ test "device_attributes without callback uses default" {
     vt_write(t, "\x1B[c", 3);
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1b[?62;22c", S.last_data.?);
+
+    // DA2 and DA3 have defaults too.
+    vt_write(t, "\x1B[>c", 4);
+    try testing.expectEqualStrings("\x1b[>1;0;0c", S.last_data.?);
+    vt_write(t, "\x1B[=c", 4);
+    try testing.expectEqualStrings("\x1bP!|00000000\x1b\\", S.last_data.?);
 }
 
 test "device_attributes callback returns false uses default" {

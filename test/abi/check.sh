@@ -50,7 +50,7 @@ usage() {
 # Print the exported ghostty_* functions of the library at $1. The
 # version script in src/terminal/c/ghostty-vt.map tags every export with
 # a symbol version, and GNU nm prints that as part of the name, for
-# example ghostty_terminal_new@@GHOSTTY_VT_0. We strip it so the names
+# example ghostty_terminal_new@@GHOSTTY_VT_1.0. We strip it so the names
 # match the headers.
 exported_functions() {
   nm -D --defined-only --format=posix "$1" |

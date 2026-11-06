@@ -242,8 +242,8 @@ GHOSTTY_API GhosttyResult ghostty_build_info(GhosttyBuildInfo data, void *out);
  * differ from the GHOSTTY_VT_VERSION of the headers it was compiled
  * against. See @ref version "Version" for when that matters.
  *
- * A release returns its version, such as "0.1.0". A development build
- * also has a pre-release and build suffix, such as "0.2.0-dev+abc1234".
+ * A release returns its version, such as "1.0.0". A development build
+ * also has a pre-release and build suffix, such as "1.1.0-dev+abc1234".
  *
  * This returns the same text as GHOSTTY_BUILD_INFO_VERSION_STRING, but
  * as a null-terminated string that you can pass straight to `printf` or

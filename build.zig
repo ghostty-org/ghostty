@@ -13,7 +13,7 @@ const app_zon_version = @import("build.zig.zon").version;
 ///
 /// CMakeLists.txt and CI read this line with a regular expression, so
 /// keep it on one line in this form.
-const lib_version = "0.1.0-dev";
+const lib_version = "1.0.0-dev";
 
 /// Minimum required zig version.
 const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;
@@ -407,18 +407,28 @@ pub fn build(b: *std.Build) !void {
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
         test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
 
-        // The committed version.h must match lib_version, so a version
-        // bump has to update both. The test embeds the header, so both
-        // files are copied into one directory.
-        const version_h_test = version_h_test: {
+        // The committed version.h, the symbol version nodes in
+        // ghostty-vt.map and the version in the nix package must all match
+        // lib_version, so a version bump has to update them together. The
+        // test embeds these files, so they are all copied into one
+        // directory.
+        const version_test = version_test: {
             const wf = b.addWriteFiles();
             const root = wf.addCopyFile(
-                b.path("src/terminal/c/version_h_test.zig"),
-                "version_h_test.zig",
+                b.path("src/terminal/c/version_test.zig"),
+                "version_test.zig",
             );
             _ = wf.addCopyFile(
                 b.path("include/ghostty/vt/version.h"),
                 "version.h",
+            );
+            _ = wf.addCopyFile(
+                b.path("src/terminal/c/ghostty-vt.map"),
+                "ghostty-vt.map",
+            );
+            _ = wf.addCopyFile(
+                b.path("nix/libghostty-vt.nix"),
+                "libghostty-vt.nix",
             );
             const opts = b.addOptions();
             opts.addOption(std.SemanticVersion, "lib_version", config.lib_version);
@@ -428,13 +438,13 @@ pub fn build(b: *std.Build) !void {
                 .optimize = .debug,
             });
             test_mod.addOptions("lib_version", opts);
-            break :version_h_test b.addTest(.{
-                .name = "ghostty-vt-version-h-test",
+            break :version_test b.addTest(.{
+                .name = "ghostty-vt-version-test",
                 .root_module = test_mod,
                 .filters = test_filters,
             });
         };
-        test_lib_vt_step.dependOn(&b.addRunArtifact(version_h_test).step);
+        test_lib_vt_step.dependOn(&b.addRunArtifact(version_test).step);
 
         // The public headers must compile without warnings in every
         // language standard we support, so compile a file that includes
