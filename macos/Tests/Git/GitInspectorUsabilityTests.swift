@@ -114,23 +114,24 @@ struct GitInspectorUsabilityTests {
         #expect(disclosure.frame.minX > subject.frame.maxX)
         #expect(!subject.isSelectable)
         let buttons = find(InspectorMetadataText.self, in: cell)
+        let originalTitles = buttons.map(\.attributedTitle.string)
         let board = NSPasteboard.withUniqueName()
         for value in [commit.authorName, commit.authorEmail, commit.authoredAt.description, commit.id.rawValue] {
             let button = try #require(buttons.first { $0.value == value })
             button.pasteboard = board
             let frame = button.frame
-            let title = button.attributedTitle.string
             InspectorCopyMenu.copy("unchanged", to: board)
             button.activate(clickCount: 1)
             #expect(button.isValueSelected && board.string(forType: .string) == "unchanged")
             #expect(buttons.filter(\.isValueSelected).count == 1)
             #expect(EditorCommandRouter.shared.handle(try key("c", in: host)))
             #expect(board.string(forType: .string) == value)
-            #expect(button.isCopied && button.attributedTitle.string == title)
+            #expect(button.isCopied && button.attributedTitle.string == CopyFeedback.confirmationLabel())
             #expect(button.frame == frame && button.image == nil)
         }
-        try await Task.sleep(for: .milliseconds(1100))
+        try await Task.sleep(for: .seconds(CopyFeedback.duration + 0.3))
         #expect(buttons.allSatisfy { !$0.isCopied && $0.toolTip != "Copied" })
+        #expect(buttons.map(\.attributedTitle.string) == originalTitles)
     }
 
     @Test func referencesHaveTypedFolderTreesAndClickToCopy() async throws {

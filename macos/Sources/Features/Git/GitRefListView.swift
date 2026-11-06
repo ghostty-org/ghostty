@@ -12,6 +12,7 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
     private let searchField = GitCollectionSearchField.Field()
     private let modeControl = GitPopoverSegments()
     private let copiedLabel = NSTextField(labelWithString: "")
+    private let copyFeedback = CopyFeedbackState()
     private let collectionCoordinator = GitCollectionView.Coordinator()
     private let collectionController = GitCollectionController()
     private var query = ""
@@ -169,8 +170,12 @@ final class GitReferenceListPopoverController: NSViewController, NSSearchFieldDe
             pasteboard: pasteboard,
             referenceAction: { [weak self] ref in
                 guard let self else { return }
-                InspectorCopyMenu.copy(ref.name, to: self.pasteboard)
-                self.copiedLabel.stringValue = GitL10n.text("Copied")
+                CopyFeedback.copy(ref.name, to: self.pasteboard)
+                self.copyFeedback.flash { [weak self] isCopied in
+                    guard let self else { return }
+                    self.copiedLabel.stringValue = isCopied ? CopyFeedback.confirmationLabel() : ""
+                    if isCopied { CopyFeedback.animate(self.copiedLabel) }
+                }
             },
             controller: collectionController,
             cancel: close,

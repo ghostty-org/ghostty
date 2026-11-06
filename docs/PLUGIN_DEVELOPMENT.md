@@ -1027,7 +1027,24 @@ The remote editor adds an internal `draft-replace` request with the full bounded
 
 Quick Input history records queue entries immediately with their stable queue UUID. Editing updates that record; sending changes it to sent without adding a duplicate; removing a waiting entry marks it cancelled and preserves the text. Older archives without a delivery state decode as sent. After relaunch, restored waiting records become cancelled because pane queues are in memory only. History rows label sent, queued and cancelled entries; the native popup sizes to content with a 48-point minimum and 360-point maximum list viewport and internal scrolling.
 
-Agent History session rows show a compact copyable session ID beside the Agent and relative time (first eight and last eight characters for long IDs, retaining useful UUIDv7 suffix entropy). Clicking it immediately copies the verified Agent CLI resume syntax and briefly replaces the ID with a localized copied confirmation, with reduced-motion support; the context-menu Copy Resume Command action provides the same command without launching a session. Pi uses `--session` to find an existing session across directories; other Agents use their manifest resume arguments. No permission bypass flags are inferred from a transcript. Remote session commands are intended for a terminal on that host.
+Agent History session rows show a compact copyable session ID beside the Agent and relative time (first eight and last eight characters for long IDs, retaining useful UUIDv7 suffix entropy). Clicking it immediately copies the verified Agent CLI resume syntax and confirms through the shared OMG copy feedback below. The context-menu Copy Resume Command action provides the same command without launching a session. Pi uses `--session` to find an existing session across directories; other Agents use their manifest resume arguments. No permission bypass flags are inferred from a transcript. Remote session commands are intended for a terminal on that host.
+
+Every click-to-copy affordance uses `CopyFeedback` (macOS `Helpers/CopyFeedback.swift`).
+`CopyFeedbackButton` swaps a label to the shared localized confirmation, and
+`CopyFeedbackIconButton` swaps an icon to a checkmark; both keep the value in
+the pasteboard and restore the original appearance after 1.2 seconds. Labels,
+colors, timing and the fade animation live only in that component, so a future
+style change applies everywhere. Controls that render their own appearance use
+`CopyFeedbackState` for the same timing. Agent History, Git History metadata and
+reference copies, and transcript message copies all use it; reduced-motion is
+honored.
+
+Temporary pasted-image paths are shared noise: `TransientAttachmentNoise`
+(macOS `Helpers/TransientAttachmentNoise.swift`) recognizes `omg-paste`,
+`otty-paste`, `codex-clipboard` and Agent attachment paths plus the
+`Image attachment: true` marker. Agent History drops those lines while cleaning
+user content, and Git History removes them from commit bodies before display.
+A line of prose that merely quotes a path keeps its sentence.
 
 Automatic Quick Input queues use an explicit completed activity, allow the Stop
 hook to return to the CLI input loop, and recheck that the target is still done.
@@ -2682,8 +2699,9 @@ Author and Email, then Time and Short SHA, separated by whitespace rather
 than dot labels. Clicking a metadata field selects and highlights its complete
 value without changing the clipboard; Command-C copies that selected field
 (including the full SHA behind a short hash). Only one field owns keyboard focus,
-and changing focus clears its selection highlight. Copy feedback preserves the
-original text. Double-clicking a summary, including metadata and blank space,
+and changing focus clears its selection highlight. Copy feedback shows the
+shared confirmation and then restores the original text. Double-clicking a
+summary, including metadata and blank space,
 toggles the commit without copying or waiting on a single-click timer.
 The trailing 7-point chevron remains available; the graph gutter is topology only.
 Subjects and bodies use row selection/whole-value copying without word selection.

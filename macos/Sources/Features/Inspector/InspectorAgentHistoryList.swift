@@ -447,91 +447,13 @@ final class InspectorAgentSessionCell: NSTableCellView, OMGNativeThemeApplying {
 }
 
 /// A fixed-width label keeps the row stable while briefly confirming a copy.
-final class AgentHistoryCopyButton: NSButton {
-    var pasteboard = NSPasteboard.general
-    var normalColor = NSColor.secondaryLabelColor { didSet { updateTitle() } }
-    private(set) var isCopied = false
-    private var command: String?
-    private var display = ""
-    private var copied = ""
-    private var feedbackTask: Task<Void, Never>?
-    private let textFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
-
-    var preferredWidth: CGFloat {
-        ceil(max((display as NSString).size(withAttributes: [.font: textFont]).width,
-                 (copied as NSString).size(withAttributes: [.font: textFont]).width)) + 4
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        isBordered = false
-        alignment = .left
-        imagePosition = .noImage
-        lineBreakMode = .byTruncatingMiddle
-        wantsLayer = true
-        target = self
-        action = #selector(copyCommand)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
+final class AgentHistoryCopyButton: CopyFeedbackButton {
     func configure(id: String, display: String, command: String?, strings: AgentHistoryStrings) {
-        if self.command != command || self.display != display {
-            feedbackTask?.cancel()
-            isCopied = false
-        }
-        self.command = command
-        self.display = display
-        copied = "✓ " + strings.copied
-        isEnabled = command != nil
-        toolTip = command.map { strings.copyResumeCommand + "\n" + $0 }
-        setAccessibilityLabel(strings.copyResumeCommand + ": " + id)
-        setAccessibilityValue(isCopied ? strings.copied : "")
-        updateTitle()
-    }
-
-    @objc private func copyCommand() {
-        guard let command else { return }
-        InspectorCopyMenu.copy(command, to: pasteboard)
-        feedbackTask?.cancel()
-        isCopied = true
-        setAccessibilityValue(AgentHistoryStrings.current.copied)
-        updateTitle(animated: true)
-        feedbackTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1.2))
-            guard !Task.isCancelled, let self else { return }
-            self.isCopied = false
-            self.setAccessibilityValue("")
-            self.updateTitle(animated: true)
-        }
-    }
-
-    func reset() {
-        feedbackTask?.cancel()
-        command = nil
-        isCopied = false
-        setAccessibilityValue("")
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard window == nil else { return }
-        feedbackTask?.cancel()
-        isCopied = false
-        setAccessibilityValue("")
-        updateTitle()
-    }
-
-    private func updateTitle(animated: Bool = false) {
-        attributedTitle = NSAttributedString(string: isCopied ? copied : display, attributes: [
-            .font: textFont,
-            .foregroundColor: normalColor,
-        ])
-        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0.35
-        fade.toValue = 1
-        fade.duration = 0.18
-        layer?.add(fade, forKey: "copyFeedback")
+        configure(
+            display: display,
+            value: command,
+            tooltip: command.map { strings.copyResumeCommand + "\n" + $0 },
+            accessibilityLabel: strings.copyResumeCommand + ": " + id
+        )
     }
 }

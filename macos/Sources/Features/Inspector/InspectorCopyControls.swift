@@ -39,10 +39,10 @@ final class InspectorMetadataText: NSButton {
     private(set) var value = ""
     private var displayText = ""
     private var copyLabel = ""
-    private(set) var isCopied = false
+    var isCopied: Bool { feedback.isCopied }
     private(set) var isValueSelected = false
     var pasteboard = NSPasteboard.general
-    private var feedbackTask: Task<Void, Never>?
+    private let feedback = CopyFeedbackState()
     var onDoubleClick: (() -> Void)?
     var contextMenuProvider: (() -> NSMenu?)?
     var naturalWidth: CGFloat { max(40, ceil((displayText as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10)]).width) + 4) }
@@ -72,8 +72,7 @@ final class InspectorMetadataText: NSButton {
     }
     func configure(text: String, value: String, label: String) {
         if self.value != value || displayText != text {
-            feedbackTask?.cancel()
-            isCopied = false
+            feedback.cancel()
             if window?.firstResponder === self { window?.makeFirstResponder(nil) }
         }
         self.value = value
@@ -83,7 +82,8 @@ final class InspectorMetadataText: NSButton {
         present()
     }
     private func present() {
-        attributedTitle = NSAttributedString(string: displayText, attributes: [
+        let shown = feedback.isCopied ? CopyFeedback.confirmationLabel() : displayText
+        attributedTitle = NSAttributedString(string: shown, attributes: [
             .font: NSFont.systemFont(ofSize: 10),
             .foregroundColor: isValueSelected ? NSColor.labelColor : NSColor.secondaryLabelColor,
         ])
@@ -96,8 +96,7 @@ final class InspectorMetadataText: NSButton {
         super.viewDidMoveToWindow()
         EditorCommandRouter.shared.unregister(owner: self)
         guard window != nil else {
-            feedbackTask?.cancel()
-            isCopied = false
+            feedback.cancel()
             isValueSelected = false
             present()
             return
@@ -120,15 +119,11 @@ final class InspectorMetadataText: NSButton {
         window?.makeFirstResponder(self)
     }
     @objc func copy(_ sender: Any?) {
-        InspectorCopyMenu.copy(value, to: pasteboard)
-        feedbackTask?.cancel()
-        isCopied = true
-        present()
-        feedbackTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            self?.isCopied = false
-            self?.present()
+        CopyFeedback.copy(value, to: pasteboard)
+        feedback.flash { [weak self] _ in
+            guard let self else { return }
+            self.present()
+            CopyFeedback.animate(self)
         }
     }
     override func menu(for event: NSEvent) -> NSMenu? {

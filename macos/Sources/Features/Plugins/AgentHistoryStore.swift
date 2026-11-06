@@ -1546,7 +1546,7 @@ enum AgentHistoryStore {
                 continue
             }
             if inFilesBlock {
-                if trimmed.hasPrefix("## ") || trimmed.hasPrefix("/var/folders") || trimmed.contains("codex-clipboard") {
+                if trimmed.hasPrefix("## ") || TransientAttachmentNoise.isNoise(line: String(line)) {
                     continue
                 } else if !trimmed.isEmpty {
                     inFilesBlock = false
@@ -1577,18 +1577,8 @@ enum AgentHistoryStore {
         if line.hasPrefix("@/Users/") && (line.hasSuffix(".md") || line.hasSuffix(".txt")) {
             return true
         }
-        if line.contains("omg-paste") || line.contains("otty-paste") || line.contains("codex-clipboard") {
-            let words = line.split(whereSeparator: \.isWhitespace)
-            if words.count <= 3 && (line.hasPrefix("/") || line.hasPrefix("##")) { return true }
-        }
-        if line.hasPrefix("/var/folders/") || line.hasPrefix("/private/var/folders/") {
-            if lower.hasSuffix(".png") || lower.hasSuffix(".jpg") ||
-                lower.hasSuffix(".jpeg") || lower.hasSuffix(".webp") ||
-                lower.contains("/t/omg-") || lower.contains("/t/otty-") ||
-                lower.contains("/t/codex-") {
-                let words = line.split(whereSeparator: \.isWhitespace)
-                if words.count <= 3 { return true }
-            }
+        if TransientAttachmentNoise.isNoise(line: line) {
+            return true
         }
         if line.hasPrefix("<cwd>") || line.hasPrefix("<shell>") ||
             line.hasPrefix("<current_date>") || line.hasPrefix("<timezone>") ||

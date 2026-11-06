@@ -154,7 +154,7 @@ private final class AgentHistoryTranscriptCell: NSTableCellView {
 
     private let roleLabel = NSTextField(labelWithString: "")
     private let messageField = NSTextField(wrappingLabelWithString: "")
-    private let copyButton = NSButton()
+    private let copyButton = CopyFeedbackIconButton()
     private let forkButton = NSButton()
     private let actionStack = NSStackView()
     private let contentStack = NSStackView()
@@ -181,11 +181,6 @@ private final class AgentHistoryTranscriptCell: NSTableCellView {
         messageField.setContentCompressionResistancePriority(.required, for: .vertical)
         messageField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        configureButton(
-            copyButton,
-            symbol: "doc.on.doc",
-            action: #selector(copyMessage)
-        )
         configureButton(
             forkButton,
             symbol: "arrow.triangle.branch",
@@ -262,7 +257,7 @@ private final class AgentHistoryTranscriptCell: NSTableCellView {
                 ? NSColor.systemBlue.withAlphaComponent(0.08)
                 : NSColor.labelColor.withAlphaComponent(0.05)
         ).cgColor
-        copyButton.toolTip = strings.copyMessage
+        copyButton.configure(symbol: "doc.on.doc", value: message.text, tooltip: strings.copyMessage)
         forkButton.toolTip = strings.forkSession
         forkButton.isHidden = message.role != .assistant
         messageField.attributedStringValue = Self.attributedText(
@@ -285,12 +280,6 @@ private final class AgentHistoryTranscriptCell: NSTableCellView {
         button.contentTintColor = .secondaryLabelColor
         button.target = self
         button.action = action
-    }
-
-    @objc private func copyMessage() {
-        guard let message else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.text, forType: .string)
     }
 
     @objc private func forkMessage() {

@@ -61,13 +61,19 @@ struct GitRefBrowser: View {
                 mode: externalMode ?? mode, query: externalQuery ?? query, canWrite: !isBusy,
                 interaction: decorations != nil ? .references : isPicker ? .picker : .branches, state: state, stateKey: stateKey,
                 selectedID: selectedID, extraRefs: tags, pasteboard: pasteboard,
-                referenceAction: { ref in copied = ref.name; InspectorCopyMenu.copy(ref.name, to: pasteboard) },
+                referenceAction: { ref in
+                    CopyFeedback.copy(ref.name, to: pasteboard)
+                    copied = ref.name
+                },
                 controller: externalController ?? controller, cancel: cancel, perform: { action in
                     if isPicker { close() }
                     perform(action)
                 })
             if let copied {
-                HStack { Text(GitL10n.text("Copied")).font(.caption).foregroundStyle(.secondary); InspectorCopyText(text: copied) }
+                HStack {
+                    Text(CopyFeedback.confirmationLabel()).font(.caption).foregroundStyle(.secondary)
+                    InspectorCopyText(text: copied)
+                }
                     .padding(.horizontal, 10).frame(height: 20)
             }
         }.environment(\.locale, Locale(identifier: SettingsStrings(language: settings.language).languageCode))

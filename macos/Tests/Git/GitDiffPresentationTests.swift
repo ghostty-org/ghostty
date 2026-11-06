@@ -2,6 +2,27 @@ import Testing
 @testable import Ghostty
 
 struct GitDiffPresentationTests {
+    @Test func commitBodyOmitsTemporaryPastedImages() {
+        let metadata = GitCommitMetadata(
+            commitID: GitCommitID("0123456789abcdef"),
+            authorName: "Test",
+            authorEmail: "test@example.com",
+            authoredAt: "2026-11-06",
+            parents: [],
+            message: """
+            Add validation
+
+            Image attachment: true
+
+            /var/folders/2z/zl8wrct518v_n3zcgjmc07200000gn/T/omg-paste/omg-paste-72C0E55E-5A19-4963-8B86-FBE0A4276DE4.png
+            Keep this explanation.
+            """
+        )
+        #expect(!metadata.body.contains("omg-paste"))
+        #expect(!metadata.body.contains("Image attachment"))
+        #expect(metadata.body.contains("Keep this explanation."))
+    }
+
     @Test func reviewNavigationRequiresConfirmationBeforeCrossingFiles() {
         var navigator = GitDiffReviewNavigator()
         #expect(navigator.move(.next, changeCount: 2, fileCount: 3) == .jump(0))
