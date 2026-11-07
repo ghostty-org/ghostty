@@ -214,5 +214,8 @@ report them NOT RUN if omitted. See
 To smoke-test a Debug build without taking over the host desktop, use the
 retained Tart VM described in [macos/VM_TESTING.md](../macos/VM_TESTING.md). It
 covers Debug deployment, GUI launch, keyboard input, PTY shell behavior and
-guest screenshots. Real drag, native fullscreen, multi-display behavior and
-frame-rate or latency measurements still require a host desktop run.
+guest screenshots, including mouse-drag selection and native fullscreen.
+Sidebar tab drag, multi-display behavior, frame rate and input-to-photon
+latency still require a host desktop run.
+Agents should follow the `omg-vm-testing` skill
+(`.agents/skills/omg-vm-testing/SKILL.md`) for that workflow.
