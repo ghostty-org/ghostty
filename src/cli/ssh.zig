@@ -155,6 +155,10 @@ pub const Options = struct {
 ///     connection continues. Almost every system knows `xterm-256color`,
 ///     so it's a safe fallback.
 ///
+/// `+ssh` skips the install when `ssh` won't open a remote terminal, which
+/// is the only place `TERM` is used. For example: `ssh host cmd` without
+/// `-t`, `ssh -N`, `ssh -W`, or `SessionType none` in your ssh config.
+///
 /// `+ssh` sets `TERM` in the environment of the `ssh` process instead of
 /// passing `-o SetEnv=TERM=...`. `ssh` always sends `TERM` when it opens a
 /// remote terminal, so the server doesn't need to allow it with
@@ -278,10 +282,17 @@ fn runInner(
     } = session: {
         if (!opts.terminfo) break :session .{ .term = "xterm-256color" };
 
-        const dest = resolveDestination(alloc, opts.ssh, opts._ssh_args.items) orelse {
+        const connection_args = ConnectionArgs.parse(opts._ssh_args.items);
+        if (!connection_args.session) {
+            verbosePrint(opts, stderr, "no remote session; skipping terminfo install", .{});
+            break :session .{ .term = "xterm-256color" };
+        }
+
+        const config = Configuration.resolve(alloc, opts.ssh, opts._ssh_args.items) orelse {
             warnPrint(stderr, "could not resolve ssh destination; skipping terminfo install", .{});
             break :session .{ .term = "xterm-256color" };
         };
+        const dest = config.destination;
 
         const cache: ?DiskCache = if (opts.cache) cache: {
             const path = DiskCache.defaultPath(alloc, "ghostty") catch |err| {
@@ -309,16 +320,35 @@ fn runInner(
                 verbosePrint(opts, stderr, "dest: {s} (cached, skipping install)", .{dest});
                 break :session .{ .term = "xterm-ghostty" };
             } else {
-                verbosePrint(opts, stderr, "dest: {s} (not cached, will install)", .{dest});
+                verbosePrint(opts, stderr, "dest: {s} (not cached)", .{dest});
             }
         } else {
-            verbosePrint(opts, stderr, "dest: {s} (cache disabled, will install)", .{dest});
+            verbosePrint(opts, stderr, "dest: {s} (cache disabled)", .{dest});
+        }
+
+        const stdin_tty = std.Io.File.stdin().isTty(global.io()) catch false;
+        if (!config.opensTerminal(connection_args.command, stdin_tty)) {
+            verbosePrint(opts, stderr, "no remote terminal; skipping terminfo install", .{});
+            break :session .{ .term = "xterm-256color" };
+        }
+
+        // With -n or StdinNull, the install connection can't read the
+        // terminfo from stdin, and -o can't override the -n flag.
+        if (config.stdin_null) {
+            verbosePrint(opts, stderr, "stdin is null; skipping terminfo install", .{});
+            break :session .{ .term = "xterm-256color" };
         }
 
         stderr.print("Setting up xterm-ghostty terminfo on {s}...\n", .{dest}) catch {};
         stderr.flush() catch {};
 
-        installRemoteTerminfo(alloc, opts, stderr) catch |err| {
+        installRemoteTerminfo(
+            alloc,
+            opts,
+            connection_args,
+            config,
+            stderr,
+        ) catch |err| {
             warnPrint(stderr, "failed to install terminfo: {t}", .{err});
             break :session .{ .term = "xterm-256color" };
         };
@@ -462,72 +492,190 @@ fn checkExit(term: std.process.Child.Term, label: []const u8) error{ChildFailed}
     }
 }
 
-/// Run `ssh -G <args>` and parse the output for `user` and `hostname`.
-/// Returns the resolved `user@hostname`, or null if the destination
-/// could not be resolved.
-fn resolveDestination(
-    alloc: Allocator,
-    ssh: []const u8,
+/// ssh options that take a value: the `x:` letters in the getopt() string
+/// in OpenSSH's ssh.c, as of OpenSSH 10.5.
+const ssh_value_options = "BbcDEeFIiJLlmOoPpQRSWw";
+
+/// ssh options that don't open a remote session: they print and exit
+/// (-G, -Q, -V) or send a command to a control master (-O). `ssh -G`
+/// output doesn't reflect these.
+const ssh_sessionless_options = "GOQV";
+
+const ConnectionArgs = struct {
+    /// The leading args that define the connection, without the remote
+    /// command, if any.
     args: []const []const u8,
-) ?[]const u8 {
-    const argv = std.mem.concat(alloc, []const u8, &.{
-        &.{ ssh, "-G" },
-        args,
-    }) catch return null;
-    const result = std.process.run(
-        alloc,
-        global.io(),
-        .{ .argv = argv },
-    ) catch |err| {
-        log.warn("ssh -G spawn failed: {}", .{err});
-        return null;
-    };
-    checkExit(result.term, "ssh -G") catch return null;
-    return parseDestination(alloc, result.stdout);
-}
 
-/// Parse `ssh -G` output for `user`, `hostname` and `port` and return the
-/// formatted `user@hostname`, or `user@hostname:port` when the port isn't
-/// the default 22 (`user@[hostname]:port` for an IPv6 address), so that
-/// different sshd instances behind one address are cached separately.
-/// Returns null if user or hostname is missing or formatting fails.
-fn parseDestination(alloc: Allocator, stdout: []const u8) ?[]const u8 {
-    var user: []const u8 = "";
-    var host: []const u8 = "";
-    var port: []const u8 = "";
-    var it = std.mem.tokenizeScalar(u8, stdout, '\n');
-    while (it.next()) |line| {
-        const space = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
-        const key = line[0..space];
-        const value = line[space + 1 ..];
-        if (std.mem.eql(u8, key, "user")) {
-            user = value;
-        } else if (std.mem.eql(u8, key, "hostname")) {
-            host = value;
-        } else if (std.mem.eql(u8, key, "port")) {
-            port = value;
+    /// True when a remote command follows the connection args.
+    command: bool = false,
+
+    /// False when an option means ssh won't open a remote session.
+    session: bool = true,
+
+    /// Index of a `--` before the destination. ssh reads no options after
+    /// it, so any options we add must go before it.
+    options_end: ?usize = null,
+
+    /// Whether `args` produce a remote command. ssh joins the args with spaces
+    /// and treats an empty result as no command, so a lone `""` doesn't count.
+    fn hasCommand(args: []const []const u8) bool {
+        return args.len > 1 or (args.len == 1 and args[0].len > 0);
+    }
+
+    /// Parse `args` the way ssh does: options can appear before and after
+    /// the destination, and the command starts at the next non-option
+    /// argument or after `--`.
+    fn parse(args: []const []const u8) ConnectionArgs {
+        var result: ConnectionArgs = .{ .args = args };
+        var found_dest = false;
+        var skip_value = false;
+        for (args, 0..) |arg, i| {
+            if (skip_value) {
+                skip_value = false;
+                continue;
+            }
+            if (std.mem.eql(u8, arg, "--")) {
+                const rest = args[i + 1 ..];
+                if (found_dest) {
+                    // Drop a `--` after the destination so options can follow.
+                    result.args = args[0..i];
+                    result.command = hasCommand(rest);
+                } else {
+                    result.args = args[0 .. i + 1 + @min(rest.len, 1)];
+                    result.command = hasCommand(rest[@min(rest.len, 1)..]);
+                    result.options_end = i;
+                }
+                return result;
+            }
+            if (arg.len < 2 or arg[0] != '-') {
+                if (found_dest) {
+                    result.args = args[0..i];
+                    result.command = hasCommand(args[i..]);
+                    return result;
+                }
+                found_dest = true;
+                continue;
+            }
+
+            // In a cluster like `-vp22` or `-vp 22`, the first option that
+            // takes a value consumes the rest of the arg, or else the next one.
+            for (arg[1..], 2..) |c, end| {
+                if (std.mem.indexOfScalar(u8, ssh_sessionless_options, c) != null) {
+                    result.session = false;
+                }
+                if (std.mem.indexOfScalar(u8, ssh_value_options, c) != null) {
+                    skip_value = end == arg.len;
+                    break;
+                }
+            }
         }
-        if (user.len > 0 and host.len > 0 and port.len > 0) break;
+        return result;
+    }
+};
+
+/// The parts of `ssh -G` output that `+ssh` uses. This assumes OpenSSH 8.7
+/// or newer; older clients omit some of these keys, which then keep their
+/// defaults.
+const Configuration = struct {
+    /// `user@hostname`, or `user@hostname:port` when the port isn't the
+    /// default 22 (`user@[hostname]:port` for an IPv6 address).
+    destination: []const u8 = "",
+
+    session_type: []const u8 = "default",
+    request_tty: []const u8 = "auto",
+    stdin_null: bool = false,
+    fork_after_authentication: bool = false,
+    remote_command: bool = false,
+
+    /// Whether ssh will open a remote terminal, and so send `TERM`.
+    /// `command` is whether the args include a remote command, and
+    /// `stdin_tty` whether our stdin is a terminal. `stdin_null` is left
+    /// to the caller, which skips the install whenever it's set.
+    fn opensTerminal(self: Configuration, command: bool, stdin_tty: bool) bool {
+        if (!std.mem.eql(u8, self.session_type, "default")) return false;
+        if (self.fork_after_authentication) return false;
+
+        // This mirrors ssh's RequestTTY handling.
+        if (std.mem.eql(u8, self.request_tty, "force")) return true;
+        if (std.mem.eql(u8, self.request_tty, "true")) return stdin_tty;
+        if (std.mem.eql(u8, self.request_tty, "auto")) {
+            return stdin_tty and !command and !self.remote_command;
+        }
+        return false;
     }
 
-    if (user.len == 0) {
-        log.warn("ssh -G output missing user", .{});
-        return null;
-    }
-    if (host.len == 0) {
-        log.warn("ssh -G output missing hostname", .{});
-        return null;
+    /// Parse `ssh -G` output. Returns null if user or hostname is missing
+    /// or formatting the destination fails.
+    fn parse(alloc: Allocator, stdout: []const u8) ?Configuration {
+        var config: Configuration = .{};
+        var user: []const u8 = "";
+        var host: []const u8 = "";
+        var port: []const u8 = "";
+        var it = std.mem.tokenizeScalar(u8, stdout, '\n');
+        while (it.next()) |line| {
+            const space = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
+            const key = line[0..space];
+            const value = line[space + 1 ..];
+            if (std.mem.eql(u8, key, "user")) {
+                user = value;
+            } else if (std.mem.eql(u8, key, "hostname")) {
+                host = value;
+            } else if (std.mem.eql(u8, key, "port")) {
+                port = value;
+            } else if (std.mem.eql(u8, key, "sessiontype")) {
+                config.session_type = value;
+            } else if (std.mem.eql(u8, key, "requesttty")) {
+                config.request_tty = value;
+            } else if (std.mem.eql(u8, key, "stdinnull")) {
+                config.stdin_null = std.mem.eql(u8, value, "yes");
+            } else if (std.mem.eql(u8, key, "forkafterauthentication")) {
+                config.fork_after_authentication = std.mem.eql(u8, value, "yes");
+            } else if (std.mem.eql(u8, key, "remotecommand")) {
+                config.remote_command = true;
+            }
+        }
+
+        if (user.len == 0) {
+            log.warn("ssh -G output missing user", .{});
+            return null;
+        }
+        if (host.len == 0) {
+            log.warn("ssh -G output missing hostname", .{});
+            return null;
+        }
+
+        config.destination = (if (port.len == 0 or std.mem.eql(u8, port, "22"))
+            alloc.print("{s}@{s}", .{ user, host })
+        else if (std.mem.indexOfScalar(u8, host, ':') != null)
+            alloc.print("{s}@[{s}]:{s}", .{ user, host, port })
+        else
+            alloc.print("{s}@{s}:{s}", .{ user, host, port })) catch return null;
+        return config;
     }
 
-    if (port.len == 0 or std.mem.eql(u8, port, "22")) {
-        return alloc.print("{s}@{s}", .{ user, host }) catch null;
+    /// Run `ssh -G <args>` and parse its output. Returns null if ssh fails
+    /// or the destination could not be resolved.
+    fn resolve(
+        alloc: Allocator,
+        ssh: []const u8,
+        args: []const []const u8,
+    ) ?Configuration {
+        const argv = std.mem.concat(alloc, []const u8, &.{
+            &.{ ssh, "-G" },
+            args,
+        }) catch return null;
+        const result = std.process.run(
+            alloc,
+            global.io(),
+            .{ .argv = argv },
+        ) catch |err| {
+            log.warn("ssh -G spawn failed: {}", .{err});
+            return null;
+        };
+        checkExit(result.term, "ssh -G") catch return null;
+        return parse(alloc, result.stdout);
     }
-
-    if (std.mem.indexOfScalar(u8, host, ':') != null) {
-        return alloc.print("{s}@[{s}]:{s}", .{ user, host, port }) catch null;
-    }
-    return alloc.print("{s}@{s}:{s}", .{ user, host, port }) catch null;
-}
+};
 
 /// Install Ghostty's terminfo on the remote host over a short-lived SSH
 /// ControlMaster connection. The master tears down with the client
@@ -535,6 +683,8 @@ fn parseDestination(alloc: Allocator, stdout: []const u8) ?[]const u8 {
 fn installRemoteTerminfo(
     alloc: Allocator,
     opts: *const Options,
+    connection_args: ConnectionArgs,
+    config: Configuration,
     stderr: *std.Io.Writer,
 ) !void {
     var buf: std.Io.Writer.Allocating = .init(alloc);
@@ -567,14 +717,34 @@ fn installRemoteTerminfo(
     //   - ControlMaster=yes makes our client also act as the master.
     //   - ControlPersist=no tears the master down when our client
     //     exits; no socket lingers on the remote side.
+    //
+    // ClearAllForwardings=yes leaves the user's -L/-R/-D forwards to the
+    // real session.
+    //
+    // RemoteCommand=none overrides a RemoteCommand from ssh_config, which ssh
+    // refuses to combine with our command. It's only passed when needed
+    // because OpenSSH before 7.6 rejects the option.
+    const remote_command_opts: []const []const u8 = if (config.remote_command)
+        &.{ "-o", "RemoteCommand=none" }
+    else
+        &.{};
+
+    // -T follows the user's options to override any -t: a remote tty never
+    // passes on the end of stdin, so tic would wait forever under -tt.
+    const args = connection_args.args;
+    const options_end = connection_args.options_end orelse args.len;
     const argv = try std.mem.concat(alloc, []const u8, &.{
         &.{opts.ssh},
         &.{
             "-o", "ControlMaster=yes",
             "-o", "ControlPersist=no",
             "-o", control_path_opt,
+            "-o", "ClearAllForwardings=yes",
         },
-        opts._ssh_args.items,
+        remote_command_opts,
+        args[0..options_end],
+        &.{"-T"},
+        args[options_end..],
         &.{remote_script},
     });
     verbosePrint(opts, stderr, "exec: {f}", .{Joined{ .items = argv }});
@@ -671,7 +841,98 @@ test "parseManuallyHook: explicit -- separator" {
     try testing.expectEqualStrings("user@example.com", opts._ssh_args.items[1]);
 }
 
-test "parseDestination: typical ssh -G output" {
+test "ConnectionArgs.parse" {
+    const testing = std.testing;
+    const cases = [_]struct {
+        args: []const []const u8,
+        len: usize,
+        command: bool = false,
+        session: bool = true,
+        options_end: ?usize = null,
+    }{
+        .{ .args = &.{}, .len = 0 },
+        .{ .args = &.{"host"}, .len = 1 },
+        .{ .args = &.{ "host", "ls", "-la" }, .len = 1, .command = true },
+        .{ .args = &.{ "-p", "2222", "host", "vim" }, .len = 3, .command = true },
+        .{ .args = &.{ "host", "-p", "2222", "vim" }, .len = 3, .command = true },
+        .{ .args = &.{ "host", "-t", "vim", "-p", "2222" }, .len = 2, .command = true },
+        .{ .args = &.{ "-vp2222", "host", "ls" }, .len = 2, .command = true },
+        .{ .args = &.{ "-vp", "2222", "host", "ls" }, .len = 3, .command = true },
+        .{ .args = &.{ "-o", "User=bob", "host", "ls" }, .len = 3, .command = true },
+        .{ .args = &.{ "--", "host", "-p", "2222" }, .len = 2, .command = true, .options_end = 0 },
+        .{ .args = &.{ "--", "host" }, .len = 2, .options_end = 0 },
+        .{ .args = &.{ "-p", "2222", "--", "host" }, .len = 4, .options_end = 2 },
+        .{ .args = &.{ "host", "--", "-p", "2222" }, .len = 1, .command = true },
+        .{ .args = &.{ "host", "--" }, .len = 1 },
+        .{ .args = &.{ "host", "" }, .len = 1 },
+        .{ .args = &.{ "host", "", "" }, .len = 1, .command = true },
+        .{ .args = &.{ "host", "--", "" }, .len = 1 },
+        .{ .args = &.{"--"}, .len = 1, .options_end = 0 },
+        .{ .args = &.{"-p"}, .len = 1 },
+        .{ .args = &.{ "-G", "host" }, .len = 2, .session = false },
+        .{ .args = &.{ "-O", "check", "host" }, .len = 3, .session = false },
+        .{ .args = &.{"-V"}, .len = 1, .session = false },
+        .{ .args = &.{ "host", "ls", "-G" }, .len = 1, .command = true },
+        .{ .args = &.{ "-lG", "host" }, .len = 2 },
+    };
+    for (cases) |case| {
+        const got = ConnectionArgs.parse(case.args);
+        try testing.expectEqual(case.len, got.args.len);
+        try testing.expectEqual(case.command, got.command);
+        try testing.expectEqual(case.session, got.session);
+        try testing.expectEqual(case.options_end, got.options_end);
+    }
+}
+
+test "Configuration.parse: session settings" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const stdout =
+        \\user alice
+        \\hostname example.com
+        \\requesttty force
+        \\sessiontype none
+        \\stdinnull yes
+        \\forkafterauthentication yes
+        \\remotecommand tmux new -A
+        \\
+    ;
+    const config = Configuration.parse(arena.allocator(), stdout).?;
+    try testing.expectEqualStrings("force", config.request_tty);
+    try testing.expectEqualStrings("none", config.session_type);
+    try testing.expect(config.stdin_null);
+    try testing.expect(config.fork_after_authentication);
+    try testing.expect(config.remote_command);
+}
+
+test "Configuration.opensTerminal" {
+    const testing = std.testing;
+    const cases = [_]struct {
+        config: Configuration,
+        command: bool = false,
+        stdin_tty: bool = true,
+        opens: bool,
+    }{
+        .{ .config = .{}, .opens = true },
+        .{ .config = .{}, .command = true, .opens = false },
+        .{ .config = .{}, .stdin_tty = false, .opens = false },
+        .{ .config = .{ .request_tty = "true" }, .command = true, .opens = true },
+        .{ .config = .{ .request_tty = "true" }, .stdin_tty = false, .opens = false },
+        .{ .config = .{ .request_tty = "force" }, .stdin_tty = false, .opens = true },
+        .{ .config = .{ .request_tty = "false" }, .opens = false },
+        .{ .config = .{ .session_type = "none" }, .opens = false },
+        .{ .config = .{ .session_type = "subsystem" }, .opens = false },
+        .{ .config = .{ .fork_after_authentication = true }, .opens = false },
+        .{ .config = .{ .remote_command = true }, .opens = false },
+        .{ .config = .{ .remote_command = true, .request_tty = "true" }, .opens = true },
+    };
+    for (cases) |case| {
+        try testing.expectEqual(case.opens, case.config.opensTerminal(case.command, case.stdin_tty));
+    }
+}
+
+test "Configuration.parse: typical ssh -G output" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -682,11 +943,11 @@ test "parseDestination: typical ssh -G output" {
         \\identityfile ~/.ssh/id_ed25519
         \\
     ;
-    const result = parseDestination(arena.allocator(), stdout);
-    try testing.expectEqualStrings("alice@example.com", result.?);
+    const result = Configuration.parse(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@example.com", result.?.destination);
 }
 
-test "parseDestination: hostname before user" {
+test "Configuration.parse: hostname before user" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -696,43 +957,43 @@ test "parseDestination: hostname before user" {
         \\user alice
         \\
     ;
-    const result = parseDestination(arena.allocator(), stdout);
-    try testing.expectEqualStrings("alice@example.com", result.?);
+    const result = Configuration.parse(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@example.com", result.?.destination);
 }
 
-test "parseDestination: missing hostname returns null" {
+test "Configuration.parse: missing hostname returns null" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const stdout = "user alice\nport 22\n";
-    try testing.expectEqual(@as(?[]const u8, null), parseDestination(arena.allocator(), stdout));
+    try testing.expect(Configuration.parse(arena.allocator(), stdout) == null);
 }
 
-test "parseDestination: missing user returns null" {
+test "Configuration.parse: missing user returns null" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const stdout = "hostname example.com\nport 22\n";
-    try testing.expectEqual(@as(?[]const u8, null), parseDestination(arena.allocator(), stdout));
+    try testing.expect(Configuration.parse(arena.allocator(), stdout) == null);
 }
 
-test "parseDestination: empty input returns null" {
+test "Configuration.parse: empty input returns null" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    try testing.expectEqual(@as(?[]const u8, null), parseDestination(arena.allocator(), ""));
+    try testing.expect(Configuration.parse(arena.allocator(), "") == null);
 }
 
-test "parseDestination: IPv6 hostname" {
+test "Configuration.parse: IPv6 hostname" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const stdout = "user alice\nhostname ::1\n";
-    const result = parseDestination(arena.allocator(), stdout);
-    try testing.expectEqualStrings("alice@::1", result.?);
+    const result = Configuration.parse(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@::1", result.?.destination);
 }
 
-test "parseDestination: non-default port" {
+test "Configuration.parse: non-default port" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -742,29 +1003,29 @@ test "parseDestination: non-default port" {
         \\port 2222
         \\
     ;
-    const result = parseDestination(arena.allocator(), stdout);
-    try testing.expectEqualStrings("alice@example.com:2222", result.?);
+    const result = Configuration.parse(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@example.com:2222", result.?.destination);
 }
 
-test "parseDestination: port before hostname" {
+test "Configuration.parse: port before hostname" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const stdout = "port 2222\nuser alice\nhostname example.com\n";
-    const result = parseDestination(arena.allocator(), stdout);
-    try testing.expectEqualStrings("alice@example.com:2222", result.?);
+    const result = Configuration.parse(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@example.com:2222", result.?.destination);
 }
 
-test "parseDestination: IPv6 hostname with non-default port" {
+test "Configuration.parse: IPv6 hostname with non-default port" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const stdout = "user alice\nhostname ::1\nport 2222\n";
-    const result = parseDestination(arena.allocator(), stdout);
-    try testing.expectEqualStrings("alice@[::1]:2222", result.?);
+    const result = Configuration.parse(arena.allocator(), stdout);
+    try testing.expectEqualStrings("alice@[::1]:2222", result.?.destination);
 }
 
-test "parseDestination: result is a valid cache key" {
+test "Configuration.parse: result is a valid cache key" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -775,7 +1036,7 @@ test "parseDestination: result is a valid cache key" {
         "user alice\nhostname 2001:db8::1\nport 2222\n",
     };
     for (outputs) |stdout| {
-        const result = parseDestination(arena.allocator(), stdout).?;
+        const result = Configuration.parse(arena.allocator(), stdout).?.destination;
         try testing.expect(DiskCache.isValidCacheKey(result));
     }
 }
