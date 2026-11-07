@@ -64,7 +64,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The release to build, such as vt-0.1.0. With upload, the tag must exist and is what gets built. Without upload, the selected branch is built under this version as a rehearsal. Leave empty for a plain dry run."
+        description: "The release to build, such as vt-1.0.0. With upload, the tag must exist and is what gets built. Without upload, the selected branch is built under this version as a rehearsal. Leave empty for a plain dry run."
         required: false
       upload:
         description: "Publish the release: upload the files to release.files.ghostty.org. Leave unset for a dry run."
@@ -128,7 +128,7 @@ jobs:
             if [[ "$INPUT_UPLOAD" == "true" ]]; then
               RELEASE=true
               if [[ -z "$TAG" ]]; then
-                echo "Error: upload needs a version, such as vt-0.1.0." >&2
+                echo "Error: upload needs a version, such as vt-1.0.0." >&2
                 exit 1
               fi
             else
@@ -140,7 +140,7 @@ jobs:
           fi
 
           if [[ -n "$TAG" && ! "$TAG" =~ ^vt-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Version must follow the format vt-X.Y.Z (e.g., vt-0.1.0)."
+            echo "Error: Version must follow the format vt-X.Y.Z (e.g., vt-1.0.0)."
             exit 1
           fi
 

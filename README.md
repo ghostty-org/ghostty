@@ -170,7 +170,7 @@ for a list of projects and resources related to `libghostty`.
 [`PACKAGING-LIBGHOSTTY.md`](PACKAGING-LIBGHOSTTY.md). To use it from a
 CMake project, see [`dist/cmake/README.md`](dist/cmake/README.md). We're
 still working on a better docs experience, but our
-[Doxygen website](https://libghostty.tip.ghostty.org/) is a good resource
+[Doxygen website](https://lib.ghostty.org/vt/) is a good resource
 for the C API.
 
 #### Ghostty-only Terminal Control Sequences

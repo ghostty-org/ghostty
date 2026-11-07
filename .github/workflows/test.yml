@@ -71,7 +71,12 @@ jobs:
       - id: determine
         name: Determine skip
         run: |
-          if [ "${{ steps.filter_every.outputs.code }}" = "false" ]; then
+          # The filters diff the pushed ref against main, so a tag on a
+          # commit of main has no changed files and would skip every job.
+          # A tag is a release, so it always runs the tests.
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.filter_every.outputs.code }}" = "false" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
