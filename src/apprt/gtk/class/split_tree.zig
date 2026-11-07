@@ -218,12 +218,7 @@ pub const SplitTree = extern struct {
         const alloc = Application.default().allocator();
 
         // Create our new surface.
-        const surface: *Surface = .new(.{
-            .command = overrides.command,
-            .shell_integration = overrides.shell_integration,
-            .working_directory = overrides.working_directory,
-            .title = overrides.title,
-        });
+        const surface: *Surface = .new(overrides);
         defer surface.unref();
         _ = surface.refSink();
 
