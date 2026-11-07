@@ -2968,7 +2968,7 @@ pub const Surface = extern struct {
                 button,
                 mods,
             ) catch |err| err: {
-                log.warn("error in key callback err={}", .{err});
+                log.warn("error in mouse button callback err={}", .{err});
                 break :err false;
             };
         };
@@ -3029,7 +3029,7 @@ pub const Surface = extern struct {
             button,
             mods,
         ) catch |err| {
-            log.warn("error in key callback err={}", .{err});
+            log.warn("error in mouse button callback err={}", .{err});
             return;
         };
 
@@ -3043,6 +3043,45 @@ pub const Surface = extern struct {
                 log.warn("failed to activate the on-screen keyboard", .{});
             }
         }
+    }
+
+    fn gcMouseUnpairedRelease(
+        gesture: *gtk.GestureClick,
+        _: f64,
+        _: f64,
+        button: c_uint,
+        _: ?*gdk.EventSequence,
+        self: *Self,
+    ) callconv(.c) void {
+        // GTK resets the gesture on a second button press, or on motion with a
+        // button above five held, so those releases arrive here instead of in
+        // gcMouseUp. Only forward releases for buttons the core still has down.
+        //
+        // https://docs.gtk.org/gtk4/signal.GestureClick.unpaired-release.html
+        const priv = self.private();
+        const surface = priv.core_surface orelse return;
+
+        // getCurrentButton() was reset with the gesture, so use the signal's.
+        const mouse_button = translateMouseButton(button);
+
+        // The press for a focus-transition click never reached the core, so
+        // clear the suppression here or it swallows the next real release.
+        if (mouse_button == .left and priv.suppress_left_mouse_release) {
+            priv.suppress_left_mouse_release = false;
+            return;
+        }
+
+        if (!surface.isMouseButtonPressed(mouse_button)) return;
+
+        const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
+        const mods = gtk_key.translateMods(event.getModifierState());
+        _ = surface.mouseButtonCallback(
+            .release,
+            mouse_button,
+            mods,
+        ) catch |err| {
+            log.warn("error in mouse button callback err={}", .{err});
+        };
     }
 
     fn ecMouseMotion(
@@ -3961,6 +4000,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("key_released", &ecKeyReleased);
             class.bindTemplateCallback("mouse_down", &gcMouseDown);
             class.bindTemplateCallback("mouse_up", &gcMouseUp);
+            class.bindTemplateCallback("mouse_unpaired_release", &gcMouseUnpairedRelease);
             class.bindTemplateCallback("mouse_motion", &ecMouseMotion);
             class.bindTemplateCallback("mouse_leave", &ecMouseLeave);
             class.bindTemplateCallback("scroll_vertical", &ecMouseScrollVertical);
