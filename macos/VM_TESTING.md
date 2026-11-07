@@ -15,7 +15,7 @@ desktop or steals its focus.
 ```sh
 brew install cirruslabs/cli/tart
 tart clone ghcr.io/cirruslabs/macos-tahoe-base:latest omg-test
-tart set omg-test --cpu 8 --memory 16384 --display 1920x1200
+tart set omg-test --cpu 8 --memory 16384 --display 1512x982
 ```
 
 Boot the VM once with `tart run omg-test`, sign in as `admin`, enable automatic
@@ -41,6 +41,9 @@ macos/scripts/vm/omg-vm provision
 macos/scripts/vm/omg-vm smoke
 macos/scripts/vm/omg-vm desktop
 
+# Match the host's logical resolution after cloning a new VM
+macos/scripts/vm/omg-vm display 1512x982
+
 # Inspect guest logs and shut the VM down, keeping its disk
 macos/scripts/vm/omg-vm logs
 macos/scripts/vm/omg-vm down
@@ -55,6 +58,12 @@ ordinary rebuilds keep the same requirement.
 a unique `echo`/`touch` command through System Events, verifies the guest marker
 file, and saves a screenshot. This covers GUI launch, key delivery, PTY shell and
 the guest screenshot path.
+
+The retained VM runs at 1512x982, matching the host's logical screen size, so
+layout-dependent checks see the same window geometry. `omg-vm display` lists the
+available modes and `omg-vm display 1512x982` applies one; the choice persists in
+the guest. Guest rendering is 1x while the host is 2x Retina, so guest
+screenshots are 1512x982 and host captures are 3024x1964.
 
 Measured on an Apple Silicon host: `up` 14-17 s, `deploy` about 5 s, `smoke`
 about 6 s, `down` about 6.5 s.
@@ -73,9 +82,10 @@ The drag check assumes the default sidebar width and font, so a resized sidebar
 makes it fail instead of silently passing. The PTY number is write throughput,
 not a frame rate: rendering happens asynchronously after the shell returns.
 
-Observed on the local 1024x768 guest: launch 1.2-3.7 s (higher when more windows
-are restored), new window 0.25-0.54 s, fullscreen in 0.23-0.40 s, fullscreen out
-0.66-1.11 s, Return to shell 81-90 ms and about 485k-520k PTY lines per second.
+Observed on the local 1512x982 guest: launch 4.2-4.5 s (higher when more windows
+are restored), new window 0.52-0.56 s, fullscreen in 0.40-0.45 s, fullscreen out
+1.19-1.23 s, Return to shell 84-92 ms and about 440k PTY lines per second. A
+1024x768 guest is faster but no longer matches the host layout.
 
 ## Shutdown
 
