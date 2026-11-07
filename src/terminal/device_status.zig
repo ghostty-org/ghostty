@@ -1,5 +1,6 @@
 const std = @import("std");
 const lib = @import("lib.zig");
+const ConformanceLevel = @import("device_attributes.zig").ConformanceLevel;
 
 /// The color scheme reported in response to a CSI ? 996 n query.
 pub const ColorScheme = lib.Enum(lib.target, &.{
@@ -53,6 +54,81 @@ pub fn encodeVisibilityReport(
         .potentially_visible => "\x1B[?999;1n",
         .not_visible => "\x1B[?999;2n",
     });
+}
+
+/// The reply to a status request about hardware or a feature that Ghostty
+/// doesn't have, which is therefore always the same. Null for requests whose
+/// reply depends on the terminal's state.
+pub fn fixedReport(req: Request) ?[:0]const u8 {
+    return switch (req) {
+        // No printer.
+        .printer_status => "\x1B[?13n",
+
+        // Locked: Ghostty doesn't support DECUDK, so user-defined keys can't
+        // be set.
+        .udk_status => "\x1B[?21n",
+
+        // No locator. Ghostty doesn't support DEC locator mode (DECELR).
+        .locator_status => "\x1B[?50n",
+
+        // Locator type unknown.
+        .locator_type => "\x1B[?57;0n",
+
+        // DECMSR: no space for macros. Ghostty doesn't support DECDMAC.
+        .macro_space => "\x1B[0*{",
+
+        // No communication errors are possible on a pty.
+        .data_integrity => "\x1B[?70n",
+
+        // Not configured for multiple sessions.
+        .multiple_sessions => "\x1B[?83n",
+
+        .operating_status,
+        .cursor_position,
+        .cursor_position_extended,
+        .keyboard_status,
+        .memory_checksum,
+        .color_scheme,
+        .visibility,
+        => null,
+    };
+}
+
+/// Maximum number of bytes that `encodeKeyboardReport` will write.
+pub const max_keyboard_report_encode_size = "\x1B[?27;0;0;0n".len;
+
+/// Encode the keyboard status report for CSI ? 26 n queries. The report
+/// grew a parameter at each of conformance levels 3 and 4, so its length
+/// follows the level the terminal reports in its primary device attributes.
+///
+/// The terminal can't know the keyboard's language, so that is reported as
+/// unknown. The keyboard is always ready, and its type is reported as an
+/// LK201, as xterm does.
+pub fn encodeKeyboardReport(
+    writer: *std.Io.Writer,
+    level: ConformanceLevel,
+) std.Io.Writer.Error!void {
+    const int = @backingInt(level);
+    try writer.writeAll(
+        if (int >= @backingInt(ConformanceLevel.level_4))
+            "\x1B[?27;0;0;0n"
+        else if (int >= @backingInt(ConformanceLevel.level_3))
+            "\x1B[?27;0;0n"
+        else
+            "\x1B[?27;0n",
+    );
+}
+
+/// Maximum number of bytes that `encodeMemoryChecksumReport` will write.
+pub const max_memory_checksum_report_encode_size = "\x1BP65535!~0000\x1B\\".len;
+
+/// Encode the DECCKSR memory checksum report for CSI ? 63 ; Pid n queries.
+/// The checksum covers macro memory, and Ghostty has none, so it is zero.
+pub fn encodeMemoryChecksumReport(
+    writer: *std.Io.Writer,
+    id: u16,
+) std.Io.Writer.Error!void {
+    try writer.print("\x1BP{}!~0000\x1B\\", .{id});
 }
 
 /// An enum(u16) of the available device status requests.
@@ -115,6 +191,18 @@ const entries: []const Entry = &.{
     // DECXCPR: the "?" form of value 6 reports the extended cursor position
     // (adds a page number) rather than the plain CPR.
     .{ .name = "cursor_position_extended", .value = 6, .question = true },
+    .{ .name = "printer_status", .value = 15, .question = true },
+    .{ .name = "udk_status", .value = 25, .question = true },
+    .{ .name = "keyboard_status", .value = 26, .question = true },
+    .{ .name = "locator_status", .value = 55, .question = true },
+    .{ .name = "locator_type", .value = 56, .question = true },
+    // DECMSR
+    .{ .name = "macro_space", .value = 62, .question = true },
+    // DECCKSR: the only request with a second parameter, an id that is
+    // echoed in the reply.
+    .{ .name = "memory_checksum", .value = 63, .question = true },
+    .{ .name = "data_integrity", .value = 75, .question = true },
+    .{ .name = "multiple_sessions", .value = 85, .question = true },
     .{ .name = "color_scheme", .value = 996, .question = true },
     .{ .name = "visibility", .value = 998, .question = true },
 };
@@ -144,4 +232,31 @@ test "encode visibility report" {
     writer = .fixed(&buf);
     try encodeVisibilityReport(&writer, .not_visible);
     try std.testing.expectEqualStrings("\x1B[?999;2n", writer.buffered());
+}
+
+test "encode keyboard report follows conformance level" {
+    var buf: [max_keyboard_report_encode_size]u8 = undefined;
+    const cases = [_]struct { level: ConformanceLevel, expected: []const u8 }{
+        .{ .level = .vt100, .expected = "\x1B[?27;0n" },
+        .{ .level = .vt220, .expected = "\x1B[?27;0n" },
+        .{ .level = .vt320, .expected = "\x1B[?27;0;0n" },
+        .{ .level = .vt420, .expected = "\x1B[?27;0;0;0n" },
+        .{ .level = .vt520, .expected = "\x1B[?27;0;0;0n" },
+    };
+    for (cases) |case| {
+        var writer: std.Io.Writer = .fixed(&buf);
+        try encodeKeyboardReport(&writer, case.level);
+        try std.testing.expectEqualStrings(case.expected, writer.buffered());
+    }
+}
+
+test "encode memory checksum report" {
+    var buf: [max_memory_checksum_report_encode_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeMemoryChecksumReport(&writer, 123);
+    try std.testing.expectEqualStrings("\x1BP123!~0000\x1B\\", writer.buffered());
+
+    writer = .fixed(&buf);
+    try encodeMemoryChecksumReport(&writer, std.math.maxInt(u16));
+    try std.testing.expectEqual(max_memory_checksum_report_encode_size, writer.buffered().len);
 }
