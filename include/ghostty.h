@@ -123,6 +123,8 @@ typedef struct {
   size_t available_len;
   const char *GHOSTTY_NULLABLE name;
   bool can_remember;
+  // Hide the preview of an unsafe paste at a password prompt by default.
+  bool password_input;
 } ghostty_clipboard_confirm_s;
 
 typedef enum {

@@ -4655,6 +4655,7 @@ const Clipboard = struct {
             .{ .contents = &.{.{ .mime = "text/plain", .data = text }} },
         ) catch |err| switch (err) {
             error.UnsafePaste,
+            error.UnsafePastePassword,
             error.UnauthorizedPaste,
             => {
                 showClipboardConfirmation(
@@ -4892,6 +4893,7 @@ const Clipboard = struct {
             .{ .contents = &.{.{ .mime = "text/plain", .data = str }} },
         ) catch |err| switch (err) {
             error.UnsafePaste,
+            error.UnsafePastePassword,
             error.UnauthorizedPaste,
             => {
                 showClipboardConfirmation(
