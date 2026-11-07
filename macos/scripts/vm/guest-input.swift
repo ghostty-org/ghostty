@@ -41,6 +41,16 @@ case "click":
 case "drag":
     let from = point(args[2], args[3]), to = point(args[4], args[5])
     drag(from, to, steps: args.count > 6 ? Int(args[6])! : 20)
+case "windows":
+    let pid = Int32(args[2])!
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+    var count = 0
+    for window in windows {
+        guard (window[kCGWindowOwnerPID as String] as? Int32) == pid else { continue }
+        count += 1
+    }
+    print("count=\(count)")
 case "key":
     let code = CGKeyCode(UInt16(args[2])!)
     var flags: CGEventFlags = []

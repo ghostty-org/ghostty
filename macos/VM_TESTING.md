@@ -95,6 +95,9 @@ removed. If the guest has not halted within 45 s, the script falls back to
 - Sidebar tab drag, multi-display behavior, frame rate and visible-input
   latency measurements still need a host desktop run; `desktop` only covers
   what can be driven from inside the guest.
+- App launch in the VM costs roughly 1.5-2x the host, but the `omg +version`
+  startup path is the same order of magnitude; the gap is window restoration,
+  not process startup.
 - The first window restored after a full stop can show a session that ended
   while the guest was powered off. The smoke command always opens a fresh
   terminal, which is the right starting point for disposable GUI checks.
