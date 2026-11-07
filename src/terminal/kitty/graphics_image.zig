@@ -8,6 +8,9 @@ const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const animation = @import("graphics_animation.zig");
+const pixel = @import("graphics_pixel.zig");
+const ArcPixels = @import("../image.zig").ArcPixels;
+const Image = @import("../image.zig").Image;
 const command = @import("graphics_command.zig");
 const kitty_windows = @import("windows.zig");
 const PageList = @import("../PageList.zig");
@@ -29,7 +32,7 @@ const max_size = 400 * 1024 * 1024; // 400MB
 pub const LoadingImage = struct {
     /// The in-progress image. The first chunk must have all the metadata
     /// so this comes from that initially.
-    image: Image,
+    image: Info,
 
     /// The data that is being built up.
     data: std.ArrayList(u8) = .empty,
@@ -55,6 +58,17 @@ pub const LoadingImage = struct {
     /// The temporary directory for file transmission (null means that
     /// temporary directory transmission is disabled).
     temporary_directory: ?[]const u8,
+
+    /// Transmission metadata, independent of decoded pixel ownership.
+    pub const Info = struct {
+        id: u32 = 0,
+        number: u32 = 0,
+        width: u32 = 0,
+        height: u32 = 0,
+        format: command.Transmission.Format = .rgb,
+        compression: command.Transmission.Compression = .none,
+        metadata: KittyImage.Metadata = .{},
+    };
 
     pub const FrameContext = struct {
         /// The frame parameters from the initial a=f command. Chunked
@@ -535,7 +549,6 @@ pub const LoadingImage = struct {
     }
 
     pub fn deinit(self: *LoadingImage, alloc: Allocator) void {
-        self.image.deinit(alloc);
         self.data.deinit(alloc);
     }
 
@@ -565,7 +578,8 @@ pub const LoadingImage = struct {
         fastmem.copy(u8, self.data.items[start_i..], data);
     }
 
-    /// Complete the chunked image, returning a completed image.
+    /// Transfer the decoded pixels into an owned CPU image. Transmission
+    /// metadata remains available in image until the loading state is discarded.
     pub fn complete(self: *LoadingImage, alloc: Allocator) !Image {
         const img = &self.image;
 
@@ -603,12 +617,18 @@ pub const LoadingImage = struct {
             return error.InvalidData;
         }
 
-        // Everything looks good, copy the image data over.
-        var result = self.image;
-        result.data = .{ .complete = try self.data.toOwnedSlice(alloc) };
-        errdefer result.deinit(alloc);
-        self.image = .{};
-        return result;
+        return .{
+            .width = img.width,
+            .height = img.height,
+            .format = switch (img.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .png => unreachable,
+            },
+            .data = try self.data.toOwnedSlice(alloc),
+        };
     }
 
     /// Debug function to write the data to a file. This is useful for
@@ -699,7 +719,7 @@ pub const LoadingImage = struct {
             else
                 return error.OutOfMemory,
         };
-        defer decode_alloc.free(result.data);
+        errdefer decode_alloc.free(result.data);
 
         if (result.data.len > max_size) {
             log.warn("png image too large size={} max_size={}", .{ result.data.len, max_size });
@@ -708,9 +728,9 @@ pub const LoadingImage = struct {
 
         // Replace our data
         self.data.deinit(alloc);
-        self.data = .empty;
-        try self.data.ensureUnusedCapacity(alloc, result.data.len);
-        try self.data.appendSlice(alloc, result.data[0..result.data.len]);
+        // LimitedAllocator forwards allocations unchanged to alloc, so the
+        // decoded allocation can outlive the stack-local limit wrapper.
+        self.data = .fromOwnedSlice(result.data);
 
         // Store updated image dimensions
         self.image.width = result.width;
@@ -719,37 +739,22 @@ pub const LoadingImage = struct {
     }
 };
 
-/// Image represents a single image whose metadata is fully known.
+/// KittyImage represents a single image whose metadata is fully known.
 ///
 /// Complete image data is always fully decoded raw pixels: loading inflates
 /// any zlib-compressed payload and decodes PNG into RGBA before an image is
 /// completed, so `compression` is always `.none` and `format` is never `.png`
 /// for a stored image. Pending image data reserves the exact decoded byte
 /// length that will be attached later.
-pub const Image = struct {
+pub const KittyImage = struct {
     id: u32 = 0,
     number: u32 = 0,
     width: u32 = 0,
     height: u32 = 0,
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
-    data: Data = .{ .complete = "" },
-    metadata: packed struct(u32) {
-        /// The image's transient usage hint, used to prioritize eviction.
-        transient: bool = false,
-
-        /// Set this if the image was loaded without an ID or number. Such
-        /// images must not receive responses. Kitty gives these client ID
-        /// 0 (unaddressable); our storage keys everything by one public
-        /// u32 ID, so they get an ID from the upper half of the range
-        /// that is guaranteed unused at assignment time, but a client
-        /// that explicitly transmits that ID later can still replace
-        /// them.
-        implicit_id: bool = false,
-
-        /// Number of placements referencing this image.
-        placement_count: u30 = 0,
-    } = .{},
+    data: Data = .{ .pending = 0 },
+    metadata: Metadata = .{},
 
     /// Unique, monotonically increasing stamp assigned each time an
     /// image is added to (or replaced in) an ImageStorage. A changed
@@ -791,9 +796,26 @@ pub const Image = struct {
     ///
     /// This is only ever attached to images stored in an ImageStorage
     /// and must only be mutated through the storage's own pointer
-    /// (Image values are copied around freely; copies share this
+    /// (KittyImage values are copied around freely; copies share this
     /// pointer and never own it).
     animation: ?*animation.Animation = null,
+
+    pub const Metadata = packed struct(u32) {
+        /// The image's transient usage hint, used to prioritize eviction.
+        transient: bool = false,
+
+        /// Set this if the image was loaded without an ID or number. Such
+        /// images must not receive responses. Kitty gives these client ID
+        /// 0 (unaddressable); our storage keys everything by one public
+        /// u32 ID, so they get an ID from the upper half of the range
+        /// that is guaranteed unused at assignment time, but a client
+        /// that explicitly transmits that ID later can still replace
+        /// them.
+        implicit_id: bool = false,
+
+        /// Number of placements referencing this image.
+        placement_count: u30 = 0,
+    };
 
     pub const Error = error{
         InsufficientData,
@@ -810,8 +832,8 @@ pub const Image = struct {
     };
 
     pub const Data = union(enum) {
-        /// Owned, decoded image bytes. The empty default is not allocated.
-        complete: []const u8,
+        /// Completed decoded pixels, always reference-counted.
+        ready: *const ArcPixels,
 
         /// Expected decoded byte length for a payload that has not arrived.
         pending: usize,
@@ -819,7 +841,7 @@ pub const Image = struct {
         /// Bytes reserved against the storage limit.
         pub fn len(self: Data) usize {
             return switch (self) {
-                .complete => |data| data.len,
+                .ready => |image| image.value.len,
                 .pending => |expected_len| expected_len,
             };
         }
@@ -827,7 +849,7 @@ pub const Image = struct {
         /// Returns decoded bytes when the payload is complete.
         pub fn bytes(self: Data) ?[]const u8 {
             return switch (self) {
-                .complete => |data| data,
+                .ready => |image| image.value,
                 .pending => null,
             };
         }
@@ -838,13 +860,100 @@ pub const Image = struct {
 
         pub fn deinit(self: *Data, alloc: Allocator) void {
             switch (self.*) {
-                .complete => |data| if (data.len > 0) alloc.free(data),
+                .ready => |image| image.release(alloc),
                 .pending => {},
             }
         }
     };
 
-    pub fn deinit(self: *Image, alloc: Allocator) void {
+    /// Adopt decoded CPU pixels. On error the caller retains their ownership.
+    pub fn init(alloc: Allocator, info: LoadingImage.Info, pixels: Image) Allocator.Error!KittyImage {
+        return .{
+            .id = info.id,
+            .number = info.number,
+            .width = pixels.width,
+            .height = pixels.height,
+            .format = switch (pixels.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .bgr, .bgra => unreachable,
+            },
+            .metadata = info.metadata,
+            .data = .{ .ready = try ArcPixels.init(alloc, pixels.data) },
+        };
+    }
+
+    /// Borrow the immutable displayed frame while terminal state is locked.
+    /// Without incrementing the ref-count.
+    pub fn renderPixels(self: *const KittyImage) ?*const ArcPixels {
+        return switch (self.renderData()) {
+            .ready => |image| image,
+            .pending => null,
+        };
+    }
+
+    const Edit = struct {
+        source: ?[]const u8,
+        width: u32,
+        height: u32,
+        x: u32,
+        y: u32,
+        composition_mode: command.CompositionMode,
+        operation: union(enum) {
+            rectangle,
+            canvas: struct { x: u32, y: u32 },
+        },
+
+        fn compose(ctx: @This(), dst: *Image) void {
+            switch (ctx.operation) {
+                .rectangle => pixel.composeRect(
+                    dst.data,
+                    dst.width,
+                    dst.height,
+                    ctx.source.?,
+                    ctx.width,
+                    ctx.height,
+                    ctx.x,
+                    ctx.y,
+                    ctx.composition_mode,
+                ),
+                .canvas => |source| pixel.composeCanvasRect(
+                    dst.data,
+                    ctx.source orelse dst.data,
+                    dst.width,
+                    ctx.width,
+                    ctx.height,
+                    source.x,
+                    source.y,
+                    ctx.x,
+                    ctx.y,
+                    ctx.composition_mode,
+                ),
+            }
+        }
+    };
+    /// Sometimes allocates a new deep copy of the image bytes in order for the
+    /// KittyImage to be mutable. The context must not alias the destination
+    /// frame's bytes.
+    pub fn editFrame(
+        self: *KittyImage,
+        alloc: Allocator,
+        number: u32,
+        context: Edit,
+    ) Allocator.Error!void {
+        const data = if (number == 1) &self.data.ready else &self.animation.?.frames.items[number - 2].data;
+        var image: Image = .{
+            .width = self.width,
+            .height = self.height,
+            .format = .rgba,
+            .data = (try ArcPixels.makeMut(data, alloc)).*,
+        };
+        context.compose(&image);
+    }
+
+    pub fn deinit(self: *KittyImage, alloc: Allocator) void {
         self.data.deinit(alloc);
         if (self.animation) |anim| {
             anim.deinit(alloc);
@@ -866,12 +975,12 @@ pub const Image = struct {
     /// const pixels = image.renderData().bytes() orelse return; // not ready
     /// upload(pixels);
     /// ```
-    pub fn renderData(self: *const Image) Data {
+    pub fn renderData(self: *const KittyImage) Data {
         if (self.animation) |anim| {
             if (anim.current_index > 0) {
                 const frame = anim.frames.items[anim.current_index - 1];
                 if (frame.isPending()) return .{ .pending = frame.pending_len };
-                return .{ .complete = frame.data };
+                return .{ .ready = frame.data };
             }
         }
 
@@ -885,7 +994,7 @@ pub const Image = struct {
     ///
     /// The returned slice is owned by the image (or its animation)
     /// and remains valid until the image or frame is mutated.
-    pub fn frameData(self: *const Image, number: u32) ?[]const u8 {
+    pub fn frameData(self: *const KittyImage, number: u32) ?[]const u8 {
         switch (number) {
             0 => return null,
             1 => return self.data.bytes(),
@@ -897,24 +1006,30 @@ pub const Image = struct {
                 if (idx >= anim.frames.items.len) return null;
                 const frame = anim.frames.items[idx];
                 if (frame.isPending()) return null;
-                return frame.data;
+                return frame.data.value;
             },
         }
     }
 
     /// Total bytes of pixel data reserved against the storage limit
     /// for this image: the base data plus any animation frames.
-    pub fn storageSize(self: *const Image) usize {
+    pub fn storageSize(self: *const KittyImage) usize {
         var total: usize = self.data.len();
         if (self.animation) |anim| total += anim.frameBytes();
         return total;
     }
 
     /// Mostly for logging
-    pub fn withoutData(self: *const Image) Image {
-        var copy = self.*;
-        if (copy.data == .complete) copy.data = .{ .complete = "" };
-        return copy;
+    pub fn withoutData(self: *const KittyImage) LoadingImage.Info {
+        return .{
+            .id = self.id,
+            .number = self.number,
+            .width = self.width,
+            .height = self.height,
+            .format = self.format,
+            .compression = self.compression,
+            .metadata = self.metadata,
+        };
     }
 };
 
@@ -1256,7 +1371,7 @@ test "image load: rgb, zlib compressed, direct" {
     defer img.deinit(alloc);
 
     // should be decompressed
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: rgb, not compressed, direct" {
@@ -1285,7 +1400,7 @@ test "image load: rgb, not compressed, direct" {
     defer img.deinit(alloc);
 
     // should be decompressed
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: rgb, zlib compressed, direct, chunked" {
@@ -1323,7 +1438,7 @@ test "image load: rgb, zlib compressed, direct, chunked" {
     // Complete
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk" {
@@ -1360,7 +1475,7 @@ test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk"
     // Complete
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: temporary file without correct path" {
@@ -1493,7 +1608,7 @@ test "image load: temporary file in /tmp on macOS" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(
@@ -1540,7 +1655,7 @@ test "image load: rgb, not compressed, temporary file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(error.FileNotFound, tmp_dir.dir.access(testing.io, path, .{}));
@@ -1584,7 +1699,7 @@ test "image load: rgb, not compressed, regular file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
     try tmp_dir.dir.access(testing.io, path, .{});
 }
 
@@ -1638,7 +1753,7 @@ test "image load: regular file size reads exactly requested bytes" {
         var img = try loading.complete(alloc);
         defer img.deinit(alloc);
 
-        try testing.expectEqualSlices(u8, &case.expected, img.data.complete);
+        try testing.expectEqualSlices(u8, &case.expected, img.data);
     }
 }
 
@@ -1719,7 +1834,7 @@ test "image load: rgb, not compressed, relative regular file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 }
 
 test "image load: blocklist applies to opened file after symlink swap" {
@@ -1952,7 +2067,7 @@ test "image load: windows local file accepted in forward slash and upper case sp
         defer loading.deinit(alloc);
         var img = try loading.complete(alloc);
         defer img.deinit(alloc);
-        try testing.expect(img.compression == .none);
+        try testing.expect(loading.image.compression == .none);
     }
 
     try tmp_dir.dir.access(io, filename, .{});
@@ -2004,7 +2119,7 @@ test "image load: windows temporary file with differently spelled directory" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(error.FileNotFound, tmp_dir.dir.access(io, filename, .{}));
@@ -2116,7 +2231,7 @@ test "image load: png, not compressed, regular file" {
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(img.compression == .none);
+    try testing.expect(loading.image.compression == .none);
     try testing.expect(img.format == .rgba);
     try tmp_dir.dir.access(testing.io, path, .{});
 }
@@ -2144,8 +2259,8 @@ test "image load: png, zlib compressed, direct" {
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
 
-    try testing.expectEqual(command.Transmission.Compression.none, img.compression);
-    try testing.expectEqual(command.Transmission.Format.rgba, img.format);
+    try testing.expectEqual(command.Transmission.Compression.none, loading.image.compression);
+    try testing.expectEqual(Image.Format.rgba, img.format);
     try testing.expectEqual(@as(u32, 50), img.width);
     try testing.expectEqual(@as(u32, 76), img.height);
 }

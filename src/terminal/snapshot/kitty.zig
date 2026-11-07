@@ -374,6 +374,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const io = @import("io.zig");
 const record = @import("record.zig");
+const ArcPixels = @import("../image.zig").ArcPixels;
 const terminal_kitty = @import("../kitty.zig");
 const graphics_command = @import("../kitty/graphics_command.zig");
 const TerminalPageList = @import("../PageList.zig");
@@ -381,7 +382,7 @@ const TerminalScreen = @import("../Screen.zig");
 const TerminalScreenKey = @import("../ScreenSet.zig").Key;
 
 const graphics = terminal_kitty.graphics;
-const Image = graphics.Image;
+const Image = graphics.KittyImage;
 const LoadingImage = graphics.LoadingImage;
 const Animation = graphics.Animation;
 const ImageStorage = graphics.ImageStorage;
@@ -453,10 +454,10 @@ const ImageFlags = packed struct(u8) {
     _padding: u6 = 0,
 };
 
-fn imageFlags(img: *const Image) ImageFlags {
+fn imageFlags(metadata: Image.Metadata) ImageFlags {
     return .{
-        .transient = img.metadata.transient,
-        .implicit_id = img.metadata.implicit_id,
+        .transient = metadata.transient,
+        .implicit_id = metadata.implicit_id,
     };
 }
 
@@ -555,7 +556,7 @@ const PlannedPayload = struct {
     fn bytes(self: PlannedPayload) []const u8 {
         return switch (self.frame) {
             1 => self.image.data.bytes().?,
-            else => self.image.animation.?.frames.items[self.frame - 2].data,
+            else => self.image.animation.?.frames.items[self.frame - 2].data.value,
         };
     }
 
@@ -1030,7 +1031,7 @@ fn encodeImage(writer: *std.Io.Writer, img: *const Image) !void {
     try io.writeInt(writer, u32, img.width);
     try io.writeInt(writer, u32, img.height);
     try writer.writeByte(encodeFormat(img.format));
-    try writer.writeByte(@bitCast(imageFlags(img)));
+    try writer.writeByte(@bitCast(imageFlags(img.metadata)));
     try io.writeInt(writer, u64, img.data.len());
 
     const anim = img.animation orelse {
@@ -1121,7 +1122,7 @@ fn encodeLoading(writer: *std.Io.Writer, loading: *const LoadingImage) !void {
     try io.writeInt(writer, u32, img.height);
     try writer.writeByte(encodeFormat(img.format));
     try writer.writeByte(encodeCompression(img.compression));
-    try writer.writeByte(@bitCast(imageFlags(img)));
+    try writer.writeByte(@bitCast(imageFlags(img.metadata)));
     try writer.writeByte(switch (loading.quiet) {
         .no => 0,
         .ok => 1,
@@ -1423,8 +1424,10 @@ const DecodedImage = struct {
                 valid = false;
                 continue;
             }
+            const pixels = try ArcPixels.init(alloc, &.{});
+            errdefer pixels.release(alloc);
             try anim.frames.append(alloc, .{
-                .data = &.{},
+                .data = pixels,
                 .gap_ms = gap_ms,
                 .pending_len = frame_len.?,
             });
@@ -1896,7 +1899,7 @@ pub fn decodePayload(
             0 => break :ticket null,
             1 => switch (img.data) {
                 .pending => |len| len,
-                .complete => break :ticket null,
+                .ready => break :ticket null,
             },
             else => expected: {
                 const anim = img.animation orelse break :ticket null;
@@ -1925,8 +1928,8 @@ pub fn decodePayload(
 
     const storage = &target.?.screen.kitty_images;
     const attached = switch (frame) {
-        1 => pending.complete(storage, io_, data),
-        else => pending.completeFrame(storage, io_, frame, data),
+        1 => pending.complete(storage, io_, alloc, data),
+        else => pending.completeFrame(storage, io_, alloc, frame, data),
     };
     if (attached) {
         owned = false;
@@ -2137,7 +2140,7 @@ fn expectStorageEqual(
         for (e_anim.frames.items, a_anim.frames.items) |ef, af| {
             try testing.expectEqual(ef.gap_ms, af.gap_ms);
             try testing.expectEqual(ef.pending_len, af.pending_len);
-            try testing.expectEqualSlices(u8, ef.data, af.data);
+            try testing.expectEqualSlices(u8, ef.data.value, af.data.value);
         }
     }
 
