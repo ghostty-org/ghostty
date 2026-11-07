@@ -1,4 +1,5 @@
 pub const lut = @import("lut.zig");
+pub const utf8 = @import("utf8.zig");
 
 const grapheme = @import("grapheme.zig");
 pub const table = @import("props_table.zig").table;
