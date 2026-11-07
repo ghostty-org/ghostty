@@ -62,6 +62,9 @@ vm_up() {
     omg_vm_install_ssh_key
     omg_vm_wait_for_ssh
     omg_vm_wait_for_gui
+    if [[ -f "$OMG_VM_DISPLAY_FILE" ]]; then
+        vm_display "$(cat "$OMG_VM_DISPLAY_FILE")"
+    fi
     printf 'VM %s is running at %s\n' "$OMG_VM_NAME" "$(omg_vm_ip)"
 }
 
@@ -138,7 +141,11 @@ vm_display() {
     omg_vm_ssh "if [[ ! -x /tmp/omg-display || /tmp/guest-display.swift -nt /tmp/omg-display ]]; then
         swiftc -O /tmp/guest-display.swift -o /tmp/omg-display
     fi"
-    omg_vm_ssh /tmp/omg-display "$@"
+    if omg_vm_ssh /tmp/omg-display "$@"; then
+        if [[ "$1" != list ]]; then
+            printf '%s\n' "$1" >"$OMG_VM_DISPLAY_FILE"
+        fi
+    fi
 }
 
 vm_smoke() {

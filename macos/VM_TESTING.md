@@ -61,9 +61,10 @@ the guest screenshot path.
 
 The retained VM runs at 1512x982, matching the host's logical screen size, so
 layout-dependent checks see the same window geometry. `omg-vm display` lists the
-available modes and `omg-vm display 1512x982` applies one; the choice persists in
-the guest. Guest rendering is 1x while the host is 2x Retina, so guest
-screenshots are 1512x982 and host captures are 3024x1964.
+available modes and `omg-vm display 1512x982` applies one. macOS resets the
+virtual display mode on restart, so `up` re-applies the last mode it recorded.
+Guest rendering is 1x while the host is 2x Retina, so guest screenshots are
+1512x982 and host captures are 3024x1964.
 
 Measured on an Apple Silicon host: `up` 14-17 s, `deploy` about 5 s, `smoke`
 about 6 s, `down` about 6.5 s.
