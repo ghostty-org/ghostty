@@ -3,7 +3,7 @@ import Testing
 @testable import Ghostty
 
 struct NSColorDistanceTests {
-    @Test func distanceForBetweenInvalidAndValidColorsReturnsInfinity() {
+    @Test func distanceBetweenInvalidAndValidColorsReturnsInfinity() {
         let originalColor = NSColor()
         let otherColor = NSColor.blue
 
