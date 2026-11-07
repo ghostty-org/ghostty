@@ -1017,7 +1017,7 @@ msgstr "Beralih ke tampilan sistem"
 
 #: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
-msgstr "Gunakan tampilan sistem aplikasi untuk sesi ini."
+msgstr "Gunakan tampilan aplikasi sistem untuk sesi ini."
 
 #: src/input/command.zig:617
 msgid "Switch to Light Appearance"
