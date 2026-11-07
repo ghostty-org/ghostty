@@ -889,23 +889,12 @@ class BaseTerminalController: NSWindowController,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
-                .combineLatest(titleSurface.$bell)
-                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
             // There is no surface to listen to titles for.
             titleDidChange(to: "👻")
         }
-    }
-
-    private func computeTitle(title: String, bell: Bool) -> String {
-        var result = title
-        if bell && ghostty.config.bellFeatures.contains(.title) {
-            result = "🔔 \(result)"
-        }
-
-        return result
     }
 
     private func titleDidChange(to: String) {
@@ -917,9 +906,7 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
 
         if let titleOverride {
-            window.title = computeTitle(
-                title: titleOverride,
-                bell: focusedSurface?.bell ?? false)
+            window.title = titleOverride
             return
         }
 
@@ -1693,11 +1680,18 @@ extension BaseTerminalController {
     /// bell state changes.
     private func setupBellNotificationPublisher() {
         bellStateCancellable = surfaceValuesPublisher(valueKeyPath: \.bell, publisherKeyPath: \.$bell)
-            .map { $0.values.contains(true) }
+            .map { $0.filter(\.value).map(\.id) }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasBell in
+            .sink { [weak self] surfaceIDs in
                 guard let self else { return }
+                if let terminalWindow = window as? TerminalWindow {
+                    terminalWindow.updateAlertedSurfaces(surfaceIDs, delegate: self)
+                }
+                let hasBell = !surfaceIDs.isEmpty
+                guard hasBell != bell else {
+                    return
+                }
                 bell = hasBell
                 NotificationCenter.default.post(
                     name: .terminalWindowBellDidChangeNotification,
@@ -1709,12 +1703,12 @@ extension BaseTerminalController {
 
     /// Creates a publisher for values on all surfaces in this controller's tree.
     ///
-    /// The publisher emits a dictionary of surface IDs to values whenever the tree changes
+    /// The publisher emits a `[(id, value)]` snapshot whenever the tree changes
     /// or any surface publishes a new value for the key path.
     func surfaceValuesPublisher<Value>(
         valueKeyPath: KeyPath<Ghostty.SurfaceView, Value>,
         publisherKeyPath: KeyPath<Ghostty.SurfaceView, Published<Value>.Publisher>
-    ) -> AnyPublisher<[Ghostty.SurfaceView.ID: Value], Never> {
+    ) -> AnyPublisher<[(id: Ghostty.SurfaceView.ID, value: Value)], Never> {
         // `surfaceTree` can be replaced entirely when splits are added/removed/closed.
         // For each tree snapshot we build a fresh publisher that watches all surfaces
         // in that snapshot.
@@ -1729,6 +1723,63 @@ extension BaseTerminalController {
             // subscriptions for old/removed surfaces when the tree changes.
             .switchToLatest()
             .eraseToAnyPublisher()
+    }
+}
+
+extension BaseTerminalController: BellAccessoryButtonDelegate {
+    func alertedSurfaceTitle(id: Ghostty.SurfaceView.ID) -> String? {
+        surfaceTree.first(where: { $0.id == id })?.title
+    }
+
+    func highlightAlertedSurface(id: Ghostty.SurfaceView.ID) {
+        guard
+            let surfaceView = surfaceTree.first(where: { $0.id == id }),
+            surfaceView.window != nil
+        else {
+            return
+        }
+        surfaceView.highlight()
+    }
+
+    func focusAlertedSurface(id: Ghostty.SurfaceView.ID?) {
+        let target = if let id {
+            surfaceTree.first(where: { $0.id == id })
+        } else {
+            surfaceTree.first(where: { $0.bell })
+        }
+
+        guard let target else {
+            return
+        }
+
+        var shouldHighlight = id == nil
+
+        switch surfaceTree.zoomed {
+        case .leaf(view: let zoomedView):
+            // If the target is invisible because other split is zoomed,
+            // then we reset zoom and focus and highlight the target split.
+            if zoomedView !== target {
+                surfaceTree = .init(root: surfaceTree.root, zoomed: nil)
+                shouldHighlight = true
+            }
+        default:
+            break
+        }
+
+        // If we're focusing by selecting a menu item and the target's tab
+        // is not selected, then we should select it to focus the target properly.
+        //
+        // When left-clicking the tab will be selected while we try to focus,
+        // so we don't need to do anything.
+        if id != nil, target.window == nil {
+            window?.tabGroup?.selectedWindow = window
+        }
+
+        focusSurface(target)
+        target.clearBell()
+        if shouldHighlight {
+            target.highlight()
+        }
     }
 }
 

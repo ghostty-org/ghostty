@@ -437,6 +437,11 @@ extension Ghostty {
             progressReportTimer?.invalidate()
         }
 
+        /// This is only used for bell button for now.
+        @MainActor func clearBell() {
+            self.bell = false
+        }
+
         override func endSearch() {
             Ghostty.moveFocus(to: self)
             super.endSearch()
@@ -1865,6 +1870,7 @@ extension Ghostty {
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
+            let bellFeatures: Ghostty.Config.BellFeatures
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1874,6 +1880,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
                 self.scrollbar = .system
+                self.bellFeatures = .defaultValue
             }
 
             init(_ config: Ghostty.Config) {
@@ -1884,6 +1891,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
+                self.bellFeatures = config.bellFeatures
             }
         }
 
