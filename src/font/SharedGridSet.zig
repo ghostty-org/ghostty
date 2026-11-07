@@ -26,6 +26,7 @@ const DesiredSize = font.face.DesiredSize;
 const Face = font.Face;
 const SharedGrid = font.SharedGrid;
 const discovery = @import("discovery.zig");
+const fontconfig = @import("fontconfig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 const global = @import("../global.zig");
@@ -192,24 +193,20 @@ fn collection(
         inline for (@typeInfo(Style).@"enum".field_names) |field| {
             const style = @field(Style, field);
             for (key.descriptorsForStyle(style)) |desc| {
-                {
-                    var disco_it = try disco.discover(self.alloc, desc);
-                    defer disco_it.deinit();
-                    if (try disco_it.next()) |face| {
-                        log.info("font {s}: {s}", .{
-                            field,
-                            try face.name(&name_buf),
-                        });
+                if (try discoverFace(self.alloc, disco, desc)) |face| {
+                    log.info("font {s}: {s}", .{
+                        field,
+                        try face.name(&name_buf),
+                    });
 
-                        _ = try c.addDeferred(self.alloc, face, .{
-                            .style = style,
-                            .fallback = false,
-                            // No size adjustment for primary fonts.
-                            .size_adjustment = .none,
-                        });
+                    _ = try c.addDeferred(self.alloc, face, .{
+                        .style = style,
+                        .fallback = false,
+                        // No size adjustment for primary fonts.
+                        .size_adjustment = .none,
+                    });
 
-                        continue;
-                    }
+                    continue;
                 }
 
                 // If there are variation configurations and we didn't find
@@ -463,6 +460,80 @@ fn discover(self: *SharedGridSet) !?*Discover {
 
     self.font_discover = .init(self.font_lib);
     return &self.font_discover.?;
+}
+
+/// Find the first face for a configured font family.
+fn discoverFace(
+    alloc: Allocator,
+    disco: *Discover,
+    desc: discovery.Descriptor,
+) !?font.DeferredFace {
+    if (comptime Discover == void) return null;
+
+    var disco_it = try disco.discover(alloc, desc);
+    defer disco_it.deinit();
+
+    if (comptime Discover == discovery.Fontconfig) {
+        if (disco_it.fonts.len == 0) return null;
+
+        // Fontconfig can return a regular face for a bold/italic request.
+        // Let the collection synthesize the configured family's missing style
+        // instead of continuing to a different family. Keep this restriction
+        // out of the iterator used by list-fonts and glyph fallback.
+        if (!fontconfigStyleMatches(disco_it.pattern, disco_it.fonts[0])) return null;
+    }
+
+    return try disco_it.next();
+}
+
+/// Compare the substituted request with the font before render preparation.
+fn fontconfigStyleMatches(request: *fontconfig.Pattern, match: *fontconfig.Pattern) bool {
+    slant: {
+        const roman: i32 = @backingInt(fontconfig.Slant.roman);
+        const italic: i32 = @backingInt(fontconfig.Slant.italic);
+        const oblique: i32 = @backingInt(fontconfig.Slant.oblique);
+
+        const requested: i32 = switch (request.get(.slant, 0) catch
+            fontconfig.Value{ .integer = roman }) {
+            .integer => |value| value,
+            else => roman,
+        };
+        const matched: i32 = switch (match.get(.slant, 0) catch
+            fontconfig.Value{ .integer = roman }) {
+            .integer => |value| value,
+            else => roman,
+        };
+
+        const requested_slanted: bool = requested == italic or requested == oblique;
+        const matched_slanted: bool = matched == italic or matched == oblique;
+        if (requested_slanted and !matched_slanted) return false;
+        break :slant;
+    }
+
+    weight: {
+        const regular: f64 = @floatFromInt(@backingInt(fontconfig.Weight.regular));
+        const bold_min: f64 = @floatFromInt(@backingInt(fontconfig.Weight.demibold));
+
+        // Both scanned font weights and substituted requests may be doubles.
+        const requested: f64 = switch (request.get(.weight, 0) catch
+            fontconfig.Value{ .double = regular }) {
+            .integer => |value| @floatFromInt(value),
+            .double => |value| value,
+            else => regular,
+        };
+        if (requested >= bold_min) {
+            const matched: f64 = switch (match.get(.weight, 0) catch
+                fontconfig.Value{ .double = regular }) {
+                .integer => |value| @floatFromInt(value),
+                .double => |value| value,
+                .range => break :weight, // Leave variable-font ranges to Fontconfig.
+                else => return false,
+            };
+            if (matched < bold_min) return false;
+        }
+    }
+
+    return true;
 }
 
 /// Ref-counted SharedGrid.
@@ -763,6 +834,141 @@ pub const Key = struct {
         return hasher.final();
     }
 };
+
+/// Create an isolated Fontconfig configuration from bundled fonts.
+/// FcConfigAppFontAddFile takes filenames, so the fixtures are written to
+/// the caller's temporary directory and removed by its deferred cleanup.
+fn testFontconfig(dir: std.Io.Dir) !discovery.Fontconfig {
+    const testing = std.testing;
+    try testing.expect(fontconfig.init());
+    const config: *fontconfig.Config = @ptrCast(
+        fontconfig.c.FcConfigCreate() orelse return error.OutOfMemory,
+    );
+    errdefer config.destroy();
+
+    const fonts = .{
+        .{ "regular.ttf", @embedFile("res/JetBrainsMonoNerdFont-Regular.ttf") },
+        .{ "bold.ttf", @embedFile("res/JetBrainsMonoNerdFont-Bold.ttf") },
+        .{ "italic.ttf", @embedFile("res/JetBrainsMonoNerdFont-Italic.ttf") },
+        .{ "geist.ttf", @embedFile("res/GeistMono-Regular.ttf") },
+    };
+    inline for (fonts) |entry| {
+        try dir.writeFile(testing.io, .{ .sub_path = entry[0], .data = entry[1] });
+        var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const path_len = try dir.realPathFile(testing.io, entry[0], &path_buf);
+        const path = try testing.allocator.dupeSentinel(u8, path_buf[0..path_len], 0);
+        defer testing.allocator.free(path);
+        try testing.expect(fontconfig.c.FcConfigAppFontAddFile(config.cval(), path.ptr) != 0);
+    }
+
+    return .{ .fc_config = config };
+}
+
+test "fontconfig style matching handles integer and double weights" {
+    if (comptime font.options.backend != .fontconfig_freetype) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const range: *fontconfig.Range = @ptrCast(
+        fontconfig.c.FcRangeCreateDouble(80, 200) orelse return error.OutOfMemory,
+    );
+    defer range.destroy();
+
+    const weights = [_]struct { value: fontconfig.Value, matches: bool }{
+        .{ .value = .{ .integer = 200 }, .matches = true },
+        .{ .value = .{ .double = 200 }, .matches = true },
+        .{ .value = .{ .integer = 180 }, .matches = true },
+        .{ .value = .{ .double = 180 }, .matches = true },
+        .{ .value = .{ .double = 179.5 }, .matches = false },
+        .{ .value = .{ .integer = 80 }, .matches = false },
+        .{ .value = .{ .double = 80 }, .matches = false },
+        .{ .value = .{ .range = range }, .matches = true },
+    };
+    for ([_]fontconfig.Value{ .{ .integer = 200 }, .{ .double = 200 } }) |requested| {
+        const request = fontconfig.Pattern.create();
+        defer request.destroy();
+        try testing.expect(request.add(.weight, requested, false));
+
+        for (weights) |case| {
+            const match = fontconfig.Pattern.create();
+            defer match.destroy();
+            try testing.expect(match.add(.weight, case.value, false));
+            try testing.expectEqual(case.matches, fontconfigStyleMatches(request, match));
+        }
+    }
+}
+
+test "fontconfig configured family finds native bold" {
+    if (comptime font.options.backend != .fontconfig_freetype) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var dir = testing.tmpDir(.{});
+    defer dir.cleanup();
+    var disco = try testFontconfig(dir.dir);
+    defer disco.deinit();
+
+    var face = try discoverFace(testing.allocator, &disco, .{
+        .family = "JetBrainsMono Nerd Font",
+        .bold = true,
+    });
+    defer if (face) |*value| value.deinit();
+    try testing.expect(face != null);
+
+    const pattern = face.?.fc.?.pattern;
+    try testing.expectEqualStrings("JetBrainsMono Nerd Font", (try pattern.get(.family, 0)).string);
+    try testing.expect(std.mem.endsWith(u8, (try pattern.get(.file, 0)).string, "/bold.ttf"));
+}
+
+test "fontconfig configured family without italic" {
+    if (comptime font.options.backend != .fontconfig_freetype) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var dir = testing.tmpDir(.{});
+    defer dir.cleanup();
+    var disco = try testFontconfig(dir.dir);
+    defer disco.deinit();
+
+    var regular = try discoverFace(testing.allocator, &disco, .{
+        .family = "Geist Mono",
+    });
+    defer if (regular) |*face| face.deinit();
+    try testing.expect(regular != null);
+    try testing.expectEqualStrings("Geist Mono", (try regular.?.fc.?.pattern.get(.family, 0)).string);
+
+    // Another family has an italic face, but this family should use synthesis.
+    var italic = try discoverFace(testing.allocator, &disco, .{
+        .family = "Geist Mono",
+        .italic = true,
+    });
+    defer if (italic) |*face| face.deinit();
+    try testing.expect(italic == null);
+}
+
+test "fontconfig iterator preserves styled candidates" {
+    if (comptime font.options.backend != .fontconfig_freetype) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var dir = testing.tmpDir(.{});
+    defer dir.cleanup();
+    var disco = try testFontconfig(dir.dir);
+    defer disco.deinit();
+
+    // list-fonts and glyph fallback must keep iterating even when the
+    // configured family's first candidate doesn't have the requested style.
+    for ([_]discovery.Descriptor{
+        .{ .family = "Geist Mono", .bold = true },
+        .{ .family = "Geist Mono", .italic = true },
+    }) |desc| {
+        var it = try disco.discover(testing.allocator, desc);
+        defer it.deinit();
+        var font_count: usize = 0;
+        while (try it.next()) |value| {
+            var face = value;
+            defer face.deinit();
+            font_count += 1;
+        }
+        try testing.expectEqual(@as(usize, 4), font_count);
+    }
+}
 
 test "Key" {
     const testing = std.testing;
