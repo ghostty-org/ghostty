@@ -4,7 +4,11 @@ import AppIntents
 /// App intent that invokes a command palette entry.
 @available(macOS 14.0, *)
 struct CommandPaletteIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Invoke Command Palette Action"
+#else
     static var title: LocalizedStringResource = "Invoke Command Palette Action"
+#endif
 
     @Parameter(
         title: "Terminal",
