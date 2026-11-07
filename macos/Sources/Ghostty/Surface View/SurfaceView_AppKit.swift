@@ -198,6 +198,11 @@ extension Ghostty {
 
         // This is set to non-null during keyDown to accumulate insertText contents
         private var keyTextAccumulator: [String]?
+
+        // This is set to non-null during keyDown to accumulate the selectors
+        // AppKit asks us to perform via doCommand(by:). An input method hands
+        // a key back to us this way when it did not consume it.
+        private var keyCommandAccumulator: [Selector]?
         /// Temporary lead surrogate that's waiting for the trail
         private var leadSurrogate: LeadSurrogate?
 
@@ -1175,20 +1180,21 @@ extension Ghostty {
             // we call interpretKeyEvents so that we can handle complex input such as Korean
             // language.
             keyTextAccumulator = []
-            defer { keyTextAccumulator = nil }
+            keyCommandAccumulator = []
+            defer {
+                keyTextAccumulator = nil
+                keyCommandAccumulator = nil
+            }
 
-            // We need to know what the length of marked text was before this event to
-            // know if these events cleared it.
-            let markedTextBefore = markedText.length > 0
+            // We need to know what the marked text was before this event to
+            // know if these events cleared or committed it.
+            let markedStringBefore = markedText.string
+            let markedTextBefore = !markedStringBefore.isEmpty
 
             // We need to know the keyboard layout before below because some keyboard
             // input events will change our keyboard layout and we don't want those
             // going to the terminal.
-            let keyboardIdBefore: String? = if !markedTextBefore {
-                KeyboardLayout.id
-            } else {
-                nil
-            }
+            let keyboardIdBefore = KeyboardLayout.id
 
             // If we are in a keyDown then we don't need to redispatch a command-modded
             // key event (see docs for this field) so reset this to nil because
@@ -1199,7 +1205,8 @@ extension Ghostty {
 
             // If our keyboard changed from this we just assume an input method
             // grabbed it and do nothing.
-            if !markedTextBefore && keyboardIdBefore != KeyboardLayout.id {
+            let keyboardChanged = keyboardIdBefore != KeyboardLayout.id
+            if !markedTextBefore && keyboardChanged {
                 return
             }
 
@@ -1217,13 +1224,19 @@ extension Ghostty {
             let composing = markedText.length > 0 || markedTextBefore
 
             // The input method may commit all or part of the preedit text via
-            // insertText while handling a key that should not itself be
-            // encoded. Send that committed text separately, then only replay
-            // keys that should still affect the terminal after committing.
-            if markedTextBefore,
-               let list = keyTextAccumulator,
-               list.count > 0 {
-                for text in list {
+            // insertText while handling a key. Send that committed text
+            // separately. If the input method then handed the key itself
+            // back to us through doCommand(by:), it did not consume the key,
+            // so the key is sent after the text (e.g. Enter after committing
+            // a Korean syllable). See preeditCommit for the details.
+            if let commit = Ghostty.SurfaceView.preeditCommit(
+                markedTextBefore: markedStringBefore,
+                markedTextAfter: markedText.string,
+                committedText: keyTextAccumulator ?? [],
+                commands: keyCommandAccumulator ?? [],
+                keyboardChanged: keyboardChanged
+            ) {
+                for text in commit.texts {
                     if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
                         text,
                         composing: composing
@@ -1234,7 +1247,7 @@ extension Ghostty {
                     _ = committedTextAction(action, text: text)
                 }
 
-                if shouldReplayCommittedPreeditKey(translationEvent) {
+                if commit.replaysKey {
                     _ = keyAction(
                         action,
                         event: event,
@@ -1510,20 +1523,6 @@ extension Ghostty {
                 }
             } else {
                 return ghostty_surface_key(surface, key_ev)
-            }
-        }
-
-        private func shouldReplayCommittedPreeditKey(_ event: NSEvent) -> Bool {
-            guard let key = Ghostty.Input.Key(keyCode: event.keyCode) else { return false }
-            switch key {
-            case .arrowDown, .arrowRight, .arrowUp:
-                return true
-            case .arrowLeft:
-                // Don't replay plain left-arrow because AppKit already leaves
-                // the caret in place after Korean IMEs commit preedit text.
-                return !event.modifierFlags.isDisjoint(with: [.shift, .control, .option, .command])
-            default:
-                return false
             }
         }
 
@@ -2143,10 +2142,20 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
     }
 
-    /// This function needs to exist for two reasons:
+    /// This function needs to exist for three reasons:
     /// 1. Prevents an audible NSBeep for unimplemented actions.
     /// 2. Allows us to properly encode super+key input events that we don't handle
+    /// 3. Tells keyDown which keys an input method handed back to us instead
+    ///    of consuming them (see preeditCommit).
     override func doCommand(by selector: Selector) {
+        // During keyDown we only record the selector. keyDown decides what
+        // to do with it once interpretKeyEvents returns.
+        if var acc = keyCommandAccumulator {
+            acc.append(selector)
+            keyCommandAccumulator = acc
+            return
+        }
+
         // If we are being processed by performKeyEquivalent with a command binding,
         // we send it back through the event system so it can be encoded.
         if let lastPerformKeyEvent,
@@ -2190,6 +2199,75 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return false
         }
         return scalar.value < 0x20
+    }
+}
+
+// MARK: - Preedit Commit
+
+extension Ghostty.SurfaceView {
+    /// What to send when an input method committed preedit text while
+    /// handling a key: the text, and whether the key itself follows it.
+    struct PreeditCommit: Equatable {
+        /// The committed text, in order, to send as text events.
+        let texts: [String]
+
+        /// True when the key that triggered the commit must be sent after
+        /// the text.
+        let replaysKey: Bool
+    }
+
+    /// Decides what to send when a key was interpreted while we had marked
+    /// (preedit) text and the input method committed text as a result.
+    /// Returns nil when this is not such a key; normal key handling applies.
+    ///
+    /// `interpretKeyEvents` gives the key to the input method first. If the
+    /// input method consumes the key it only calls `insertText` and
+    /// `setMarkedText`. If it does not consume the key, AppKit asks us to
+    /// perform the key's own command through `doCommand(by:)`:
+    /// `insertNewline:`, `insertTab:`, `cancelOperation:`, `moveLeft:`,
+    /// `deleteBackward:`, or `noop:` for keys without a key binding. Korean
+    /// input methods end a composition exactly this way: Enter commits the
+    /// syllable with `insertText("가")` and then arrives as `insertNewline:`.
+    /// A text view inserts the text and performs the command, so we send the
+    /// text and then the key.
+    ///
+    /// Backspace on the last remaining jamo is the one case where the key
+    /// must not be sent: the input method commits the jamo and hands
+    /// Backspace back (`deleteBackward:`, so ctrl+h behaves the same) so
+    /// that the client deletes that same text again. The terminal never
+    /// received the text, it was only ever preedit, so there is nothing to
+    /// send at all.
+    ///
+    /// - Parameters:
+    ///   - markedTextBefore: the marked text before the key was interpreted
+    ///   - markedTextAfter: the marked text after the key was interpreted
+    ///   - committedText: the strings passed to `insertText` while interpreting
+    ///   - commands: the selectors passed to `doCommand(by:)` while interpreting
+    ///   - keyboardChanged: whether the keyboard layout changed while the key
+    ///     was interpreted, i.e. the key switched the input source
+    static func preeditCommit(
+        markedTextBefore: String,
+        markedTextAfter: String,
+        committedText: [String],
+        commands: [Selector],
+        keyboardChanged: Bool = false
+    ) -> PreeditCommit? {
+        guard !markedTextBefore.isEmpty, !committedText.isEmpty else { return nil }
+
+        // The input method handed the key back to us only if it also ended
+        // the composition. A command while the composition continues is
+        // the input method's own business. A key that switched the input
+        // source was for the system, not the terminal, even if the input
+        // method committed the preedit on its way out.
+        let keyHandedBack = !commands.isEmpty && markedTextAfter.isEmpty && !keyboardChanged
+
+        if keyHandedBack,
+           commands.contains(#selector(NSResponder.deleteBackward(_:))),
+           committedText.joined() == markedTextBefore {
+            return PreeditCommit(texts: [], replaysKey: false)
+        }
+
+        return PreeditCommit(texts: committedText, replaysKey: keyHandedBack)
     }
 }
 
