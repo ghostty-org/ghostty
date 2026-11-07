@@ -437,6 +437,9 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Free every surface before application teardown closes their PTYs.
+        Ghostty.SurfaceView.freeAllSurfaces()
+
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
