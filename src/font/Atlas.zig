@@ -24,6 +24,9 @@ const tripwire = @import("../tripwire.zig");
 
 const log = std.log.scoped(.atlas);
 
+// Number of modification records retained, not the number of frames.
+const modified_history_len = 64;
+
 /// Data is the raw texture data.
 data: []u8,
 
@@ -44,6 +47,19 @@ format: Format = .grayscale,
 /// sent to the GPU. It is up the user of the atlas to read this value atomically
 /// to observe it.
 modified: std.atomic.Value(usize) = .{ .raw = 0 },
+
+/// Ring buffer of modified row ranges, indexed by generation.
+/// Generation g is stored at (g - 1) % modified_history_len.
+modified_rows: [modified_history_len]Rows = [_]Rows{.{ .start = 0, .end = 0 }} ** modified_history_len,
+
+/// Generation of the most recent clear or grow operation.
+/// Readers older than this generation require a full atlas upload.
+reset_generation: usize = 0,
+
+/// Bounding range of all nonempty changes since the most recent reset.
+/// May include unchanged rows between separate modified ranges.
+/// Retained until clear/grow so lagging readers can still catch up.
+rows_since_reset: ?Rows = null,
 
 /// This will be incremented every time the atlas is resized. This is useful
 /// for knowing if a GPU texture can be updated in-place or if it requires
@@ -86,6 +102,69 @@ pub const Region = extern struct {
     width: u32,
     height: u32,
 };
+
+/// A half-open range of atlas rows: [start, end).
+pub const Rows = struct {
+    start: u32,
+    end: u32,
+};
+
+/// Returns a conservative row range to upload after `since`.
+/// Returns null if no rows need uploading. A reader that has missed
+/// a reset must upload the full atlas; otherwise, changes are combined
+/// from recent history or the cumulative range since reset.
+///
+/// The caller must synchronize access with atlas mutations. The atomic
+/// generation counter alone does not protect the modification history.
+pub fn modifiedRows(self: *const Atlas, since: usize) ?Rows {
+    const current = self.modified.load(.monotonic);
+    if (since == current) return null;
+
+    // No usable baseline, or the reader has not observed the latest reset.
+    if (since == 0 or since > current or since < self.reset_generation) {
+        return .{ .start = 0, .end = self.size };
+    }
+
+    // Some required records have been overwritten. The reader has already
+    // observed the latest reset, so the cumulative range is sufficient.
+    if (current - since > self.modified_rows.len) return self.rows_since_reset;
+
+    var result: ?Rows = null;
+    for (0..current - since) |offset| {
+        const generation = since + offset + 1;
+        const rows = self.modified_rows[(generation - 1) % self.modified_rows.len];
+        if (rows.start == rows.end) continue;
+
+        // Merge into one bounding range, including any gaps between changes.
+        if (result) |*existing| {
+            existing.start = @min(existing.start, rows.start);
+            existing.end = @max(existing.end, rows.end);
+        } else {
+            result = rows;
+        }
+    }
+    return result;
+}
+
+/// Advances the modification generation and records the affected rows.
+/// Empty ranges still advance the generation but do not expand the
+/// cumulative range. The caller must synchronize access with readers
+/// and other writers.
+fn recordModified(self: *Atlas, rows: Rows) void {
+    // fetchAdd returns the previous generation. Generation 1 uses slot 0.
+    const generation = self.modified.fetchAdd(1, .monotonic) + 1;
+    self.modified_rows[(generation - 1) % self.modified_rows.len] = rows;
+    if (rows.start == rows.end) return;
+
+    // Keep this range until clear/grow, even if an individual reader has
+    // caught up. Other readers may still need changes lost from the ring.
+    if (self.rows_since_reset) |*existing| {
+        existing.start = @min(existing.start, rows.start);
+        existing.end = @max(existing.end, rows.end);
+    } else {
+        self.rows_since_reset = rows;
+    }
+}
 
 /// Number of nodes to preallocate in the list on init.
 ///
@@ -271,7 +350,10 @@ pub fn set(self: *Atlas, reg: Region, data: []const u8) void {
         );
     }
 
-    _ = self.modified.fetchAdd(1, .monotonic);
+    self.recordModified(.{
+        .start = reg.y,
+        .end = reg.y + if (reg.width == 0) @as(u32, 0) else reg.height,
+    });
 }
 
 /// Like `set` but allows specifying a width for the source data and an
@@ -302,7 +384,10 @@ pub fn setFromLarger(
         );
     }
 
-    _ = self.modified.fetchAdd(1, .monotonic);
+    self.recordModified(.{
+        .start = reg.y,
+        .end = reg.y + if (reg.width == 0) @as(u32, 0) else reg.height,
+    });
 }
 
 pub const grow_tw = tripwire.module(enum {
@@ -358,14 +443,20 @@ pub fn grow(self: *Atlas, alloc: Allocator, size_new: u32) Allocator.Error!void 
         .width = size_new - size_old,
     });
 
-    // We are both modified and resized
-    _ = self.modified.fetchAdd(1, .monotonic);
+    // set already recorded this change. A resized texture needs every row,
+    // so widen that generation instead of advancing modified again.
+    const generation = self.modified.load(.monotonic);
+    self.modified_rows[(generation - 1) % modified_history_len] = .{ .start = 0, .end = self.size };
+    self.reset_generation = generation;
+    self.rows_since_reset = null;
     _ = self.resized.fetchAdd(1, .monotonic);
 }
 
 // Empty the atlas. This doesn't reclaim any previously allocated memory.
 pub fn clear(self: *Atlas) void {
-    _ = self.modified.fetchAdd(1, .monotonic);
+    self.recordModified(.{ .start = 0, .end = self.size });
+    self.reset_generation = self.modified.load(.monotonic);
+    self.rows_since_reset = null;
     @memset(self.data, 0);
     self.nodes.clearRetainingCapacity();
 
@@ -676,7 +767,7 @@ test "grow" {
     try atlas.grow(alloc, atlas.size + 1);
     const new_modified = atlas.modified.load(.monotonic);
     const new_resized = atlas.resized.load(.monotonic);
-    try testing.expect(new_modified > old_modified);
+    try testing.expectEqual(old_modified + 1, new_modified);
     try testing.expect(new_resized > old_resized);
     _ = try atlas.reserve(alloc, 1, 1);
 
@@ -885,5 +976,67 @@ test "grow error" {
         try testing.expectEqual(@as(u8, 2), atlas.data[6]);
         try testing.expectEqual(@as(u8, 3), atlas.data[9]);
         try testing.expectEqual(@as(u8, 4), atlas.data[10]);
+    }
+}
+
+// Simulate a row upload by copying into a CPU shadow; no GPU is involved.
+// The shadow must match the full atlas buffer, and the atlas must not change
+// during this call. A null result leaves the reader's generation unchanged.
+fn syncTestShadow(self: *const Atlas, shadow: []u8, since: *usize) ?Rows {
+    const rows = self.modifiedRows(since.*) orelse return null;
+    // Copy complete rows using the format's byte depth and an exclusive end.
+    const stride = @as(usize, self.size) * self.format.depth();
+    const start = @as(usize, rows.start) * stride;
+    const end = @as(usize, rows.end) * stride;
+    @memcpy(shadow[start..end], self.data[start..end]);
+    since.* = self.modified.load(.monotonic);
+    return rows;
+}
+
+// Readers at different generations must converge after copying only their
+// reported row bands, regardless of the pixel format's byte depth.
+test "modified rows synchronize delayed readers in every format" {
+    const alloc = testing.allocator;
+    for (std.meta.tags(Format)) |format| {
+        var atlas = try init(alloc, 16, format);
+        defer atlas.deinit(alloc);
+        const depth = format.depth();
+
+        // Start three independent readers with identical data and generations.
+        var shadows: [3][]u8 = undefined;
+        for (&shadows) |*shadow| shadow.* = try alloc.dupe(u8, atlas.data);
+        defer for (shadows) |shadow| alloc.free(shadow);
+        var generations = [_]usize{atlas.modified.load(.monotonic)} ** 3;
+
+        // The first reader consumes the initial two-row write immediately.
+        var pixels: [16]u8 = undefined;
+        @memset(pixels[0..], 3);
+        atlas.set(.{ .x = 1, .y = 2, .width = 2, .height = 2 }, pixels[0 .. 4 * depth]);
+        try testing.expectEqual(Rows{ .start = 2, .end = 4 }, atlas.modifiedRows(generations[0]).?);
+        try testing.expectEqual(Rows{ .start = 2, .end = 4 }, syncTestShadow(&atlas, shadows[0], &generations[0]).?);
+
+        // A strided source write adds distant rows. The second reader needs
+        // one enclosing band covering both writes, including the gap.
+        var larger: [64]u8 = undefined;
+        @memset(larger[0..], 7);
+        atlas.setFromLarger(.{ .x = 5, .y = 7, .width = 1, .height = 2 }, larger[0 .. 16 * depth], 4, 1, 1);
+        try testing.expectEqual(Rows{ .start = 2, .end = 9 }, syncTestShadow(&atlas, shadows[1], &generations[1]).?);
+
+        // The third reader is still at the initial generation. The others
+        // must receive only the bands needed since their own last sync.
+        atlas.set(.{ .x = 8, .y = 4, .width = 1, .height = 1 }, pixels[0..depth]);
+        try testing.expectEqual(Rows{ .start = 2, .end = 9 }, syncTestShadow(&atlas, shadows[2], &generations[2]).?);
+        try testing.expectEqual(Rows{ .start = 4, .end = 9 }, syncTestShadow(&atlas, shadows[0], &generations[0]).?);
+        try testing.expectEqual(Rows{ .start = 4, .end = 5 }, syncTestShadow(&atlas, shadows[1], &generations[1]).?);
+        // Partial row copies must reconstruct the complete atlas for every
+        // reader, and a fully synchronized reader must have no pending rows.
+        for (shadows) |shadow| try testing.expectEqualSlices(u8, atlas.data, shadow);
+        for (generations) |generation| try testing.expectEqual(@as(?Rows, null), atlas.modifiedRows(generation));
+
+        // An empty write advances the generation without dirtying any rows.
+        const previous = atlas.modified.load(.monotonic);
+        atlas.set(.{ .x = 0, .y = 0, .width = 0, .height = 0 }, &.{});
+        try testing.expectEqual(previous + 1, atlas.modified.load(.monotonic));
+        try testing.expectEqual(@as(?Rows, null), atlas.modifiedRows(previous));
     }
 }
