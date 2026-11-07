@@ -92,7 +92,39 @@ pub fn CEnum(comptime E: type) type {
 /// Convert a value that came from C to `E`. Returns null if the value is
 /// not one of the values of `E`.
 pub fn enumFromC(comptime E: type, value: CEnum(E)) ?E {
-    return std.enums.fromInt(E, @backingInt(value));
+    const info = @typeInfo(E).@"enum";
+    if (comptime info.mode == .nonexhaustive) return @fromBackingInt(@backingInt(value));
+    if (comptime info.field_values.len == 0) return null;
+
+    const min: i128, const max: i128 = comptime range: {
+        var min: i128 = info.field_values[0];
+        var max: i128 = min;
+        for (info.field_values) |v| {
+            min = @min(min, v);
+            max = @max(max, v);
+        }
+        break :range .{ min, max };
+    };
+
+    const int = @backingInt(value);
+    if (int < min or int > max) return null;
+
+    // Enum values are unique, so the values are contiguous exactly when
+    // there are as many of them as there are integers in the range.
+    const span = max - min + 1;
+    if (comptime span == info.field_values.len) return @fromBackingInt(int);
+
+    // A sparse enum with a wide range would need a huge table. None of
+    // the C API enums are like this today.
+    if (comptime span > 1024) return std.enums.fromInt(E, int);
+
+    const valid: [span]bool = comptime valid: {
+        var result: [span]bool = @splat(false);
+        for (info.field_values) |v| result[v - min] = true;
+        break :valid result;
+    };
+    if (!valid[@intCast(int - min)]) return null;
+    return @fromBackingInt(int);
 }
 
 /// Read an enum value that C passed through a pointer and convert it to
@@ -109,4 +141,43 @@ pub fn enumFromC(comptime E: type, value: CEnum(E)) ?E {
 pub fn enumFromPtr(comptime E: type, ptr: *const E) ?E {
     const raw: *const CEnum(E) = @ptrCast(ptr);
     return enumFromC(E, raw.*);
+}
+
+test "enumFromC matches std.enums.fromInt" {
+    const testing = std.testing;
+
+    const Contiguous = enum(c_int) { a, b, c, d };
+    const Negative = enum(c_int) { a = -2, b = -1, c = 0, d = 1 };
+    const Sparse = enum(c_int) { a = 1, b = 3, c = 4, d = 10 };
+    const Wide = enum(c_int) { a = -3, b = 5000 };
+    const Single = enum(c_int) { a = 7 };
+    const Byte = enum(u8) { a = 0, b = 254, c = 255 };
+
+    inline for (.{ Contiguous, Negative, Sparse, Wide, Single, Byte }) |E| {
+        const Tag = @typeInfo(E).@"enum".tag_type;
+        const values = std.enums.values(E);
+        var min: i64 = @backingInt(values[0]);
+        var max: i64 = min;
+        for (values) |v| {
+            min = @min(min, @backingInt(v));
+            max = @max(max, @backingInt(v));
+        }
+
+        // Every integer in the range, two past each end, and the ends of
+        // the backing type.
+        var i: i64 = min - 2;
+        while (i <= max + 2) : (i += 1) {
+            const int = std.math.cast(Tag, i) orelse continue;
+            try testing.expectEqual(
+                std.enums.fromInt(E, int),
+                enumFromC(E, @fromBackingInt(int)),
+            );
+        }
+        for ([_]Tag{ std.math.minInt(Tag), std.math.maxInt(Tag) }) |int| {
+            try testing.expectEqual(
+                std.enums.fromInt(E, int),
+                enumFromC(E, @fromBackingInt(int)),
+            );
+        }
+    }
 }
