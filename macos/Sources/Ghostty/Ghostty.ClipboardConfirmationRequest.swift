@@ -84,6 +84,9 @@ extension Ghostty {
         /// grant, showing a remember option in the prompt.
         let canRemember: Bool
 
+        /// Whether this paste was requested at a password prompt.
+        let passwordInput: Bool
+
         /// An image decoded from the request contents, previewed scaled
         /// in the dialog when the request carries an image
         /// representation.
@@ -98,6 +101,7 @@ extension Ghostty {
             contents: String,
             kind: ClipboardRequest,
             canRemember: Bool = false,
+            passwordInput: Bool = false,
             previewImage: NSImage? = nil,
             completion: @escaping (SurfaceView, Bool, Bool) -> Void
         ) {
@@ -105,6 +109,7 @@ extension Ghostty {
             self.contents = contents
             self.kind = kind
             self.canRemember = canRemember
+            self.passwordInput = passwordInput
             self.previewImage = previewImage
             self.completion = completion
         }

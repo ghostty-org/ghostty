@@ -59,6 +59,7 @@ class ClipboardConfirmationController: NSWindowController {
             contents: confirmation.contents,
             request: confirmation.kind,
             canRemember: confirmation.canRemember,
+            passwordInput: confirmation.passwordInput,
             previewImage: confirmation.previewImage,
             delegate: delegate
         ))
