@@ -29,6 +29,7 @@ pub const StyleOptions = struct {
     preedit: bool = false,
     focused: bool = false,
     blink_visible: bool = false,
+    unfocused_style: Style = .block_hollow,
 };
 
 /// Returns the cursor style to use for the current render state or null
@@ -57,7 +58,7 @@ pub fn style(
 
     // If we're not focused, our cursor is always visible so that
     // we can show the hollow box.
-    if (!opts.focused) return .block_hollow;
+    if (!opts.focused) return opts.unfocused_style;
 
     // If the cursor is blinking and our blink state is not visible,
     // then we don't show the cursor.
@@ -85,6 +86,31 @@ test "cursor: default uses configured style" {
     try testing.expect(style(&state, .{ .preedit = false, .focused = false, .blink_visible = true }) == .block_hollow);
     try testing.expect(style(&state, .{ .preedit = false, .focused = false, .blink_visible = false }) == .block_hollow);
     try testing.expect(style(&state, .{ .preedit = false, .focused = true, .blink_visible = false }) == null);
+}
+
+test "cursor: unfocused uses configured unfocused style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var term: terminal.Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    defer term.deinit(alloc);
+
+    term.screens.active.cursor.cursor_style = .bar;
+    term.modes.set(.cursor_blinking, true);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &term);
+
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .bar, .blink_visible = true }) == .bar);
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .bar, .blink_visible = false }) == .bar);
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .underline }) == .underline);
+    try testing.expect(style(&state, .{ .focused = false, .unfocused_style = .block }) == .block);
+
+    try testing.expect(style(&state, .{ .focused = false }) == .block_hollow);
+
+    try testing.expect(style(&state, .{ .focused = true, .unfocused_style = .underline, .blink_visible = true }) == .bar);
+
+    try testing.expect(style(&state, .{ .preedit = true, .focused = false, .unfocused_style = .bar }) == .block);
 }
 
 test "cursor: blinking disabled" {
