@@ -78,6 +78,11 @@ omg_vm_scp_from() {
     scp "${OMG_VM_SSH_OPTS[@]}" "$OMG_VM_USER@$ip:$guest_path" "$host_path"
 }
 
+omg_vm_scp_to() {
+    local ip="$1" host_path="$2" guest_path="$3"
+    scp "${OMG_VM_SSH_OPTS[@]}" "$host_path" "$OMG_VM_USER@$ip:$guest_path"
+}
+
 omg_vm_gui() {
     local remote_command
     printf -v remote_command '%q ' "$@"

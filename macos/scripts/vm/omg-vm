@@ -17,6 +17,7 @@ Commands:
   shot [OUTPUT.png]  Capture the guest display without opening a host window
   provision          Grant the guest Accessibility/ScreenCapture/Automation for smoke tests
   smoke [OUTPUT.png] Run the guest keyboard/PTY/screenshot smoke check
+  desktop            Exercise real mouse drag, native fullscreen and latency benchmarks
   logs               Show the Tart and OMG guest logs
   down               Shut the guest down gracefully while retaining its disk
 
@@ -144,6 +145,18 @@ vm_smoke() {
     printf 'Guest shell round-trip passed: %s\nScreenshot: %s\n' "$result" "$output"
 }
 
+vm_desktop() {
+    omg_vm_require_running
+    omg_vm_ssh "test -d /Applications/OMG.app" ||
+        omg_vm_die "OMG Dev is not deployed; run deploy first"
+
+    omg_vm_scp_to "$(omg_vm_ip)" "$SCRIPT_DIR/guest-input.swift" /tmp/guest-input.swift
+    omg_vm_ssh "if [[ ! -x /tmp/omg-input || /tmp/guest-input.swift -nt /tmp/omg-input ]]; then
+        swiftc -O /tmp/guest-input.swift -o /tmp/omg-input
+    fi"
+    omg_vm_ssh bash -s <"$SCRIPT_DIR/guest-desktop.sh"
+}
+
 vm_logs() {
     omg_vm_require_running
     printf '%s\n' "-- Tart log: $OMG_VM_LOG"
@@ -212,6 +225,7 @@ case "${1:-}" in
     shot) shift; [[ $# -le 1 ]] || omg_vm_die "shot accepts at most one output path"; vm_shot "${1:-}" ;;
     provision) shift; [[ $# -eq 0 ]] || omg_vm_die "provision takes no arguments"; vm_provision ;;
     smoke) shift; [[ $# -le 1 ]] || omg_vm_die "smoke accepts at most one output path"; vm_smoke "${1:-}" ;;
+    desktop) shift; [[ $# -eq 0 ]] || omg_vm_die "desktop takes no arguments"; vm_desktop ;;
     logs) shift; [[ $# -eq 0 ]] || omg_vm_die "logs takes no arguments"; vm_logs ;;
     down) shift; [[ $# -eq 0 ]] || omg_vm_die "down takes no arguments"; vm_down ;;
     -h|--help|help|"") usage ;;

@@ -39,6 +39,7 @@ env -u SDKROOT macos/build.nu --configuration Debug --action build
 macos/scripts/vm/omg-vm deploy
 macos/scripts/vm/omg-vm provision
 macos/scripts/vm/omg-vm smoke
+macos/scripts/vm/omg-vm desktop
 
 # Inspect guest logs and shut the VM down, keeping its disk
 macos/scripts/vm/omg-vm logs
@@ -58,6 +59,24 @@ the guest screenshot path.
 Measured on an Apple Silicon host: `up` 14-17 s, `deploy` about 5 s, `smoke`
 about 6 s, `down` about 6.5 s.
 
+## Desktop checks
+
+`desktop` synthesizes HID events inside the guest instead of touching the host
+desktop, and prints these measurements:
+
+- mouse drag: drags across a terminal line and verifies the copied selection
+- native fullscreen: `Cmd-Ctrl-F` in and out, against the guest screen size
+- launch, new-window and Return-to-shell latency
+- PTY write throughput for 50,000 lines
+
+The drag check assumes the default sidebar width and font, so a resized sidebar
+makes it fail instead of silently passing. The PTY number is write throughput,
+not a frame rate: rendering happens asynchronously after the shell returns.
+
+Observed on the local 1024x768 guest: launch 1.2-3.7 s (higher when more windows
+are restored), new window 0.25-0.54 s, fullscreen in 0.23-0.40 s, fullscreen out
+0.66-1.11 s, Return to shell 81-90 ms and about 485k-520k PTY lines per second.
+
 ## Shutdown
 
 `down` asks the guest to halt over SSH and then removes the launchd job. Tart
@@ -71,8 +90,11 @@ removed. If the guest has not halted within 45 s, the script falls back to
 
 - Do not use `--vnc-experimental` for acceptance; a local run produced black
   frames. Guest screenshots are the supported capture path.
-- Real mouse drag, native fullscreen, multi-display behavior and frame-rate or
-  latency measurements still need a host desktop run.
+- Tart exposes one virtual display, so multi-display behavior cannot be tested
+  in this VM.
+- Sidebar tab drag, multi-display behavior, frame rate and visible-input
+  latency measurements still need a host desktop run; `desktop` only covers
+  what can be driven from inside the guest.
 - The first window restored after a full stop can show a session that ended
   while the guest was powered off. The smoke command always opens a fresh
   terminal, which is the right starting point for disposable GUI checks.
