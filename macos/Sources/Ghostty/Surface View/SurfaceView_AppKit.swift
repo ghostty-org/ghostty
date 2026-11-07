@@ -452,6 +452,17 @@ extension Ghostty {
             // sent to stop things like mouse selection.
             if !focused {
                 suppressLeftMouseUntilRelease = false
+
+                // Some input methods (e.g. Korean) drop their composition when
+                // we lose focus without committing it, so commit the preedit
+                // ourselves. Others (e.g. Japanese) keep composing and resume
+                // when focus returns, so we must leave them alone.
+                if markedText.length > 0,
+                   Self.inputSourceDropsPreeditOnFocusLoss(
+                       inputContext?.selectedKeyboardInputSource
+                   ) {
+                    commitMarkedText()
+                }
             }
 
             // Notify libghostty
@@ -1529,6 +1540,16 @@ extension Ghostty {
             }
         }
 
+        /// Sends any in-progress preedit text to the terminal as committed text
+        /// and tells the input method to drop its composition.
+        private func commitMarkedText() {
+            guard markedText.length > 0 else { return }
+            let text = markedText.string
+            unmarkText()
+            inputContext?.discardMarkedText()
+            _ = committedTextAction(GHOSTTY_ACTION_PRESS, text: text)
+        }
+
         private func committedTextAction(
             _ action: ghostty_input_action_e,
             text: String
@@ -2176,6 +2197,14 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             // in a preedit state so we can clear it.
             ghostty_surface_preedit(surface, nil, 0)
         }
+    }
+
+    /// True when `inputSource` silently drops its composition when the view
+    /// loses focus, without committing it. Korean input methods do this, while
+    /// others, such as Japanese ones, keep composing when focus returns.
+    static func inputSourceDropsPreeditOnFocusLoss(_ inputSource: String?) -> Bool {
+        guard let inputSource else { return false }
+        return inputSource.hasPrefix("com.apple.inputmethod.Korean")
     }
 
     /// True when `text` is a single C0 control character (U+0000-U+001F)
