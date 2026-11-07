@@ -350,7 +350,11 @@ pub fn initAtlasTexture(
 ) Texture.Error!Texture {
     const pixel_format: mtl.MTLPixelFormat = switch (atlas.format) {
         .grayscale => .r8unorm,
-        .bgra => .bgra8unorm_srgb,
+        // `src/font/face/coretext.zig` has a `renderGlyph()` that requests
+        // `.premultiplied_first` This is a premultiplied-alpha Display-P3
+        // format with an sRGB transfer function that cannot use the graphics
+        // API srgba decoding which expects straight-alpha
+        .bgra => .bgra8unorm,
         else => @panic("unsupported atlas format for Metal texture"),
     };
 
