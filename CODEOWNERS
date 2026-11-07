@@ -165,6 +165,7 @@
 /po/README_TRANSLATORS.md @ghostty-org/manager  # *localization* manager.
 /po/com.mitchellh.ghostty.pot @ghostty-org/manager
 /src/os/i18n_locales.zig @ghostty-org/manager
+/po/ar.po @ghostty-org/ar_SA
 /po/be.po @ghostty-org/be_BY
 /po/bg.po @ghostty-org/bg_BG
 /po/ca.po @ghostty-org/ca_ES
