@@ -827,6 +827,12 @@ pub fn init(
 }
 
 pub fn deinit(self: *Surface) void {
+    // Our search, renderer and IO threads can all be blocked pushing into
+    // the app mailbox, which only this thread drains. Keep it draining
+    // until they're joined.
+    var app_drain = self.app.teardownDrain(self);
+    app_drain.start(global.io());
+
     // Stop search thread
     if (self.search) |*s| s.deinit();
 
@@ -837,12 +843,24 @@ pub fn deinit(self: *Surface) void {
         self.renderer_thr.join();
     }
 
+    // The IO thread and its read thread send to the renderer, and block
+    // if its mailbox is full. Nothing drains it now, so throw messages
+    // away until they're joined.
+    var renderer_drain: rendererpkg.Thread.MailboxDrain = .{
+        .queue = self.renderer_thread.mailbox,
+        .context = {},
+    };
+    renderer_drain.start(global.io());
+
     // Stop our IO thread
     {
         self.io_thread.stop.notify() catch |err|
             log.err("error notifying io thread to stop, may stall err={}", .{err});
         self.io_thr.join();
     }
+
+    renderer_drain.finish();
+    app_drain.finish();
 
     // We need to deinit AFTER everything is stopped, since there are
     // shared values between the two threads.
