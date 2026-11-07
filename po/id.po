@@ -1005,7 +1005,7 @@ msgstr "Muat ulang berkas konfigurasi."
 
 #: src/input/command.zig:607
 msgid "Switch to Configured Appearance"
-msgstr "Beralih ke tampilan sesuai konfigurasi"
+msgstr "Beralih ke tampilan yang dikonfigurasi"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
