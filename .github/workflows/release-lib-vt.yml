@@ -52,12 +52,14 @@
 #   Each file is signed with minisign, and the signature sits next to it
 #   with .minisig added to the name:
 #
-#     libghostty-vt-V.tar.gz         source tarball
-#     libghostty-vt-V-deps.tar.gz    Zig packages for an offline build
-#     ghostty-vt-V.xcframework.zip   static libraries for Apple platforms
-#     ghostty-vt-V.wasm              WebAssembly, ReleaseFast
-#     ghostty-vt-V-small.wasm        WebAssembly, ReleaseSmall
-#     libghostty-vt-V-docs.zip       C API reference in HTML
+#     libghostty-vt-V.tar.gz                 source tarball
+#     libghostty-vt-V-deps.tar.gz            Zig packages for an offline build
+#     ghostty-vt-V.xcframework.zip           static libraries for Apple platforms
+#     ghostty-vt-V.wasm                      WebAssembly, ReleaseFast
+#     ghostty-vt-V-small.wasm                WebAssembly, ReleaseSmall
+#     ghostty-vt-V-x86_64-windows-gnu.zip    DLL and libraries for Windows x64
+#     ghostty-vt-V-aarch64-windows-gnu.zip   DLL and libraries for Windows on Arm
+#     libghostty-vt-V-docs.zip               C API reference in HTML
 #
 #   A release also publishes SHA256SUMS, the checksums of these files.
 on:
@@ -726,6 +728,262 @@ jobs:
             ghostty-vt-${{ env.VERSION }}-small.wasm
             ghostty-vt-${{ env.VERSION }}-small.wasm.minisig
 
+  # Builds libghostty-vt for Windows x64 and Windows on Arm, and zips
+  # each build with LICENSE and a README. Both builds run on Linux. Each
+  # zip unpacks into one folder with the same name as the zip:
+  #
+  #   ghostty-vt-1.0.0-x86_64-windows-gnu/
+  #     bin/ghostty-vt.dll          the DLL
+  #     bin/ghostty-vt.pdb          debug information for the DLL
+  #     include/ghostty/vt.h        the C headers
+  #     lib/ghostty-vt.lib          import library, for linking the DLL
+  #     lib/ghostty-vt-static.lib   static library
+  #     lib/cmake/ghostty-vt/       CMake package
+  #     lib/pkgconfig/              pkg-config files
+  #     LICENSE
+  #     README.md
+  #
+  # "gnu" in the name is the target Zig uses when it builds for Windows
+  # from Linux. Visual Studio projects can still use the DLL: it only
+  # needs DLLs that come with Windows 10 and later, and they link it
+  # through lib/ghostty-vt.lib. The CMake package and the pkg-config
+  # files find the folder from their own location, so the folder works
+  # wherever it is unzipped.
+  #
+  # verify-windows unzips the x86_64 zip on Windows and checks it with
+  # .github/scripts/check-windows-libghostty-vt.ps1, and test.yml runs
+  # the same script on every change. A change to this layout has to keep
+  # that check passing.
+  windows:
+    runs-on: namespace-profile-ghostty-sm
+    needs: [setup]
+    env:
+      TAG: ${{ needs.setup.outputs.tag }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      LIB_VERSION_STRING: ${{ needs.setup.outputs.lib_version_string }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Check the tag is on HEAD
+        if: needs.setup.outputs.release == 'true'
+        run: git tag --points-at HEAD | grep -qxF "$TAG"
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # Each build installs straight into the folder that becomes its zip.
+      - name: Build Windows Libraries
+        run: |
+          for triple in x86_64-windows-gnu aarch64-windows-gnu; do
+            nix develop -c zig build \
+              -Demit-lib-vt \
+              -Dtarget="$triple" \
+              -Doptimize=ReleaseFast \
+              --prefix "ghostty-vt-${VERSION}-${triple}" \
+              ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+          done
+
+      # Checks each folder before it is zipped:
+      #
+      #   - Every file a project needs to build against the library is
+      #     there.
+      #   - The pkg-config files start their paths at ${pcfiledir}, the
+      #     folder they are in.
+      #   - No text file names a folder on the build machine, such as the
+      #     checkout. Such a path would be wrong on every other computer.
+      #   - The DLL is built for the right processor.
+      #   - The DLL only needs ntdll.dll, KERNEL32.dll and the Universal C
+      #     Runtime (api-ms-win-crt-*.dll), which all come with Windows 10
+      #     and later. Any other DLL would have to ship in the zip.
+      #   - The CMake package has the version of this release.
+      - name: Verify Windows Install Trees
+        run: |
+          for triple in x86_64-windows-gnu aarch64-windows-gnu; do
+            dir="ghostty-vt-${VERSION}-${triple}"
+            echo "::group::$dir"
+            find "$dir" -type f | sort
+
+            for f in \
+              bin/ghostty-vt.dll \
+              bin/ghostty-vt.pdb \
+              lib/ghostty-vt.lib \
+              lib/ghostty-vt-static.lib \
+              include/ghostty/vt.h \
+              lib/cmake/ghostty-vt/ghostty-vt-config.cmake \
+              lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake \
+              lib/pkgconfig/libghostty-vt.pc \
+              lib/pkgconfig/libghostty-vt-static.pc; do
+              if [[ ! -f "$dir/$f" ]]; then
+                echo "Error: $dir/$f is missing." >&2
+                exit 1
+              fi
+            done
+
+            for pc in "$dir"/lib/pkgconfig/*.pc; do
+              if ! grep -qF 'prefix=${pcfiledir}/' "$pc"; then
+                cat "$pc"
+                echo "Error: $pc doesn't use \${pcfiledir}." >&2
+                exit 1
+              fi
+            done
+            if grep -rIlF -e "$GITHUB_WORKSPACE" -e "$RUNNER_TEMP" "$dir"; then
+              echo "Error: the files above name a folder on the build machine." >&2
+              exit 1
+            fi
+
+            case "$triple" in
+              x86_64-*) machine=x86-64 ;;
+              aarch64-*) machine=ARM64 ;;
+            esac
+            info=$(nix develop -c file -b "$dir/bin/ghostty-vt.dll")
+            echo "$info"
+            if [[ "$info" != *"(DLL)"*"$machine"* ]]; then
+              echo "Error: $dir/bin/ghostty-vt.dll isn't an $machine DLL." >&2
+              exit 1
+            fi
+
+            nix develop -c llvm-readobj --coff-imports "$dir/bin/ghostty-vt.dll" \
+              | sed -nE 's/^ *Name: (.+)$/\1/p' | sort -u > imports
+            cat imports
+            if [[ ! -s imports ]]; then
+              echo "Error: found no imports in $dir/bin/ghostty-vt.dll." >&2
+              exit 1
+            fi
+            if grep -viE '^(ntdll\.dll|kernel32\.dll|api-ms-win-crt-[a-z0-9-]+\.dll)$' imports; then
+              echo "Error: $dir/bin/ghostty-vt.dll imports the DLLs above." >&2
+              exit 1
+            fi
+            rm imports
+
+            if ! grep -qxF "set(PACKAGE_VERSION \"${VERSION}\")" \
+              "$dir/lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake"; then
+              echo "Error: the CMake package version isn't ${VERSION}." >&2
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      # zip runs from the folder above the build, so everything in the zip
+      # sits inside one folder named after it. The step then checks that
+      # the zip holds every file of that folder and nothing else.
+      - name: Zip Windows Libraries
+        run: |
+          for triple in x86_64-windows-gnu aarch64-windows-gnu; do
+            dir="ghostty-vt-${VERSION}-${triple}"
+            cp LICENSE "$dir/LICENSE"
+            cp dist/libghostty-vt/README-windows.md "$dir/README.md"
+            nix develop -c zip -9 -r -X "$dir.zip" "$dir"
+
+            nix develop -c python3 -c \
+              'import sys, zipfile; print(*zipfile.ZipFile(sys.argv[1]).namelist(), sep="\n")' \
+              "$dir.zip" > entries
+            cat entries
+            if grep -v "^$dir/" entries; then
+              echo "Error: the entries above are outside $dir/." >&2
+              exit 1
+            fi
+            if ! diff <(find "$dir" -type f | sort) <(grep -v '/$' entries | sort); then
+              echo "Error: $dir.zip doesn't hold exactly the files in $dir." >&2
+              exit 1
+            fi
+            rm entries
+          done
+
+      - name: Sign Windows Libraries
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}-x86_64-windows-gnu.zip" -s minisign.key < minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}-aarch64-windows-gnu.zip" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: |-
+            ghostty-vt-${{ env.VERSION }}-x86_64-windows-gnu.zip
+            ghostty-vt-${{ env.VERSION }}-x86_64-windows-gnu.zip.minisig
+            ghostty-vt-${{ env.VERSION }}-aarch64-windows-gnu.zip
+            ghostty-vt-${{ env.VERSION }}-aarch64-windows-gnu.zip.minisig
+
+  # Checks the Windows zips from the windows job on a Windows machine,
+  # the way a user would get them:
+  #
+  #   - Each zip unpacks with Expand-Archive into exactly one folder with
+  #     the zip's name, holding README.md and LICENSE.
+  #   - A CMake project builds against the unzipped x86_64 folder with
+  #     Visual Studio and runs, through check-windows-libghostty-vt.ps1.
+  #
+  # The runner is x64, so the aarch64 zip only gets the first check.
+  verify-windows:
+    runs-on: namespace-profile-ghostty-windows
+    needs: [setup, windows]
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      # The checkout only provides check-windows-libghostty-vt.ps1.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Download Windows Libraries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows
+          path: ${{ runner.temp }}/dist
+
+      - name: Unzip Windows Libraries
+        shell: pwsh
+        run: |
+          foreach ($triple in "x86_64-windows-gnu", "aarch64-windows-gnu") {
+            $name = "ghostty-vt-$env:VERSION-$triple"
+            $dest = Join-Path $env:RUNNER_TEMP "unzipped/$triple"
+            if (Test-Path -LiteralPath $dest) {
+              "Error: $dest already exists."
+              exit 1
+            }
+            Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP "dist/$name.zip") -DestinationPath $dest
+            $entries = @(Get-ChildItem -LiteralPath $dest -Force)
+            $entries | ForEach-Object { $_.Name }
+            if ($entries.Count -ne 1 -or -not $entries[0].PSIsContainer -or $entries[0].Name -cne $name) {
+              "Error: $name.zip must unpack into one folder named $name."
+              exit 1
+            }
+            foreach ($file in "README.md", "LICENSE") {
+              if (-not (Test-Path -LiteralPath (Join-Path $entries[0].FullName $file) -PathType Leaf)) {
+                "Error: $name.zip has no $name/$file."
+                exit 1
+              }
+            }
+          }
+
+      - name: Build and run a CMake consumer
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "unzipped/x86_64-windows-gnu/ghostty-vt-$env:VERSION-x86_64-windows-gnu"
+          ./.github/scripts/check-windows-libghostty-vt.ps1 `
+            -Prefix $prefix `
+            -WorkDir (Join-Path $env:RUNNER_TEMP "consumer")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   # Builds the HTML reference for the C API with Doxygen. It runs from the
   # checkout rather than the tarball, because the tarball leaves out
   # dist/doxygen.
@@ -794,9 +1052,11 @@ jobs:
             libghostty-vt-${{ env.VERSION }}-docs.zip
             libghostty-vt-${{ env.VERSION }}-docs.zip.minisig
 
-  # Publishes a release, after every other job has passed. A dry run skips
-  # it. It writes and signs SHA256SUMS, then uploads it with every other
-  # file to libghostty-vt/X.Y.Z/ in the ghostty-release R2 bucket, which
+  # Publishes a release, after every other job has passed, including
+  # verify-offline and verify-windows, which check the tarballs and the
+  # Windows zips the way users get them. A dry run skips it. It writes and
+  # signs SHA256SUMS, then uploads it with every other file to
+  # libghostty-vt/X.Y.Z/ in the ghostty-release R2 bucket, which
   # release.files.ghostty.org serves. Like the app's release-tag.yml, it
   # creates no GitHub Release.
   publish:
@@ -811,6 +1071,8 @@ jobs:
       - verify-offline
       - xcframework
       - wasm
+      - windows
+      - verify-windows
       - docs
     runs-on: namespace-profile-ghostty-sm
     env:
@@ -836,14 +1098,15 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       # Downloads every artifact of this run (source-tarball, deps-tarball,
-      # xcframework, wasm and docs) into the folder that is uploaded to R2.
+      # xcframework, wasm, windows and docs) into the folder that is
+      # uploaded to R2.
       - name: Download Artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           merge-multiple: true
           path: blob/libghostty-vt/${{ env.VERSION }}
 
-      # SHA256SUMS lists the six files, not their .minisig signatures.
+      # SHA256SUMS lists the eight files, not their .minisig signatures.
       # Anyone can check a download against it:
       #
       #   sha256sum --ignore-missing -c SHA256SUMS
@@ -856,6 +1119,8 @@ jobs:
             "ghostty-vt-${VERSION}.xcframework.zip"
             "ghostty-vt-${VERSION}.wasm"
             "ghostty-vt-${VERSION}-small.wasm"
+            "ghostty-vt-${VERSION}-x86_64-windows-gnu.zip"
+            "ghostty-vt-${VERSION}-aarch64-windows-gnu.zip"
             "libghostty-vt-${VERSION}-docs.zip"
           )
           for f in "${files[@]}"; do

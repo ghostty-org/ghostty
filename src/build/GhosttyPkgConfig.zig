@@ -35,8 +35,9 @@ options: *Step.Options,
 /// What the `.pc` files say. The `_static` fields apply to the static
 /// file and fall back to the shared value when null.
 ///
-/// Values in `libs` and `libs_static` may use the `${libdir}` and
-/// `${includedir}` variables that every generated file defines.
+/// Values in `cflags`, `libs` and their `_static` fields may use the
+/// `${libdir}` and `${includedir}` variables that every generated file
+/// defines.
 pub const Options = struct {
     /// The `Name:` field, for example "ghostty-vt".
     name: []const u8,
@@ -48,6 +49,11 @@ pub const Options = struct {
 
     /// The `Version:` field.
     version: std.SemanticVersion,
+
+    /// The `Cflags:` field, as separate flags that are joined with
+    /// spaces, for example `&.{"-I${includedir}"}`.
+    cflags: []const []const u8 = &.{"-I${includedir}"},
+    cflags_static: ?[]const []const u8 = null,
 
     /// The `Libs:` field, as separate flags that are joined with spaces,
     /// for example `&.{ "-L${libdir}", "-lghostty-vt" }`.
@@ -62,6 +68,26 @@ pub const Options = struct {
     /// only static linking needs, for example `&.{"simdutf"}`. Shared by
     /// both files.
     reqs_private: []const []const u8 = &.{},
+
+    /// Whether the files find the install tree relative to their own
+    /// location instead of through the absolute install prefix. Applies
+    /// to both files.
+    ///
+    /// pkg-config sets the `${pcfiledir}` variable to the directory that
+    /// holds the `.pc` file it is reading. With this option on, the files
+    /// use it to reach the prefix, so the whole install tree can be moved
+    /// or unzipped anywhere and still work. For the default layout, where
+    /// the files are in `<prefix>/lib/pkgconfig`, the files start with:
+    ///
+    ///     prefix=${pcfiledir}/../..
+    ///     includedir=${prefix}/include
+    ///     libdir=${prefix}/lib
+    ///
+    /// Turn this on for trees that are shipped as archives, such as the
+    /// prebuilt Windows zips. Leave it off for system installs.
+    /// Distribution packages expect the absolute prefix, for example
+    /// `prefix=/usr`.
+    relocatable: bool = false,
 };
 
 /// Builds the generator with `opts` compiled in. Call `getSharedFile` or
@@ -76,6 +102,8 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
         }),
     });
 
+    const cflags = try std.mem.join(b.allocator, " ", opts.cflags);
+    const cflags_static = if (opts.cflags_static) |s| try std.mem.join(b.allocator, " ", s) else cflags;
     const libs = try std.mem.join(b.allocator, " ", opts.libs);
     const libs_static = if (opts.libs_static) |s| try std.mem.join(b.allocator, " ", s) else libs;
 
@@ -85,10 +113,13 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
     options.addOption([]const u8, "description", opts.description);
     options.addOption([]const u8, "description_static", opts.description_static orelse opts.description);
     options.addOption(std.SemanticVersion, "version", opts.version);
+    options.addOption([]const u8, "cflags", cflags);
+    options.addOption([]const u8, "cflags_static", cflags_static);
     options.addOption([]const u8, "libs", libs);
     options.addOption([]const u8, "libs_static", libs_static);
     options.addOption([]const u8, "libs_private", try std.mem.join(b.allocator, " ", opts.libs_private));
     options.addOption([]const u8, "reqs_private", try std.mem.join(b.allocator, " ", opts.reqs_private));
+    options.addOption(bool, "relocatable", opts.relocatable);
     generator.root_module.addOptions("options", options);
     generator.root_module.addImport("InstallDirs", b.createModule(.{
         .root_source_file = b.path("src/build/InstallDirs.zig"),
