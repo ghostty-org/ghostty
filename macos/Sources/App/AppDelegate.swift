@@ -1041,6 +1041,10 @@ class AppDelegate: NSObject,
         // UpdateSimulator.happyPath.simulate(with: updateViewModel)
     }
 
+    @IBAction func showSSHConnections(_ sender: Any?) {
+        SSHSessionManagerController.shared.show(ghostty)
+    }
+
     @IBAction func newWindow(_ sender: Any?) {
         _ = TerminalController.newWindow(ghostty)
     }

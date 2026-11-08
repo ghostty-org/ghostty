@@ -1,0 +1,45 @@
+// Compiled as main.swift by verify-openssh.py into a throwaway signed app.
+// No real credentials or session files are accessed.
+import Darwin
+import Foundation
+
+SSHRuntime.runIfRequested()
+let root = URL(fileURLWithPath: CommandLine.arguments[1])
+let port = Int(CommandLine.arguments[2])!
+let username = CommandLine.arguments[3]
+var profile = SSHProfile(name: "Isolated SSH integration fixture", destination: "127.0.0.1")
+profile.port = port
+profile.username = username
+profile.authentication = .certificate
+profile.identityFile = root.appendingPathComponent("identity").path
+profile.certificateFile = root.appendingPathComponent("identity-cert.pub").path
+
+do {
+    let credential = try SSHCredentialStore.create("fixture-passphrase", label: "Disposable test", for: profile)
+    defer { try? SSHCredentialStore.delete(credential) }
+    profile.passphraseID = credential
+    let spec = SSHLaunchSpecification(profile: profile, expiresAt: Date().addingTimeInterval(60), launcherPID: getpid(),
+                                      policy: SSHAuthenticationPolicy(profile: profile, hostname: "127.0.0.1",
+                                                                      username: username, hasProxy: false))
+    let url = root.appendingPathComponent("auth.json")
+    try JSONEncoder().encode(spec).write(to: url)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    // Fabricated requests from an unrelated process must fail before accessing Keychain.
+    guard SSHAuthentication.respond(specURL: url, prompt: "Enter passphrase for key '\(profile.identityFile)': ") == 1 else {
+        throw SSHError.message("Untrusted caller was accepted")
+    }
+    var environment = ProcessInfo.processInfo.environment
+    environment["LC_ALL"] = "C"
+    environment["SSH_ASKPASS"] = Bundle.main.executableURL!.path
+    environment["SSH_ASKPASS_REQUIRE"] = "force"
+    environment["GHOSTTY_INTERNAL_SSH_ASKPASS"] = "1"
+    environment["GHOSTTY_INTERNAL_SSH_SPEC"] = url.path
+    environment["DISPLAY"] = "ghostty:0"
+    let arguments = ["-F", "/dev/null", "-o", "UserKnownHostsFile=\(root.appendingPathComponent("known_hosts").path)"]
+        + (try SSHInvocation.arguments(for: profile)) + ["IFS= read -r line; printf 'ghostty-ssh-helper-ok:%s' \"$line\""]
+    let result = try SSHChildProcess.run(executable: "/usr/bin/ssh", arguments: arguments, environment: environment)
+    guard result == 0 else { throw SSHError.message("Signed helper SSH exited with \(result)") }
+} catch {
+    fputs("Fixture failed: \(error.localizedDescription)\n", stderr)
+    exit(1)
+}
