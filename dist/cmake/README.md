@@ -92,6 +92,9 @@ The package provides two targets:
 | `ghostty-vt::ghostty-vt`        | the shared library |
 | `ghostty-vt::ghostty-vt-static` | the static library |
 
+The static target defines `GHOSTTY_STATIC`, so the headers don't mark functions
+as imported from a DLL on Windows.
+
 To require a version, pass it to `find_package`:
 
 ```cmake

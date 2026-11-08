@@ -49,6 +49,10 @@ holds prebuilt files for app developers:
 - `ghostty-vt-VERSION.wasm` and `ghostty-vt-VERSION-small.wasm`: the
   WebAssembly module, built with `ReleaseFast` and `ReleaseSmall`. See
   [WebAssembly](#webassembly).
+- `ghostty-vt-VERSION-x86_64-windows-gnu.zip` and
+  `ghostty-vt-VERSION-aarch64-windows-gnu.zip`: the Windows install tree
+  described in [Installed Files](#installed-files), built with
+  `ReleaseFast`.
 - `libghostty-vt-VERSION-docs.zip`: the C API reference as HTML. The HTML
   reference for each release is also at <https://lib.ghostty.org/vt/X.Y.Z/>.
 
@@ -200,6 +204,8 @@ its debug information `ghostty-vt.pdb` are installed to `bin/` instead,
 and `lib/` holds the import library `ghostty-vt.lib` and the static
 library `ghostty-vt-static.lib`. The DLL and import library names carry no
 major version, so side-by-side installs are not supported on Windows.
+Each release publishes this tree as a zip for x86_64 and aarch64, with
+`LICENSE` and a `README.md` at its root.
 
 Most distributions split these into a runtime package with the versioned
 shared library and its SONAME symlink, and a development package with
@@ -426,12 +432,14 @@ headers 1.0.0, library 1.0.0
 | Tier | Meaning                    | Platforms                                                                                                                                         |
 | ---- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | Built and tested in CI     | Linux x86_64 and aarch64 (glibc and musl), macOS 13+, iOS 13+, FreeBSD x86_64 and aarch64, Windows x86_64 (gnu ABI), wasm32-freestanding, Android |
-| 2    | Built in CI but not tested | riscv32 and thumb freestanding                                                                                                                    |
-| 3    | Best effort, not in CI     | wasm32-wasi, illumos, Windows arm64, 32-bit x86                                                                                                   |
+| 2    | Built in CI but not tested | riscv32 and thumb freestanding, Windows aarch64 (gnu ABI)                                                                                         |
+| 3    | Best effort, not in CI     | wasm32-wasi, illumos, 32-bit x86                                                                                                                  |
 
 On Windows, the library is built for the gnu ABI, which is what Zig picks
 by default. Programs built with MSVC can still link it through the import
-library, and CI does this for the CMake examples.
+library, and CI does this for the CMake examples. Each release also
+publishes a prebuilt zip for Windows aarch64. It is built like the x86_64
+zip but isn't run, so it stays Tier 2.
 
 ## WebAssembly
 
