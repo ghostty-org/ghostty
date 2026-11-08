@@ -338,6 +338,44 @@ pub const Page = struct {
         self.* = initBuf(.init(self.memory), layout(self.capacity));
     }
 
+    /// Zero the page's backing memory so it can be reused for a new page.
+    /// The page must be reinitialized with `initBuf` before it is used again.
+    ///
+    /// This zeroes only the row headers, the cells before each row's
+    /// extent (see `Row.extent`), and the metadata after the grid. When
+    /// the extents cover enough of the page, it is zeroed with one memset,
+    /// since that is faster than clearing each row separately.
+    ///
+    /// Cells at or beyond the extent are already zero. Cells outside `size`
+    /// must also be zeroed when removed (see `resetRow`), since growing the
+    /// page can expose them again without clearing them.
+    pub fn zeroMemory(self: *Page) void {
+        const rows = self.rows.ptr(self.memory)[0..self.size.rows];
+        const cells_len = @as(usize, self.capacity.rows) * self.capacity.cols;
+
+        // Zeroing row by row only pays off when most of the grid is still
+        // zero. For a page that is a quarter full or more, one memset over
+        // all of the memory is faster.
+        const dense = cells_len / 4;
+        var written: usize = 0;
+        for (rows) |row| {
+            written += @min(row.extent(), self.size.cols);
+            if (written >= dense) {
+                @memset(@as([]u64, @ptrCast(self.memory)), 0);
+                return;
+            }
+        }
+
+        for (rows) |*row| {
+            Cell.zeroAll(row.content(row.cells.ptr(self.memory)[0..self.size.cols]));
+        }
+
+        // The row headers, then the metadata after the grid (see `layout`).
+        const all_rows = self.rows.ptr(self.memory)[0..self.capacity.rows];
+        @memset(std.mem.sliceAsBytes(all_rows), 0);
+        @memset(self.memory[self.cells.offset + cells_len * @sizeOf(Cell) ..], 0);
+    }
+
     pub const IntegrityError = error{
         ZeroRowCount,
         ZeroColCount,
@@ -4825,6 +4863,49 @@ test "Page clearCells of part of a row clears its styled flag" {
     try testing.expect(row.isBlank());
     try testing.expect(!row.styled);
     try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page zeroMemory zeroes all of the memory" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // A fresh row may have content anywhere, so a fresh page counts as
+    // full and is zeroed with one memset. Mark the rows blank so that it
+    // is zeroed row by row.
+    for (0..page.size.rows) |y| page.getRow(y).markCleared();
+
+    // One styled cell, so the style set has data.
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .init('A');
+        rac.cell.style_id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+        rac.row.styled = true;
+        rac.row.markWritten(1);
+    }
+
+    // Three cells, which take the overlapping stores in Cell.zeroAll.
+    {
+        const rac = page.getRowAndCell(0, 1);
+        for (page.getCells(rac.row)[0..3], "ABC") |*cell, c| cell.* = .init(c);
+        rac.row.markWritten(3);
+    }
+
+    // A full row with a grapheme, so the grapheme storage has data.
+    {
+        const rac = page.getRowAndCell(0, 2);
+        for (page.getCells(rac.row)) |*cell| cell.* = .init('A');
+        rac.row.markWritten(page.size.cols);
+        try page.appendGrapheme(rac.row, rac.cell, 0x301);
+    }
+
+    try page.verifyIntegrity(testing.allocator);
+
+    page.zeroMemory();
+    try testing.expect(std.mem.allEqual(u8, page.memory, 0));
 }
 
 test "Page moveCells widens the destination extent" {

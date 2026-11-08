@@ -4339,16 +4339,23 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         // does when it recycles a page. Only the old layout's bytes can
         // be dirty, since every path that gives up a pool item zeroes
         // the bytes it used.
-        const old_memory = first.restore(.discard).memory;
+        //
+        // Resident pages can skip known-zero cells. Compressed pages
+        // must be cleared in full because their row headers were discarded.
+        const was_compressed = first.isCompressed();
+        const old_page = first.restore(.discard);
+        const old_memory = old_page.memory;
+
         assert(old_memory.len <= std_size);
         assert(layout.total_size <= std_size);
         const item: *align(std.heap.page_size_min) [std_size]u8 =
             @ptrCast(@alignCast(old_memory.ptr));
-        @memset(old_memory, 0);
+        if (was_compressed) @memset(old_memory, 0) else old_page.zeroMemory();
         if (comptime build_options.slow_runtime_safety) {
-            // Check that the rest of the item is zero. verifyIntegrity
-            // can't catch stale bytes because they look like page data.
-            assert(std.mem.allEqual(u8, item[old_memory.len..], 0));
+            // Check that the whole item is zero, including the bytes
+            // zeroMemory skipped. verifyIntegrity can't catch stale bytes
+            // because they look like page data.
+            assert(std.mem.allEqual(u8, item, 0));
         }
 
         // Initialize our new page and reinsert it as the last
