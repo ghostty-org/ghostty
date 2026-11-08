@@ -750,9 +750,10 @@ jobs:
   # files find the folder from their own location, so the folder works
   # wherever it is unzipped.
   #
-  # test.yml builds the same x86_64 folder on Windows and checks it with
-  # .github/scripts/check-windows-libghostty-vt.ps1. A change to this
-  # layout has to keep that check passing.
+  # verify-windows unzips the x86_64 zip on Windows and checks it with
+  # .github/scripts/check-windows-libghostty-vt.ps1, and test.yml runs
+  # the same script on every change. A change to this layout has to keep
+  # that check passing.
   windows:
     runs-on: namespace-profile-ghostty-sm
     needs: [setup]
@@ -922,6 +923,67 @@ jobs:
             ghostty-vt-${{ env.VERSION }}-aarch64-windows-gnu.zip
             ghostty-vt-${{ env.VERSION }}-aarch64-windows-gnu.zip.minisig
 
+  # Checks the Windows zips from the windows job on a Windows machine,
+  # the way a user would get them:
+  #
+  #   - Each zip unpacks with Expand-Archive into exactly one folder with
+  #     the zip's name, holding README.md and LICENSE.
+  #   - A CMake project builds against the unzipped x86_64 folder with
+  #     Visual Studio and runs, through check-windows-libghostty-vt.ps1.
+  #
+  # The runner is x64, so the aarch64 zip only gets the first check.
+  verify-windows:
+    runs-on: namespace-profile-ghostty-windows
+    needs: [setup, windows]
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      # The checkout only provides check-windows-libghostty-vt.ps1.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Download Windows Libraries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows
+          path: ${{ runner.temp }}/dist
+
+      - name: Unzip Windows Libraries
+        shell: pwsh
+        run: |
+          foreach ($triple in "x86_64-windows-gnu", "aarch64-windows-gnu") {
+            $name = "ghostty-vt-$env:VERSION-$triple"
+            $dest = Join-Path $env:RUNNER_TEMP "unzipped/$triple"
+            if (Test-Path -LiteralPath $dest) {
+              "Error: $dest already exists."
+              exit 1
+            }
+            Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP "dist/$name.zip") -DestinationPath $dest
+            $entries = @(Get-ChildItem -LiteralPath $dest -Force)
+            $entries | ForEach-Object { $_.Name }
+            if ($entries.Count -ne 1 -or -not $entries[0].PSIsContainer -or $entries[0].Name -cne $name) {
+              "Error: $name.zip must unpack into one folder named $name."
+              exit 1
+            }
+            foreach ($file in "README.md", "LICENSE") {
+              if (-not (Test-Path -LiteralPath (Join-Path $entries[0].FullName $file) -PathType Leaf)) {
+                "Error: $name.zip has no $name/$file."
+                exit 1
+              }
+            }
+          }
+
+      - name: Build and run a CMake consumer
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "unzipped/x86_64-windows-gnu/ghostty-vt-$env:VERSION-x86_64-windows-gnu"
+          ./.github/scripts/check-windows-libghostty-vt.ps1 `
+            -Prefix $prefix `
+            -WorkDir (Join-Path $env:RUNNER_TEMP "consumer")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   # Builds the HTML reference for the C API with Doxygen. It runs from the
   # checkout rather than the tarball, because the tarball leaves out
   # dist/doxygen.
@@ -990,9 +1052,11 @@ jobs:
             libghostty-vt-${{ env.VERSION }}-docs.zip
             libghostty-vt-${{ env.VERSION }}-docs.zip.minisig
 
-  # Publishes a release, after every other job has passed. A dry run skips
-  # it. It writes and signs SHA256SUMS, then uploads it with every other
-  # file to libghostty-vt/X.Y.Z/ in the ghostty-release R2 bucket, which
+  # Publishes a release, after every other job has passed, including
+  # verify-offline and verify-windows, which check the tarballs and the
+  # Windows zips the way users get them. A dry run skips it. It writes and
+  # signs SHA256SUMS, then uploads it with every other file to
+  # libghostty-vt/X.Y.Z/ in the ghostty-release R2 bucket, which
   # release.files.ghostty.org serves. Like the app's release-tag.yml, it
   # creates no GitHub Release.
   publish:
@@ -1008,6 +1072,7 @@ jobs:
       - xcframework
       - wasm
       - windows
+      - verify-windows
       - docs
     runs-on: namespace-profile-ghostty-sm
     env:
