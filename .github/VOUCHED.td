@@ -206,6 +206,7 @@ jguthmiller
 jin-eden
 jmcgover
 jmr
+johnrichardrinehart
 johnslavik
 jordandm
 josephmart
