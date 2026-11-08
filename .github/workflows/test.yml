@@ -458,15 +458,32 @@ jobs:
             exit 1
           }
 
-          # The text files must not name the build directory. The DLL and
-          # its PDB are left out: debug info names the source files.
+          # The pkg-config files must find the tree relative to their own
+          # location, so the tree works wherever it is unzipped.
+          $pcs = @("libghostty-vt.pc", "libghostty-vt-static.pc") |
+            ForEach-Object { Join-Path $prefix "lib/pkgconfig/$_" }
+          $absolute = $pcs | Where-Object {
+            -not (Select-String -Path $_ -SimpleMatch -Pattern 'prefix=${pcfiledir}/' -Quiet)
+          }
+          if ($absolute) {
+            Get-Content $absolute
+            "pkg-config files don't use `${pcfiledir}: $($absolute -join ', ')"
+            exit 1
+          }
+
+          # The text files must not name the build directory or the
+          # install prefix. The DLL and its PDB are left out: debug info
+          # names the source files.
           $workspace = $env:GITHUB_WORKSPACE
-          $patterns = @($workspace, $workspace.Replace('\', '/')) | Sort-Object -Unique
+          $patterns = @(
+            $workspace, $workspace.Replace('\', '/'),
+            $prefix, $prefix.Replace('\', '/')
+          ) | Sort-Object -Unique
           $leaks = Get-ChildItem $prefix -Recurse -File -Include *.h, *.pc, *.cmake |
             Select-String -SimpleMatch -Pattern $patterns
           if ($leaks) {
             $leaks
-            "installed files name the build directory"
+            "installed files name the build directory or the install prefix"
             exit 1
           }
 
@@ -866,6 +883,7 @@ jobs:
             aarch64-freebsd,
             x86_64-freebsd,
             x86_64-windows-gnu,
+            aarch64-windows-gnu,
             # doesn't work yet, we need a way to find msvc libc/c++ headers
             # x86_64-windows-msvc
           ]

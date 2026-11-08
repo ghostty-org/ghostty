@@ -62,6 +62,26 @@ pub const Options = struct {
     /// only static linking needs, for example `&.{"simdutf"}`. Shared by
     /// both files.
     reqs_private: []const []const u8 = &.{},
+
+    /// Whether the files find the install tree relative to their own
+    /// location instead of through the absolute install prefix. Applies
+    /// to both files.
+    ///
+    /// pkg-config sets the `${pcfiledir}` variable to the directory that
+    /// holds the `.pc` file it is reading. With this option on, the files
+    /// use it to reach the prefix, so the whole install tree can be moved
+    /// or unzipped anywhere and still work. For the default layout, where
+    /// the files are in `<prefix>/lib/pkgconfig`, the files start with:
+    ///
+    ///     prefix=${pcfiledir}/../..
+    ///     includedir=${prefix}/include
+    ///     libdir=${prefix}/lib
+    ///
+    /// Turn this on for trees that are shipped as archives, such as the
+    /// prebuilt Windows zips. Leave it off for system installs.
+    /// Distribution packages expect the absolute prefix, for example
+    /// `prefix=/usr`.
+    relocatable: bool = false,
 };
 
 /// Builds the generator with `opts` compiled in. Call `getSharedFile` or
@@ -89,6 +109,7 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
     options.addOption([]const u8, "libs_static", libs_static);
     options.addOption([]const u8, "libs_private", try std.mem.join(b.allocator, " ", opts.libs_private));
     options.addOption([]const u8, "reqs_private", try std.mem.join(b.allocator, " ", opts.reqs_private));
+    options.addOption(bool, "relocatable", opts.relocatable);
     generator.root_module.addOptions("options", options);
     generator.root_module.addImport("InstallDirs", b.createModule(.{
         .root_source_file = b.path("src/build/InstallDirs.zig"),

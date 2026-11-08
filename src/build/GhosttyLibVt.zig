@@ -656,6 +656,11 @@ fn pkgConfigFiles(
         .libs_static = &.{b.fmt("${{libdir}}/{s}", .{staticLibraryName(os_tag)})},
         .libs_private = &.{libsPrivate(zig)},
         .reqs_private = &.{requiresPrivate(b)},
+        // We publish prebuilt Windows zips, and users unzip them
+        // anywhere. On other platforms the library is installed by a
+        // package manager or from source, which expect the absolute
+        // prefix.
+        .relocatable = os_tag == .windows,
     });
 
     return .{
