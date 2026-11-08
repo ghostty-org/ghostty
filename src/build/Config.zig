@@ -594,7 +594,16 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
         bool,
         "emit-themes",
         "Install bundled iTerm2-Color-Schemes Ghostty themes",
-    ) orelse true;
+    ) orelse switch (target.result.os.tag) {
+        // There is no Windows app to install themes for, and asking for the
+        // themes package downloads and unpacks it on every build, whichever
+        // steps were requested. Some theme names (e.g. ones with a colon)
+        // aren't valid Windows file names, so unpacking it there fails and
+        // takes builds that never use the themes, such as
+        // `zig build test-lib-vt`, down with it.
+        .windows => false,
+        else => true,
+    };
 
     config.emit_webdata = b.option(
         bool,
