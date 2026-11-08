@@ -1009,7 +1009,7 @@ msgstr "Beralih ke tampilan yang dikonfigurasi"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
-msgstr "Gunakan tampilan aplikasi sesuai konfigurasi."
+msgstr "Gunakan tampilan aplikasi dari konfigurasi."
 
 #: src/input/command.zig:612
 msgid "Switch to System Appearance"
