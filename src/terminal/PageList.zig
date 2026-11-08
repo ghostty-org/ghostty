@@ -3335,17 +3335,16 @@ fn resizeWithoutReflowGrowCols(
             )) |_| {
                 copied += 1;
             } else |err| {
-                // I don't THINK this should be possible, because while our
-                // row count may diminish due to the adjustment, our
-                // prior capacity should have been sufficient to hold all the
-                // managed memory.
+                // Managed data is copied in cell order, which may differ from its
+                // original allocation order. This can fragment the destination
+                // allocator, so the copy can fail even at the same capacity.
                 log.warn(
-                    "unexpected cloneRowFrom failure during resizeWithoutReflowGrowCols: {}",
+                    "cloneRowFrom failure during resizeWithoutReflowGrowCols: {}",
                     .{err},
                 );
 
-                // We can actually safely handle this though by exiting
-                // this loop early and cutting our copy short.
+                // Clear the partially copied row before shrinking.
+                new_page.resetRow(dst_row);
                 new_page.size.rows -= 1;
                 break;
             }
@@ -4345,16 +4344,23 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         // does when it recycles a page. Only the old layout's bytes can
         // be dirty, since every path that gives up a pool item zeroes
         // the bytes it used.
-        const old_memory = first.restore(.discard).memory;
+        //
+        // Resident pages can skip known-zero cells. Compressed pages
+        // must be cleared in full because their row headers were discarded.
+        const was_compressed = first.isCompressed();
+        const old_page = first.restore(.discard);
+        const old_memory = old_page.memory;
+
         assert(old_memory.len <= std_size);
         assert(layout.total_size <= std_size);
         const item: *align(std.heap.page_size_min) [std_size]u8 =
             @ptrCast(@alignCast(old_memory.ptr));
-        @memset(old_memory, 0);
+        if (was_compressed) @memset(old_memory, 0) else old_page.zeroMemory();
         if (comptime build_options.slow_runtime_safety) {
-            // Check that the rest of the item is zero. verifyIntegrity
-            // can't catch stale bytes because they look like page data.
-            assert(std.mem.allEqual(u8, item[old_memory.len..], 0));
+            // Check that the whole item is zero, including the bytes
+            // zeroMemory skipped. verifyIntegrity can't catch stale bytes
+            // because they look like page data.
+            assert(std.mem.allEqual(u8, item, 0));
         }
 
         // Initialize our new page and reinsert it as the last
@@ -5315,7 +5321,7 @@ inline fn createPage(
         const page = &node.data.resident;
         const item: *align(std.heap.page_size_min) [std_size]u8 =
             @ptrCast(@alignCast(page.memory.ptr));
-        @memset(page.memory, 0);
+        page.zeroMemory();
 
         // Accounting: a pool-owned node always accounts for a full
         // pool item in page_size, so destroying the node and
