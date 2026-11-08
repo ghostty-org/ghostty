@@ -1331,12 +1331,24 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
         .lt => {
             // We first change our row count so that we have the proper amount
             // we can use when shrinking our cols.
+            const old_active_top = self.total_rows - self.rows;
             try self.resizeWithoutReflow(opts: {
                 var copy = opts;
                 copy.cols = self.cols;
                 break :opts copy;
             });
-            try self.resizeCols(cols, opts);
+
+            // Changing the row count doesn't move any content, only the top of
+            // the active area (e.g. when pulling down scrollback), so the
+            // cursor's row in the active area moves by the opposite amount.
+            var cols_opts = opts;
+            if (cols_opts.cursor) |*c| {
+                const screen_y = old_active_top + c.y;
+                const new_active_top = self.total_rows - self.rows;
+                if (screen_y >= new_active_top) c.y = @intCast(screen_y - new_active_top);
+            }
+
+            try self.resizeCols(cols, cols_opts);
         },
     }
 
