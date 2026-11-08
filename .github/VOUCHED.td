@@ -206,6 +206,7 @@ jguthmiller
 jin-eden
 jmcgover
 jmr
+johnrichardrinehart
 johnslavik
 jordandm
 josephmart
@@ -291,6 +292,7 @@ nagato-yuzuru
 natesmyth
 neo773
 neobrain
+neomantra
 neoto
 neurosnap
 nicholas-ochoa
