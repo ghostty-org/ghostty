@@ -35,8 +35,9 @@ options: *Step.Options,
 /// What the `.pc` files say. The `_static` fields apply to the static
 /// file and fall back to the shared value when null.
 ///
-/// Values in `libs` and `libs_static` may use the `${libdir}` and
-/// `${includedir}` variables that every generated file defines.
+/// Values in `cflags`, `libs` and their `_static` fields may use the
+/// `${libdir}` and `${includedir}` variables that every generated file
+/// defines.
 pub const Options = struct {
     /// The `Name:` field, for example "ghostty-vt".
     name: []const u8,
@@ -48,6 +49,11 @@ pub const Options = struct {
 
     /// The `Version:` field.
     version: std.SemanticVersion,
+
+    /// The `Cflags:` field, as separate flags that are joined with
+    /// spaces, for example `&.{"-I${includedir}"}`.
+    cflags: []const []const u8 = &.{"-I${includedir}"},
+    cflags_static: ?[]const []const u8 = null,
 
     /// The `Libs:` field, as separate flags that are joined with spaces,
     /// for example `&.{ "-L${libdir}", "-lghostty-vt" }`.
@@ -96,6 +102,8 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
         }),
     });
 
+    const cflags = try std.mem.join(b.allocator, " ", opts.cflags);
+    const cflags_static = if (opts.cflags_static) |s| try std.mem.join(b.allocator, " ", s) else cflags;
     const libs = try std.mem.join(b.allocator, " ", opts.libs);
     const libs_static = if (opts.libs_static) |s| try std.mem.join(b.allocator, " ", s) else libs;
 
@@ -105,6 +113,8 @@ pub fn init(b: *Build, opts: Options) !GhosttyPkgConfig {
     options.addOption([]const u8, "description", opts.description);
     options.addOption([]const u8, "description_static", opts.description_static orelse opts.description);
     options.addOption(std.SemanticVersion, "version", opts.version);
+    options.addOption([]const u8, "cflags", cflags);
+    options.addOption([]const u8, "cflags_static", cflags_static);
     options.addOption([]const u8, "libs", libs);
     options.addOption([]const u8, "libs_static", libs_static);
     options.addOption([]const u8, "libs_private", try std.mem.join(b.allocator, " ", opts.libs_private));

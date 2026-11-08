@@ -652,6 +652,10 @@ fn pkgConfigFiles(
         .description = "Ghostty VT library",
         .description_static = "Ghostty VT library (static)",
         .version = zig.version,
+        // GHOSTTY_STATIC tells the headers that the library is linked
+        // statically. Without it, on Windows every declaration is
+        // __declspec(dllimport) and the link fails.
+        .cflags_static = &.{ "-I${includedir}", "-DGHOSTTY_STATIC" },
         .libs = &.{ "-L${libdir}", "-lghostty-vt" },
         .libs_static = &.{b.fmt("${{libdir}}/{s}", .{staticLibraryName(os_tag)})},
         .libs_private = &.{libsPrivate(zig)},

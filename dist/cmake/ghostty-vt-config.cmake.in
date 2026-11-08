@@ -59,12 +59,18 @@ endif()
 # SIMD enabled): libc, libc++ (or libstdc++ on Linux), highway, and
 # simdutf. Building with -Dsimd=false removes the C++ / highway / simdutf
 # dependencies.
+#
+# GHOSTTY_STATIC tells the headers that the library is linked statically.
+# Without it, on Windows every declaration is __declspec(dllimport) and
+# the link fails with undefined __imp_ghostty_* symbols. Elsewhere it only
+# drops a visibility attribute.
 if(NOT TARGET ghostty-vt::ghostty-vt-static)
     add_library(ghostty-vt::ghostty-vt-static STATIC IMPORTED)
 
     set_target_properties(ghostty-vt::ghostty-vt-static PROPERTIES
         IMPORTED_LOCATION "${_ghostty_vt_libdir}/@GHOSTTY_VT_STATIC_REALNAME@"
         INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
+        INTERFACE_COMPILE_DEFINITIONS "GHOSTTY_STATIC"
     )
     if(WIN32)
         set_target_properties(ghostty-vt::ghostty-vt-static PROPERTIES

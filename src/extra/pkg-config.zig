@@ -73,7 +73,7 @@ pub fn main(init: std.process.Init) !void {
         \\URL: https://github.com/ghostty-org/ghostty
         \\Description: {[description]s}
         \\Version: {[version]f}
-        \\Cflags: -I${{includedir}}
+        \\Cflags: {[cflags]s}
         \\Libs: {[libs]s}
         \\Libs.private: {[libs_private]s}
         \\Requires.private: {[reqs_private]s}
@@ -84,6 +84,7 @@ pub fn main(init: std.process.Init) !void {
         .name = if (is_static) options.name_static else options.name,
         .description = if (is_static) options.description_static else options.description,
         .version = options.version,
+        .cflags = if (is_static) options.cflags_static else options.cflags,
         .libs = if (is_static) options.libs_static else options.libs,
         .libs_private = options.libs_private,
         .reqs_private = options.reqs_private,
