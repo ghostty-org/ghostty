@@ -903,9 +903,9 @@ pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     assert(x < self.pages.cols);
     defer self.assertIntegrity();
 
+    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+    self.cursor.page_cell = @ptrCast(cell - self.cursor.x + x);
     self.cursor.page_pin.x = x;
-    const page_rac = self.cursor.page_pin.rowAndCell();
-    self.cursor.page_cell = page_rac.cell;
     self.cursor.x = x;
 }
 
