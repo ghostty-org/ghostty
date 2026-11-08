@@ -1,7 +1,7 @@
 .{
-    .name = .c_vt,
+    .name = .c_vt_encode_mouse,
     .version = "0.0.0",
-    .fingerprint = 0x413a8529a6dd3c51,
+    .fingerprint = 0x4405e3dcd8f8c72e,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         // Ghostty dependency. In reality, you'd probably use a URL-based

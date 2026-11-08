@@ -887,6 +887,10 @@ fn wrap(
         .program_status = null,
     };
 
+    // The C API leaves Glyph Protocol off until the embedder opts in. The
+    // core default stays on for the Ghostty app.
+    handler.apc_handler.enable(.glyph, false);
+
     wrapper.* = .{
         .terminal = t,
         .io = io,
@@ -1005,10 +1009,11 @@ const NewError = error{
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Terminal,
+    result_: ?*Terminal,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) callconv(lib.calling_conv) Result {
+    const result = result_ orelse return .invalid_value;
     result.* = new_(alloc_, cols, rows) catch |err| {
         result.* = null;
         return switch (err) {
@@ -1060,10 +1065,11 @@ fn new_(
 
 pub fn vt_write(
     terminal_: Terminal,
-    ptr: [*]const u8,
+    ptr_: ?[*]const u8,
     len: usize,
 ) callconv(lib.calling_conv) void {
     const wrapper = terminal_ orelse return;
+    const ptr = ptr_ orelse return;
     wrapper.stream.nextSlice(ptr[0..len]);
 }
 
@@ -1743,8 +1749,7 @@ fn setTyped(
             }
         },
         .glyph_protocol => {
-            // Every APC protocol is enabled by default.
-            const enabled = if (value) |v| v.* else true;
+            const enabled = if (value) |v| v.* else false;
             wrapper.stream.handler.apc_handler.enable(.glyph, enabled);
             if (!enabled) wrapper.terminal.glyph_glossary.clearAndFree(wrapper.terminal.gpa());
         },
@@ -1941,7 +1946,7 @@ pub const TerminalData = enum(c_int) {
     cursor_visible = 7,
     kitty_keyboard_flags = 8,
     scrollbar = 9,
-    cursor_style = 10,
+    cursor_sgr_style = 10,
     mouse_tracking = 11,
     title = 12,
     pwd = 13,
@@ -1994,7 +1999,7 @@ pub const TerminalData = enum(c_int) {
             .active_screen => TerminalScreen,
             .kitty_keyboard_flags => u8,
             .scrollbar => TerminalScrollbar,
-            .cursor_style => style_c.Style,
+            .cursor_sgr_style => style_c.Style,
             .title, .pwd => lib.String,
             .total_rows,
             .scrollback_rows,
@@ -2083,7 +2088,7 @@ fn getTyped(
         .cursor_visible => out.* = t.modes.get(.cursor_visible),
         .kitty_keyboard_flags => out.* = @as(u8, t.screens.active.kitty_keyboard.current().int()),
         .scrollbar => out.* = t.screens.active.pages.scrollbar().cval(),
-        .cursor_style => out.* = .fromStyle(t.screens.active.cursor.style),
+        .cursor_sgr_style => out.* = .fromStyle(t.screens.active.cursor.style),
         .mouse_tracking => out.* = t.modes.get(.mouse_event_x10) or
             t.modes.get(.mouse_event_normal) or
             t.modes.get(.mouse_event_button) or
@@ -2230,12 +2235,14 @@ pub fn grid_ref_track(
 
 pub fn point_from_grid_ref(
     terminal_: Terminal,
-    ref: *const grid_ref_c.CGridRef,
-    tag: point.Tag,
+    ref_: ?*const grid_ref_c.CGridRef,
+    tag_: lib.CEnum(point.Tag),
     out: ?*point.Coordinate,
 ) callconv(lib.calling_conv) Result {
     if (comptime !(lib.feature(.grid_introspection) or lib.feature(.selection))) return .unsupported;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    const ref = ref_ orelse return .invalid_value;
+    const tag = lib.enumFromC(point.Tag, tag_) orelse return .invalid_value;
     const p = ref.toPin() orelse return .invalid_value;
     const pt = t.screens.active.pages.pointFromPin(tag, p) orelse
         return .no_value;
@@ -2700,12 +2707,12 @@ test "set null restores the defaults new starts with" {
     try testing.expectEqual(lines_default, primary.pages.limits.lines.explicit);
 
     const apc_handler = &t.?.stream.handler.apc_handler;
-    try testing.expect(apc_handler.enabled.contains(.glyph));
-    const off = false;
-    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&off)));
     try testing.expect(!apc_handler.enabled.contains(.glyph));
-    try testing.expectEqual(Result.success, set(t, .glyph_protocol, null));
+    const on = true;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&on)));
     try testing.expect(apc_handler.enabled.contains(.glyph));
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, null));
+    try testing.expect(!apc_handler.enabled.contains(.glyph));
 
     // The mode options have no default to restore.
     try testing.expectEqual(Result.invalid_value, set(t, .mode, null));
@@ -4753,7 +4760,7 @@ test "selection derivation helpers" {
     try testing.expectEqual(@as(u16, 4), out.end.toPin().?.x);
     try testing.expectEqual(@as(u16, 1), out.end.toPin().?.y);
 
-    try testing.expectEqual(Result.no_value, selection_c.output(t, line_ref, &out));
+    try testing.expectEqual(Result.no_value, selection_c.output(t, &line_ref, &out));
 
     // The size rule for the three option structs: below the base layout
     // is rejected, a newer caller's zero tail is accepted and a non-zero
@@ -7367,6 +7374,12 @@ test "device_attributes without callback uses default" {
     vt_write(t, "\x1B[c", 3);
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1b[?62;22c", S.last_data.?);
+
+    // DA2 and DA3 have defaults too.
+    vt_write(t, "\x1B[>c", 4);
+    try testing.expectEqualStrings("\x1b[>1;0;0c", S.last_data.?);
+    vt_write(t, "\x1B[=c", 4);
+    try testing.expectEqualStrings("\x1bP!|00000000\x1b\\", S.last_data.?);
 }
 
 test "device_attributes callback returns false uses default" {
@@ -8063,7 +8076,13 @@ test "set glyph protocol disables APC handling and clears glossary" {
     ));
     defer free(t);
 
+    // Off by default, so nothing registers until it's enabled.
     const register = "\x1B_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1B\\";
+    vt_write(t, register, register.len);
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&enabled)));
     vt_write(t, register, register.len);
     try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
 
@@ -8074,11 +8093,6 @@ test "set glyph protocol disables APC handling and clears glossary" {
 
     vt_write(t, register, register.len);
     try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
-
-    const enabled = true;
-    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&enabled)));
-    vt_write(t, register, register.len);
-    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
 }
 
 test "get_multi success" {

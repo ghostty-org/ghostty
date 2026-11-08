@@ -18,81 +18,34 @@
 extern "C" {
 #endif
 
-/** @defgroup grid_ref Grid Reference
+/** @addtogroup grid_ref
  *
- * A grid reference is a reference to a specific cell position in the 
- * terminal. Obtain a grid reference from `ghostty_terminal_grid_ref`
- * for untracked or `ghostty_terminal_grid_ref_track` for tracked. Untracked
- * vs tracked is explained next.
+ * A grid reference points at one cell in the terminal.
  *
- * Important: The grid reference APIs are not meant to be used as the core of a render
- * loop. They are not built to sustain the framerates needed for rendering large
- * screens. Use the render state API for that.
+ * An untracked reference is a snapshot that is only valid until the next change
+ * to the terminal. A tracked reference follows its cell. Use one to read
+ * particular cells. They aren't fast enough to draw a frame, so use @ref render
+ * for that.
  *
- * ## Untracked vs Tracked References
- *  
- * ### Untracked Reference
+ * ## Example
  *
- * An untracked grid reference is a value type that snapshots a specific
- * cell. It is only valid until the next update to the terminal instance.
- * There is no guarantee that it will remain valid after any operation,
- * even if a seemingly unrelated part of the grid is changed. These are meant
- * to be read and have their values cached immediately after obtaining it.
+ * @code{.c}
+ * GhosttyGridRef ref = {0};
+ * GhosttyPoint point = {
+ *     .tag = GHOSTTY_POINT_TAG_ACTIVE,
+ *     .value = { .coordinate = { .x = 4, .y = 0 } },
+ * };
  *
- * An untracked grid reference has a performance cost in its initial lookup,
- * but doesn't affect the ongoing performance of the terminal in any way,
- * since it is a one-time snapshot.
+ * if (ghostty_terminal_grid_ref(terminal, point, &ref) == GHOSTTY_SUCCESS) {
+ *     GhosttyCell cell;
+ *     ghostty_grid_ref_cell(&ref, &cell);
+ * }
+ * @endcode
  *
- * ### Tracked Reference
+ * Full program: @ref c-vt-grid-traverse/src/main.c
  *
- * A tracked grid reference follows its cell across normal screen operations.
- * For example scrolling, scrollback pruning, resize/reflow, and other
- * terminal mutations update the tracked reference automatically.
- * 
- * A tracked reference can still lose its original semantic location. This can
- * happen when the underlying grid is reset, pruned, or otherwise discarded in a
- * way that cannot be mapped to a meaningful new cell. In that state,
- * ghostty_tracked_grid_ref_has_value() returns false and
- * ghostty_tracked_grid_ref_snapshot() / ghostty_tracked_grid_ref_point() return
- * GHOSTTY_NO_VALUE. The handle remains valid, and callers may move it to a new
- * point with ghostty_tracked_grid_ref_set().
- *
- * To read cell data from a tracked reference, first snapshot it with
- * ghostty_tracked_grid_ref_snapshot(). The returned `GhosttyGridRef` is again
- * an untracked reference and follows the same short lifetime rules as any other
- * untracked grid reference.
- *
- * A tracked reference belongs to the terminal screen/page-list that was active
- * when it was created or last set. Converting it to a point uses that owning
- * screen/page-list, even if the terminal has since switched between primary and
- * alternate screens. Calling ghostty_tracked_grid_ref_set() resolves the new
- * point against the terminal's currently active screen/page-list and may move
- * the tracked reference between screens.
- *
- * Tracked references are owned by the caller and must be freed with
- * ghostty_tracked_grid_ref_free(). If the terminal that created a tracked
- * reference is freed first, the handle remains valid only for tracked-grid-ref
- * APIs: it reports no value and can still be freed.
- *
- * Each tracked reference adds bookkeeping to terminal mutations. Use them 
- * sparingly for long-lived anchors such as selections, search state, marks, 
- * or application-side bookmarks.
- *
- * ## Lifetime
- *
- * An untracked reference is a snapshot. It doesn't need to be freed.
- * The safety of accessing the value is documented explicitly above: it
- * is only safe to access any data until the next terminal mutating
- * operation (including free).
- *
- * A tracked reference is allocated and must be freed when it is no
- * longer needed. A tracked reference may outlive the terminal that created it;
- * after terminal free, it reports no value and can still be freed.
- *
- * ## Examples
- *
- * @snippet c-vt-grid-traverse/src/main.c grid-ref-traverse
- * @snippet c-vt-grid-ref-tracked/src/main.c grid-ref-tracked
+ * The @ref guide-grid "Grid guide" covers coordinates, both kinds of reference,
+ * and when each one dies.
  *
  * @{
  */
@@ -109,6 +62,12 @@ extern "C" {
  * next call that changes the terminal, such as ghostty_terminal_vt_write()
  * or ghostty_terminal_resize(). To keep pointing at the same cell across
  * changes, use a tracked reference instead (see GhosttyTrackedGridRef).
+ *
+ * We can't detect a stale reference, so nothing returns an error for one. A
+ * reference holds a raw pointer into the terminal's page list. If that page is
+ * still there, you read whatever is at that position now, which may be a
+ * different cell. If the page was freed, you read freed memory, and that's
+ * undefined behavior. Don't use a reference after the terminal changes.
  *
  * Start with a zero-initialized value. A zeroed reference doesn't point at
  * any cell, and the ghostty_grid_ref_* functions return
@@ -152,7 +111,8 @@ typedef struct {
 /**
  * Get the cell from a grid reference.
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_cell On success, set to the cell at the ref's position (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL
@@ -165,7 +125,8 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_cell(const GhosttyGridRef *ref,
 /**
  * Get the row from a grid reference.
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_row On success, set to the row at the ref's position (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL
@@ -207,12 +168,14 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_row(const GhosttyGridRef *ref,
  * if (codepoints != stack) free(codepoints);
  * @endcode
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the codepoints into. May be NULL if @p buf_len
  *            is 0.
  * @param buf_len Number of uint32_t elements @p buf can hold
  * @param[out] out_written The number of codepoints written, or the number
- *             needed if the result is GHOSTTY_OUT_OF_SPACE
+ *             needed if the result is GHOSTTY_OUT_OF_SPACE (NULL returns
+ *             GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL, GHOSTTY_OUT_OF_SPACE if the buffer is too small
  *
@@ -248,11 +211,13 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_graphemes(const GhosttyGridRef *ref,
  * }
  * @endcode
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the URI into. May be NULL if @p buf_len is 0.
  * @param buf_len Size of @p buf in bytes
  * @param[out] out_written The number of bytes written, or the size needed
- *             if the result is GHOSTTY_OUT_OF_SPACE
+ *             if the result is GHOSTTY_OUT_OF_SPACE (NULL returns
+ *             GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL, GHOSTTY_OUT_OF_SPACE if the buffer is too small
  *
@@ -267,7 +232,8 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_hyperlink_uri(
 /**
  * Get the style of the cell at the grid reference's position.
  *
- * @param ref Pointer to the grid reference
+ * @param ref Pointer to the grid reference (NULL returns
+ *            GHOSTTY_INVALID_VALUE)
  * @param[out] out_style On success, set to the cell's style (may be NULL)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
  *         node is NULL

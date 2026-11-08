@@ -6,7 +6,7 @@ const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
-const translate_c = @import("translate_c");
+const c_deps = @import("c_deps.zig");
 
 /// The `_c`-suffixed modules are built with the C ABI enabled.
 vt: *std.Build.Module,
@@ -102,9 +102,9 @@ fn initInner(
 /// Create the root module for the libghostty-vt C API tests.
 ///
 /// This is the `vt_c` module with one addition: the C headers, translated
-/// into Zig and importable as `ghostty/vt.h`. The header parity tests in
-/// `src/terminal/c/abi_test.zig` use that import to compare every public C
-/// type against its Zig implementation.
+/// into Zig by `c_deps.zig` and importable as `ghostty-vt-h`. The header
+/// parity tests in `src/terminal/c/abi_test.zig` use that import to compare
+/// every public C type against its Zig implementation.
 ///
 /// It is a separate module so the library itself never pays for the
 /// translation. Only the test step builds it:
@@ -121,20 +121,7 @@ pub fn initVtCTest(
     deps: *const SharedDeps,
 ) !*std.Build.Module {
     const mod = try initVt(null, b, cfg, deps, vtCOptions(cfg), null);
-    try translate_c.addImportToModule(b, "ghostty/vt.h", mod, .{
-        .source = .{ .includes = .{ .files = &.{
-            .{ .path = "ghostty/vt.h" },
-        } } },
-        .target = cfg.target,
-        .optimize = cfg.optimize,
-        // Link libc only if the module already does. The headers need
-        // nothing beyond stdint.h, stddef.h and stdbool.h, which the
-        // compiler provides. Turning libc on would also change the module
-        // itself. On wasm32-wasi, for example, it switches `std.posix` to
-        // the libc definitions and breaks the build.
-        .link_libc = mod.link_libc orelse false,
-        .system_include_paths = &.{b.path("include")},
-    });
+    try c_deps.add(b, .@"ghostty-vt-h", mod, cfg, .{});
     return mod;
 }
 

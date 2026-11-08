@@ -123,8 +123,8 @@ int main() {
   print_selection(terminal, "line", &selection);
 
   // Select exactly the command output for the command under the cursor.
-  result = ghostty_terminal_select_output(
-      terminal, ref_at(terminal, 0, 1), &selection);
+  GhosttyGridRef output_ref = ref_at(terminal, 0, 1);
+  result = ghostty_terminal_select_output(terminal, &output_ref, &selection);
   assert(result == GHOSTTY_SUCCESS);
   print_selection(terminal, "output", &selection);
 

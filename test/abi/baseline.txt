@@ -1,0 +1,3 @@
+commit: 0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec
+version: 1.0.0-dev+0fa3d57
+tag: vt-1.0.0

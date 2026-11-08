@@ -7,108 +7,26 @@
 #ifndef GHOSTTY_VT_COLOR_H
 #define GHOSTTY_VT_COLOR_H
 
-/** @defgroup color Color Utilities
+/** @addtogroup color
  *
- * Color parsing, palette generation, color math, and X11 color name
- * utilities shared by libghostty-vt.
+ * These are Ghostty's own color rules, so you don't have to write them again:
+ * the color strings its config and theme files accept, the 256-color palette
+ * the terminal uses, and the X11 color names.
  *
- * These APIs expose Ghostty's color semantics directly to embedders. Use
- * them when an application needs to parse the same color strings as Ghostty
- * config and theme files, generate the same 256-color palette used by the
- * terminal, list supported X11 color names, or make UI decisions from
- * luminance and contrast values.
+ * Use them when your application has to agree with Ghostty about what a color
+ * means, or to make UI decisions from luminance and contrast values. You don't
+ * need a terminal.
  *
- * ## Parsing Colors
- *
- * ghostty_color_parse() accepts the flexible syntax used by Ghostty for
- * terminal colors:
- *
- * - X11 color names, matched ASCII case-insensitively.
- * - 3- or 6-digit hex colors, with or without a leading `#`.
- * - 9- or 12-digit hex colors, with a leading `#`.
- * - XParseColor-style `rgb:<red>/<green>/<blue>` values.
- * - XParseColor-style `rgbi:<red>/<green>/<blue>` values.
- *
- * Leading and trailing spaces and tabs are ignored. Use
- * ghostty_color_parse_x11() when only X11 names should be accepted.
+ * ## Example
  *
  * @code{.c}
  * GhosttyColorRgb color;
- *
- * if (ghostty_color_parse(
- *         "ForestGreen",
- *         sizeof("ForestGreen") - 1,
- *         &color) != GHOSTTY_SUCCESS) {
- *   // Handle invalid color input.
- * }
- *
  * ghostty_color_parse("#abc", sizeof("#abc") - 1, &color);
- * ghostty_color_parse("rgb:12/34/56", sizeof("rgb:12/34/56") - 1, &color);
  * @endcode
  *
- * ## Palette Entries
- *
- * ghostty_color_parse_palette_entry() parses a single Ghostty palette
- * override in `INDEX=COLOR` form. The index may be decimal or use a `0x`,
- * `0o`, or `0b` prefix. The color side uses ghostty_color_parse().
- *
- * @code{.c}
- * GhosttyColorRgb palette[256];
- * ghostty_color_palette_default(palette);
- *
- * uint8_t index;
- * GhosttyColorRgb rgb;
- *
- * if (ghostty_color_parse_palette_entry(
- *         "0x10=#282c34",
- *         sizeof("0x10=#282c34") - 1,
- *         &index,
- *         &rgb) == GHOSTTY_SUCCESS) {
- *   palette[index] = rgb;
- * }
- * @endcode
- *
- * ## Palette Generation
- *
- * ghostty_color_palette_generate() derives the 216-color cube and grayscale
- * ramp from a base palette, background, and foreground. Set bits in
- * GhosttyColorPaletteMask preserve specific indices from the base palette.
- * The output may alias the base input.
- *
- * @code{.c}
- * GhosttyColorRgb palette[256];
- * ghostty_color_palette_default(palette);
- *
- * GhosttyColorPaletteMask skip = {0};
- * GHOSTTY_COLOR_PALETTE_MASK_SET(&skip, 16);
- *
- * GhosttyColorRgb background = {40, 44, 52};
- * GhosttyColorRgb foreground = {220, 223, 228};
- *
- * ghostty_color_palette_generate(
- *     palette,
- *     &skip,
- *     &background,
- *     &foreground,
- *     true,
- *     palette);
- * @endcode
- *
- * ## X11 Color Names
- *
- * The X11 name table is static program-lifetime memory. Entries are in
- * rgb.txt order and are terminated by an entry with `name == NULL`.
- * ghostty_color_x11_name_count() returns the number of non-terminator
- * entries.
- *
- * @code{.c}
- * const GhosttyColorX11Entry* names = ghostty_color_x11_names();
- * size_t count = ghostty_color_x11_name_count();
- *
- * for (size_t i = 0; i < count; i++) {
- *   // names[i].name and names[i].color are valid here.
- * }
- * @endcode
+ * See the @ref guide-colors "Colors guide" for parsing, palettes, and how a
+ * terminal's colors work. @ref c-vt-colors/src/main.c "c-vt-colors" sets a
+ * terminal's colors with these types.
  *
  * @{
  */
@@ -265,10 +183,10 @@ typedef struct {
  * from a GhosttyColorRgb value. Primarily useful in WebAssembly environments
  * where accessing struct fields directly is difficult.
  *
- * @param color Pointer to the RGB color value
- * @param r Pointer to store the red component (0-255)
- * @param g Pointer to store the green component (0-255)
- * @param b Pointer to store the blue component (0-255)
+ * @param color Pointer to the RGB color value (NULL does nothing)
+ * @param r Pointer to store the red component (0-255), or NULL to skip it
+ * @param g Pointer to store the green component (0-255), or NULL to skip it
+ * @param b Pointer to store the blue component (0-255), or NULL to skip it
  *
  * @ingroup color
  */
@@ -284,11 +202,11 @@ GHOSTTY_API void ghostty_color_rgb_get(const GhosttyColorRgb* color,
  * Leading and trailing spaces and tabs are trimmed, and matching is
  * ASCII case-insensitive. Hex values are not accepted by this function.
  *
- * @param name The color name bytes (must not be NULL)
+ * @param name The color name bytes (NULL returns GHOSTTY_INVALID_VALUE)
  * @param len The length of @p name in bytes
- * @param[out] out The parsed RGB color
+ * @param[out] out The parsed RGB color (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if no color
- * matches or @p name is NULL
+ * matches or @p name or @p out is NULL
  *
  * @ingroup color
  */
@@ -302,15 +220,15 @@ GHOSTTY_API GhosttyResult ghostty_color_parse_x11(
  *
  * Accepts Ghostty's terminal color syntax: X11 color names, hex colors
  * in 3-, 6-, 9-, or 12-digit form (the leading # is optional for 3- and
- * 6-digit values), and rgb:<red>/<green>/<blue> or
- * rgbi:<red>/<green>/<blue> specifications. Leading and trailing spaces
+ * 6-digit values), and `rgb:<red>/<green>/<blue>` or
+ * `rgbi:<red>/<green>/<blue>` specifications. Leading and trailing spaces
  * and tabs are trimmed.
  *
- * @param value The color value bytes (must not be NULL)
+ * @param value The color value bytes (NULL returns GHOSTTY_INVALID_VALUE)
  * @param len The length of @p value in bytes
- * @param[out] out The parsed RGB color
+ * @param[out] out The parsed RGB color (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if parsing
- * fails or @p value is NULL
+ * fails or @p value or @p out is NULL
  *
  * @ingroup color
  */
@@ -327,10 +245,12 @@ GHOSTTY_API GhosttyResult ghostty_color_parse(
  * tabs around N and COLOR are ignored. COLOR accepts the same syntax as
  * ghostty_color_parse().
  *
- * @param value The palette entry bytes (must not be NULL)
+ * @param value The palette entry bytes (NULL returns GHOSTTY_INVALID_VALUE)
  * @param len The length of @p value in bytes
- * @param[out] out_index The parsed palette index
- * @param[out] out_rgb The parsed RGB color
+ * @param[out] out_index The parsed palette index (NULL returns
+ * GHOSTTY_INVALID_VALUE)
+ * @param[out] out_rgb The parsed RGB color (NULL returns
+ * GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE on any
  * failure, including index overflow
  *
@@ -349,7 +269,7 @@ GHOSTTY_API GhosttyResult ghostty_color_parse_palette_entry(
  * 6x6x6 color cube, and the grayscale ramp.
  *
  * @param[out] out The output palette, an array of exactly 256
- * GhosttyColorRgb values
+ * GhosttyColorRgb values (NULL does nothing)
  *
  * @ingroup color
  */
@@ -374,12 +294,12 @@ GHOSTTY_API void ghostty_color_palette_default(GhosttyColorRgb* out);
  * values, or NULL to use Ghostty's default palette
  * @param skip The palette indices to preserve from @p base, or NULL for
  * an empty mask
- * @param bg The terminal background color (must not be NULL)
- * @param fg The terminal foreground color (must not be NULL)
+ * @param bg The terminal background color (NULL does nothing)
+ * @param fg The terminal foreground color (NULL does nothing)
  * @param harmonious Whether light themes keep background-to-foreground
  * orientation
  * @param[out] out The output palette, an array of exactly 256
- * GhosttyColorRgb values
+ * GhosttyColorRgb values (NULL does nothing)
  *
  * @ingroup color
  */
@@ -397,7 +317,7 @@ GHOSTTY_API void ghostty_color_palette_generate(
  * Returns a normalized value from 0.0 for black to 1.0 for white.
  * See https://www.w3.org/TR/WCAG20/#relativeluminancedef.
  *
- * @param color The RGB color (must not be NULL)
+ * @param color The RGB color (NULL returns 0)
  * @return Relative luminance in the range 0.0 to 1.0
  *
  * @ingroup color
@@ -412,7 +332,7 @@ GHOSTTY_API double ghostty_color_luminance(const GhosttyColorRgb* color);
  * This is not the metric used internally by
  * ghostty_color_palette_generate(), which uses CIELAB lightness.
  *
- * @param color The RGB color (must not be NULL)
+ * @param color The RGB color (NULL returns 0)
  * @return Perceived luminance in the range 0.0 to 1.0
  *
  * @ingroup color
@@ -425,8 +345,8 @@ GHOSTTY_API double ghostty_color_perceived_luminance(const GhosttyColorRgb* colo
  * The contrast ratio is symmetric and ranges from 1.0 for identical
  * colors to 21.0 for black and white.
  *
- * @param a The first RGB color (must not be NULL)
- * @param b The second RGB color (must not be NULL)
+ * @param a The first RGB color (NULL returns 0)
+ * @param b The second RGB color (NULL returns 0)
  * @return WCAG contrast ratio in the range 1.0 to 21.0
  *
  * @ingroup color
@@ -443,6 +363,9 @@ GHOSTTY_API double ghostty_color_contrast(const GhosttyColorRgb* a,
  * such as "medium spring green" and "MediumSpringGreen". Names are the
  * exact supported spellings from rgb.txt; ghostty_color_parse_x11() also
  * matches them case-insensitively.
+ *
+ * A library built without the color feature returns an empty table, so its
+ * first entry is the terminator and the loop below does nothing.
  *
  * @code{.c}
  * for (const GhosttyColorX11Entry* e = ghostty_color_x11_names();

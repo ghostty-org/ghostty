@@ -14,8 +14,9 @@ pub fn encode(
     size_: ?*const Size,
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    const out_written = out_written_ orelse return .invalid_value;
     const style = lib.enumFromC(Style, style_) orelse return .invalid_value;
     const size = (size_ orelse return .invalid_value).*;
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});

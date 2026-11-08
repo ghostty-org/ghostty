@@ -5,20 +5,20 @@
   <navindex>
     <tab type="mainpage" visible="yes" title=""/>
     <tab type="pages" visible="yes" title="" intro=""/>
-    <tab type="topics" visible="yes" title="" intro=""/>
+    <tab type="topics" visible="yes" title="API Reference" intro=""/>
     <tab type="modules" visible="yes" title="API Groups" intro="">
       <tab type="modulelist" visible="yes" title="" intro=""/>
       <tab type="modulemembers" visible="yes" title="" intro=""/>
     </tab>
-    <tab type="structs" visible="yes" title="Data Types" intro="">
-      <tab type="structlist" visible="yes" title="" intro=""/>
-      <tab type="structindex" visible="$ALPHABETICAL_INDEX" title=""/>
+    <tab type="classes" visible="yes" title="Data Types" intro="">
+      <tab type="classlist" visible="yes" title="" intro=""/>
+      <tab type="classindex" visible="$ALPHABETICAL_INDEX" title=""/>
     </tab>
     <tab type="files" visible="yes" title="C Headers" intro="">
       <tab type="filelist" visible="yes" title="" intro=""/>
       <tab type="globals" visible="yes" title="" intro=""/>
     </tab>
-    <tab type="examples" visible="yes" title="" intro=""/>
+    <tab type="examples" visible="no" title="" intro=""/>
   </navindex>
 
   <!-- Layout definition for a class page -->

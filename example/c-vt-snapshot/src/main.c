@@ -41,8 +41,9 @@ int main(void) {
   result = ghostty_terminal_new(NULL, &source, 215, 2);
   assert(result == GHOSTTY_SUCCESS);
 
-  // Snapshot encoding requires continuation tracking to be enabled before
-  // feeding input. The limit bounds unfinished VT sequence retention.
+  // Snapshot encoding requires continuation tracking if the input can stop
+  // partway through a sequence, and it has to be enabled before feeding
+  // input. The limit bounds unfinished VT sequence retention.
   const size_t continuation_limit = 1024;
   result = ghostty_terminal_set(
       source,

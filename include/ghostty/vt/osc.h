@@ -13,92 +13,42 @@
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
 
-/** @defgroup osc OSC Parser
+/** @addtogroup osc
  *
- * OSC (Operating System Command) sequence parser and command handling.
+ * The OSC parser turns one OSC (Operating System Command) sequence into a
+ * command you can read.
  *
- * The parser operates in a streaming fashion, processing input byte-by-byte
- * to handle OSC sequences that may arrive in fragments across multiple reads.
- * This interface makes it easy to integrate into most environments and avoids
- * over-allocating buffers.
+ * A terminal parses these by itself, so you only need this for OSC sequences
+ * outside of one. You feed it the bytes between `ESC ]` and the terminator, one
+ * at a time. A sequence can arrive in pieces across many reads, and you don't
+ * have to buffer it.
  *
- * ## Basic Usage
- *
- * 1. Create a parser instance with ghostty_osc_new()
- * 2. Feed bytes to the parser using ghostty_osc_next() 
- * 3. Finalize parsing with ghostty_osc_end() to get the command
- * 4. Query command type and extract data using ghostty_osc_command_type()
- *    and ghostty_osc_command_data()
- * 5. Call ghostty_osc_reset() before parsing the next sequence
- * 6. Free the parser with ghostty_osc_free() when done
- *
- * ## Ending a Sequence
- *
- * An OSC sequence normally ends with BEL (0x07) or ST (ESC followed by a
- * backslash). A program can also cancel a sequence partway through by
- * sending CAN (0x18) or SUB (0x1A) instead. A cancelled sequence has no
- * effect, even if the bytes before the cancel form a complete command.
- *
- * In every case, pass the byte that ended the sequence to
- * ghostty_osc_end(). For CAN or SUB, it discards the sequence and returns
- * NULL:
- *
- * @code{.c}
- * // The program sent "ESC ] 2 ; hello" to set the window title, then
- * // sent CAN instead of a terminator.
- * const char* input = "2;hello";
- * for (size_t i = 0; input[i] != '\0'; i++) {
- *   ghostty_osc_next(parser, (uint8_t)input[i]);
- * }
- *
- * GhosttyOscCommand command = ghostty_osc_end(parser, 0x18);
- * // command is NULL, so the window title does not change.
- *
- * ghostty_osc_reset(parser);
- * @endcode
- *
- * ## Unknown Commands
- *
- * Every OSC sequence starts with a number that says what it is, such as
- * 2 for the window title or 8 for a hyperlink. By default, a sequence whose
- * number the parser does not implement produces
- * GHOSTTY_OSC_COMMAND_INVALID, and its data is discarded.
- *
- * To implement such a sequence yourself, set
- * GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES with ghostty_osc_set(). The parser
- * then produces GHOSTTY_OSC_COMMAND_UNKNOWN for these sequences, and you
- * can read the raw sequence with GHOSTTY_OSC_DATA_UNKNOWN_CONTENT.
+ * ## Example
  *
  * @code{.c}
  * GhosttyOscParser parser;
  * ghostty_osc_new(NULL, &parser);
  *
- * // Keep up to 1 KiB of each unknown sequence.
- * size_t max_bytes = 1024;
- * ghostty_osc_set(parser, GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES, &max_bytes);
- *
- * // Feed the bytes between ESC ] and the terminator. OSC 7400 is made up
- * // for this example, so the parser does not implement it.
- * const char* input = "7400;status=busy";
+ * const char* input = "0;hello";
  * for (size_t i = 0; input[i] != '\0'; i++) {
  *   ghostty_osc_next(parser, (uint8_t)input[i]);
  * }
  *
  * // This sequence ended with BEL (0x07).
  * GhosttyOscCommand command = ghostty_osc_end(parser, 0x07);
- * if (ghostty_osc_command_type(command) == GHOSTTY_OSC_COMMAND_UNKNOWN) {
- *   GhosttyString content;
- *   ghostty_osc_command_data(command, GHOSTTY_OSC_DATA_UNKNOWN_CONTENT,
- *                            &content);
- *   // content now holds "7400;status=busy".
- * }
+ * GhosttyString title;
+ * ghostty_osc_command_data(command, GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR,
+ *                          &title);
  *
+ * // Reset before the next sequence, and free the parser when you're done.
+ * ghostty_osc_reset(parser);
  * ghostty_osc_free(parser);
  * @endcode
  *
- * Only numbers the parser does not implement are reported this way. A
- * sequence with a number the parser does implement stays
- * GHOSTTY_OSC_COMMAND_INVALID when its contents are malformed.
+ * Full program: @ref c-vt-osc/src/main.c
+ *
+ * To handle sequences in a terminal, see the
+ * @ref guide-custom-sequences "Custom Sequences guide".
  *
  * @{
  */
@@ -193,6 +143,11 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * The most bytes to keep from each OSC sequence whose number the parser
    * does not implement.
    *
+   * Every OSC sequence starts with a number that says what it is, such as 2
+   * for the window title or 8 for a hyperlink. Set this to implement a
+   * sequence yourself, and read its raw bytes with
+   * GHOSTTY_OSC_DATA_UNKNOWN_CONTENT.
+   *
    * Zero, the default, discards these sequences and they produce
    * GHOSTTY_OSC_COMMAND_INVALID. Any other value makes them produce
    * GHOSTTY_OSC_COMMAND_UNKNOWN. A NULL value pointer sets the limit back
@@ -205,6 +160,37 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Limits up to 2048 bytes use a buffer the parser already owns and never
    * allocate memory. Larger limits allocate memory from the parser's
    * allocator for each unknown sequence.
+   *
+   * Only numbers the parser does not implement are reported this way. A
+   * sequence with a number the parser does implement stays
+   * GHOSTTY_OSC_COMMAND_INVALID when its contents are malformed.
+   *
+   * @code{.c}
+   * GhosttyOscParser parser;
+   * ghostty_osc_new(NULL, &parser);
+   *
+   * // Keep up to 1 KiB of each unknown sequence.
+   * size_t max_bytes = 1024;
+   * ghostty_osc_set(parser, GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES, &max_bytes);
+   *
+   * // Feed the bytes between ESC ] and the terminator. OSC 7400 is made up
+   * // for this example, so the parser does not implement it.
+   * const char* input = "7400;status=busy";
+   * for (size_t i = 0; input[i] != '\0'; i++) {
+   *   ghostty_osc_next(parser, (uint8_t)input[i]);
+   * }
+   *
+   * // This sequence ended with BEL (0x07).
+   * GhosttyOscCommand command = ghostty_osc_end(parser, 0x07);
+   * if (ghostty_osc_command_type(command) == GHOSTTY_OSC_COMMAND_UNKNOWN) {
+   *   GhosttyString content;
+   *   ghostty_osc_command_data(command, GHOSTTY_OSC_DATA_UNKNOWN_CONTENT,
+   *                            &content);
+   *   // content now holds "7400;status=busy".
+   * }
+   *
+   * ghostty_osc_free(parser);
+   * @endcode
    *
    * Input type: size_t*
    */
@@ -284,7 +270,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * no longer needed.
  * 
  * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
- * @param parser Pointer to store the created parser handle
+ * @param parser Pointer to store the created parser handle (NULL returns
+ *               GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  * 
  * @ingroup osc
@@ -310,7 +297,7 @@ GHOSTTY_API void ghostty_osc_free(GhosttyOscParser parser);
  * and returning the parser to its initial state. This is useful for
  * reusing a parser instance or recovering from parse errors.
  * 
- * @param parser The parser handle to reset, must not be null.
+ * @param parser The parser handle to reset (NULL does nothing)
  * 
  * @ingroup osc
  */
@@ -350,7 +337,7 @@ GHOSTTY_API GhosttyResult ghostty_osc_set(GhosttyOscParser parser,
  * When finished pumping the parser with bytes, call ghostty_osc_end
  * to get the final result.
  * 
- * @param parser The parser handle, must not be null.
+ * @param parser The parser handle (NULL does nothing)
  * @param byte The next byte to parse
  * 
  * @ingroup osc
@@ -375,13 +362,26 @@ GHOSTTY_API void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
  * If the program cancelled the sequence with CAN (0x18) or SUB (0x1A),
  * pass that byte as the terminator. The sequence is then discarded and
  * this returns NULL, whatever command it contained. This matches xterm.
- * The "Ending a Sequence" section of the overview has an example.
- * 
+ *
+ * @code{.c}
+ * // The program sent "ESC ] 2 ; hello" to set the window title, then
+ * // sent CAN instead of a terminator.
+ * const char* input = "2;hello";
+ * for (size_t i = 0; input[i] != '\0'; i++) {
+ *   ghostty_osc_next(parser, (uint8_t)input[i]);
+ * }
+ *
+ * GhosttyOscCommand command = ghostty_osc_end(parser, 0x18);
+ * // command is NULL, so the window title does not change.
+ *
+ * ghostty_osc_reset(parser);
+ * @endcode
+ *
  * The returned command handle is valid until the next call to any 
  * `ghostty_osc_*` function with the same parser instance with the exception
  * of command introspection functions such as `ghostty_osc_command_type`.
  * 
- * @param parser The parser handle, must not be null.
+ * @param parser The parser handle (NULL returns NULL)
  * @param terminator The byte that ended the OSC sequence: 0x07 for BEL,
  *        0x5C for ST, or 0x18 (CAN) or 0x1A (SUB) if it was cancelled
  * @return Handle to the parsed OSC command, or NULL if the sequence is not

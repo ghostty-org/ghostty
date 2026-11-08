@@ -20,35 +20,23 @@
 extern "C" {
 #endif
 
-/** @defgroup formatter Formatter
+/** @addtogroup formatter
  *
- * Format terminal content as plain text, VT sequences, or HTML.
+ * A formatter is a view of a terminal that you can turn into plain text, VT
+ * sequences, or HTML, as many times as you like.
  *
- * A formatter captures a reference to a terminal and formatting options.
- * It can be used repeatedly to produce output that reflects the current
- * terminal state at the time of each format call.
+ * Use one to get text out of a terminal, such as copying a selection or saving
+ * what's on the screen. You need a terminal first, and it must outlive the
+ * formatter. Each format call reflects the terminal at the time of that call.
  *
- * The terminal must outlive the formatter.
- *
- * ## Options
- *
- * A new formatter emits plain text with trailing whitespace trimmed. To
- * change that, call ghostty_formatter_set() with a GhosttyFormatterOption
- * and a pointer to the new value. Options stay set across format calls, and
- * a change takes effect on the next one. ghostty_formatter_get() reads an
- * option back.
- *
- * | Option                            | Value type               | Default                            |
- * | --------------------------------- | ------------------------ | ---------------------------------- |
- * | `GHOSTTY_FORMATTER_OPT_EMIT`      | `GhosttyFormatterFormat` | `GHOSTTY_FORMATTER_FORMAT_PLAIN`   |
- * | `GHOSTTY_FORMATTER_OPT_UNWRAP`    | `bool`                   | `false`                            |
- * | `GHOSTTY_FORMATTER_OPT_TRIM`      | `bool`                   | `true`                             |
- * | `GHOSTTY_FORMATTER_OPT_SELECTION` | `GhosttySelection`       | None (the whole screen)            |
- * | `GHOSTTY_FORMATTER_OPT_EXTRAS`    | `GhosttyFormatterExtras` | `GHOSTTY_FORMATTER_EXTRAS_DEFAULT` |
- *
- * This example creates a formatter and sets two options:
+ * ## Example
  *
  * @snippet c-vt-formatter/src/main.c formatter-new
+ *
+ * Full program: @ref c-vt-formatter/src/main.c
+ *
+ * GhosttyFormatterOption lists the options. See the
+ * @ref guide-selection "Selection guide" for copying a selection.
  *
  * @{
  */
@@ -129,6 +117,20 @@ typedef uint32_t GhosttyFormatterExtras;
 /**
  * Formatter options, set with ghostty_formatter_set() and read with
  * ghostty_formatter_get().
+ *
+ * A new formatter emits plain text with trailing whitespace trimmed. To
+ * change that, call ghostty_formatter_set() with a GhosttyFormatterOption
+ * and a pointer to the new value. Options stay set across format calls, and
+ * a change takes effect on the next one. ghostty_formatter_get() reads an
+ * option back.
+ *
+ * | Option                            | Value type               | Default                            |
+ * | --------------------------------- | ------------------------ | ---------------------------------- |
+ * | `GHOSTTY_FORMATTER_OPT_EMIT`      | `GhosttyFormatterFormat` | `GHOSTTY_FORMATTER_FORMAT_PLAIN`   |
+ * | `GHOSTTY_FORMATTER_OPT_UNWRAP`    | `bool`                   | `false`                            |
+ * | `GHOSTTY_FORMATTER_OPT_TRIM`      | `bool`                   | `true`                             |
+ * | `GHOSTTY_FORMATTER_OPT_SELECTION` | `GhosttySelection`       | None (the whole screen)            |
+ * | `GHOSTTY_FORMATTER_OPT_EXTRAS`    | `GhosttyFormatterExtras` | `GHOSTTY_FORMATTER_EXTRAS_DEFAULT` |
  *
  * Each option lists the type its value points to. To set an option, pass a
  * pointer to a value of that type. To read one, pass a pointer to a
@@ -222,8 +224,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * GhosttyFormatterOption. Change them with ghostty_formatter_set().
  *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param formatter Pointer to store the created formatter handle
- * @param terminal The terminal to format (must not be NULL)
+ * @param formatter Pointer to store the created formatter handle (NULL
+ *                  returns GHOSTTY_INVALID_VALUE)
+ * @param terminal The terminal to format (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup formatter
@@ -254,7 +257,7 @@ GHOSTTY_API GhosttyResult ghostty_formatter_terminal_new(
  *
  * If the call fails, the option keeps its previous value.
  *
- * @param formatter The formatter handle (must not be NULL)
+ * @param formatter The formatter handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
  * @param value Pointer to the new value, or NULL to reset the option to its
  *              default
@@ -281,9 +284,9 @@ GHOSTTY_API GhosttyResult ghostty_formatter_set(GhosttyFormatter formatter,
  * ghostty_formatter_get(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
  * @endcode
  *
- * @param formatter The formatter handle (must not be NULL)
+ * @param formatter The formatter handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to read
- * @param out Pointer that receives the value (must not be NULL)
+ * @param out Pointer that receives the value (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the option is
  *         not set (only possible for GHOSTTY_FORMATTER_OPT_SELECTION),
  *         GHOSTTY_INVALID_VALUE if `formatter` or `out` is NULL, or
@@ -306,9 +309,9 @@ GHOSTTY_API GhosttyResult ghostty_formatter_get(GhosttyFormatter formatter,
  *
  * If an error occurs, the writer may already contain a partial formatted
  * output. The operation cannot be resumed from that partial output. This
- * function does not flush or make the caller's destination durable.
+ * function does not flush or make your destination durable.
  *
- * @param formatter The formatter handle (must not be NULL)
+ * @param formatter The formatter handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
  *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
@@ -321,22 +324,36 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format(
     GhosttyWriter writer);
 
 /**
- * Run the formatter and produce output into the caller-provided buffer.
+ * Run the formatter and produce output into your buffer.
  *
  * Each call formats the current terminal state. Pass NULL for buf to
- * query the required buffer size without writing any output; in that case
- * out_written receives the required size and the return value is
- * GHOSTTY_OUT_OF_SPACE.
+ * query the required buffer size without writing any output. out_written
+ * receives the required size and the return value is GHOSTTY_OUT_OF_SPACE.
+ *
+ * Empty output needs no space, so that query returns GHOSTTY_SUCCESS with a
+ * size of 0 instead. Handle both results:
+ *
+ * @code{.c}
+ * size_t needed = 0;
+ * GhosttyResult result = ghostty_formatter_format_buf(formatter, NULL, 0, &needed);
+ * if (result == GHOSTTY_SUCCESS) return; // Nothing to format.
+ * if (result != GHOSTTY_OUT_OF_SPACE) return; // A real error.
+ *
+ * uint8_t* buf = malloc(needed);
+ * size_t written = 0;
+ * result = ghostty_formatter_format_buf(formatter, buf, needed, &written);
+ * @endcode
  *
  * If the buffer is too small, returns GHOSTTY_OUT_OF_SPACE and sets
- * out_written to the required size. The caller can then retry with a
+ * out_written to the required size. You can then retry with a
  * larger buffer.
  *
- * @param formatter The formatter handle (must not be NULL)
+ * @param formatter The formatter handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param buf Pointer to the output buffer, or NULL to query size
  * @param buf_len Length of the output buffer in bytes
  * @param out_written Pointer to receive the number of bytes written,
- *                    or the required size on failure
+ *                    or the required size on failure (NULL returns
+ *                    GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup formatter
@@ -351,18 +368,20 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatte
  *
  * Each call formats the current terminal state. The buffer is allocated
  * using the provided allocator (or the default allocator if NULL).
- * The caller is responsible for freeing the returned buffer with
+ * You are responsible for freeing the returned buffer with
  * ghostty_free(), passing the same allocator (or NULL for the default)
  * that was used for the allocation.
  * Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and
  * *out_len set to zero. This result can be passed to ghostty_free().
  *
- * @param formatter The formatter handle (must not be NULL)
+ * @param formatter The formatter handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param allocator Pointer to allocator, or NULL to use the default allocator
- * @param out_ptr Pointer to receive the allocated buffer
- * @param out_len Pointer to receive the length of the output in bytes
+ * @param out_ptr Pointer to receive the allocated buffer (NULL returns
+ *                GHOSTTY_INVALID_VALUE)
+ * @param out_len Pointer to receive the length of the output in bytes (NULL
+ *                returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure
+ *         failure, GHOSTTY_INVALID_VALUE if an output pointer is NULL
  *
  * @ingroup formatter
  */

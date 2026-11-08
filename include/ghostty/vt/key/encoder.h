@@ -35,25 +35,25 @@ typedef struct GhosttyKeyEncoderImpl *GhosttyKeyEncoder;
  */
 typedef uint8_t GhosttyKittyKeyFlags;
 
-/** Kitty keyboard protocol disabled (all flags off) */
+/** Kitty keyboard protocol disabled (all flags off). @ingroup key */
 #define GHOSTTY_KITTY_KEY_DISABLED 0
 
-/** Disambiguate escape codes */
+/** Disambiguate escape codes. @ingroup key */
 #define GHOSTTY_KITTY_KEY_DISAMBIGUATE (1 << 0)
 
-/** Report key press and release events */
+/** Report key press and release events. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_EVENTS (1 << 1)
 
-/** Report alternate key codes */
+/** Report alternate key codes. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_ALTERNATES (1 << 2)
 
-/** Report all key events including those normally handled by the terminal */
+/** Report all key events including those normally handled by the terminal. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_ALL (1 << 3)
 
-/** Report associated text with key events */
+/** Report associated text with key events. @ingroup key */
 #define GHOSTTY_KITTY_KEY_REPORT_ASSOCIATED (1 << 4)
 
-/** All Kitty keyboard protocol flags enabled */
+/** All Kitty keyboard protocol flags enabled. @ingroup key */
 #define GHOSTTY_KITTY_KEY_ALL (GHOSTTY_KITTY_KEY_DISAMBIGUATE | GHOSTTY_KITTY_KEY_REPORT_EVENTS | GHOSTTY_KITTY_KEY_REPORT_ALTERNATES | GHOSTTY_KITTY_KEY_REPORT_ALL | GHOSTTY_KITTY_KEY_REPORT_ASSOCIATED)
 
 /**
@@ -137,7 +137,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * ghostty_key_encoder_free() when no longer needed.
  *
  * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
- * @param encoder Pointer to store the created encoder handle
+ * @param encoder Pointer to store the created encoder handle (NULL returns
+ *                GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup key
@@ -182,7 +183,7 @@ GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  *     encoder, GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION, NULL);
  * @endcode
  *
- * @param encoder The encoder handle, must not be NULL
+ * @param encoder The encoder handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option The option to set
  * @param value Pointer to the value to set (type depends on the option), or
  *              NULL to reset the option to its default
@@ -200,8 +201,9 @@ GHOSTTY_API GhosttyResult ghostty_key_encoder_set(GhosttyKeyEncoder encoder, Gho
  *
  * Reads the terminal's current modes and flags and applies them to the
  * encoder's options. This sets cursor key application mode, keypad mode,
- * alt escape prefix, modifyOtherKeys state, and Kitty keyboard protocol
- * flags from the terminal state.
+ * backarrow key mode, ignore-keypad-with-numlock, alt escape prefix,
+ * modifyOtherKeys state, and Kitty keyboard protocol flags from the terminal
+ * state.
  *
  * Note that the `macos_option_as_alt` option cannot be determined from
  * terminal state and is reset to `GHOSTTY_OPTION_AS_ALT_FALSE` by this
@@ -233,13 +235,13 @@ GHOSTTY_API GhosttyResult ghostty_key_encoder_set_from_terminal(GhosttyKeyEncode
  * output still returns GHOSTTY_SUCCESS in that case, because it needs no
  * space.
  *
- * @param encoder The encoder handle, must not be NULL
- * @param event The key event to encode, must not be NULL
+ * @param encoder The encoder handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param event The key event to encode (NULL returns GHOSTTY_INVALID_VALUE)
  * @param buf Buffer to write the sequence into. May be NULL if @p buf_len
  *            is 0.
  * @param buf_len Size of @p buf in bytes
  * @param[out] out_written The number of bytes written, or the size needed
- *             if the result is GHOSTTY_OUT_OF_SPACE. Must not be NULL.
+ *             if the result is GHOSTTY_OUT_OF_SPACE. NULL returns GHOSTTY_INVALID_VALUE.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if buffer too small, or other error code
  *
  * ## Example: Calculate required buffer size

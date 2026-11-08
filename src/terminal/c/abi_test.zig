@@ -40,14 +40,14 @@
 //! ```
 //!
 //! The headers are translated into Zig by translate-c and imported as
-//! `ghostty/vt.h`. Only the C ABI test module has that import (see
+//! `ghostty-vt-h`. Only the C ABI test module has that import (see
 //! `GhosttyZig.initVtCTest`), so this file must only be referenced from a
 //! `test` block.
 const std = @import("std");
 const types = @import("types.zig");
 const TypeDecl = types.TypeDecl;
 
-const c = @import("ghostty/vt.h");
+const c = @import("ghostty-vt-h");
 
 /// A C enum and the names of its enumerators.
 const CEnum = struct {

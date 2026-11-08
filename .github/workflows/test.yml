@@ -71,7 +71,12 @@ jobs:
       - id: determine
         name: Determine skip
         run: |
-          if [ "${{ steps.filter_every.outputs.code }}" = "false" ]; then
+          # The filters diff the pushed ref against main, so a tag on a
+          # commit of main has no changed files and would skip every job.
+          # A tag is a release, so it always runs the tests.
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.filter_every.outputs.code }}" = "false" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -138,6 +143,7 @@ jobs:
       - valgrind
       - zig-fmt
       - abi-check
+      - build-libghostty-vt-docs
 
     steps:
       - id: status
@@ -1084,6 +1090,44 @@ jobs:
           nix develop -c zig build test-lib-vt \
             -Dvt-features=-all \
             "-Dtest-filter=compiled-out features return unsupported"
+
+  # Keeps the Doxygen build free of warnings. It checks stderr because
+  # WARN_AS_ERROR doesn't cover warnings about the Doxyfile itself. Only this
+  # job checks for warnings. The docs site in lib-docs.yml builds with the same
+  # Nix Doxygen but ignores them, so a new warning can't take the site down.
+  build-libghostty-vt-docs:
+    if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'
+    needs: skip
+    runs-on: namespace-profile-ghostty-xsm
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          skipPush: true
+          useDaemon: false # sometimes fails on short jobs
+
+      - name: Build Docs
+        run: |
+          mkdir -p zig-out/share/ghostty/doc/libghostty
+          status=0
+          nix develop -c sh -c 'doxygen 2>doxygen.stderr >/dev/null' || status=$?
+          cat doxygen.stderr
+          test "$status" -eq 0
+          test ! -s doxygen.stderr
 
   # Checks that the ABI of the Linux shared library didn't break since
   # test/abi/baseline.abi. See test/abi/README.md for what fails the check.

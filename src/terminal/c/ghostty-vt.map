@@ -9,19 +9,13 @@
  *    and compiler-rt, stays private, so it can't clash with another copy
  *    of those libraries in the same program.
  *
- * 2. It tags each exported symbol with a version, GHOSTTY_VT_0. A program
- *    linked against the library records that tag for each function it
- *    uses, and the loader checks it when the program starts.
+ * 2. It tags each exported symbol with a version. A program linked
+ *    against the library records that tag for each function it uses, and
+ *    the loader checks it when the program starts.
  *
- * The tag names only the major version because 0.x releases make no
- * compatibility promise. A program built against 0.x looks for
- * GHOSTTY_VT_0, which a 1.0 library won't have, so the loader refuses to
- * start it instead of letting it call functions that may have changed.
- *
- * At 1.0 this node is renamed to GHOSTTY_VT_1.0. After that, each minor
- * release adds a new node that lists only the functions it added and
- * builds on the previous node. For example, if 1.1 adds
- * ghostty_new_function:
+ * The GHOSTTY_VT_1.0 node exports ghostty_*. Each later minor release adds
+ * a node that lists only the functions it added and chains to the previous
+ * node. For example, if 1.1 adds ghostty_new_function:
  *
  *     GHOSTTY_VT_1.0 {
  *         global:
@@ -38,9 +32,12 @@
  * A program that uses ghostty_new_function then needs a 1.1 or newer
  * library, and the loader says so by name if it gets an older one.
  */
-GHOSTTY_VT_0 {
+GHOSTTY_VT_1.0 {
     global:
         ghostty_*;
     local:
         *;
 };
+
+/* Functions added during 1.1 are listed here. */
+GHOSTTY_VT_1.1 { } GHOSTTY_VT_1.0;

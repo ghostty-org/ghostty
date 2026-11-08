@@ -19,7 +19,7 @@
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "libghostty-vt";
-  version = "0.1.0-dev+${revision}-nix";
+  version = "1.1.0-dev+${revision}-nix";
 
   # We limit source like this to try and reduce the amount of rebuilds as possible
   # thus we only provide the source that is needed for the build.
@@ -28,6 +28,7 @@ stdenv.mkDerivation (finalAttrs: {
     fileset = lib.fileset.intersection (lib.fileset.fromSource (lib.sources.cleanSource ../.)) (
       lib.fileset.unions [
         ../include
+        ../nix/libghostty-vt.nix
         ../pkg
         ../src
         ../vendor

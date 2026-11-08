@@ -12,117 +12,140 @@
 #include <stdint.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup allocator Memory Management
+/** @addtogroup allocator
  *
- * Control how libghostty-vt allocates memory.
+ * An allocator is the set of functions libghostty-vt calls to get and free
+ * memory.
  *
- * Most programs never need this. **Any function that takes a
- * `const GhosttyAllocator*` accepts NULL**, which selects the default
- * allocator. Pass your own allocator when you want memory to come from a
- * specific place, such as an arena, a pool, a tracking allocator, or a
- * platform without a C library.
+ * Most programs never need this. Any function that takes a
+ * `const GhosttyAllocator*` accepts NULL, which selects the default
+ * allocator. You only need your own to run the library on memory you control.
  *
- * libghostty-vt handles allocation failure. When an allocator returns
- * NULL, the function that needed the memory returns an error such as
- * GHOSTTY_OUT_OF_MEMORY instead of crashing.
- *
- * ## The Default Allocator
- *
- * Passing NULL uses:
- *
- * - libc `malloc` and `free` when the library is linked against libc.
- * - A built-in allocator when it is not. This is currently Zig's SMP
- *   allocator, or Zig's WebAssembly allocator on WebAssembly.
- * - An allocator that always fails on native freestanding targets, which
- *   have no heap. On these targets you must pass your own allocator to
- *   any function that allocates.
- *
- * ## Writing a Custom Allocator
- *
- * A custom allocator is two structs:
- *
- * - A GhosttyAllocatorVtable with your functions. It is usually a
- *   `static const` shared by every allocator of the same kind.
- * - A GhosttyAllocator that pairs the vtable with a `ctx` pointer. The
- *   library passes `ctx` back to every function, so it can point at
- *   whatever state your allocator needs.
- *
- * Only `alloc` and `free` are required. Leave `resize` and `remap` NULL
- * unless your allocator can grow memory more cheaply than allocating new
- * memory and copying. Initialize the vtable with designated initializers
- * (or `memset` it to zero) so every field you don't set, including the
- * reserved slots, is NULL.
- *
- * The library may call an allocator's functions from any thread that
- * uses a handle created with it. If handles that share one allocator are
- * used on different threads, its functions must be thread-safe. The
- * default allocator is.
- *
- * This allocator is built on plain `malloc` and `free`:
- *
- * @snippet c-vt-allocator/src/main.c allocator-vtable
- *
- * Pair it with a context and pass it to any function that takes an
- * allocator:
+ * ## Example
  *
  * @snippet c-vt-allocator/src/main.c allocator-use
  *
- * ## Alignment
+ * Full program: @ref c-vt-allocator/src/main.c
  *
- * Every vtable function receives an `alignment` argument. It is an
- * exponent, not a byte count: the address you return must be a multiple
- * of `1 << alignment` bytes.
- *
- * | `alignment` | Address must be a multiple of |
- * |-------------|-------------------------------|
- * | 0           | 1 byte                        |
- * | 3           | 8 bytes                       |
- * | 4           | 16 bytes                      |
- * | 12          | 4096 bytes                    |
- *
- * `malloc` already returns memory aligned for any built-in C type, which
- * covers anything up to `alignof(max_align_t)` (usually 8 or 16 bytes).
- * For larger values, use `aligned_alloc` or `posix_memalign` with
- * `1 << alignment`, or over-allocate as the example above does. This is
- * the same encoding as Zig's `std.mem.Alignment`.
- *
- * ## Allocating and Freeing Buffers
- *
- * ghostty_alloc() and ghostty_free() allocate and free plain byte buffers
- * through an allocator. Use them when:
- *
- * - You need a buffer to hand to a libghostty-vt function, such as input
- *   for ghostty_terminal_vt_write().
- * - You need to free a buffer that a libghostty-vt function returned, such
- *   as the output of ghostty_formatter_format_alloc().
- *
- * Do not free library memory with the C `free()`. On some platforms the
- * library and your program use different heaps. On Windows, for example,
- * Zig's libc and MSVC's C runtime each keep their own, so freeing memory
- * from one with the other is undefined behavior. ghostty_free() always
- * uses the right one.
- *
- * Always free a buffer with the same allocator (or NULL) that allocated it.
- *
- * ## Allocators Passed to Callbacks
- *
- * Some callbacks receive an allocator from the library, such as the PNG
- * decoder set with GHOSTTY_SYS_OPT_DECODE_PNG. Use that allocator only
- * through ghostty_alloc() and ghostty_free(). Do not read its vtable or
- * call its functions directly. A future release may fill in vtable slots
- * that your code does not know about, and calling the functions directly
- * would skip them.
+ * See @ref memory for what the default is, how to write your own allocator,
+ * and how to free memory the library gives you.
  *
  * @{
  */
+
+/**
+ * Allocate a block of memory.
+ *
+ * This is the `alloc` function of a GhosttyAllocatorVtable. It's required.
+ *
+ * @param ctx The allocator's context pointer
+ * @param len Number of bytes to allocate
+ * @param alignment The block's address must be a multiple of
+ *   `1 << alignment` bytes. See @ref memory-alignment.
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return The new block, or NULL if it could not be allocated
+ *
+ * @ingroup allocator
+ */
+typedef void* (*GhosttyAllocatorAllocFn)(void *ctx, size_t len, uint8_t alignment, uintptr_t ret_addr);
+
+/**
+ * Try to grow or shrink a block without moving it.
+ *
+ * This is the `resize` function of a GhosttyAllocatorVtable. It's optional,
+ * and leaving it NULL is the same as always returning false.
+ *
+ * Return true only if the block at `memory` is now `new_len` bytes long at
+ * the same address. Return false if that would require moving it. The library
+ * then decides whether to allocate a new block and copy.
+ *
+ * For example, an arena that hands out memory from one buffer can resize its
+ * most recent block, because nothing comes after it:
+ *
+ * @code{.c}
+ * typedef struct {
+ *   uint8_t* base;
+ *   size_t used;
+ *   size_t capacity;
+ * } Arena;
+ *
+ * static bool arena_resize(void* ctx, void* memory, size_t memory_len,
+ *                          uint8_t alignment, size_t new_len,
+ *                          uintptr_t ret_addr) {
+ *   (void)alignment;
+ *   (void)ret_addr;
+ *   Arena* arena = ctx;
+ *   size_t start = (size_t)((uint8_t*)memory - arena->base);
+ *
+ *   // Only the last block can change size in place.
+ *   if (start + memory_len != arena->used) return false;
+ *   if (start + new_len > arena->capacity) return false;
+ *
+ *   arena->used = start + new_len;
+ *   return true;
+ * }
+ * @endcode
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param new_len Requested length, always greater than zero
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return true if the block was resized in place, false otherwise
+ *
+ * @ingroup allocator
+ */
+typedef bool (*GhosttyAllocatorResizeFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+
+/**
+ * Grow or shrink a block, moving it if that is cheaper than a copy.
+ *
+ * This is the `remap` function of a GhosttyAllocatorVtable. It's optional,
+ * and leaving it NULL is the same as always returning NULL.
+ *
+ * Unlike GhosttyAllocatorResizeFn, this may return a new address, for example
+ * after remapping virtual memory pages. The block must hold the old contents
+ * at that address, and the old address is no longer valid.
+ *
+ * Return NULL when the only way to do it would be to allocate, copy, and free.
+ * The library does that itself, so there is no benefit in doing it here.
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param new_len Requested length, always greater than zero
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return The resized block, or NULL to let the library copy instead
+ *
+ * @ingroup allocator
+ */
+typedef void* (*GhosttyAllocatorRemapFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+
+/**
+ * Free a block.
+ *
+ * This is the `free` function of a GhosttyAllocatorVtable. It's required.
+ * After it returns, the library never uses `memory` again.
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ *
+ * @ingroup allocator
+ */
+typedef void (*GhosttyAllocatorFreeFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
 
 /**
  * The functions that make up a custom allocator.
  *
  * `alloc` and `free` are required. `resize` and `remap` are optional, and
  * when they are NULL the library grows memory by allocating a new block,
- * copying, and freeing the old one. See @ref allocator for a complete
- * example and an explanation of `alignment`.
+ * copying, and freeing the old one. See @ref memory-custom for a complete
+ * example and @ref memory-alignment for an explanation of `alignment`.
  *
  * Every function receives the `ctx` pointer from the GhosttyAllocator it
  * belongs to. When the library resizes, remaps, or frees memory, it always
@@ -148,77 +171,17 @@
  * @ingroup allocator
  */
 typedef struct {
-    /**
-     * Allocate `len` bytes aligned to `1 << alignment` bytes.
-     *
-     * Required.
-     *
-     * @param ctx The allocator's context pointer
-     * @param len Number of bytes to allocate
-     * @param alignment Alignment as a power of two exponent. See
-     *   @ref allocator for details.
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     * @return Pointer to the new memory, or NULL if it could not be
-     *   allocated
-     */
-    void* (*alloc)(void *ctx, size_t len, uint8_t alignment, uintptr_t ret_addr);
+    /** Allocates a block. Required. */
+    GhosttyAllocatorAllocFn alloc;
 
-    /**
-     * Try to grow or shrink a block without moving it.
-     *
-     * Optional. A NULL `resize` is the same as one that always returns
-     * false.
-     *
-     * Return true only if the block at `memory` is now `new_len` bytes long
-     * at the same address. Return false if that would require moving it.
-     * The library then decides whether to allocate a new block and copy.
-     *
-     * @param ctx The allocator's context pointer
-     * @param memory Start of a block returned by `alloc` or `remap`
-     * @param memory_len Current length of the block
-     * @param alignment The alignment the block was allocated with
-     * @param new_len Requested length, always greater than zero
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     * @return true if the block was resized in place, false otherwise
-     */
-    bool (*resize)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+    /** Resizes a block without moving it. Optional. */
+    GhosttyAllocatorResizeFn resize;
 
-    /**
-     * Grow or shrink a block, moving it if that is cheaper than a copy.
-     *
-     * Optional. A NULL `remap` is the same as one that always returns NULL.
-     *
-     * Return a pointer to a block of `new_len` bytes holding the old
-     * contents. It may be the same address or a new one, for example after
-     * remapping virtual memory pages. If you return a new address, the old
-     * one is no longer valid.
-     *
-     * Return NULL when the only way to do it would be to allocate, copy,
-     * and free. The library does that itself in that case, so there is no
-     * benefit in doing it here.
-     *
-     * @param ctx The allocator's context pointer
-     * @param memory Start of a block returned by `alloc` or `remap`
-     * @param memory_len Current length of the block
-     * @param alignment The alignment the block was allocated with
-     * @param new_len Requested length, always greater than zero
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     * @return The resized block, or NULL to let the library copy instead
-     */
-    void* (*remap)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+    /** Resizes a block and may move it. Optional. */
+    GhosttyAllocatorRemapFn remap;
 
-    /**
-     * Free a block.
-     *
-     * Required. After this returns, the library never uses `memory` again.
-     *
-     * @param ctx The allocator's context pointer
-     * @param memory Start of a block returned by `alloc` or `remap`
-     * @param memory_len Current length of the block
-     * @param alignment The alignment the block was allocated with
-     * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
-     */
-    void (*free)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
+    /** Frees a block. Required. */
+    GhosttyAllocatorFreeFn free;
 
     /**
      * Reserved for future versions. Must be NULL.
@@ -238,11 +201,9 @@ typedef struct {
  * A custom allocator: a vtable and the context it operates on.
  *
  * Pass a pointer to one of these to any function that takes an allocator,
- * or pass NULL to use the default allocator described in @ref allocator.
+ * or pass NULL to use the default allocator described in @ref memory-default.
  * The library does not copy the allocator. It must stay valid for as long
  * as anything allocated with it is in use.
- *
- * @snippet c-vt-allocator/src/main.c allocator-use
  *
  * @ingroup allocator
  */
@@ -283,7 +244,7 @@ GHOSTTY_API uint8_t* ghostty_alloc(const GhosttyAllocator* allocator, size_t len
  * used for the allocation, or NULL if the default allocator was used.
  *
  * Use this instead of the C `free()`, which can use a different heap than
- * the library. See @ref allocator for why.
+ * the library. See @ref memory-buffers for why.
  *
  * Passing a NULL `ptr` does nothing.
  *

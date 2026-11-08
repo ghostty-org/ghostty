@@ -19,13 +19,7 @@ the baseline, so the break is visible in review.
 | `check.sh`            | Dumps the ABI of a build, or compares a build to a baseline.  |
 | `libghostty-vt.suppr` | Suppressions for changes we know are compatible. Empty today. |
 | `baseline.abi`        | The baseline ABI.                                             |
-| `baseline.txt`        | The commit and version the baseline was dumped from.          |
-
-> [!NOTE]
->
-> There is no baseline yet. The first one will be taken after `vt-0.1.0`
-> is tagged. Until then, the job dumps the ABI and uploads it as an
-> artifact, but doesn't compare it to anything.
+| `baseline.txt`        | The commit, version and tag the baseline was dumped from.     |
 
 ## What Fails the Check
 
@@ -75,9 +69,18 @@ When a change only adds to the ABI, the job lists the additions in its
 step summary so reviewers can see how the ABI grew. When a change breaks
 it, the step summary shows the full libabigail report.
 
+The check also reads the library itself, because libabigail can't see
+these two things. It fails if:
+
+- The SONAME isn't `libghostty-vt.so.<major>`, with the major version of
+  `lib_version` in `build.zig`.
+- The symbol version nodes the library defines aren't exactly the nodes
+  `src/terminal/c/ghostty-vt.map` declares. Renaming a node breaks every
+  program built against it, because the loader looks them up by name.
+
 ## Breaking the ABI on Purpose
 
-Before 1.0, any minor release of libghostty-vt may break the ABI (see
+Only a new major version of libghostty-vt may break the ABI (see
 [`PACKAGING-LIBGHOSTTY.md`](../../PACKAGING-LIBGHOSTTY.md)). A pull
 request that breaks the ABI on purpose must update `baseline.abi` and
 `baseline.txt` in the same pull request. The diff of the baseline is how
@@ -85,21 +88,27 @@ reviewers see the break.
 
 > [!IMPORTANT]
 >
-> From 1.0, a change to the baseline must come with a major version bump
+> A change to the baseline must come with a major version bump
 > and a new SONAME. The job doesn't enforce this yet, so reviewers must.
 
 ## Updating the Baseline
 
+The baseline is refreshed after every release, so that what a release
+added is protected from then on. Until then, the check treats those
+additions as new, and removing one would pass.
+
 Every run of the `abi-check` job uploads an artifact named
 `libghostty-vt-abi`. It contains a `baseline.abi` and `baseline.txt` for
-the commit the job ran on. To update the baseline:
+the commit the job ran on. Artifacts expire after a week, so refresh the
+baseline soon after tagging. To update the baseline:
 
 1. Find the `abi-check` job for the commit you want as the baseline. For
-   a release, this is the release tag. For an intentional break, this is
-   the latest commit of the pull request.
+   a release, this is the Test run of the `vt-X.Y.Z` tag. For an
+   intentional break, this is the latest commit of the pull request.
 2. Download its `libghostty-vt-abi` artifact.
-3. Copy `baseline.abi` and `baseline.txt` into this directory and commit
-   them.
+3. Copy `baseline.abi` and `baseline.txt` into this directory. For a
+   release, add a `tag: vt-X.Y.Z` line to `baseline.txt`.
+4. Commit them.
 
 Please use the artifact rather than a dump from your own machine. A dump
 made with a different compiler or C library can differ from CI's in ways
@@ -122,8 +131,9 @@ Then compare the build to the baseline:
 nix develop -c test/abi/check.sh diff test/abi/baseline.abi zig-out/lib/libghostty-vt.so
 ```
 
-`diff` exits with 0 if the ABI matches the baseline or only grew, and
-with 1 if it broke or something went wrong. To write the ABI of a build
+`diff` exits with 0 if the ABI matches the baseline or only grew and the
+SONAME and version nodes are right, and with 1 if not or if something
+went wrong. To write the ABI of a build
 to a file instead, use `dump`:
 
 ```sh

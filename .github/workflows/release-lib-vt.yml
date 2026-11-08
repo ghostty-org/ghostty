@@ -5,37 +5,37 @@
 #
 #   Tag a commit and push the tag:
 #
-#     git tag -a vt-0.1.0 -m "libghostty-vt 0.1.0"
-#     git push origin vt-0.1.0
+#     git tag -a vt-1.0.0 -m "libghostty-vt 1.0.0"
+#     git push origin vt-1.0.0
 #
 #   The tag must match lib_version in build.zig, minus any suffix. With
-#   lib_version = "0.1.0-dev", the tag is vt-0.1.0. build.zig doesn't
+#   lib_version = "1.0.0-dev", the tag is vt-1.0.0. build.zig doesn't
 #   change for a release: the build reads the version from the tag, and
 #   fails if the tag and lib_version disagree (see Config.libVersion).
 #
 #   The push starts this workflow. It builds every file from the tag and
-#   uploads them to https://release.files.ghostty.org/libghostty-vt/0.1.0/.
+#   uploads them to https://release.files.ghostty.org/libghostty-vt/1.0.0/.
 #   There is no GitHub Release.
 #
 # Rehearsing a release
 #
 #   A manual run with a version and upload=false builds the branch it is
 #   started on as if it were that release, without a tag. Every file gets
-#   the release's name, such as libghostty-vt-0.1.0.tar.gz, and the run
+#   the release's name, such as libghostty-vt-1.0.0.tar.gz, and the run
 #   checks those names the same way a release does. The files are kept as
 #   workflow artifacts and nothing is published:
 #
-#     gh workflow run release-lib-vt.yml --ref main -f version=vt-0.1.0
+#     gh workflow run release-lib-vt.yml --ref main -f version=vt-1.0.0
 #
-#   The version must still match lib_version, so vt-0.1.0 only rehearses
-#   from a branch where lib_version is "0.1.0" or "0.1.0-dev". The builds
+#   The version must still match lib_version, so vt-1.0.0 only rehearses
+#   from a branch where lib_version is "1.0.0" or "1.0.0-dev". The builds
 #   take it through -Dlib-version-string instead of reading a tag.
 #
 # Dry run
 #
 #   A manual run without a version builds the branch it is started on with
 #   lib_version as it stands. On main that gives -dev files, such as
-#   libghostty-vt-0.1.0-dev.tar.gz. Nothing is published:
+#   libghostty-vt-1.0.0-dev.tar.gz. Nothing is published:
 #
 #     gh workflow run release-lib-vt.yml --ref main
 #
@@ -44,11 +44,11 @@
 #   For example after a run failed partway, start the workflow by hand with
 #   the tag and upload=true. It rebuilds from the tag and publishes:
 #
-#     gh workflow run release-lib-vt.yml -f version=vt-0.1.0 -f upload=true
+#     gh workflow run release-lib-vt.yml -f version=vt-1.0.0 -f upload=true
 #
 # Files
 #
-#   Every run makes these files, where V is the version, such as 0.1.0.
+#   Every run makes these files, where V is the version, such as 1.0.0.
 #   Each file is signed with minisign, and the signature sits next to it
 #   with .minisig added to the name:
 #
@@ -64,7 +64,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The release to build, such as vt-0.1.0. With upload, the tag must exist and is what gets built. Without upload, the selected branch is built under this version as a rehearsal. Leave empty for a plain dry run."
+        description: "The release to build, such as vt-1.0.0. With upload, the tag must exist and is what gets built. Without upload, the selected branch is built under this version as a rehearsal. Leave empty for a plain dry run."
         required: false
       upload:
         description: "Publish the release: upload the files to release.files.ghostty.org. Leave unset for a dry run."
@@ -99,10 +99,10 @@ jobs:
   #
   #   release             "true" if this run publishes
   #   ref                 what every job checks out
-  #   tag                 the tag or the version input, such as vt-0.1.0
+  #   tag                 the tag or the version input, such as vt-1.0.0
   #                       (empty for a plain dry run)
   #   version             the version every file is named with, such as
-  #                       0.1.0 or 0.1.0-dev
+  #                       1.0.0 or 1.0.0-dev
   #   lib_version_string  the version to pass to the builds with
   #                       -Dlib-version-string, set only for a rehearsal
   setup:
@@ -128,7 +128,7 @@ jobs:
             if [[ "$INPUT_UPLOAD" == "true" ]]; then
               RELEASE=true
               if [[ -z "$TAG" ]]; then
-                echo "Error: upload needs a version, such as vt-0.1.0." >&2
+                echo "Error: upload needs a version, such as vt-1.0.0." >&2
                 exit 1
               fi
             else
@@ -140,7 +140,7 @@ jobs:
           fi
 
           if [[ -n "$TAG" && ! "$TAG" =~ ^vt-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Version must follow the format vt-X.Y.Z (e.g., vt-0.1.0)."
+            echo "Error: Version must follow the format vt-X.Y.Z (e.g., vt-1.0.0)."
             exit 1
           fi
 
@@ -166,7 +166,7 @@ jobs:
 
       # Reads lib_version from build.zig with the regular expression
       # CMakeLists.txt uses. A tag or version input must match its X.Y.Z:
-      # vt-0.1.0 goes with "0.1.0-dev" or "0.1.0". The build would also
+      # vt-1.0.0 goes with "1.0.0-dev" or "1.0.0". The build would also
       # reject a mismatched tag, but only after every job has set up Nix
       # and Zig. Checking here stops the run early, with a clearer message.
       - name: Pick the Version
@@ -247,8 +247,8 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       # dist makes exactly one tarball, and it must be named after the
-      # version, such as libghostty-vt-0.1.0.tar.gz. On a release, any other
-      # name, such as libghostty-vt-0.1.0-dev.tar.gz, means the build didn't
+      # version, such as libghostty-vt-1.0.0.tar.gz. On a release, any other
+      # name, such as libghostty-vt-1.0.0-dev.tar.gz, means the build didn't
       # see the tag. A rehearsal passes the version in with
       # -Dlib-version-string instead of a tag.
       - name: Create Tarball
@@ -468,10 +468,10 @@ jobs:
               -Dcpu=baseline
 
       # The library file names carry only X.Y.Z, while the .pc files carry
-      # the tarball's full LIB_VERSION. A release of 0.1.0 installs
-      # libghostty-vt.so.0.1.0 with "Version: 0.1.0". A dry run at commit
+      # the tarball's full LIB_VERSION. A release of 1.0.0 installs
+      # libghostty-vt.so.1.0.0 with "Version: 1.0.0". A dry run at commit
       # 9fc62a98c installs the same file name with
-      # "Version: 0.1.0-dev+9fc62a98c".
+      # "Version: 1.0.0-dev+9fc62a98c".
       - name: Verify installed layout
         run: |
           lib_version=$(cat "$SRC/LIB_VERSION")
@@ -755,15 +755,24 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       # Doxygen doesn't create the parent folders of its output directory,
-      # so make them first. The docs site does the same in
-      # src/build/docker/lib-c-docs/Dockerfile.
+      # so make them first. The tip docs site does the same in lib-docs.yml.
+      # The Doxyfile says "tip", so read it from stdin with the real version
+      # appended, which wins.
+      #
+      # SITEMAP_URL makes Doxygen write a sitemap.xml with links under that
+      # URL. It's set here and not in the Doxyfile because only the release
+      # docs site wants one, and that site serves the newest release there.
       - name: Build Docs
         run: |
           mkdir -p zig-out/share/ghostty/doc/libghostty
-          nix develop -c doxygen
+          {
+            cat Doxyfile
+            echo "PROJECT_NUMBER = ${VERSION}"
+            echo "SITEMAP_URL = https://lib.ghostty.org/vt/"
+          } | nix develop -c doxygen -
           test -f zig-out/share/ghostty/doc/libghostty/index.html
 
-      # The zip unpacks into one folder, such as libghostty-vt-0.1.0-docs/.
+      # The zip unpacks into one folder, such as libghostty-vt-1.0.0-docs/.
       - name: Zip Docs
         run: |
           mkdir docs-zip

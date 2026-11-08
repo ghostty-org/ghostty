@@ -12,11 +12,27 @@
 #include <stdint.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup io I/O
+/** @addtogroup io
  *
- * Synchronous callback interfaces used by APIs that consume or produce byte
- * streams. The callback and userdata pointers must remain valid for the full
- * lifetime documented by the API receiving a GhosttyReader or GhosttyWriter.
+ * A GhosttyReader or GhosttyWriter is a callback and a userdata pointer that
+ * move bytes in or out of the library.
+ *
+ * You need one to stream a format or a snapshot without holding all of it in
+ * memory. The callbacks run synchronously. The callback and userdata pointers
+ * must remain valid for the full lifetime documented by the API receiving a
+ * GhosttyReader or GhosttyWriter.
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyWriter writer = {.write = write_output, .userdata = &output};
+ * ghostty_formatter_format(formatter, writer);
+ * @endcode
+ *
+ * Full program: @ref c-vt-formatter/src/main.c
+ *
+ * See the @ref guide-snapshots "Snapshots guide" for reading and writing a
+ * snapshot.
  *
  * @{
  */

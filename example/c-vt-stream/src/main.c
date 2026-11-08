@@ -67,6 +67,69 @@ int main(void) {
   ghostty_formatter_free(formatter);
   //! [vt-stream-read]
 
+  //! [vt-stream-render]
+  // Create these once and reuse them for every frame.
+  GhosttyRenderState render_state = NULL;
+  result = ghostty_render_state_new(NULL, &render_state);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyRenderStateRowIterator row_iter = NULL;
+  result = ghostty_render_state_row_iterator_new(NULL, &row_iter);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyRenderStateRowCells cells = NULL;
+  result = ghostty_render_state_row_cells_new(NULL, &cells);
+  assert(result == GHOSTTY_SUCCESS);
+
+  // Capture the frame. This is the only step that reads the terminal.
+  result = ghostty_render_state_update(render_state, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  // Visit only the rows that changed. In the first frame, that's all of them.
+  result = ghostty_render_state_get(
+      render_state, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &row_iter);
+  assert(result == GHOSTTY_SUCCESS);
+
+  uint16_t y = 0;
+  while (ghostty_render_state_row_iterator_next_dirty(row_iter, &y)) {
+    result = ghostty_render_state_row_get(
+        row_iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &cells);
+    assert(result == GHOSTTY_SUCCESS);
+
+    while (ghostty_render_state_row_cells_next(cells)) {
+      GhosttyStyle style;
+      result = ghostty_render_state_row_cells_get(
+          cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
+      assert(result == GHOSTTY_SUCCESS);
+
+      uint8_t bytes[64];
+      GhosttyBuffer grapheme = {.ptr = bytes, .cap = sizeof(bytes)};
+      result = ghostty_render_state_row_cells_get(
+          cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8, &grapheme);
+      assert(result == GHOSTTY_SUCCESS);
+
+      // A real renderer draws the cell here. We print it, with its bold
+      // style, which the plain text from the formatter didn't have.
+      if (grapheme.len == 0) {
+        putchar(' ');
+        continue;
+      }
+      bool bold = style.flags & GHOSTTY_STYLE_FLAG_BOLD;
+      if (bold) printf("\x1b[1m");
+      fwrite(bytes, 1, grapheme.len, stdout);
+      if (bold) printf("\x1b[0m");
+    }
+    putchar('\n');
+  }
+
+  // The frame is drawn, so the next one only reports new changes.
+  result = ghostty_render_state_clean(render_state);
+  assert(result == GHOSTTY_SUCCESS);
+  //! [vt-stream-render]
+
+  ghostty_render_state_row_cells_free(cells);
+  ghostty_render_state_row_iterator_free(row_iter);
+  ghostty_render_state_free(render_state);
   ghostty_terminal_free(terminal);
   return 0;
 }

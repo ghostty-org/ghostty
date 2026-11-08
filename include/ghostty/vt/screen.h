@@ -16,14 +16,28 @@
 extern "C" {
 #endif
 
-/** @defgroup screen Screen
+/** @addtogroup screen
  *
- * Terminal screen cell and row types.
+ * A GhosttyCell is a single grid cell and a GhosttyRow is a single row.
  *
- * These types represent the contents of a terminal screen. A GhosttyCell
- * is a single grid cell and a GhosttyRow is a single row. Cell fields can
- * be accessed via ghostty_cell_get() or decoded from the packed layout in
- * ghostty_type_json(). Rows are opaque and accessed via ghostty_row_get().
+ * You get these from a grid reference or a render state. You need them to read
+ * what's on the screen, one cell at a time. Cell fields can be accessed via
+ * ghostty_cell_get() or decoded from the packed layout in ghostty_type_json().
+ * Rows are opaque and accessed via ghostty_row_get().
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyCell cell;
+ * ghostty_grid_ref_cell(&ref, &cell);
+ *
+ * uint32_t codepoint = 0;
+ * ghostty_cell_get(cell, GHOSTTY_CELL_DATA_CODEPOINT, &codepoint);
+ * @endcode
+ *
+ * Full program: @ref c-vt-grid-traverse/src/main.c
+ *
+ * See the @ref guide-grid "Grid guide".
  *
  * @{
  */
@@ -329,8 +343,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
- *         GHOSTTY_CELL_DATA_INVALID, or GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library
+ *         GHOSTTY_CELL_DATA_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup screen
  */
@@ -385,8 +399,8 @@ GHOSTTY_API GhosttyResult ghostty_cell_get_multi(GhosttyCell cell,
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
- *         GHOSTTY_ROW_DATA_INVALID, or GHOSTTY_UNSUPPORTED if `data` is not
- *         known to this version of the library
+ *         GHOSTTY_ROW_DATA_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup screen
  */

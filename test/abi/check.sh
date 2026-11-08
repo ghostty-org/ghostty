@@ -8,8 +8,9 @@
 #   test/abi/check.sh diff <baseline.abi> <lib.so>
 #
 # `dump` writes the ABI of a build to a file. `diff` compares the ABI of
-# a build to a baseline and fails if the ABI broke. For example, to
-# compare a fresh build to the committed baseline:
+# a build to a baseline and fails if the ABI broke, or if the library's
+# SONAME or symbol version nodes aren't the expected ones. For example,
+# to compare a fresh build to the committed baseline:
 #
 #   test/abi/check.sh diff test/abi/baseline.abi zig-out/lib/libghostty-vt.so
 #
@@ -50,12 +51,45 @@ usage() {
 # Print the exported ghostty_* functions of the library at $1. The
 # version script in src/terminal/c/ghostty-vt.map tags every export with
 # a symbol version, and GNU nm prints that as part of the name, for
-# example ghostty_terminal_new@@GHOSTTY_VT_0. We strip it so the names
+# example ghostty_terminal_new@@GHOSTTY_VT_1.0. We strip it so the names
 # match the headers.
 exported_functions() {
   nm -D --defined-only --format=posix "$1" |
     awk '$2 == "T" && $1 ~ /^ghostty_/ { sub(/@.*/, "", $1); print $1 }' |
     sort -u
+}
+
+# Print the SONAME of the library at $1.
+soname_of() {
+  readelf -d "$1" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p'
+}
+
+# Check that the library at $1 has the SONAME of the major version in
+# lib_version, and defines exactly the version nodes that
+# src/terminal/c/ghostty-vt.map declares. abidiff can't see either one,
+# because the probe copies the SONAME and only uses the library's symbols.
+# The BASE entry in the version definitions is the SONAME, not a node.
+check_versions() {
+  local lib="$1" major soname declared defined
+
+  major="$(sed -nE 's/^const lib_version = "([0-9]+)\..*/\1/p' "$root/build.zig")"
+  soname="$(soname_of "$lib")"
+  if [ "$soname" != "libghostty-vt.so.$major" ]; then
+    echo "error: SONAME is '$soname', expected libghostty-vt.so.$major" >&2
+    return 1
+  fi
+
+  declared="$(sed -nE 's/^(GHOSTTY_VT_[0-9.]+)[[:space:]]*\{.*/\1/p' \
+    "$root/src/terminal/c/ghostty-vt.map" | sort)"
+  defined="$(readelf --version-info --wide "$lib" |
+    sed -nE '/Flags: BASE/d; s/.* Rev: .* Name: ([^ ]+).*/\1/p' | sort)"
+  if [ "$declared" != "$defined" ]; then
+    echo "error: version nodes don't match ghostty-vt.map" >&2
+    diff <(echo "$declared") <(echo "$defined") | indent >&2
+    return 1
+  fi
+
+  echo "SONAME $soname, version nodes: ${defined//$'\n'/ }"
 }
 
 # Print the ghostty_* functions the public headers declare with
@@ -118,8 +152,7 @@ build_probe() {
     sed -E 's/^(.*)$/__typeof__(\1) *const abi_\1 = \&\1;/' "$dir/api.txt"
   } >"$dir/probe.c"
 
-  soname="$(readelf -d "$lib" |
-    sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')"
+  soname="$(soname_of "$lib")"
   if [ -z "$soname" ]; then
     echo "error: $lib has no SONAME" >&2
     return 1
@@ -332,6 +365,9 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 case "$cmd" in
 dump) cmd_dump "$@" ;;
-diff) cmd_diff "$@" ;;
+diff)
+  cmd_diff "$@"
+  check_versions "$2"
+  ;;
 *) usage ;;
 esac
