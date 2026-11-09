@@ -1937,8 +1937,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 
     func unmarkText() {
-        if self.markedText.length > 0 {
-            self.markedText.mutableString.setString("")
+        if Self.endCompositionForInsertedText(markedText: markedText, inputContext: inputContext) {
             syncPreedit()
         }
     }
@@ -2072,7 +2071,9 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
 
         // If insertText is called, our preedit must be over.
-        unmarkText()
+        if Self.endCompositionForInsertedText(markedText: markedText, inputContext: inputContext) {
+            syncPreedit()
+        }
 
         // If we have an accumulator we're in another key event so we just
         // accumulate and return.
@@ -2136,6 +2137,22 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return false
         }
         return scalar.value < 0x20
+    }
+}
+
+// MARK: Inserted Text
+
+extension Ghostty.SurfaceView {
+    /// Ends the composition when the input method commits text with
+    /// insertText. Clears `markedText` and returns whether there was any,
+    /// so the caller can update the preedit.
+    static func endCompositionForInsertedText(
+        markedText: NSMutableAttributedString,
+        inputContext: NSTextInputContext?
+    ) -> Bool {
+        guard markedText.length > 0 else { return false }
+        markedText.mutableString.setString("")
+        return true
     }
 }
 
