@@ -1030,8 +1030,28 @@ jobs:
           nix develop -c node test/wasm-alloc.mjs ghostty-vt-small.wasm
 
   # Compile-only checks for the -Dvt-features flags so that future changes
-  # don't regress any feature combination.
+  # don't regress any feature combination. The matrix covers every feature
+  # off, and each feature on by itself. The wasm library build compiles the
+  # C API exports, and the test build compiles every module test without
+  # running any. Each configuration is a full compile, so each gets its own
+  # job and they all run in parallel.
   build-libghostty-vt-features:
+    strategy:
+      fail-fast: false
+      matrix:
+        vt-features:
+          - "-all"
+          - "-all,+snapshot"
+          - "-all,+formatter"
+          - "-all,+selection"
+          - "-all,+render_state"
+          - "-all,+input_encode"
+          - "-all,+color"
+          - "-all,+grid_introspection"
+          - "-all,+glyph_protocol"
+          - "-all,+kitty_graphics"
+          - "-all,+search"
+    name: libghostty-vt -Dvt-features=${{ matrix.vt-features }}
     runs-on: namespace-profile-ghostty-sm
     needs: build-gate
     env:
@@ -1057,28 +1077,22 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Compile feature flag matrix
+      - name: Build wasm library
         run: |
-          features="snapshot formatter selection render_state input_encode color grid_introspection glyph_protocol kitty_graphics search"
-          configs="-all"
-          for f in $features; do configs="$configs -all,+$f"; done
+          nix develop -c zig build -Demit-lib-vt \
+            "-Dvt-features=${{ matrix.vt-features }}" \
+            -Dtarget=wasm32-freestanding
 
-          for cfg in $configs; do
-            echo "::group::-Dvt-features=$cfg"
-            # The wasm lib build compiles the C API export block; the
-            # test build compiles every module test without running any.
-            nix develop -c zig build -Demit-lib-vt \
-              "-Dvt-features=$cfg" \
-              -Dtarget=wasm32-freestanding
-            nix develop -c zig build test-lib-vt-build \
-              "-Dvt-features=$cfg"
-            echo "::endgroup::"
-          done
+      - name: Build tests
+        run: |
+          nix develop -c zig build test-lib-vt-build \
+            "-Dvt-features=${{ matrix.vt-features }}"
 
       # Functions of a compiled-out feature must return
       # GHOSTTY_UNSUPPORTED. Most module tests assume their feature is
       # on, so only this one test runs with every feature off.
       - name: Test compiled-out features
+        if: matrix.vt-features == '-all'
         run: |
           nix develop -c zig build test-lib-vt \
             -Dvt-features=-all \
