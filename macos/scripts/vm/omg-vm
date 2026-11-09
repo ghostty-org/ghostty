@@ -19,6 +19,7 @@ Commands:
   display [MODE]     List or set the guest display resolution (e.g. 1512x982)
   smoke [OUTPUT.png] Run the guest keyboard/PTY/screenshot smoke check
   desktop            Exercise real mouse drag, native fullscreen and latency benchmarks
+  xctest [OPTIONS]   Build on the host and run GhosttyTests inside the guest VM
   logs               Show the Tart and OMG guest logs
   down               Shut the guest down gracefully while retaining its disk
 
@@ -31,21 +32,38 @@ EOF
 }
 
 vm_up() {
-    local state attempt
+    local state attempt git_common
     state="$(omg_vm_state)"
     [[ -n "$state" ]] || omg_vm_die "VM '$OMG_VM_NAME' does not exist; see macos/VM_TESTING.md"
+
+    git_common="$(cd "$OMG_VM_REPO_ROOT" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 
     if [[ "$state" == suspended ]]; then
         "$OMG_TART" stop "$OMG_VM_NAME"
         state=stopped
     fi
 
+    if [[ "$state" == running ]]; then
+        if ! omg_vm_ssh "test -d '/Volumes/My Shared Files/repo'" 2>/dev/null ||
+            { [[ -d /Applications/Xcode.app ]] && ! omg_vm_ssh "test -d '/Volumes/My Shared Files/Xcode.app'" 2>/dev/null; }; then
+            vm_down
+            state=stopped
+        fi
+    fi
+
     if [[ "$state" != running ]]; then
+        local -a share_args=(--dir="repo:$OMG_VM_REPO_ROOT")
+        if [[ -d /Applications/Xcode.app ]]; then
+            share_args+=(--dir="Xcode.app:/Applications/Xcode.app:ro")
+        fi
+        if [[ -n "$git_common" && "$git_common" != "$OMG_VM_REPO_ROOT/.git" && -d "$git_common" ]]; then
+            share_args+=(--dir="gitcommon:$git_common")
+        fi
         launchctl remove "$OMG_VM_LABEL" 2>/dev/null || true
         : >"$OMG_VM_LOG"
         launchctl submit -l "$OMG_VM_LABEL" \
             -o "$OMG_VM_LOG" -e "$OMG_VM_LOG" \
-            -- "$OMG_TART" run --no-graphics "$OMG_VM_NAME"
+            -- "$OMG_TART" run --no-graphics "${share_args[@]}" "$OMG_VM_NAME"
 
         for attempt in $(seq 1 120); do
             state="$(omg_vm_state)"
@@ -62,6 +80,13 @@ vm_up() {
     omg_vm_install_ssh_key
     omg_vm_wait_for_ssh
     omg_vm_wait_for_gui
+    if omg_vm_ssh "test -d '/Volumes/My Shared Files/repo'"; then
+        omg_vm_ssh "sudo -n mkdir -p '$(dirname "$OMG_VM_REPO_ROOT")' && sudo -n ln -sfn '/Volumes/My Shared Files/repo' '$OMG_VM_REPO_ROOT'"
+    fi
+    if [[ -n "$git_common" && "$git_common" != "$OMG_VM_REPO_ROOT/.git" ]] &&
+        omg_vm_ssh "test -d '/Volumes/My Shared Files/gitcommon'"; then
+        omg_vm_ssh "sudo -n mkdir -p '$(dirname "$git_common")' && sudo -n ln -sfn '/Volumes/My Shared Files/gitcommon' '$git_common'"
+    fi
     if [[ -f "$OMG_VM_DISPLAY_FILE" ]]; then
         vm_display "$(cat "$OMG_VM_DISPLAY_FILE")"
     fi
@@ -174,6 +199,101 @@ vm_desktop() {
     omg_vm_ssh bash -s <"$SCRIPT_DIR/guest-desktop.sh"
 }
 
+vm_xctest() {
+    local project="$OMG_VM_REPO_ROOT/macos/Ghostty.xcodeproj"
+    local scheme="Ghostty"
+    local configuration="Debug"
+    local build_dir="$OMG_VM_REPO_ROOT/macos/build"
+    local skip_build=false
+    local -a build_settings=()
+    local -a test_args=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project) project="${2:?--project requires a path}"; shift 2 ;;
+            --scheme) scheme="${2:?--scheme requires a value}"; shift 2 ;;
+            --configuration) configuration="${2:?--configuration requires a value}"; shift 2 ;;
+            --build-dir) build_dir="${2:?--build-dir requires a path}"; shift 2 ;;
+            --build-setting) build_settings+=("${2:?--build-setting requires KEY=VALUE}"); shift 2 ;;
+            --skip-build) skip_build=true; shift ;;
+            --) shift; test_args+=("$@"); break ;;
+            *) test_args+=("$1"); shift ;;
+        esac
+    done
+
+    if ! $skip_build; then
+        rm -f "$build_dir/${scheme}_"*.xctestrun
+        env -i \
+            HOME="$HOME" \
+            PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+            DISABLE_SWIFTLINT=1 \
+            xcodebuild \
+            -project "$project" \
+            -scheme "$scheme" \
+            -configuration "$configuration" \
+            -skipPackagePluginValidation \
+            "SYMROOT=$build_dir" \
+            "${build_settings[@]}" \
+            build-for-testing
+    fi
+
+    local xctestrun
+    xctestrun="$(find "$build_dir" -maxdepth 1 -name "${scheme}_*.xctestrun" -print | sort | head -n 1)"
+    [[ -n "$xctestrun" && -f "$xctestrun" ]] ||
+        omg_vm_die "xctestrun file not found in $build_dir; run without --skip-build first"
+
+    vm_up
+
+    local guest_developer_dir="/Volumes/My Shared Files/Xcode.app/Contents/Developer"
+    omg_vm_ssh "test -d '$guest_developer_dir'" ||
+        omg_vm_die "host /Applications/Xcode.app is not mounted in guest at $guest_developer_dir"
+
+    local ip guest_test_root="/tmp/omg-xctest-root"
+    local guest_config_dir="$guest_test_root/$configuration"
+    local guest_xctestrun="$guest_test_root/$(basename "$xctestrun")"
+    ip="$(omg_vm_ip)"
+
+    omg_vm_ssh bash -s <<EOF
+set -euo pipefail
+stamp="/var/db/.omg-xcode-ready-\$(DEVELOPER_DIR='$guest_developer_dir' /usr/bin/xcodebuild -version | tr '\n ' '__')"
+if [[ ! -f "\$stamp" ]]; then
+    sudo -n DEVELOPER_DIR='$guest_developer_dir' /usr/bin/xcodebuild -license accept
+    sudo -n DEVELOPER_DIR='$guest_developer_dir' /usr/bin/xcodebuild -runFirstLaunch
+    sudo -n touch "\$stamp"
+fi
+pkill -x omg 2>/dev/null || true
+mkdir -p '$guest_config_dir'
+rm -f '$guest_test_root/'*.xctestrun
+EOF
+
+    omg_vm_scp_to "$ip" "$xctestrun" "$guest_xctestrun"
+    local artifact
+    for artifact in OMG.app DockTilePlugin.plugin PackageFrameworks GhosttyUITests-Runner.app; do
+        if [[ -e "$build_dir/$configuration/$artifact" ]]; then
+            rsync -a --delete -e "ssh ${OMG_VM_SSH_OPTS[*]}" \
+                "$build_dir/$configuration/$artifact" "$OMG_VM_USER@$ip:$guest_config_dir/"
+        fi
+    done
+
+    local guest_host_app="$guest_config_dir/OMG.app"
+    if [[ -d "$build_dir/$configuration/OMG.app" ]]; then
+        omg_vm_ssh bash -s -- "$guest_host_app" <"$SCRIPT_DIR/guest-provision.sh" >/dev/null
+    fi
+
+    local status=0
+    omg_vm_gui env \
+        DEVELOPER_DIR="$guest_developer_dir" \
+        DISABLE_SWIFTLINT=1 \
+        /usr/bin/xcodebuild \
+        test-without-building \
+        -xctestrun "$guest_xctestrun" \
+        -destination "platform=macOS,arch=$(uname -m)" \
+        "${test_args[@]}" || status=$?
+
+    omg_vm_ssh "pkill -x omg 2>/dev/null || true" >/dev/null 2>&1 || true
+    return "$status"
+}
+
 vm_logs() {
     omg_vm_require_running
     printf '%s\n' "-- Tart log: $OMG_VM_LOG"
@@ -248,6 +368,7 @@ case "${1:-}" in
         ;;
     smoke) shift; [[ $# -le 1 ]] || omg_vm_die "smoke accepts at most one output path"; vm_smoke "${1:-}" ;;
     desktop) shift; [[ $# -eq 0 ]] || omg_vm_die "desktop takes no arguments"; vm_desktop ;;
+    xctest) shift; vm_xctest "$@" ;;
     logs) shift; [[ $# -eq 0 ]] || omg_vm_die "logs takes no arguments"; vm_logs ;;
     down) shift; [[ $# -eq 0 ]] || omg_vm_die "down takes no arguments"; vm_down ;;
     -h|--help|help|"") usage ;;

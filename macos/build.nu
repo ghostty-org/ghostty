@@ -95,6 +95,31 @@ def main [
         ["ENABLE_TESTABILITY=YES" "ONLY_ACTIVE_ARCH=YES"]
     } else { [] }
 
+    if $action == "test" {
+        let vm_runner = ($env.FILE_PWD | path join "scripts" "vm" "omg-vm")
+        let build_settings = ([...$version_override ...$workspace_settings ...$test_build_settings]
+            | each {|setting| ["--build-setting" $setting] }
+            | flatten)
+        (^env -i
+            $"HOME=($env.HOME)"
+            "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            # The editor packages' lint plugins declare an absent Output directory
+            # under Xcode 26. Keep OMG's own Run SwiftLint phase as the lint gate.
+            "DISABLE_SWIFTLINT=1"
+            bash
+            $vm_runner
+            xctest
+            --project $project
+            --scheme $scheme
+            --configuration $configuration
+            --build-dir $build_dir
+            ...$build_settings
+            --
+            ...$skip_testing
+            ...$selected_tests)
+        return
+    }
+
     (^env -i
         $"HOME=($env.HOME)"
         "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
@@ -109,8 +134,5 @@ def main [
         $"SYMROOT=($build_dir)"
         ...$version_override
         ...$workspace_settings
-        ...$skip_testing
-        ...$selected_tests
-        ...$test_build_settings
         $action)
 }

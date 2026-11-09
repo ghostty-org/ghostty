@@ -229,6 +229,11 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(result["root_modules"], ["settings"])
         self.assertTrue(result["run_swift"])
 
+    def test_mobile_access_controller_selects_settings_module(self):
+        result = self.plan(paths=["macos/Sources/Features/Mobile/MobileAccessController.swift"])
+        self.assertEqual(result["root_modules"], ["settings"])
+        self.assertEqual(result["unknown_paths"], [])
+
     def test_version_only_project_change_does_not_force_all(self):
         result = self.plan(paths=[planner.VERSION_PROJECT], version_only=True)
         self.assertEqual(result["scope"], "changed")
@@ -420,6 +425,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         args = self.capture.read_text().splitlines()
         self.assertIn("NOT RUN (optional interactive desktop)", result.stdout)
+        self.assertIn("xctest", args)
         self.assertIn("GhosttyTests/VerticalTabMouseTests", args)
         self.assertIn("GhosttyUITests", args)
         self.assertEqual(args[args.index("-parallel-testing-enabled") + 1], "NO")

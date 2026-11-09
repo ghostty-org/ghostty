@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-bundle_id=com.jischeng.omg.debug
-app=/Applications/OMG.app
+app="${1:-/Applications/OMG.app}"
 db="/Library/Application Support/com.apple.TCC/TCC.db"
 sshd_clients=(/usr/libexec/sshd-keygen-wrapper /usr/libexec/sshd-session /usr/bin/osascript)
 app_services=(kTCCServiceAccessibility kTCCServiceScreenCapture kTCCServicePostEvent)
@@ -13,6 +12,8 @@ die() { printf 'provision: %s\n' "$*" >&2; exit 1; }
 csrutil status | grep -q 'disabled' ||
     die "system integrity protection must be disabled in the guest"
 [[ -d "$app" ]] || die "$app is not deployed; run deploy first"
+bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+[[ -n "$bundle_id" ]] || die "$app has no CFBundleIdentifier"
 
 requirement="$(codesign -d -r- "$app" 2>&1 | sed -n 's/^#\{0,1\} *designated => //p')"
 [[ -n "$requirement" ]] || die "$app has no designated requirement"
@@ -43,7 +44,7 @@ for client in "${sshd_clients[@]}"; do
 done
 
 # Screen recording also consults replayd's approval cache.
-/usr/bin/python3 - "$bundle_id" <<'PY'
+/usr/bin/python3 - "$bundle_id" "$app/Contents/MacOS/omg" <<'PY'
 import datetime
 import os
 import plistlib
@@ -51,6 +52,7 @@ import subprocess
 import sys
 
 bundle_id = sys.argv[1]
+app_executable = sys.argv[2]
 path = os.path.expanduser(
     "~/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
 )
@@ -64,6 +66,7 @@ except Exception:
 now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 for key in (
     "/Applications/OMG.app/Contents/MacOS/omg",
+    app_executable,
     bundle_id,
     "/usr/libexec/sshd-keygen-wrapper",
     "/usr/libexec/sshd-session",

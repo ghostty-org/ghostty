@@ -1,7 +1,10 @@
 # OMG test selection
 
-Use `macos/build.nu` for app-hosted Swift tests. Test selection is based on changed
-modules and their direct dependents, **not the release's SemVer category**. A minor
+Use `macos/build.nu` for app-hosted Swift tests. `macos/build.nu --action test`
+compiles on the host (`build-for-testing`) and runs `GhosttyTests` inside the
+retained headless Tart VM (`macos/scripts/vm/omg-vm xctest`) so test windows
+never take over the host desktop. Test selection is based on changed modules
+and their direct dependents, **not the release's SemVer category**. A minor
 release does not automatically require every unrelated feature suite.
 
 ## Three layers

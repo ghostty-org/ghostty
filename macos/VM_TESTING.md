@@ -1,9 +1,10 @@
 # macOS VM testing
 
-Use the retained Tart VM `omg-test` to exercise Debug builds away from the host
-desktop. Build on the host; the VM is used for GUI launch, keyboard input, shell
-and screenshot checks. Its disk is kept when stopped, so the macOS image is
-downloaded once and only the VM process is started on demand.
+Use the retained Tart VM `omg-test` to exercise Debug builds and app-hosted
+Swift tests (`GhosttyTests`) away from the host desktop. Build on the host; the
+VM is used for `macos/build.nu --action test` (`omg-vm xctest`), GUI launch,
+keyboard input, shell and screenshot checks. Its disk is kept when stopped, so
+the macOS image is downloaded once and only the VM process is started on demand.
 
 The VM runs with `--no-graphics`: Tart does not open a host window, while the
 guest keeps its virtual display. Screenshots are taken with `screencapture`

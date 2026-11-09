@@ -11,12 +11,15 @@ the host desktop is never touched and no VM window is opened.
 
 ## When to use
 
+- Running app-hosted Swift tests (`macos/build.nu --action test` delegates to
+  `omg-vm xctest` automatically: it runs `build-for-testing` on the host and
+  `test-without-building` inside the guest VM).
 - Verifying OMG Dev behavior that needs windows, keyboard, mouse, screenshots,
   a shell or native fullscreen.
 - Reproducing UI bugs or capturing guest screenshots/logs as evidence.
 - Taking before/after latency or PTY baselines (relative comparisons only).
 
-Do not use it for unit, Zig or selector-only tests, and do not use it for
+Do not use it for Zig or selector-only tests, and do not use it for
 multi-display or frame-rate acceptance.
 
 ## Workflow

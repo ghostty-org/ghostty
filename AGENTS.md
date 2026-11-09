@@ -29,11 +29,14 @@ See [.agents/WORKSPACE_DEV.md](.agents/WORKSPACE_DEV.md) for identity and data p
   - After native tab/drag/focus changes, run relevant desktop tests explicitly on
     an unlocked foreground desktop with `--include-desktop-tests`.
   - Swift selection does not replace affected Zig/Python/shell/artifact checks.
-- **Test (GUI in the VM)**: `macos/scripts/vm/omg-vm up|deploy|smoke|desktop|down`
-  - Use the retained Tart VM for GUI launch, keyboard/mouse, screenshot,
-    fullscreen and shell checks so verification does not take over the host
-    desktop. See `macos/VM_TESTING.md` and the `omg-vm-testing` skill.
-  - Unit, Zig and selector-only tests stay local; frame rate, multi-display and
+- **Test (GUI in the VM)**: `macos/scripts/vm/omg-vm up|deploy|smoke|desktop|xctest|down`
+  - `macos/build.nu --action test` builds on the host (`build-for-testing`) and
+    runs app-hosted Swift tests (`GhosttyTests`) inside the retained Tart VM via
+    `omg-vm xctest` so test windows never take over the host desktop.
+  - Also use the retained Tart VM for GUI launch, keyboard/mouse, screenshot,
+    fullscreen and shell checks. See `macos/VM_TESTING.md` and the
+    `omg-vm-testing` skill.
+  - Zig and selector-only tests stay local; frame rate, multi-display and
     input-to-photon latency still need a host desktop run.
 - **Test selector contract**: `python3 -m unittest discover -s dist -p 'test_omg_test_plan.py'`
   - Test tiers and mappings: `docs/TESTING.md`. Build and test strictly serially.

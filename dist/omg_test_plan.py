@@ -54,7 +54,7 @@ MODULES = {
         ("git", "agents"),
     ),
     "settings": Module(
-        ("macos/Sources/Features/Settings/**", "docs/settings/**"),
+        ("macos/Sources/Features/Settings/**", "macos/Sources/Features/Mobile/**", "docs/settings/**"),
         ("macos/Tests/Settings/*.swift",),
         ("foundation", "terminal", "tabs", "editor", "git", "inspector"),
     ),
