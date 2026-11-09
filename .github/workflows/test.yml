@@ -1774,14 +1774,10 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access.
       - name: Build GhosttyKit
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: nix develop -c zig build -Demit-macos-app=false
 
       # The native app is built with native Xcode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -1826,12 +1822,8 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       - name: Build with Xcode 27
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: nix develop -c zig build -Demit-macos-app=false
 
   build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-golden
@@ -1866,19 +1858,15 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       # We run tests with an empty test filter so it runs all unit tests
       # but skips Xcode tests
       - name: Test All
         run: |
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
+          nix develop -c zig build test -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
 
       - name: Build All
         run: |
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
+          nix develop -c zig build -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
 
   # A quick x86_64 Linux build that expensive jobs wait on so we don't
   # pay for them when Ghostty doesn't even compile. Cheap jobs only
@@ -2394,12 +2382,8 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       - name: test
-        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+        run: nix develop -c zig build test
 
   test-i18n:
     strategy:
