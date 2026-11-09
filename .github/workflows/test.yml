@@ -2110,19 +2110,38 @@ jobs:
 
       # Builds ghostty-vt-c-test into zig-out/bin, where vm.sh test looks
       # for it. It runs every libghostty-vt test, the Zig ones included.
-      - name: Build the test binary
+      #
+      # The VM is set up at the same time, in the background, since neither
+      # needs the other. setup does nothing once the cache volume holds a
+      # set-up VM. Otherwise it downloads FreeBSD and boots it once, which
+      # takes a few minutes that now pass while the tests build. reset then
+      # undoes whatever the last run's tests left on the VM's disk. Their
+      # output goes to a file and is printed in its own log group once both
+      # have finished, so it never mixes with the build's.
+      - name: Build the test binary and set up the VM
         run: |
+          (
+            nix develop -c .github/scripts/freebsd-vm/vm.sh setup &&
+              nix develop -c .github/scripts/freebsd-vm/vm.sh reset
+          ) >"$RUNNER_TEMP/vm-setup.log" 2>&1 &
+          vm=$!
+          build=0
           nix develop -c zig build test-lib-vt-build \
             -Demit-lib-vt \
             -Demit-test-exe \
-            -Dtarget=x86_64-freebsd
-
-      # setup does nothing once the cache volume holds a set-up VM. reset
-      # then undoes whatever the last run's tests left on the VM's disk.
-      - name: Set up the VM
-        run: |
-          nix develop -c .github/scripts/freebsd-vm/vm.sh setup
-          nix develop -c .github/scripts/freebsd-vm/vm.sh reset
+            -Dtarget=x86_64-freebsd || build=$?
+          setup=0
+          wait "$vm" || setup=$?
+          echo "::group::Set up the VM"
+          cat "$RUNNER_TEMP/vm-setup.log"
+          echo "::endgroup::"
+          if [ "$build" -ne 0 ]; then
+            echo "::error title=Build failed::zig build exited with status $build"
+          fi
+          if [ "$setup" -ne 0 ]; then
+            echo "::error title=VM setup failed::vm.sh exited with status $setup"
+          fi
+          [ "$build" -eq 0 ] && [ "$setup" -eq 0 ]
 
       - name: Start the VM
         run: nix develop -c .github/scripts/freebsd-vm/vm.sh start
