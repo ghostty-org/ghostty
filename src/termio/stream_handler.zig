@@ -190,16 +190,19 @@ pub const StreamHandler = struct {
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
     ) void {
-        self.vtFallible(action, value) catch |err| {
-            log.warn("error handling VT action action={} err={}", .{ action, err });
-        };
+        self.vtFallible(action, value) catch |err| vtFailed(action, err);
     }
 
     /// The stream's hook for runs it knows are printable ASCII.
     pub fn vtPrintAscii(self: *StreamHandler, bytes: []const u8) void {
-        self.terminal.printSliceAscii(bytes) catch |err| {
-            log.warn("error handling VT action action=print_slice err={}", .{err});
-        };
+        self.terminal.printSliceAscii(bytes) catch |err| vtFailed(.print_slice, err);
+    }
+
+    /// This is noinline to keep failure handling and logging out of the
+    /// hot VT action path.
+    noinline fn vtFailed(action: Stream.Action.Tag, err: anyerror) void {
+        @branchHint(.cold);
+        log.warn("error handling VT action action={} err={}", .{ action, err });
     }
 
     inline fn vtFallible(
