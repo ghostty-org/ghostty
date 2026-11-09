@@ -189,6 +189,9 @@ final class NativeTabOutlineController: NSViewController, NSOutlineViewDataSourc
         }
         roots = nextRoots
         nodes = nextNodes
+        // Flat <-> grouped transitions always take the reload path below, so
+        // existing cell views pick up the new leading inset.
+        outline.reservesDisclosureSpace = roots.contains { $0.tab == nil }
         outline.rowHeight = value.rowHeight
         if structure != nextStructure {
             structure = nextStructure
@@ -525,6 +528,17 @@ final class NativeTabOutline: NSOutlineView {
     private var mouseGestureTimestamp: TimeInterval?
     private var earlyMouseUp: NSEvent?
     var contextMenu: ((Int) -> NSMenu?)?
+    /// NSOutlineView reserves a disclosure-triangle gutter in the outline
+    /// column even for level-0 leaves. A flat tab list has no disclosure
+    /// buttons, so give its cells the full row width instead.
+    var reservesDisclosureSpace = true
+    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
+        let frame = super.frameOfCell(atColumn: column, row: row)
+        guard !reservesDisclosureSpace, row >= 0, column >= 0, column < tableColumns.count,
+              tableColumns[column] === outlineTableColumn else { return frame }
+        let rowRect = rect(ofRow: row)
+        return NSRect(x: rowRect.minX, y: frame.minY, width: frame.maxX - rowRect.minX, height: frame.height)
+    }
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
     override func viewDidMoveToWindow() {
