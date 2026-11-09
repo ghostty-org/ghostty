@@ -2241,7 +2241,10 @@ jobs:
         x11: ["true", "false"]
         wayland: ["true", "false"]
     name: GTK x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
-    runs-on: namespace-profile-ghostty-sm
+    # Only the x11=true wayland=true leg runs the test suite (see the Test
+    # step below), so it gets the larger runner. The build-only legs stay
+    # on the small one.
+    runs-on: ${{ matrix.x11 == 'true' && matrix.wayland == 'true' && 'namespace-profile-ghostty-md' || 'namespace-profile-ghostty-sm' }}
     needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -2294,7 +2297,7 @@ jobs:
         # -Dsimd=true is the default, which the GTK tests already cover.
         simd: ["false"]
     name: Test -Dsimd=${{ matrix.simd }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: namespace-profile-ghostty-md
     needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
