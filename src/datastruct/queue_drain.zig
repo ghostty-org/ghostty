@@ -35,9 +35,13 @@ pub fn QueueDrain(
         /// Start draining. This must not be moved until `finish` returns.
         pub fn start(self: *Self, io: std.Io) void {
             self.io = io;
-            self.thread = std.Thread.spawn(.{}, run, .{self}) catch |err| thread: {
-                log.warn("queue drain thread spawn failed, may stall err={}", .{err});
-                break :thread null;
+            self.thread = thread: {
+                const thread = std.Thread.spawn(.{}, run, .{self}) catch |err| {
+                    log.warn("queue drain thread spawn failed, may stall err={}", .{err});
+                    break :thread null;
+                };
+                thread.setName(io, @typeName(Queue) ++ " drain thread") catch {};
+                break :thread thread;
             };
         }
 
