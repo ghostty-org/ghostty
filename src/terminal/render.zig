@@ -1431,14 +1431,15 @@ pub const RenderState = struct {
         // Process the pending runs one row segment at a time. All the
         // runs for a row are appended contiguously by a single
         // beginUpdate, so a segment boundary is simply a change in y.
-        const runs = self.pending_styles.items;
-        var i: usize = 0;
-        while (i < runs.len) {
-            const y = runs[i].y;
-            var j = i + 1;
-            while (j < runs.len and runs[j].y == y) j += 1;
-            const segment = runs[i..j];
-            i = j;
+        //
+        // We consume the runs as a shrinking slice to reduce per-segment setup.
+        var rest = self.pending_styles.items;
+        while (rest.len > 0) {
+            const y = rest[0].y;
+            var n: usize = 1;
+            while (n < rest.len and rest[n].y == y) n += 1;
+            const segment = rest[0..n];
+            rest = rest[n..];
 
             // Defensive: the row data may have changed shape if the
             // caller violated ordering (e.g. an error path skipped an
@@ -1457,9 +1458,12 @@ pub const RenderState = struct {
             const applied = &row_applied[y];
             if (runsEql(applied.items, segment)) continue;
 
+            const cells = row_cells[y].slice();
+            const styles = cells.items(.style);
             for (segment) |run| {
-                const styles = row_cells[run.y].slice().items(.style);
-                const end = @min(run.end, styles.len);
+                // Clamp to cells.len rather than styles.len to avoid repeating
+                // the capacity check from items(.style) for every run.
+                const end = @min(run.end, cells.len);
                 const start = @min(run.start, end);
 
                 fillStyles(styles[start..end], @bitCast(run.style));
