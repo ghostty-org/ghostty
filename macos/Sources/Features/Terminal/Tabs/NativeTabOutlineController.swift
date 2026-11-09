@@ -532,12 +532,14 @@ final class NativeTabOutline: NSOutlineView {
     /// column even for level-0 leaves. A flat tab list has no disclosure
     /// buttons, so give its cells the full row width instead.
     var reservesDisclosureSpace = true
+    /// Matches the trailing inset so icons and shortcuts sit evenly inside the row highlight.
+    static let flatLeadingInset: CGFloat = 4
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         let frame = super.frameOfCell(atColumn: column, row: row)
         guard !reservesDisclosureSpace, row >= 0, column >= 0, column < tableColumns.count,
               tableColumns[column] === outlineTableColumn else { return frame }
-        let rowRect = rect(ofRow: row)
-        return NSRect(x: rowRect.minX, y: frame.minY, width: frame.maxX - rowRect.minX, height: frame.height)
+        let minX = rect(ofRow: row).minX + Self.flatLeadingInset
+        return NSRect(x: minX, y: frame.minY, width: frame.maxX - minX, height: frame.height)
     }
     private lazy var hover = NativeTableHover(table: self)
     override func updateTrackingAreas() { super.updateTrackingAreas(); hover.update() }
@@ -721,7 +723,7 @@ final class NativeTabCell: NSTableCellView {
         label.setContentHuggingPriority(.init(1), for: .horizontal)
         // AppKit briefly sizes newly attached cells below their icon footprint.
         // Keep their content intact without unsatisfiable required constraints.
-        let trailingConstraint = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4)
+        let trailingConstraint = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -9)
         trailingConstraint.priority = .defaultHigh
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
