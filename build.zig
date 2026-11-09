@@ -582,9 +582,23 @@ pub fn build(b: *std.Build) !void {
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);
 
-        // Valgrind test running. Valgrind runs as a plain command, not as
-        // a test runner step, so the shard is passed as an ordinary
-        // argument and the test runner prints each test name as it goes.
+        // Valgrind test running. These are test runner steps like the
+        // normal runs above, with valgrind in front of the binary instead
+        // of the dynamic linker. A plain command step whose stdio goes to
+        // the terminal holds a global lock while it runs, so the build
+        // runner would run the shards one after another and sharding
+        // would gain nothing. As test runner steps the shards run at the
+        // same time, a failing test is reported by name, and valgrind's
+        // report on stderr is printed when each shard finishes rather
+        // than live. Valgrind's own errors exit with code 1 and fail the
+        // shard.
+        //
+        // patchelf rewrites the binary in place, so it runs once, before
+        // any shard starts. One patchelf step per shard would rewrite the
+        // file under the shards already running, and they die with
+        // SIGBUS: valgrind maps the file itself, so nothing stops the
+        // write.
+        const valgrind_patchelf = config.addPatchElf(valgrind_exe, test_valgrind_step);
         for (0..test_shards) |shard| {
             const valgrind_run = b.addSystemCommand(&.{
                 "valgrind",
@@ -593,12 +607,14 @@ pub fn build(b: *std.Build) !void {
                 "--num-callers=50",
                 "--gen-suppressions=all",
             });
+            valgrind_run.producer = valgrind_exe;
             valgrind_run.addFileArg2(b.path("valgrind.supp"), .{ .prefix = "--suppressions=" });
             valgrind_run.addArtifactArg(valgrind_exe);
+            valgrind_run.enableTestRunnerMode();
             if (test_shards > 1) {
                 valgrind_run.addArg(b.fmt("--shard={d}/{d}", .{ shard, test_shards }));
             }
-            config.addPatchElf(valgrind_exe, &valgrind_run.step);
+            if (valgrind_patchelf) |patchelf| valgrind_run.step.dependOn(&patchelf.step);
             test_valgrind_step.dependOn(&valgrind_run.step);
         }
     }

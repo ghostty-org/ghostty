@@ -734,19 +734,21 @@ const PatchElf = struct {
 };
 
 /// Add a patchelf step for the supplied `artifact`, depending on the supplied
-/// `step`, if `patchelf` is present in the config.
-pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) void {
+/// `step`, if `patchelf` is present in the config. Returns the patchelf step
+/// so that other steps can depend on it too. patchelf rewrites the artifact
+/// in place, so patch each artifact once and share the step.
+pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) ?*std.Build.Step.Run {
     const b = artifact.step.owner;
     std.debug.assert(b == step.owner);
 
-    if (self.patchelf) |patchelf| {
-        const run = std.Build.Step.Run.create(b, "patchelf");
-        run.addArgs(&.{"patchelf"});
-        if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
-        if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
-        run.addArtifactArg(artifact);
-        step.dependOn(&run.step);
-    }
+    const patchelf = self.patchelf orelse return null;
+    const run = std.Build.Step.Run.create(b, "patchelf");
+    run.addArgs(&.{"patchelf"});
+    if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
+    if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
+    run.addArtifactArg(artifact);
+    step.dependOn(&run.step);
+    return run;
 }
 
 /// Starts `run`'s command with the Nix dev shell's dynamic linker and
