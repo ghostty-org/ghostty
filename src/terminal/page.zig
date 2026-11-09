@@ -868,8 +868,15 @@ pub const Page = struct {
 
         const other_rows = other.rows.ptr(other.memory)[y_start..y_end];
         const rows = self.rows.ptr(self.memory)[0 .. y_end - y_start];
-        for (rows, other_rows) |*dst_row, *src_row| {
-            try self.cloneRowFrom(other, dst_row, src_row);
+        {
+            // In Debug builds, cloneRowFrom checks the whole page after
+            // every row, so cloning a full page would check it thousands
+            // of times. Pause the checks and check once below instead.
+            self.pauseIntegrityChecks(true);
+            defer self.pauseIntegrityChecks(false);
+            for (rows, other_rows) |*dst_row, *src_row| {
+                try self.cloneRowFrom(other, dst_row, src_row);
+            }
         }
 
         // We should remain consistent

@@ -460,6 +460,15 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
                 PatchElf.setRpath(&config, ld_library_path);
             }
         }
+
+        // The dev shell also exports the library path with every
+        // propagated library, which the test binaries need (see
+        // addLoaderArgs and nix/devShell.nix).
+        if (env.get("GHOSTTY_TEST_LIBRARY_PATH")) |path| {
+            if (path.len > 0) {
+                PatchElf.setTestLibraryPath(&config, path);
+            }
+        }
     }
 
     config.pie = b.option(
@@ -694,6 +703,7 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
 const PatchElf = struct {
     interp: ?[]const u8 = null,
     rpath: ?[]const u8 = null,
+    test_library_path: ?[]const u8 = null,
 
     fn setInterp(config: *Config, interp: []const u8) void {
         if (config.patchelf) |*patchelf| {
@@ -712,22 +722,78 @@ const PatchElf = struct {
 
         config.patchelf = .{ .rpath = rpath };
     }
+
+    fn setTestLibraryPath(config: *Config, path: []const u8) void {
+        if (config.patchelf) |*patchelf| {
+            patchelf.test_library_path = path;
+            return;
+        }
+
+        config.patchelf = .{ .test_library_path = path };
+    }
 };
 
 /// Add a patchelf step for the supplied `artifact`, depending on the supplied
-/// `step`, if `patchelf` is present in the config.
-pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) void {
+/// `step`, if `patchelf` is present in the config. Returns the patchelf step
+/// so that other steps can depend on it too. patchelf rewrites the artifact
+/// in place, so patch each artifact once and share the step.
+pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) ?*std.Build.Step.Run {
     const b = artifact.step.owner;
     std.debug.assert(b == step.owner);
 
-    if (self.patchelf) |patchelf| {
-        const run = std.Build.Step.Run.create(b, "patchelf");
-        run.addArgs(&.{"patchelf"});
-        if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
-        if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
-        run.addArtifactArg(artifact);
-        step.dependOn(&run.step);
-    }
+    const patchelf = self.patchelf orelse return null;
+    const run = std.Build.Step.Run.create(b, "patchelf");
+    run.addArgs(&.{"patchelf"});
+    if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
+    if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
+    run.addArtifactArg(artifact);
+    step.dependOn(&run.step);
+    return run;
+}
+
+/// Starts `run`'s command with the Nix dev shell's dynamic linker and
+/// library path, so the program finds its libraries in the Nix store
+/// the way a binary patched by addPatchElf would. Call this before
+/// adding the program itself. For example, a run of ghostty-test
+/// becomes:
+///
+///     /nix/store/...-glibc/lib/ld-linux-x86-64.so.2 \
+///         --inhibit-rpath "" \
+///         --library-path /nix/store/...-glibc/lib:/nix/store/...-freetype/lib:... \
+///         ghostty-test
+///
+/// Zig records every library directory it searched as the binary's
+/// RUNPATH, and on a host with a system glibc (any non-NixOS Linux,
+/// including the CI runners) that includes the system library
+/// directory. Followed, it hands the program the system libc.so.6, or a
+/// system libpango with dependencies that aren't there, and the program
+/// dies at startup. `--inhibit-rpath ""` makes ld.so ignore the
+/// program's own RUNPATH, so its libraries all come from the library
+/// path: the loader's directory for glibc, then the dev shell's
+/// GHOSTTY_TEST_LIBRARY_PATH, which unlike LD_LIBRARY_PATH also has the
+/// libraries that the inputs propagate (gtk4 propagates pango, cairo
+/// and more, and the self-hosted linker records every one of them as a
+/// direct dependency). The libraries' own RUNPATHs still apply, which
+/// is how their dependencies are found. patchelf got the same effect by
+/// replacing the RUNPATH outright.
+///
+/// Use this for binaries that patchelf can't rewrite, such as test
+/// binaries built by Zig's self-hosted x86_64 backend. They can't be
+/// built with the right dynamic linker either, because Zig 0.17 ignores
+/// one set on the target query. Outside the Nix dev shell there is no
+/// dynamic linker to add, so this does nothing and the program runs
+/// as is.
+pub fn addLoaderArgs(self: *const Config, run: *std.Build.Step.Run) void {
+    const patchelf = self.patchelf orelse return;
+    const interp = patchelf.interp orelse return;
+    run.addArgs(&.{ interp, "--inhibit-rpath", "" });
+    const glibc_lib = std.fs.path.dirname(interp) orelse return;
+    const b = run.step.owner;
+    const libs = patchelf.test_library_path orelse patchelf.rpath;
+    run.addArgs(&.{ "--library-path", if (libs) |path|
+        b.fmt("{s}:{s}", .{ glibc_lib, path })
+    else
+        glibc_lib });
 }
 
 /// Configure the build options with our values.

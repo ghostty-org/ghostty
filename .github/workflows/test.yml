@@ -1030,8 +1030,28 @@ jobs:
           nix develop -c node test/wasm-alloc.mjs ghostty-vt-small.wasm
 
   # Compile-only checks for the -Dvt-features flags so that future changes
-  # don't regress any feature combination.
+  # don't regress any feature combination. The matrix covers every feature
+  # off, and each feature on by itself. The wasm library build compiles the
+  # C API exports, and the test build compiles every module test without
+  # running any. Each configuration is a full compile, so each gets its own
+  # job and they all run in parallel.
   build-libghostty-vt-features:
+    strategy:
+      fail-fast: false
+      matrix:
+        vt-features:
+          - "-all"
+          - "-all,+snapshot"
+          - "-all,+formatter"
+          - "-all,+selection"
+          - "-all,+render_state"
+          - "-all,+input_encode"
+          - "-all,+color"
+          - "-all,+grid_introspection"
+          - "-all,+glyph_protocol"
+          - "-all,+kitty_graphics"
+          - "-all,+search"
+    name: libghostty-vt -Dvt-features=${{ matrix.vt-features }}
     runs-on: namespace-profile-ghostty-sm
     needs: build-gate
     env:
@@ -1057,28 +1077,22 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Compile feature flag matrix
+      - name: Build wasm library
         run: |
-          features="snapshot formatter selection render_state input_encode color grid_introspection glyph_protocol kitty_graphics search"
-          configs="-all"
-          for f in $features; do configs="$configs -all,+$f"; done
+          nix develop -c zig build -Demit-lib-vt \
+            "-Dvt-features=${{ matrix.vt-features }}" \
+            -Dtarget=wasm32-freestanding
 
-          for cfg in $configs; do
-            echo "::group::-Dvt-features=$cfg"
-            # The wasm lib build compiles the C API export block; the
-            # test build compiles every module test without running any.
-            nix develop -c zig build -Demit-lib-vt \
-              "-Dvt-features=$cfg" \
-              -Dtarget=wasm32-freestanding
-            nix develop -c zig build test-lib-vt-build \
-              "-Dvt-features=$cfg"
-            echo "::endgroup::"
-          done
+      - name: Build tests
+        run: |
+          nix develop -c zig build test-lib-vt-build \
+            "-Dvt-features=${{ matrix.vt-features }}"
 
       # Functions of a compiled-out feature must return
       # GHOSTTY_UNSUPPORTED. Most module tests assume their feature is
       # on, so only this one test runs with every feature off.
       - name: Test compiled-out features
+        if: matrix.vt-features == '-all'
         run: |
           nix develop -c zig build test-lib-vt \
             -Dvt-features=-all \
@@ -1324,8 +1338,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # setup-zig points both Zig caches at one directory and saves it
+      # with the actions cache. If the directory is over the size limit
+      # when the job ends, it saves an empty cache instead and the next
+      # run starts cold: it fetches every dependency and rebuilds all of
+      # them, which takes about twice as long as a warm test step. A cold
+      # run leaves about 1.8 GB here and every run after it adds the test
+      # binaries it built, more than 1 GB, so the 2 GiB default cleared
+      # the cache on every second run.
       - name: Setup Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          cache-size-limit: 8192
 
       - name: Test libghostty-vt
         run: zig build test-lib-vt
@@ -1597,8 +1621,11 @@ jobs:
       - name: Check Source Tarball
         run: nix develop -c zig build distcheck
 
+  # Builds the libghostty-vt tarball, then builds the library and runs
+  # the tests from inside it. That is about as much work as test-lib-vt,
+  # so it gets the same runner.
   build-dist-lib-vt:
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: namespace-profile-ghostty-md
     needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -1760,14 +1787,10 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access.
       - name: Build GhosttyKit
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: nix develop -c zig build -Demit-macos-app=false
 
       # The native app is built with native Xcode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -1812,12 +1835,8 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       - name: Build with Xcode 27
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: nix develop -c zig build -Demit-macos-app=false
 
   build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-golden
@@ -1852,19 +1871,15 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       # We run tests with an empty test filter so it runs all unit tests
       # but skips Xcode tests
       - name: Test All
         run: |
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
+          nix develop -c zig build test -Drenderer=metal -Dfont-backend=coretext_freetype -Dtest-filter=""
 
       - name: Build All
         run: |
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
+          nix develop -c zig build -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
 
   # A quick x86_64 Linux build that expensive jobs wait on so we don't
   # pay for them when Ghostty doesn't even compile. Cheap jobs only
@@ -2108,19 +2123,38 @@ jobs:
 
       # Builds ghostty-vt-c-test into zig-out/bin, where vm.sh test looks
       # for it. It runs every libghostty-vt test, the Zig ones included.
-      - name: Build the test binary
+      #
+      # The VM is set up at the same time, in the background, since neither
+      # needs the other. setup does nothing once the cache volume holds a
+      # set-up VM. Otherwise it downloads FreeBSD and boots it once, which
+      # takes a few minutes that now pass while the tests build. reset then
+      # undoes whatever the last run's tests left on the VM's disk. Their
+      # output goes to a file and is printed in its own log group once both
+      # have finished, so it never mixes with the build's.
+      - name: Build the test binary and set up the VM
         run: |
+          (
+            nix develop -c .github/scripts/freebsd-vm/vm.sh setup &&
+              nix develop -c .github/scripts/freebsd-vm/vm.sh reset
+          ) >"$RUNNER_TEMP/vm-setup.log" 2>&1 &
+          vm=$!
+          build=0
           nix develop -c zig build test-lib-vt-build \
             -Demit-lib-vt \
             -Demit-test-exe \
-            -Dtarget=x86_64-freebsd
-
-      # setup does nothing once the cache volume holds a set-up VM. reset
-      # then undoes whatever the last run's tests left on the VM's disk.
-      - name: Set up the VM
-        run: |
-          nix develop -c .github/scripts/freebsd-vm/vm.sh setup
-          nix develop -c .github/scripts/freebsd-vm/vm.sh reset
+            -Dtarget=x86_64-freebsd || build=$?
+          setup=0
+          wait "$vm" || setup=$?
+          echo "::group::Set up the VM"
+          cat "$RUNNER_TEMP/vm-setup.log"
+          echo "::endgroup::"
+          if [ "$build" -ne 0 ]; then
+            echo "::error title=Build failed::zig build exited with status $build"
+          fi
+          if [ "$setup" -ne 0 ]; then
+            echo "::error title=VM setup failed::vm.sh exited with status $setup"
+          fi
+          [ "$build" -eq 0 ] && [ "$setup" -eq 0 ]
 
       - name: Start the VM
         run: nix develop -c .github/scripts/freebsd-vm/vm.sh start
@@ -2227,7 +2261,10 @@ jobs:
         x11: ["true", "false"]
         wayland: ["true", "false"]
     name: GTK x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
-    runs-on: namespace-profile-ghostty-sm
+    # Only the x11=true wayland=true leg runs the test suite (see the Test
+    # step below), so it gets the larger runner. The build-only legs stay
+    # on the small one.
+    runs-on: ${{ matrix.x11 == 'true' && matrix.wayland == 'true' && 'namespace-profile-ghostty-md' || 'namespace-profile-ghostty-sm' }}
     needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -2280,7 +2317,7 @@ jobs:
         # -Dsimd=true is the default, which the GTK tests already cover.
         simd: ["false"]
     name: Test -Dsimd=${{ matrix.simd }}
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: namespace-profile-ghostty-md
     needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -2377,12 +2414,8 @@ jobs:
       - name: Xcode Version
         run: xcodebuild -version
 
-      - name: get the Zig deps
-        id: deps
-        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
-
       - name: test
-        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
+        run: nix develop -c zig build test
 
   test-i18n:
     strategy:

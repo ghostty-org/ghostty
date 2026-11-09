@@ -90,6 +90,13 @@
   ld_library_path = import ./build-support/ld-library-path.nix {
     inherit pkgs lib stdenv;
   };
+  # Every library the test binaries link, including the propagated ones
+  # (see ld-library-path.nix). Only the test runs use it; see
+  # LD_LIBRARY_PATH below for why it isn't that.
+  test_library_path = import ./build-support/ld-library-path.nix {
+    inherit pkgs lib stdenv;
+    propagated = true;
+  };
   gi_typelib_path = import ./build-support/gi-typelib-path.nix {
     inherit pkgs lib stdenv;
   };
@@ -240,7 +247,16 @@ in
 
     # This should be set onto the rpath of the ghostty binary if you want
     # it to be "portable" across the system.
+    #
+    # Every program in the shell sees this, including system programs such
+    # as the curl, ssh and rsync that vm.sh uses on CI runners. A library
+    # from here that needs a glibc library the program hasn't loaded yet
+    # pulls in the Nix one next to a system libc and the program dies, so
+    # keep this to the direct inputs. The test runs, which need the
+    # propagated libraries as well, get them through GHOSTTY_TEST_LIBRARY_PATH
+    # (see Config.addLoaderArgs).
     LD_LIBRARY_PATH = ld_library_path;
+    GHOSTTY_TEST_LIBRARY_PATH = test_library_path;
     GI_TYPELIB_PATH = gi_typelib_path;
 
     shellHook =
