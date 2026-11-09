@@ -1457,9 +1457,12 @@ pub const RenderState = struct {
             const applied = &row_applied[y];
             if (runsEql(applied.items, segment)) continue;
 
+            const cells = row_cells[y].slice();
+            const styles = cells.items(.style);
             for (segment) |run| {
-                const styles = row_cells[run.y].slice().items(.style);
-                const end = @min(run.end, styles.len);
+                // Clamp to cells.len rather than styles.len to avoid repeating
+                // the capacity check from items(.style) for every run.
+                const end = @min(run.end, cells.len);
                 const start = @min(run.start, end);
 
                 fillStyles(styles[start..end], @bitCast(run.style));
