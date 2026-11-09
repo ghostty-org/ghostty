@@ -46,6 +46,23 @@ struct AgentProgramStatusTests {
         #expect(status.activity == nil && status.records.isEmpty)
     }
 
+    @Test func antigravityNativeReportsSupportStatesAttentionAndAliases() {
+        var status = AgentProgramStatus()
+        #expect(status.consume("state=working:app=antigravity") == true)
+        #expect(status.activity?.source == "antigravity" && status.activity?.state == .working)
+        #expect(status.consume("state=blocked:kind=permission:app=antigravity:msg=QWx3YXlzIGFsbG93") == true)
+        #expect(status.activity?.state == .needsAttention && status.activity?.attentionKind == .permission)
+        #expect(status.activity?.message == "Always allow")
+        #expect(status.consume("state=blocked:kind=question:app=agy:msg=V2hpY2ggb3B0aW9uPw==") == true)
+        #expect(status.activity?.source == "antigravity" && status.activity?.attentionKind == .question)
+        #expect(status.consume("state=done:app=jetski:msg=Q29tcGxldGVk") == true)
+        #expect(status.activity?.source == "antigravity" && status.activity?.state == .done)
+        #expect(status.consume("state=error:app=antigravity-cli:msg=RmFpbGVk") == true)
+        #expect(status.activity?.state == .error)
+        #expect(status.consume("state=idle:app=antigravity") == true)
+        #expect(status.activity?.state == .idle)
+    }
+
     @Test func malformedReportsCannotClearAnotherNamespace() {
         var status = AgentProgramStatus()
         #expect(status.consume("state=working:app=claude:id=one/child") == true)

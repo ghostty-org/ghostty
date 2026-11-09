@@ -65,7 +65,7 @@ struct AgentProgramStatus {
         let attention: TabAttentionKind? = if state == .needsAttention {
             fields["kind"] == "question" ? .question : (fields["kind"] == "permission" ? .permission : nil)
         } else { nil }
-        let agent = fields["app"].flatMap(SupportedAgent.init(rawValue:))
+        let agent = fields["app"].flatMap(Self.resolveAgent)
         let acknowledged = records.first { $0.id == id }.map {
             $0.acknowledged && $0.agent == agent && $0.state == state
         } ?? false
@@ -85,6 +85,24 @@ struct AgentProgramStatus {
               records[last].state == .done || records[last].state == .error else { return false }
         records[last].acknowledged = true
         return true
+    }
+
+    private static func resolveAgent(_ raw: String) -> SupportedAgent? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        if let agent = SupportedAgent(rawValue: normalized) { return agent }
+        switch normalized {
+        case "agy", "jetski", "jetski-cli", "antigravity-cli": return .antigravity
+        default:
+            for candidate in SupportedAgent.allCases {
+                let definition = candidate.definition
+                if definition.command.lowercased() == normalized ||
+                    definition.process.executables.contains(where: { $0.lowercased() == normalized }) {
+                    return candidate
+                }
+            }
+            return nil
+        }
     }
 
     private static func validID(_ value: String) -> Bool {

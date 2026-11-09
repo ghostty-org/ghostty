@@ -239,6 +239,24 @@ impl State {
             } else {
                 field(metadata, ';', "omg_scope") == Some("remote")
             };
+            let existing_owner = records
+                .iter()
+                .find(|r| r.signal.id == id && r.key == key)
+                .and_then(|r| r.owner);
+            if native
+                && !(self.local && remote)
+                && field(metadata, ':', "state") == Some("idle")
+            {
+                if let Some((old_pid, true)) = existing_owner {
+                    if self.foreground != Some(old_pid)
+                        && unsafe { libc::kill(-old_pid, 0) != 0 }
+                    {
+                        records.retain(|r| r.signal.id != id || r.key != key);
+                        self.revision = self.revision.saturating_add(1);
+                        return;
+                    }
+                }
+            }
             let owner = if !native && !(self.local && remote) {
                 let pid = id
                     .rsplit('-')
@@ -251,7 +269,12 @@ impl State {
                     _ => None,
                 }
             } else if native && !(self.local && remote) {
-                self.foreground.filter(|p| *p > 1).map(|p| (p, true))
+                match (field(metadata, ':', "state"), existing_owner) {
+                    (Some("idle"), Some((old_pid, true))) if self.foreground != Some(old_pid) => {
+                        Some((old_pid, true))
+                    }
+                    _ => self.foreground.filter(|p| *p > 1).map(|p| (p, true)),
+                }
             } else {
                 None
             };
@@ -333,6 +356,19 @@ mod tests {
         assert_eq!(snapshot.records.len(), 1);
         assert!(snapshot.records[0].metadata.contains("id=two"));
         vt.write(b"\x1b]7501;state=clear\x07");
+        assert!(vt.activity().snapshot().records.is_empty());
+    }
+
+    #[test]
+    fn exiting_native_status_idle_does_not_transfer_ownership_to_shell() {
+        let mut vt = Vt::new(80, 24).unwrap();
+        vt.activity_mut().local = true;
+        vt.activity_mut().foreground = Some(999_991);
+        vt.write(b"\x1b]7501;state=working:app=antigravity\x07");
+        assert_eq!(vt.activity().snapshot().records.len(), 1);
+        let shell_pgid = unsafe { libc::getpgrp() };
+        vt.activity_mut().foreground = Some(shell_pgid);
+        vt.write(b"\x1b]7501;state=idle:app=antigravity\x07");
         assert!(vt.activity().snapshot().records.is_empty());
     }
 

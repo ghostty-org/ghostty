@@ -4226,14 +4226,22 @@ test "set context_signal callback" {
         var count: usize = 0;
         var ended: bool = false;
         var program: bool = false;
+        var reply_len: usize = 0;
+        var reply_buf: [128]u8 = undefined;
         fn signal(_: Terminal, _: ?*anyopaque, end: bool, id: lib.String, _: lib.String) callconv(lib.calling_conv) void {
             count += 1;
             ended = end;
             program = std.mem.eql(u8, id.ptr[0..id.len], "omg-program-status");
         }
+        fn writePty(_: Terminal, _: ?*anyopaque, data: [*c]const u8, len: usize) callconv(lib.calling_conv) void {
+            reply_len = @min(len, reply_buf.len);
+            @memcpy(reply_buf[0..reply_len], data[0..reply_len]);
+        }
     };
     S.count = 0;
+    S.reply_len = 0;
     try testing.expectEqual(Result.success, set(t, .context_signal, @ptrCast(&S.signal)));
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
     const prefix = "\x1b]3008;start=omg-agent-pi-42;type=app;";
     vt_write(t, prefix, prefix.len);
     try testing.expectEqual(@as(usize, 0), S.count);
@@ -4247,6 +4255,20 @@ test "set context_signal callback" {
     vt_write(t, native, native.len);
     try testing.expectEqual(@as(usize, 3), S.count);
     try testing.expect(S.program and !S.ended);
+    const query_bel = "\x1b]7501;?\x07";
+    vt_write(t, query_bel, query_bel.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqualStrings(
+        "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+        S.reply_buf[0..S.reply_len],
+    );
+    const query_st = "\x1b]7501;?\x1b\\";
+    vt_write(t, query_st, query_st.len);
+    try testing.expectEqual(@as(usize, 3), S.count);
+    try testing.expectEqualStrings(
+        "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\",
+        S.reply_buf[0..S.reply_len],
+    );
     try testing.expectEqual(Result.success, set(t, .context_signal, null));
     vt_write(t, native, native.len);
     try testing.expectEqual(@as(usize, 3), S.count);

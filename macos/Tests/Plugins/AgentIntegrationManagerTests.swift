@@ -736,6 +736,12 @@ for remote in (False, True):
     assert "omg_state=working" in sequence
     _, sequence = execute(commands["stop"], {"terminationReason": "error"}, remote)
     assert "omg_state=error" in sequence
+    _, sequence = execute(commands["stop"], {"terminationReason": "ERROR"}, remote)
+    assert "omg_state=error" in sequence
+    _, sequence = execute(commands["stop"], {"terminationReason": "TERMINAL_STEP_TYPE", "fullyIdle": True}, remote)
+    assert "omg_state=needsAttention" in sequence and "omg_attention=question" in sequence
+    _, sequence = execute(commands["stop"], {"terminationReason": "USER_CANCELED", "fullyIdle": True}, remote)
+    assert "omg_state=idle" in sequence
 response, sequence = execute(commands["pre"], {}, terminal=False)
 assert response == {} and not sequence
 print("PTY local/SSH and headless protocol checks passed")

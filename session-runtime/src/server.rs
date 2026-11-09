@@ -788,8 +788,21 @@ pub fn serve_managed(
         }
         // Never gate this read on the number or speed of attachments.
         if !eof {
-            vt.activity_mut().foreground = foreground_session_group(master, child.id())
-                .and_then(|pid| i32::try_from(pid).ok());
+            let foreground = foreground_session_group(master, child.id());
+            vt.activity_mut().foreground = foreground.and_then(|pid| i32::try_from(pid).ok());
+            if local_mode && foreground != last_foreground {
+                last_foreground = foreground;
+                let metadata = serde_json::to_vec(&serde_json::json!({
+                    "cwd": last_cwd,
+                    "foreground_pid": foreground,
+                    "tty_name": tty_name.as_deref(),
+                    "password_input": last_password_input,
+                    "runtime_ms": runtime_millis(started_at)
+                }))?;
+                for peer in &mut peers {
+                    peer.push(Frame::new(b'M', seq, &metadata));
+                }
+            }
             let mut bytes = [0; 65536];
             match pty.read(&mut bytes) {
                 Ok(0) => eof = true,

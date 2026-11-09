@@ -1428,8 +1428,12 @@ binary's Customizations Guide. The `antigravity` dialect owns only the
 `omg-agent-status` top-level named hook, preserving all other named hooks.
 `PreInvocation` and `PostToolUse` report working; `Stop` reports done only when
 background work is not explicitly active (`fullyIdle: false` retains working),
-and reports error for an error termination. `PostInvocation` is not completion.
-There is no supported permission-wait event in this adapter: it never invents
+reports `needsAttention` (`omg_attention=question`) when `terminationReason` is
+`TERMINAL_STEP_TYPE` (such as an `ask_question` prompt awaiting user input),
+reports `idle` when `terminationReason` is `USER_CANCELED`, and reports `error`
+for an error termination (`error` or `ERROR`). `PostInvocation` is not completion.
+Tool permission prompts are reported through Antigravity's native OSC 7501
+(`state=blocked:kind=permission:app=antigravity`); the Hook adapter never invents
 attention from tool activity or emits permission grants. Tool hooks use grouped
 matcher/handler arrays; invocation/stop handlers are flat arrays. Stdout always
 contains a JSON response (`{}` or a non-blocking Stop decision); OSC 3008 goes
@@ -1484,9 +1488,13 @@ Native terminal clients can also report Agent activity through OSC 7501. OMG
 uses Ghostty's program-status parser (backported from upstream commit
 `c7f68a7f48c6a5b357689eb8c2328bc2dab5d8ed`) and forwards validated reports over
 the existing per-Surface context bridge as `omg-program-status`. Support queries
-are answered on the terminal IO thread with the query's BEL or ST terminator.
-The headless runtime leaves the query for the attached viewer, preventing two
-terminal replies.
+(`\e]7501;?`) are answered by the owning VT (`StreamTerminal` in the session
+runtime or `StreamHandler` on the Exec terminal IO thread) with the query's BEL
+or ST terminator; the runtime strips queries it answered itself and leaves
+delegated inline queries for the enclosing terminal, preventing two replies.
+Local Exec shells also set `AGY_CLI_OSC7501=on` when unset so Antigravity CLI
+(`agy`) enables native OSC 7501 reporting (`working`, `blocked` with
+`permission`/`question`/`auth`, `done`, `error`, and `idle`) immediately.
 
 Known `app` values identify an Agent directly in its originating pane; this does
 not authorize commands, infer a conversation ID, or inspect a shared server's

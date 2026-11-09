@@ -754,6 +754,9 @@ const Subprocess = struct {
         // which terminal emulator and version they're running under.
         try env.put("TERM_PROGRAM", "ghostty");
         try env.put("TERM_PROGRAM_VERSION", build_config.version_string);
+        if (env.get("AGY_CLI_OSC7501") == null) {
+            try env.put("AGY_CLI_OSC7501", "on");
+        }
 
         // VTE_VERSION is set by gnome-terminal and other VTE-based terminals.
         // We don't want our child processes to think we're running under VTE.

@@ -1619,6 +1619,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     updateScreenFallback(for: surface, detected: detected)
                 }
             }
+            if let status = agentProgramStatuses[surface.id], !status.isRemote,
+               let foreground = status.foregroundProcessGroup,
+               foreground != processGroupID,
+               !Self.processGroupExists(foreground) {
+                agentProgramStatuses.removeValue(forKey: surface.id)
+                let activity = agentReducers[surface.id]?.currentActivity
+                applyAgentActivityUpdate(activity.map(AgentActivityUpdate.set) ?? .clear, for: surface.id)
+            }
             guard observedForegroundProcessIDs[surface.id] != processGroupID else {
                 continue
             }
@@ -1726,6 +1734,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             agent: agent,
             launchedAt: launchedAt
         )
+        if var status = agentProgramStatuses[surfaceID], !status.isRemote,
+           status.activity?.source == agent.rawValue {
+            status.foregroundProcessGroup = processGroupID
+            agentProgramStatuses[surfaceID] = status
+        }
         scheduleConversationDiscovery(
             agent: agent,
             surfaceID: surfaceID,
@@ -1935,7 +1948,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         detectedAgentInstances.removeValue(forKey: surfaceID)
         if let status = agentProgramStatuses[surfaceID], !status.isRemote,
-           status.foregroundProcessGroup == detected.processGroupID {
+           status.foregroundProcessGroup == detected.processGroupID ||
+               status.activity?.source == detected.agent.rawValue {
             agentProgramStatuses.removeValue(forKey: surfaceID)
         }
         if typedAgentHookContextIDs[surfaceID] == detected.id {
@@ -2379,10 +2393,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private func consumeProgramStatus(_ body: String, for surface: Ghostty.SurfaceView) {
         guard AgentStatusPlugin.isEnabled else { return }
         var status = agentProgramStatuses[surface.id] ?? AgentProgramStatus()
+        let previousFG = status.foregroundProcessGroup
         guard status.consume(body) else { return }
         status.isRemote = paneSessionContexts[surface.id]?.isSSHSession == true ||
             surface.runtimeInlineSession != nil || surface.runtimeDescriptor?.isLocal == false
-        status.foregroundProcessGroup = status.isRemote ? nil : surface.surfaceModel?.foregroundPID
+        let currentFG = status.isRemote ? nil : surface.surfaceModel?.foregroundPID
+        if !status.isRemote, let previousFG, previousFG != currentFG,
+           status.activity?.state == .idle {
+            if !Self.processGroupExists(previousFG) {
+                agentProgramStatuses.removeValue(forKey: surface.id)
+                let activity = agentReducers[surface.id]?.currentActivity
+                applyAgentActivityUpdate(activity.map(AgentActivityUpdate.set) ?? .clear, for: surface.id)
+                return
+            }
+            status.foregroundProcessGroup = previousFG
+        } else {
+            status.foregroundProcessGroup = currentFG
+        }
         agentProgramStatuses[surface.id] = status.records.isEmpty ? nil : status
         let activity = status.activity ?? agentReducers[surface.id]?.currentActivity
         applyAgentActivityUpdate(activity.map(AgentActivityUpdate.set) ?? .clear, for: surface.id)

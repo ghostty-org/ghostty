@@ -1712,15 +1712,21 @@ response = {"decision": "allow"} if sys.argv[1] == "done" else {}
 try:
     payload = json.loads(sys.stdin.read(1048576))
     state = sys.argv[1]
+    attention = ""
     if state == "done":
-        if payload.get("error") or payload.get("terminationReason") == "error": state = "error"
+        reason = str(payload.get("terminationReason") or "").upper()
+        if payload.get("error") or reason == "ERROR": state = "error"
+        elif reason == "TERMINAL_STEP_TYPE":
+            state = "needsAttention"
+            attention = ";omg_attention=question"
+        elif reason == "USER_CANCELED": state = "idle"
         elif payload.get("fullyIdle") is False: state = "working"
     pgid = os.getpgid(os.getppid())
-    scope = "remote" if os.environ.get("SSH_CONNECTION") else "local"
+    scope = "remote" if (os.environ.get("SSH_CONNECTION") or os.environ.get("OMG_RUNTIME_REMOTE")) else "local"
     conversation = payload.get("conversationId", "")
     if not isinstance(conversation, str): conversation = ""
     conversation = urllib.parse.quote(conversation[:128], safe="._~-")
-    sequence = "\033]3008;start=omg-agent-antigravity-%d;type=app;omg_agent=antigravity;omg_scope=%s;omg_liveness=pgid;omg_state=%s;omg_conversation=%s\007" % (pgid, scope, state, conversation)
+    sequence = "\033]3008;start=omg-agent-antigravity-%d;type=app;omg_agent=antigravity;omg_scope=%s;omg_liveness=pgid;omg_state=%s%s;omg_conversation=%s\007" % (pgid, scope, state, attention, conversation)
     try:
         fd = os.open("/dev/tty", os.O_WRONLY | os.O_NOCTTY)
     except OSError:

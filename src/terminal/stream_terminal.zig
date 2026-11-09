@@ -380,7 +380,17 @@ pub const Handler = struct {
             .window_title => try self.windowTitle(value.title),
             .report_pwd => try self.reportPwd(value.url),
             .progress_report => self.progressReport(value),
-            .context_signal => if (self.effects.context_signal) |func| func(self, value),
+            .context_signal => {
+                if (std.mem.eql(u8, value.id, "omg-program-status-query")) {
+                    if (std.mem.eql(u8, value.metadata, "\x07")) {
+                        self.writePty("\x1b]7501;" ++ osc.program_status.query_reply ++ "\x07");
+                    } else {
+                        self.writePty("\x1b]7501;" ++ osc.program_status.query_reply ++ "\x1b\\");
+                    }
+                    return;
+                }
+                if (self.effects.context_signal) |func| func(self, value);
+            },
             .xtversion => self.reportXtversion(),
             .clipboard_contents => self.clipboardContents(
                 value.kind,
