@@ -1229,29 +1229,32 @@ pub fn Stream(comptime H: type) type {
             const p = &self.parser;
             assert(p.state == .csi_param);
 
-            // Accumulate parser state in locals for the hot loop.
-            var acc = p.param_acc;
+            // Accumulate parser state in locals for the hot loop. We
+            // use a wider accumulator so we can clamp once per digit
+            // while preserving the parser's saturating u16 behavior.
+            var acc: u32 = p.param_acc;
             var acc_idx = p.param_acc_idx;
             var idx = p.params_idx;
 
             var offset: usize = 0;
             while (offset < input.len) {
                 const c = input[offset];
-                switch (c) {
-                    // A parameter digit.
-                    '0'...'9' => {
-                        if (idx < Parser.MAX_PARAMS) {
-                            acc *|= 10;
-                            acc +|= c - '0';
-                            acc_idx |= 1;
-                        }
-                        offset += 1;
-                    },
 
+                // A parameter digit. Sequences with too many
+                // parameters are dropped at dispatch.
+                const digit = c -% '0';
+                if (digit < 10) {
+                    acc = @min(acc * 10 + digit, std.math.maxInt(u16));
+                    acc_idx |= 1;
+                    offset += 1;
+                    continue;
+                }
+
+                switch (c) {
                     // A parameter separator.
                     ':', ';' => {
                         if (idx < Parser.MAX_PARAMS) {
-                            p.params[idx] = acc;
+                            p.params[idx] = @intCast(acc);
                             if (c == ':') p.params_sep.set(idx);
                             idx += 1;
                             acc = 0;
@@ -1262,7 +1265,7 @@ pub fn Stream(comptime H: type) type {
 
                     // A final byte: dispatch the CSI.
                     0x40...0x7E => {
-                        p.param_acc = acc;
+                        p.param_acc = @intCast(acc);
                         p.param_acc_idx = acc_idx;
                         p.params_idx = idx;
                         self.csiDispatchFinal(c);
@@ -1275,7 +1278,7 @@ pub fn Stream(comptime H: type) type {
                 }
             }
 
-            p.param_acc = acc;
+            p.param_acc = @intCast(acc);
             p.param_acc_idx = acc_idx;
             p.params_idx = idx;
             return offset;
