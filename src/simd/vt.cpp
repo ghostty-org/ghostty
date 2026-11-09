@@ -177,10 +177,12 @@ size_t DecodeUTF8(const uint8_t* HWY_RESTRICT input,
       break;
     }
 
-    // On error, r.count is the input byte position of the error.
-    // The output buffer is already written up to that point, but
-    // we need count_utf8 to find how many char32_t that produced.
-    out += simdutf::count_utf8(in, r.count);
+    // On error, r.count is the input byte position of the error, and
+    // everything before it is valid UTF-8. simdutf promises nothing about
+    // what it left in the output for that part, and its icelake (AVX-512)
+    // kernels don't leave it decoded, so convert it again rather than
+    // trusting the buffer. This costs about what counting it would.
+    out += simdutf::convert_valid_utf8_to_utf32(in, r.count, out);
 
     // Compute the maximal subpart at the error position and emit
     // a single U+FFFD for it.
