@@ -939,11 +939,16 @@ pub fn addSimd(
 
         var flags: std.ArrayList([]const u8) = .empty;
 
-        // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
-        // To workaround this we just disable AVX512 support completely.
-        // The performance difference between AVX2 and AVX512 is not
-        // significant for our use case and AVX512 is very rare on consumer
-        // hardware anyways.
+        // Highway 1.2 asks for the "evex512" target feature in its AVX-512
+        // target attributes on any clang 18 or newer, and clang 22 removed
+        // that feature (llvm/llvm-project#157034), so with the clang in
+        // current Zig those targets don't compile. (Before that, Zig 0.13
+        // couldn't build them either:
+        // https://github.com/ziglang/zig/issues/20414.) Highway 1.4 only
+        // asks for it where the compiler has it, so this can go when we
+        // update to it. Our Highway code gains little from AVX-512 over
+        // AVX2; simdutf, which does the UTF-8 decoding, keeps its AVX-512
+        // kernels.
         const HWY_DISABLED_TARGETS: c_int = HWY_AVX10_2 | HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
         if (target.result.cpu.arch == .x86_64) try flags.append(
             b.allocator,
