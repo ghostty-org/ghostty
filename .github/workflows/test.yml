@@ -1338,8 +1338,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # setup-zig points both Zig caches at one directory and saves it
+      # with the actions cache. If the directory is over the size limit
+      # when the job ends, it saves an empty cache instead and the next
+      # run starts cold: it fetches every dependency and rebuilds all of
+      # them, which takes about twice as long as a warm test step. A cold
+      # run leaves about 1.8 GB here and every run after it adds the test
+      # binaries it built, more than 1 GB, so the 2 GiB default cleared
+      # the cache on every second run.
       - name: Setup Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          cache-size-limit: 8192
 
       - name: Test libghostty-vt
         run: zig build test-lib-vt
