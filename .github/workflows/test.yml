@@ -1621,8 +1621,11 @@ jobs:
       - name: Check Source Tarball
         run: nix develop -c zig build distcheck
 
+  # Builds the libghostty-vt tarball, then builds the library and runs
+  # the tests from inside it. That is about as much work as test-lib-vt,
+  # so it gets the same runner.
   build-dist-lib-vt:
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: namespace-profile-ghostty-md
     needs: build-gate
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
