@@ -29,6 +29,59 @@ struct GitHistoryServiceTests {
             #expect(!page.commits.isEmpty)
         }
     }
+
+    @Test func searchQueryParsesFieldPrefixesAndKeepsPlainPhrases() {
+        let plain = GitHistorySearchQuery("  History Test ")
+        #expect(plain.text == "History Test")
+        #expect(plain.paths.isEmpty)
+
+        let fields = GitHistorySearchQuery(#"author:"Jane Doe" EMAIL:jane@ path:src/foo.zig file:docs fix bug unknown:x"#)
+        #expect(fields.text == "fix bug unknown:x")
+        #expect(fields.paths == ["src/foo.zig", "docs"])
+        #expect(GitHistorySearchQuery("author:").isEmpty)
+
+        #expect(GitHistorySearchQuery.pathspecs(for: "./src/foo.zig") ==
+            [":(top,literal)src/foo.zig", ":(top,glob)**/src/foo.zig", ":(top,glob)**/src/foo.zig/**"])
+        #expect(GitHistorySearchQuery.pathspecs(for: "src/*.zig") == [":(top,glob)src/*.zig"])
+    }
+
+    @Test func searchFiltersByAuthorEmailHashMessageAndChangedPath() async throws {
+        let directory = createTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try runCommand(["git", "init", "-b", "main"], in: directory.path)
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("src/nested"),
+                                                withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: directory.appendingPathComponent("src/nested/foo.zig"))
+        try runCommand(["git", "add", "."], in: directory.path)
+        try runCommand(["git", "commit", "-m", "add foo"], in: directory.path)
+        try runCommand(["git", "-c", "user.name=Jane Doe", "-c", "user.email=jane@corp.test",
+                        "commit", "--allow-empty", "--author=Jane Doe <jane@corp.test>", "-m", "jane empty"],
+                       in: directory.path)
+        try Data("b".utf8).write(to: directory.appendingPathComponent("README.md"))
+        try runCommand(["git", "add", "."], in: directory.path)
+        try runCommand(["git", "commit", "-m", "readme"], in: directory.path)
+        try Data("c".utf8).write(to: directory.appendingPathComponent("src/nested/foo.zig"))
+        try runCommand(["git", "commit", "-am", "edit foo"], in: directory.path)
+
+        let repository = try await identity(for: directory)
+        let service = GitHistoryService()
+        let snapshot = try await service.captureSnapshot(for: repository, scope: .allBranches)
+        func subjects(_ query: String) async throws -> [String] {
+            try await service.loadPage(snapshot: snapshot, repository: repository, offset: 0, query: query)
+                .commits.map(\.subject)
+        }
+        #expect(try await subjects("path:src/nested/foo.zig") == ["edit foo", "add foo"])
+        #expect(try await subjects("path:foo.zig") == ["edit foo", "add foo"])
+        #expect(try await subjects("path:src") == ["edit foo", "add foo"])
+        #expect(try await subjects("path:*.md") == ["readme"])
+        #expect(try await subjects("path:foo.zig msg:edit") == ["edit foo"])
+        #expect(try await subjects(#"author:"jane doe""#) == ["jane empty"])
+        #expect(try await subjects("email:corp.test") == ["jane empty"])
+        #expect(try await subjects("author:history").count == 3)
+        #expect(try await subjects("path:missing.txt").isEmpty)
+        let head = try await service.loadPage(snapshot: snapshot, repository: repository, offset: 0).commits[0]
+        #expect(try await subjects("hash:\(head.id.rawValue.prefix(7).uppercased())") == ["edit foo"])
+    }
     private func createTempDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("git-history-test-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

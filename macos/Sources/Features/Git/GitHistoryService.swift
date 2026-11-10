@@ -195,6 +195,12 @@ struct GitHistoryService: Sendable {
         }
 
         if !query.isEmpty {
+            let search = GitHistorySearchQuery(query)
+            guard !search.isEmpty else {
+                return try await loadPage(snapshot: snapshot, repository: repository, offset: offset,
+                                          pageSize: pageSize, includeMessage: includeMessage)
+            }
+            let pathMatches = try await commitIDs(touching: search.paths, snapshot: snapshot, repository: repository)
             var matches: [GitHistoryCommit] = []
             var scanned = 0
             var skipped = 0
@@ -203,9 +209,7 @@ struct GitHistoryService: Sendable {
                 let batch = try await loadPage(snapshot: snapshot, repository: repository,
                     offset: scanned, pageSize: 200, includeMessage: true)
                 for commit in batch.commits {
-                    let text = [commit.subject, commit.message, commit.authorName, commit.authorEmail, commit.id.rawValue]
-                        .joined(separator: "\n")
-                    guard text.localizedCaseInsensitiveContains(query) else { continue }
+                    guard search.matches(commit), pathMatches?.contains(commit.id) ?? true else { continue }
                     if skipped < offset { skipped += 1 } else { matches.append(commit) }
                 }
                 scanned += batch.commits.count
@@ -263,6 +267,28 @@ struct GitHistoryService: Sendable {
         return GitHistoryPage(commits: commits, offset: offset, hasMore: hasMore)
     }
 
+    /// Commits in the frozen snapshot that changed any of `paths`, or nil when
+    /// no path filter is active. Git evaluates the pathspecs (`git log -- path`);
+    /// a bare name also matches that file or directory at any depth.
+    private func commitIDs(
+        touching paths: [String],
+        snapshot: GitHistorySnapshot,
+        repository: GitRepositoryIdentity
+    ) async throws -> Set<GitCommitID>? {
+        guard !paths.isEmpty else { return nil }
+        let result = try await (executor ?? repository.executor).execute(
+            arguments: ["log", "--no-color", "--format=%H", "--stdin", "--"]
+                + paths.flatMap(GitHistorySearchQuery.pathspecs(for:)),
+            workingDirectory: repository.worktreePath,
+            stdin: Data((snapshot.tipCommitIDs.map(\.rawValue).joined(separator: "\n") + "\n").utf8),
+            maxOutputBytes: 64 * 1024 * 1024
+        )
+        guard result.isSuccess else {
+            throw GitHistoryError.commandFailed(result.stderrString)
+        }
+        return Set(result.stdoutString.split(whereSeparator: \.isNewline).map { GitCommitID(String($0)) })
+    }
+
     private func parseCommit(
         fields: [Data],
         snapshot: GitHistorySnapshot
@@ -290,5 +316,113 @@ struct GitHistoryService: Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withTimeZone, .withColonSeparatorInTimeZone]
         return formatter.date(from: value)
+    }
+}
+
+/// History search syntax. Plain text keeps the original behavior: a
+/// case-insensitive substring of the subject, full message, author name,
+/// author email or hash. Field prefixes narrow individual terms and combine
+/// with AND: `author:`, `email:`, `path:` (alias `file:`), `message:` (alias
+/// `msg:`) and `hash:` (alias `commit:`). Values may be double-quoted to
+/// include spaces, e.g. `author:"Jane Doe" path:src/foo.zig`.
+struct GitHistorySearchQuery: Equatable, Sendable {
+    enum Field: String, CaseIterable, Sendable {
+        case author, email, path, message, hash
+
+        init?(prefix: String) {
+            switch prefix.lowercased() {
+            case "author": self = .author
+            case "email": self = .email
+            case "path", "file": self = .path
+            case "message", "msg": self = .message
+            case "hash", "commit": self = .hash
+            default: return nil
+            }
+        }
+    }
+
+    private(set) var text = ""
+    private(set) var terms: [Field: [String]] = [:]
+
+    var paths: [String] { terms[.path] ?? [] }
+    var isEmpty: Bool { text.isEmpty && terms.values.allSatisfy(\.isEmpty) }
+
+    init(_ query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var freeText: [String] = []
+        var hasField = false
+        for token in Self.tokenize(trimmed) {
+            if let colon = token.firstIndex(of: ":"), colon != token.startIndex,
+               let field = Field(prefix: String(token[..<colon])) {
+                // A prefix still being typed (`author:`) filters nothing yet.
+                hasField = true
+                let value = Self.unquote(String(token[token.index(after: colon)...]))
+                if !value.isEmpty { terms[field, default: []].append(value) }
+            } else {
+                freeText.append(Self.unquote(token))
+            }
+        }
+        // Without field prefixes, keep the exact phrase (including spacing).
+        text = hasField ? freeText.joined(separator: " ") : trimmed
+    }
+
+    /// Whether the commit satisfies every non-path term. Path terms need
+    /// Git's changed-file information and are applied by the service.
+    func matches(_ commit: GitHistoryCommit) -> Bool {
+        if !text.isEmpty {
+            let haystack = [commit.subject, commit.message, commit.authorName, commit.authorEmail, commit.id.rawValue]
+                .joined(separator: "\n")
+            guard haystack.localizedCaseInsensitiveContains(text) else { return false }
+        }
+        for value in terms[.author] ?? [] where !commit.authorName.localizedCaseInsensitiveContains(value) {
+            return false
+        }
+        for value in terms[.email] ?? [] where !commit.authorEmail.localizedCaseInsensitiveContains(value) {
+            return false
+        }
+        for value in terms[.message] ?? [] {
+            guard commit.subject.localizedCaseInsensitiveContains(value)
+                || commit.message.localizedCaseInsensitiveContains(value) else { return false }
+        }
+        for value in terms[.hash] ?? [] where !commit.id.rawValue.lowercased().hasPrefix(value.lowercased()) {
+            return false
+        }
+        return true
+    }
+
+    /// Repository-root pathspecs for one `path:` value. Values with glob
+    /// characters are passed as globs; otherwise the exact path (file or
+    /// directory) and the same name at any depth both match.
+    static func pathspecs(for value: String) -> [String] {
+        var path = value
+        while path.hasPrefix("./") { path.removeFirst(2) }
+        while path.hasPrefix("/") { path.removeFirst() }
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        guard !path.isEmpty else { return [] }
+        if path.contains(where: { "*?[".contains($0) }) { return [":(top,glob)\(path)"] }
+        return [":(top,literal)\(path)", ":(top,glob)**/\(path)", ":(top,glob)**/\(path)/**"]
+    }
+
+    private static func tokenize(_ query: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quoted = false
+        for character in query {
+            if character == "\"" {
+                quoted.toggle()
+                current.append(character)
+            } else if character.isWhitespace, !quoted {
+                if !current.isEmpty { tokens.append(current) }
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
+    }
+
+    private static func unquote(_ value: String) -> String {
+        value.replacingOccurrences(of: "\"", with: "")
     }
 }

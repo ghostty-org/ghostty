@@ -3130,6 +3130,11 @@ History, Changes and Branches tabs. Search text is independent per tab; the
 changes only expanded commit files, using the Git Collection folder builder.
 The internal `searchHistory` action searches subject, full message, author,
 email and hash within the current history scope, including unloaded commits.
+Field prefixes narrow terms and combine with AND: `author:`, `email:`,
+`path:`/`file:` (commits that changed a file or directory, like
+`git log -- <path>`; a bare name also matches at any depth, glob characters
+are passed as Git globs), `message:`/`msg:` and `hash:`/`commit:`. Values may
+be double-quoted to include spaces; unprefixed text keeps the free-text match.
 Reads are bounded and cancellable, results are paginated, and filtered commits
 are displayed without implying direct ancestry between search hits. Clearing
 search restores the cached unfiltered history unless its scope was invalidated.
