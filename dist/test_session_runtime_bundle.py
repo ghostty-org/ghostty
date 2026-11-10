@@ -45,6 +45,27 @@ class RuntimeBundleTests(unittest.TestCase):
         self.assertLess(script.index("build-session-runtime.py"), script.index('rm -rf "$target_app"'))
         self.assertLess(script.index("check-session-runtime.py"), script.index('rm -rf "$target_app"'))
 
+    def test_current_source_tree_maps_to_compatible_snapshot_epoch(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        build_spec = importlib.util.spec_from_file_location(
+            "build_runtime", Path(__file__).parent / "macos/build-session-runtime.py"
+        )
+        build_mod = importlib.util.module_from_spec(build_spec)
+        build_spec.loader.exec_module(build_mod)
+        digest = hashlib.sha256()
+        for base in ("include/ghostty/vt", "src/terminal"):
+            for path in sorted((repo_root / base).rglob("*")):
+                if path.is_file():
+                    digest.update(str(path.relative_to(repo_root)).encode())
+                    digest.update(path.read_bytes())
+        compatibility = json.loads(
+            (repo_root / "dist/macos/session-runtime-snapshot-compatibility.json").read_text()
+        )
+        self.assertEqual(
+            build_mod.snapshot_revision(digest.hexdigest(), compatibility),
+            "59c5cc7b4d1fe408faf5",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

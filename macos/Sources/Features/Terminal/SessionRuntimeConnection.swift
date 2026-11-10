@@ -636,13 +636,22 @@ final class SessionRuntimeConnections: SessionRuntimeRetrying {
             throw NSError(domain: "OMGSessionRuntime", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 "The runtime version for this session is unavailable. Its remote process has not been restarted."])
         }
-        let currentSnapshot = try String(contentsOf: Self.resources.appendingPathComponent("snapshot-revision"), encoding: .utf8)
-        let cachedSnapshot = try String(contentsOf: cached.appendingPathComponent("snapshot-revision"), encoding: .utf8)
+        let currentSnapshot = Self.canonicalSnapshotRevision(
+            try String(contentsOf: Self.resources.appendingPathComponent("snapshot-revision"), encoding: .utf8)
+        )
+        let cachedSnapshot = Self.canonicalSnapshotRevision(
+            try String(contentsOf: cached.appendingPathComponent("snapshot-revision"), encoding: .utf8)
+        )
         guard currentSnapshot == cachedSnapshot else {
             throw NSError(domain: "OMGSessionRuntime", code: 2, userInfo: [NSLocalizedDescriptionKey:
                 "This session uses an incompatible terminal snapshot version. Its remote process is preserved; reopen it with the matching app version."])
         }
         return cached
+    }
+
+    nonisolated static func canonicalSnapshotRevision(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == "9c4d662347abb5857b04" ? "59c5cc7b4d1fe408faf5" : trimmed
     }
 
     func cachedHelper(

@@ -772,6 +772,8 @@ struct SessionRuntimeConnectionTests {
         #expect(throws: (any Error).self) {
             try SessionRuntimeConnections.cachedHelperURL(forRevision: "current", applicationSupportRoot: support)
         }
+        #expect(SessionRuntimeConnections.canonicalSnapshotRevision("9c4d662347abb5857b04\n") == "59c5cc7b4d1fe408faf5")
+        #expect(SessionRuntimeConnections.canonicalSnapshotRevision("59c5cc7b4d1fe408faf5\n") == "59c5cc7b4d1fe408faf5")
     }
 
     @Test func localStateNamespacesAreStableAndSeparateForAppUsersAndRevisions() {
