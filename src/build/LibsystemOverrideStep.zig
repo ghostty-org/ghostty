@@ -11,10 +11,17 @@
 //! have live references, e.g. from the bundled ubsan runtime and
 //! x86_64 stack probing in Debug builds.
 //!
-//! Note shared libraries can't use either approach: Zig 0.16 links
-//! compiler-rt as an eagerly-included object, so its definitions are
-//! already bound into the dylib at link time and cannot be repaired
-//! post-hoc. That needs an upstream Zig fix.
+//! The script only edits the compiler_rt.o member. Its output does not
+//! depend on the caller's locale or PATH. It fails the build, rather
+//! than produce a broken archive, when the input has no compiler_rt.o
+//! member or when the edited member doesn't define exactly the
+//! expected global symbols.
+//!
+//! Shared libraries don't need this step. On Darwin, Apple's ld links
+//! the libghostty-vt dylib from this step's output (see
+//! GhosttyLibVt.initLibApple). A Mach-O dylib that Zig 0.17 links
+//! against libc already takes memcpy, memmove, cos and friends from
+//! libSystem.
 const std = @import("std");
 const builtin = @import("builtin");
 
