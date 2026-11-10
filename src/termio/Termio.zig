@@ -520,8 +520,7 @@ pub fn resizeVisual(
         self.renderer_state.mutex.lockUncancelable(global.io());
         defer self.renderer_state.mutex.unlock(global.io());
 
-        if (self.backend != .omg_session) try self.terminal.resize(
-            self.alloc,
+        try self.resizeTerminalLocked(
             .{
                 .cols = grid_size.columns,
                 .rows = grid_size.rows,
@@ -543,6 +542,87 @@ pub fn resizeVisual(
     // Mail the renderer so that it can update the GPU and re-render.
     _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{ .forever = {} });
     self.renderer_wakeup.notify() catch {};
+}
+
+fn activeHasContentBelowCursor(screen: *const terminalpkg.Screen) bool {
+    if (screen.cursor.y + 1 >= screen.pages.rows) return false;
+    var y = screen.cursor.y + 1;
+    while (y < screen.pages.rows) : (y += 1) {
+        const pin = screen.pages.pin(.{ .active = .{ .y = y } }) orelse continue;
+        const page = pin.node.page();
+        const rac = pin.rowAndCell();
+        for (rac.row.cells.ptr(page.memory)[0..page.size.cols]) |cell| {
+            if (!cell.isEmpty()) return true;
+        }
+    }
+    return false;
+}
+
+/// Resize the terminal while preserving primary-screen scrollback position and
+/// arming post-resize TUI redraw coalescing. Caller must hold `renderer_state.mutex`.
+pub fn resizeTerminalLocked(
+    self: *Termio,
+    opts: terminalpkg.Terminal.Resize,
+) !void {
+    const grid_changed = self.terminal.cols != opts.cols or self.terminal.rows != opts.rows;
+    if (!grid_changed) {
+        if (opts.cell_size_px) |cell_size| {
+            self.terminal.width_px = std.math.mul(
+                u32,
+                opts.cols,
+                cell_size.width,
+            ) catch std.math.maxInt(u32);
+            self.terminal.height_px = std.math.mul(
+                u32,
+                opts.rows,
+                cell_size.height,
+            ) catch std.math.maxInt(u32);
+        }
+        return;
+    }
+
+    const was_primary = self.terminal.screens.active_key == .primary;
+    const was_scrolled_up = was_primary and !self.terminal.screens.active.viewportIsBottom();
+    const pre_sb = self.terminal.screens.active.pages.scrollbar();
+    const pre_cursor_y = self.terminal.screens.active.cursor.y;
+
+    var resize_opts = opts;
+    if (was_primary and (pre_sb.total > pre_sb.len) and
+        (self.terminal_stream.handler.seen_synchronized_output or
+            activeHasContentBelowCursor(self.terminal.screens.active)))
+    {
+        resize_opts.pull_scrollback = true;
+    }
+
+    try self.terminal.resize(self.alloc, resize_opts);
+
+    if (was_scrolled_up and self.terminal.screens.active_key == .primary) {
+        const post_sb = self.terminal.screens.active.pages.scrollbar();
+        const max_post = post_sb.total -| post_sb.len;
+        if (max_post > 0) {
+            if (self.terminal.screens.active.viewportIsBottom()) {
+                const pre_max = pre_sb.total -| pre_sb.len;
+                const pre_dist = pre_max -| pre_sb.offset;
+                const target = if (pre_dist > 0 and pre_dist <= max_post)
+                    max_post - pre_dist
+                else
+                    @min(pre_sb.offset, max_post - 1);
+                self.terminal.scrollViewport(.{ .row = target });
+                self.renderer_state.scroll.snapTo(
+                    @floatFromInt(target),
+                    @floatFromInt(max_post),
+                );
+            } else {
+                self.renderer_state.scroll.snapTo(
+                    @floatFromInt(post_sb.offset),
+                    @floatFromInt(max_post),
+                );
+            }
+        }
+    }
+
+    self.terminal_stream.handler.noteTerminalResize(was_scrolled_up, pre_sb, pre_cursor_y);
+    self.renderer_state.terminal_generation +%= 1;
 }
 
 /// Publish an already-reflowed size to the child PTY. This deliberately does
@@ -597,6 +677,7 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
 pub fn resetSynchronizedOutput(self: *Termio) void {
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
+    self.terminal_stream.handler.finishPostResize();
     self.terminal.modes.set(.synchronized_output, false);
     self.renderer_wakeup.notify() catch {};
 }

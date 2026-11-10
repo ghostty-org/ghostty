@@ -43,6 +43,7 @@ const Coalesce = struct {
 /// The number of milliseconds before we reset the synchronized output flag
 /// if the running program hasn't already.
 const sync_reset_ms = 1000;
+const post_resize_sync_reset_ms = 250;
 
 /// The number of milliseconds between each movement during selection scrolling.
 const selection_scroll_ms = 15;
@@ -382,6 +383,30 @@ fn drainMailbox(
         }
     }
 
+    if (self.coalesce_c.state() != .active) {
+        if (self.coalesce_data.resize) |v| {
+            self.coalesce_data.resize = null;
+            if (v.notify_child) {
+                io.resize(data, v.size) catch |err| {
+                    log.warn("error during resize err={}", .{err});
+                };
+            } else {
+                io.resizeVisual(v.size, false) catch |err| {
+                    log.warn("error during live resize err={}", .{err});
+                };
+            }
+            self.coalesce.reset(
+                &self.loop,
+                &self.coalesce_c,
+                &self.coalesce_cancel_c,
+                if (v.notify_child) Coalesce.resize_ms else Coalesce.live_resize_ms,
+                CallbackData,
+                cb,
+                coalesceCallback,
+            );
+        }
+    }
+
     // Trigger a redraw after we've drained so we don't waste cyces
     // messaging a redraw.
     if (redraw) {
@@ -390,11 +415,19 @@ fn drainMailbox(
 }
 
 fn startSynchronizedOutput(self: *Thread, cb: *CallbackData) void {
+    const timeout_ms: u64 = timeout: {
+        cb.io.renderer_state.mutex.lockUncancelable(global.io());
+        defer cb.io.renderer_state.mutex.unlock(global.io());
+        break :timeout if (cb.io.terminal_stream.handler.post_resize.active)
+            post_resize_sync_reset_ms
+        else
+            sync_reset_ms;
+    };
     self.sync_reset.reset(
         &self.loop,
         &self.sync_reset_c,
         &self.sync_reset_cancel_c,
-        sync_reset_ms,
+        timeout_ms,
         CallbackData,
         cb,
         syncResetCallback,
@@ -403,7 +436,7 @@ fn startSynchronizedOutput(self: *Thread, cb: *CallbackData) void {
 
 fn handleResize(
     self: *Thread,
-    cb: *CallbackData,
+    _: *CallbackData,
     size: renderer.Size,
     notify_child: bool,
 ) void {
@@ -417,18 +450,6 @@ fn handleResize(
         .size = size,
         .notify_child = notify_child or pending_notify,
     };
-
-    if (self.coalesce_c.state() == .active) return;
-
-    self.coalesce.reset(
-        &self.loop,
-        &self.coalesce_c,
-        &self.coalesce_cancel_c,
-        if (notify_child) Coalesce.resize_ms else Coalesce.live_resize_ms,
-        CallbackData,
-        cb,
-        coalesceCallback,
-    );
 }
 
 fn commitResize(

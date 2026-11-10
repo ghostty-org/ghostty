@@ -112,6 +112,10 @@ flags: packed struct {
     /// This is true when the view is focused. This defaults to true
     /// and it is up to the apprt to set the correct value.
     focused: bool = true,
+
+    /// Set when a `.resize` message is drained so the next `renderCallback`
+    /// presents immediately rather than waiting for the next vsync tick.
+    resize_redraw: bool = false,
 } = .{},
 
 pub const DerivedConfig = struct {
@@ -477,7 +481,10 @@ fn drainMailbox(self: *Thread) !void {
                 grid.set.deref(grid.old_key);
             },
 
-            .resize => |v| self.renderer.setScreenSize(v),
+            .resize => |v| {
+                self.renderer.setScreenSize(v);
+                self.flags.resize_redraw = true;
+            },
 
             .change_config => |config| {
                 defer config.alloc.destroy(config.thread);
@@ -644,7 +651,9 @@ fn drawCallback(
     }
 
     // Draw
-    t.drawFrame(false);
+    const force_draw = t.flags.resize_redraw;
+    t.flags.resize_redraw = false;
+    t.drawFrame(force_draw);
     t.syncDrawTimer();
 
     // Only continue if we're still active
@@ -680,7 +689,9 @@ fn renderCallback(
         log.warn("error rendering err={}", .{err});
 
     // Draw
-    t.drawFrame(false);
+    const force_draw = t.flags.resize_redraw;
+    t.flags.resize_redraw = false;
+    t.drawFrame(force_draw);
 
     return .disarm;
 }

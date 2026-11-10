@@ -148,7 +148,7 @@
   "All configured agents failed. Check CLI login, model, quota and version.": { "en": "All configured agents failed. Check CLI login, model, quota and version.", "zh-Hans": "所有配置的模型均失败。请检查 CLI 登录、模型、额度和版本。" },
   "Could not read staged changes. Resolve Git errors before generating.": { "en": "Could not read staged changes. Resolve Git errors before generating.", "zh-Hans": "无法读取暂存更改，请先解决 Git 错误。" },
   "The agent did not return a successful final response.": { "en": "The agent did not return a successful final response.", "zh-Hans": "Agent 未返回成功的最终响应。" },
-  "Search commits… (author: email: path:)": { "en": "Search commits… (author: email: path:)", "zh-Hans": "搜索提交…（author: email: path:）" },
+  "Search commits…": { "en": "Search commits…", "zh-Hans": "搜索提交…" },
   "History": {
     "en": "History",
     "zh-Hans": "历史"

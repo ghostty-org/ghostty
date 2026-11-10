@@ -753,7 +753,10 @@ fn readLoop(self: *Self, io: *HostIO, epoch: u64, attached: *bool, connected_onc
                 if (bytes.len != 4 and bytes.len != 8) return error.InvalidResize;
                 io.renderer_state.mutex.lockUncancelable(global.io());
                 defer io.renderer_state.mutex.unlock(global.io());
-                try io.terminal.resize(self.alloc, .{ .cols = std.mem.readInt(u16, bytes[0..2], .big), .rows = std.mem.readInt(u16, bytes[2..4], .big) });
+                try io.resizeTerminalLocked(.{
+                    .cols = std.mem.readInt(u16, bytes[0..2], .big),
+                    .rows = std.mem.readInt(u16, bytes[2..4], .big),
+                });
                 if (bytes.len == 8) {
                     io.terminal.width_px = std.mem.readInt(u16, bytes[4..6], .big);
                     io.terminal.height_px = std.mem.readInt(u16, bytes[6..8], .big);

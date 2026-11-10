@@ -334,7 +334,7 @@ struct InspectorGitView: View {
 
     private var searchPlaceholder: String {
         switch content.activeTab {
-        case .history: GitL10n.text("Search commits… (author: email: path:)")
+        case .history: GitL10n.text("Search commits…")
         case .changes: GitL10n.text("Search files…")
         case .branches: GitL10n.text("Search branches…")
         }

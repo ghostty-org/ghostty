@@ -256,6 +256,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         smooth_scroll_last_total: ?usize = null,
         /// Previous physics tick, for dt.
         smooth_scroll_last_tick: ?std.Io.Timestamp = null,
+        pending_screen_size: std.atomic.Value(u64) = .init(0),
+        target_screen_size: std.atomic.Value(u64) = .init(0),
+        completed_screen_size: std.atomic.Value(u64) = .init(0),
 
         const HighlightTag = enum(u8) {
             search_match,
@@ -1190,6 +1193,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // the course of a frame. Always flush those objects, including
             // when rebuilding the frame fails due to memory pressure.
             defer self.font_shaper.endFrame();
+            const target_screen = self.target_screen_size.load(.acquire);
+            defer if (target_screen != 0) self.completed_screen_size.store(target_screen, .release);
 
             // We fully deinit and reset the terminal state every so often
             // so that a particularly large terminal state doesn't cause
@@ -1685,6 +1690,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Hidden-layer callbacks must not block AppKit behind GPU cleanup.
             if (!prepare_hidden and !self.visible.load(.acquire)) return;
 
+            if (sync) {
+                const pending = self.pending_screen_size.load(.acquire);
+                if (pending != 0 and self.completed_screen_size.load(.acquire) != pending) {
+                    const start = std.Io.Timestamp.now(global.io(), .awake);
+                    const budget_ns: i96 = 15 * std.time.ns_per_ms;
+                    while (self.completed_screen_size.load(.acquire) != pending) {
+                        const now = std.Io.Timestamp.now(global.io(), .awake);
+                        if (start.durationTo(now).toNanoseconds() >= budget_ns) break;
+                        std.Io.sleep(global.io(), .fromNanoseconds(200 * std.time.ns_per_us), .awake) catch break;
+                    }
+                }
+            }
+
             // We hold a the draw mutex to prevent changes to any
             // data we access while we're in the middle of drawing.
             self.draw_mutex.lockUncancelable(global.io());
@@ -2169,11 +2187,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
+        pub fn packScreenSize(size: renderer.ScreenSize) u64 {
+            return (@as(u64, size.width) << 32) | @as(u64, size.height);
+        }
+
+        pub fn notePendingResize(self: *Self, size: renderer.ScreenSize) void {
+            self.pending_screen_size.store(packScreenSize(size), .release);
+        }
+
         /// Resize the screen.
         pub fn setScreenSize(
             self: *Self,
             size: renderer.Size,
         ) void {
+            self.target_screen_size.store(packScreenSize(size.screen), .release);
             self.draw_mutex.lockUncancelable(global.io());
             defer self.draw_mutex.unlock(global.io());
 

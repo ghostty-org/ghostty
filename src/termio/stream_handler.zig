@@ -79,6 +79,34 @@ pub const StreamHandler = struct {
     /// this to determine if we need to default the window title.
     seen_title: bool = false,
 
+    /// Set once the running program enables DEC mode 2026 (`synchronized_output`)
+    /// on the current screen, and cleared on full reset or shell semantic prompt.
+    seen_synchronized_output: bool = false,
+
+    /// Coalesces intermediate post-resize screen wipes (`CSI J`, `CSI 2 J`,
+    /// `CSI 3 J`) and restores a scrolled-up primary-screen viewport after a
+    /// TUI reprints its history on `SIGWINCH`.
+    post_resize: PostResizeState = .{},
+
+    pub const PostResizeState = struct {
+        pub const window_ms = 500;
+
+        pub const ScrollSave = struct {
+            offset: usize,
+            total: usize,
+            len: usize,
+            distance_from_bottom: usize,
+        };
+
+        active: bool = false,
+        deadline: ?std.Io.Timestamp = null,
+        had_scrollback: bool = false,
+        pre_cursor_y: terminal.size.CellCountInt = 0,
+        saw_erase_below: bool = false,
+        saw_full_clear: bool = false,
+        scroll_save: ?ScrollSave = null,
+    };
+
     pub const Stream = terminal.Stream(StreamHandler);
 
     /// True if we have tmux control mode built in.
@@ -242,14 +270,24 @@ pub const StreamHandler = struct {
                 self.terminal.screens.active.cursor.x + 1,
             ),
             .cursor_style => self.terminal.setCursorStyle(value),
-            .erase_display_below => self.terminal.eraseDisplay(.below, value),
+            .erase_display_below => {
+                self.noteEraseDisplay(.below);
+                self.terminal.eraseDisplay(.below, value);
+            },
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
             .erase_display_complete => {
+                self.noteEraseDisplay(.complete);
                 self.terminal.scrollViewport(.{ .bottom = {} });
                 self.terminal.eraseDisplay(.complete, value);
             },
-            .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
-            .erase_display_scroll_complete => self.terminal.eraseDisplay(.scroll_complete, value),
+            .erase_display_scrollback => {
+                self.noteEraseDisplay(.scrollback);
+                self.terminal.eraseDisplay(.scrollback, value);
+            },
+            .erase_display_scroll_complete => {
+                self.noteEraseDisplay(.scroll_complete);
+                self.terminal.eraseDisplay(.scroll_complete, value);
+            },
             .erase_line_right => self.terminal.eraseLine(.right, value),
             .erase_line_left => self.terminal.eraseLine(.left, value),
             .erase_line_complete => self.terminal.eraseLine(.complete, value),
@@ -703,9 +741,7 @@ pub const StreamHandler = struct {
 
             // We need to start a timer to prevent the emulator being hung
             // forever.
-            .synchronized_output => {
-                if (enabled) self.messageWriter(.{ .start_synchronized_output = {} });
-            },
+            .synchronized_output => self.setSynchronizedOutput(enabled),
 
             .linefeed => {
                 self.messageWriter(.{ .linefeed_mode = enabled });
@@ -874,6 +910,8 @@ pub const StreamHandler = struct {
     pub fn fullReset(
         self: *StreamHandler,
     ) !void {
+        self.seen_synchronized_output = false;
+        self.post_resize = .{};
         self.terminal.fullReset();
         try self.setMouseShape(.text);
 
@@ -1011,6 +1049,8 @@ pub const StreamHandler = struct {
             },
 
             .end_command => {
+                self.seen_synchronized_output = false;
+                self.post_resize = .{};
                 // The specification seems to not specify the type but
                 // other terminals accept 32-bits, but exit codes are really
                 // bytes, so we just do our best here.
@@ -1022,13 +1062,18 @@ pub const StreamHandler = struct {
                 self.surfaceMessageWriter(.{ .stop_command = code });
             },
 
+            .fresh_line_new_prompt,
+            .prompt_start,
+            => {
+                self.seen_synchronized_output = false;
+                self.post_resize = .{};
+            },
+
             // Handled by Terminal, no special handling by us
             .end_prompt_start_input,
             .end_prompt_start_input_terminate_eol,
             .fresh_line,
-            .fresh_line_new_prompt,
             .new_command,
-            .prompt_start,
             => {},
         }
 
@@ -1492,4 +1537,268 @@ pub const StreamHandler = struct {
     fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
+
+    pub fn setSynchronizedOutput(self: *StreamHandler, enabled: bool) void {
+        self.terminal.modes.set(.synchronized_output, enabled);
+        if (enabled) {
+            self.seen_synchronized_output = true;
+            self.messageWriter(.{ .start_synchronized_output = {} });
+        } else if (self.shouldHoldPostResizeSyncOutput()) {
+            self.terminal.modes.set(.synchronized_output, true);
+            self.messageWriter(.{ .start_synchronized_output = {} });
+        } else if (self.post_resize.active and
+            (self.post_resize.saw_full_clear or self.post_resize.saw_erase_below))
+        {
+            self.finishPostResize();
+        }
+    }
+
+    pub fn noteTerminalResize(
+        self: *StreamHandler,
+        was_scrolled_up: bool,
+        pre_sb: terminal.PageList.Scrollbar,
+        pre_cursor_y: terminal.size.CellCountInt,
+    ) void {
+        const now = std.Io.Timestamp.now(global.io(), .awake);
+        const deadline = now.addDuration(.fromMilliseconds(PostResizeState.window_ms));
+        const existing_save = if (self.post_resize.active) self.post_resize.scroll_save else null;
+        const existing_had_sb = if (self.post_resize.active) self.post_resize.had_scrollback else false;
+
+        const max_pre = pre_sb.total -| pre_sb.len;
+        const new_save: ?PostResizeState.ScrollSave = if (existing_save) |s|
+            s
+        else if (was_scrolled_up and max_pre > 0) .{
+            .offset = pre_sb.offset,
+            .total = pre_sb.total,
+            .len = pre_sb.len,
+            .distance_from_bottom = max_pre -| pre_sb.offset,
+        } else null;
+
+        self.post_resize = .{
+            .active = true,
+            .deadline = deadline,
+            .had_scrollback = existing_had_sb or (pre_sb.total > pre_sb.len),
+            .pre_cursor_y = if (self.post_resize.active and self.post_resize.pre_cursor_y > pre_cursor_y)
+                self.post_resize.pre_cursor_y
+            else
+                pre_cursor_y,
+            .saw_erase_below = false,
+            .saw_full_clear = false,
+            .scroll_save = new_save,
+        };
+    }
+
+    pub fn postResizeIsActive(self: *StreamHandler) bool {
+        if (!self.post_resize.active) return false;
+        if (self.terminal.screens.active_key != .primary) {
+            self.post_resize = .{};
+            return false;
+        }
+        if (self.post_resize.deadline) |dl| {
+            const now = std.Io.Timestamp.now(global.io(), .awake);
+            if (now.durationTo(dl).toNanoseconds() <= 0) {
+                self.finishPostResize();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn noteEraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay) void {
+        if (!self.postResizeIsActive()) return;
+        switch (mode) {
+            .below => {
+                self.post_resize.saw_erase_below = true;
+            },
+            .complete, .scrollback, .scroll_complete => {
+                self.post_resize.saw_full_clear = true;
+                // Ink-based TUIs (`agy`, `claude`) emit a standalone
+                // `\x1b[2J\x1b[3J\x1b[H` chunk outside mode 2026 right before
+                // their debounced `<Static>` history reprint. Freeze rendering
+                // before the clear executes so the blank screen is never drawn.
+                if (!self.terminal.modes.get(.synchronized_output)) {
+                    self.terminal.modes.set(.synchronized_output, true);
+                    self.messageWriter(.{ .start_synchronized_output = {} });
+                }
+            },
+            .above => {},
+        }
+    }
+
+    fn shouldHoldPostResizeSyncOutput(self: *StreamHandler) bool {
+        if (!self.postResizeIsActive()) return false;
+        const screen = self.terminal.screens.active;
+        const pages = &screen.pages;
+
+        if (!self.post_resize.saw_full_clear) {
+            // Intermediate partial wipe (e.g. Ink `log-update` `\r\x1b[37A\x1b[J`
+            // erasing the screen and drawing only the 3-line prompt while
+            // waiting 150ms for its resize debounce timer).
+            if (self.post_resize.saw_erase_below) {
+                if (self.post_resize.had_scrollback and screen.cursor.y + 4 < pages.rows) {
+                    return true;
+                }
+                if (screen.cursor.y + 2 < @min(self.post_resize.pre_cursor_y, pages.rows -| 1)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // After `\x1b[2J` / `\x1b[3J`, hold if the history reprint hasn't
+        // repopulated the screen yet (e.g. a 1-line status update arrived
+        // right before the `<Static>` history dump).
+        if (self.post_resize.had_scrollback) {
+            if (pages.total_rows <= pages.rows and screen.cursor.y + 4 < pages.rows) {
+                return true;
+            }
+        } else if (self.post_resize.pre_cursor_y > 3) {
+            if (screen.cursor.y + 2 < @min(self.post_resize.pre_cursor_y, pages.rows -| 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn finishPostResize(self: *StreamHandler) void {
+        if (!self.post_resize.active) return;
+        const saved_opt = self.post_resize.scroll_save;
+        self.post_resize = .{};
+
+        if (self.terminal.screens.active_key != .primary) return;
+        if (saved_opt) |saved| {
+            const fresh = self.terminal.screens.active.pages.scrollbar();
+            const max_fresh = fresh.total -| fresh.len;
+            if (max_fresh > 0) {
+                var target: usize = if (fresh.total == saved.total)
+                    @min(saved.offset, max_fresh)
+                else
+                    @min(
+                        (saved.offset * fresh.total + (saved.total / 2)) / @max(@as(usize, 1), saved.total),
+                        max_fresh,
+                    );
+                if (target >= max_fresh and saved.distance_from_bottom > 0) {
+                    const scaled_dist = if (fresh.total == saved.total)
+                        saved.distance_from_bottom
+                    else
+                        @max(
+                            @as(usize, 1),
+                            (saved.distance_from_bottom * fresh.total + (saved.total / 2)) / @max(@as(usize, 1), saved.total),
+                        );
+                    target = max_fresh -| @min(scaled_dist, max_fresh);
+                }
+                self.terminal.scrollViewport(.{ .row = target });
+                self.renderer_state.scroll.snapTo(
+                    @floatFromInt(target),
+                    @floatFromInt(max_fresh),
+                );
+            }
+        }
+        self.renderer_state.terminal_generation +%= 1;
+    }
 };
+
+test "StreamHandler: coalesces Ink post-resize wipes and restores scrolled-up viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try terminal.Terminal.init(testing.io, alloc, .{
+        .cols = 40,
+        .rows = 10,
+    });
+    defer t.deinit(alloc);
+
+    var mutex: std.Io.Mutex = .init;
+    var renderer_state: renderer.State = .{
+        .mutex = &mutex,
+        .terminal = &t,
+    };
+    var size: renderer.Size = .{
+        .screen = .{ .width = 400, .height = 200 },
+        .cell = .{ .width = 10, .height = 20 },
+        .padding = .{},
+    };
+    var termio_mailbox = try termio.Mailbox.initSPSC(alloc);
+    defer termio_mailbox.deinit(alloc);
+    var renderer_mailbox: renderer.Thread.Mailbox = .{};
+    var wakeup = try xev.Async.init();
+    defer wakeup.deinit();
+
+    var handler: StreamHandler = .{
+        .alloc = alloc,
+        .remote_session = true,
+        .size = &size,
+        .terminal = &t,
+        .termio_mailbox = &termio_mailbox,
+        .surface_mailbox = undefined,
+        .renderer_state = &renderer_state,
+        .renderer_mailbox = &renderer_mailbox,
+        .renderer_wakeup = wakeup,
+        .enquiry_response = "",
+        .osc_color_report_format = .none,
+        .clipboard_write = .deny,
+    };
+    defer handler.deinit();
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Populate 30 lines of output wrapped in mode 2026, then park cursor at row 8.
+    handler.setSynchronizedOutput(true);
+    for (0..30) |i| {
+        var buf: [32]u8 = undefined;
+        const line = try std.fmt.bufPrint(&buf, "history-{d:0>2}\r\n", .{i});
+        s.nextSlice(line);
+    }
+    s.nextSlice("footer-line\x1b[8;1H");
+    handler.setSynchronizedOutput(false);
+    try testing.expect(handler.seen_synchronized_output);
+
+    // Scroll up into history (offset = 6).
+    t.scrollViewport(.{ .row = 6 });
+    try testing.expect(!t.screens.active.viewportIsBottom());
+    const pre_sb = t.screens.active.pages.scrollbar();
+    try testing.expectEqual(@as(usize, 6), pre_sb.offset);
+
+    // Simulate resize (10 -> 8 rows) while scrolled up.
+    const pre_cursor_y = t.screens.active.cursor.y;
+    try t.resize(alloc, .{ .cols = 40, .rows = 8, .pull_scrollback = true });
+    handler.noteTerminalResize(true, pre_sb, pre_cursor_y);
+
+    // 1) Ink's immediate `log-update` partial wipe (`\x1b[?2026h\r\x1b[7A\x1b[J ... \x1b[?2026l`)
+    // erases the lower screen and prints only a 2-line prompt.
+    handler.setSynchronizedOutput(true);
+    s.nextSlice("\r\x1b[7A");
+    handler.noteEraseDisplay(.below);
+    s.nextSlice("\x1b[J> prompt\r\nstatus");
+    handler.setSynchronizedOutput(false);
+    // Synchronized output must remain held so the blank screen is never rendered!
+    try testing.expect(t.modes.get(.synchronized_output));
+    try testing.expect(handler.post_resize.active);
+
+    // 2) Ink's 150ms debounced full wipe arrives OUTSIDE mode 2026: `\x1b[2J\x1b[3J\x1b[H`.
+    t.modes.set(.synchronized_output, false);
+    handler.noteEraseDisplay(.complete);
+    s.nextSlice("\x1b[2J");
+    handler.noteEraseDisplay(.scrollback);
+    s.nextSlice("\x1b[3J\x1b[H");
+    try testing.expect(t.modes.get(.synchronized_output));
+    try testing.expect(handler.post_resize.saw_full_clear);
+
+    // 3) Ink's `<Static>` full history reprint arrives inside mode 2026.
+    handler.setSynchronizedOutput(true);
+    for (0..30) |i| {
+        var buf: [32]u8 = undefined;
+        const line = try std.fmt.bufPrint(&buf, "history-{d:0>2}\r\n", .{i});
+        s.nextSlice(line);
+    }
+    s.nextSlice("footer-line\x1b[6;1H");
+    handler.setSynchronizedOutput(false);
+
+    // Synchronized output is now released and the user's scrolled-up viewport is restored!
+    try testing.expect(!t.modes.get(.synchronized_output));
+    try testing.expect(!handler.post_resize.active);
+    try testing.expect(!t.screens.active.viewportIsBottom());
+    try testing.expectEqual(@as(usize, 6), t.screens.active.pages.scrollbar().offset);
+    try testing.expect(!renderer_state.scroll.pinned_to_bottom);
+}

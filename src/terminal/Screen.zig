@@ -1967,6 +1967,12 @@ pub const Resize = struct {
     /// currently at a prompt. This detects OSC133 prompts lines and clears
     /// them. If set to `.last`, only the most recent prompt line is cleared.
     prompt_redraw: osc.semantic_prompt.Redraw = .false,
+
+    /// When true, growing the screen pulls rows from scrollback into the
+    /// active area even if the hardware cursor sits above the bottom row
+    /// (e.g. primary-screen TUIs that draw a status footer below the input
+    /// cursor).
+    pull_scrollback: bool = false,
 };
 
 const resize_tw = tripwire.module(enum {
@@ -2058,7 +2064,7 @@ pub inline fn resize(
         .rows = opts.rows,
         .cols = opts.cols,
         .reflow = opts.reflow,
-        .cursor = .{
+        .cursor = if (opts.pull_scrollback) null else .{
             .x = self.cursor.x,
             .y = self.cursor.y,
             .pin = self.cursor.page_pin,

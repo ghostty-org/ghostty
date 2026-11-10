@@ -2672,6 +2672,7 @@ fn resize(
     // Save our screen size
     self.size.screen = size;
     self.balancePaddingIfNeeded();
+    self.renderer.notePendingResize(size);
 
     // Recalculate our grid size. Because Ghostty supports fluid resizing,
     // its possible the grid doesn't change at all even if the screen size changes.

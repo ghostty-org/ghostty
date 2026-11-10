@@ -36,5 +36,6 @@ pub const StreamHandler = stream_handler.StreamHandler;
 test {
     @import("std").testing.refAllDecls(@This());
 
+    _ = stream_handler;
     _ = @import("termio/shell_integration.zig");
 }

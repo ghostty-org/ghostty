@@ -3824,6 +3824,10 @@ pub const Resize = struct {
     /// resizes set this to false because the child cannot redraw until its PTY
     /// geometry is separately committed.
     prompt_redraw: ?osc.semantic_prompt.Redraw = null,
+
+    /// Pull scrollback rows into the active screen when growing a primary-screen
+    /// TUI whose hardware cursor is parked above its bottom footer rows.
+    pull_scrollback: bool = false,
 };
 
 pub const ResizeError = error{
@@ -3925,6 +3929,7 @@ pub fn resize(
         .rows = opts.rows,
         .reflow = self.modes.get(.wraparound),
         .prompt_redraw = opts.prompt_redraw orelse self.flags.shell_redraws_prompt,
+        .pull_scrollback = opts.pull_scrollback,
     });
 
     // Alternate screen, if it exists, doesn't reflow. The primary resize
@@ -15940,4 +15945,36 @@ test "Terminal: glyph APC stores session glossary entries" {
 
     t.fullReset();
     try testing.expect(!t.glyph_glossary.contains(0xE0A0));
+}
+
+test "Terminal: resize with pull_scrollback pulls history when cursor is above bottom footer" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 40, .rows = 10 });
+    defer t.deinit(alloc);
+
+    // Populate 20 lines so 10 are in scrollback and 10 are in the active screen.
+    var s = t.vtStream();
+    defer s.deinit();
+    for (0..20) |i| {
+        var buf: [32]u8 = undefined;
+        const line = try std.fmt.bufPrint(&buf, "line-{d:0>2}\r\n", .{i});
+        s.nextSlice(line);
+    }
+    s.nextSlice("status-footer");
+    // Park hardware cursor 2 rows above the bottom (like `agy` / `claude` / `pi` input box).
+    t.setCursorPos(8, 1);
+    try testing.expectEqual(@as(size.CellCountInt, 7), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 21), t.screens.active.pages.total_rows);
+
+    // Growing rows from 10 to 15 with pull_scrollback = true must pull 5 rows
+    // from scrollback into the active screen and shift cursor.y from 7 to 12,
+    // instead of growing 5 blank rows below the status footer.
+    try t.resize(alloc, .{
+        .cols = 40,
+        .rows = 15,
+        .pull_scrollback = true,
+    });
+    try testing.expectEqual(@as(size.CellCountInt, 12), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 21), t.screens.active.pages.total_rows);
 }
