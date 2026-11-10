@@ -611,18 +611,20 @@ pub const Handler = struct {
         comptime action: Action.Tag,
         value: Action.Value(action),
     ) void {
-        self.vtFallible(action, value) catch |err| {
-            self.semantic_failure = true;
-            log.warn("error handling VT action action={} err={}", .{ action, err });
-        };
+        self.vtFallible(action, value) catch |err| self.vtFailed(action, err);
     }
 
     /// The stream's hook for runs it knows are printable ASCII.
     pub fn vtPrintAscii(self: *Handler, bytes: []const u8) void {
-        self.terminal.printSliceAscii(bytes) catch |err| {
-            self.semantic_failure = true;
-            log.warn("error handling VT action action=print_slice err={}", .{err});
-        };
+        self.terminal.printSliceAscii(bytes) catch |err| self.vtFailed(.print_slice, err);
+    }
+
+    /// This is noinline to keep failure handling and logging out of the
+    /// hot VT action path.
+    noinline fn vtFailed(self: *Handler, action: Action.Tag, err: anyerror) void {
+        @branchHint(.cold);
+        self.semantic_failure = true;
+        log.warn("error handling VT action action={} err={}", .{ action, err });
     }
 
     fn unknownSequence(self: *Handler, value: UnknownSequence) void {

@@ -8,8 +8,8 @@ short_hash: []const u8,
 /// True if there was a diff at build time.
 changes: bool,
 
-/// The tag -- if any -- that this commit is a part of.
-tag: ?[]const u8,
+/// Every tag on the latest commit, such as `tip`, `v1.4.1`, and `vt-0.1.0`.
+tags: []const []const u8,
 
 /// The branch that was checked out at the time of the build.
 branch: []const u8,
@@ -56,14 +56,20 @@ pub fn detect(b: *std.Build) !Version {
         break :short_hash std.mem.trim(u8, output, &std.ascii.whitespace);
     };
 
-    const tag = b.runAllowFail(
-        &[_][]const u8{ "git", "-C", b.root.subPathOrDot(), "describe", "--exact-match", "--tags" },
-        &code,
-        .ignore,
-    ) catch |err| switch (err) {
-        error.FileNotFound => return error.GitNotFound,
-        error.ExitCodeFailure => "", // expected
-        else => return err,
+    const tags: []const []const u8 = tags: {
+        const output = b.runAllowFail(
+            &[_][]const u8{ "git", "-C", b.root.subPathOrDot(), "tag", "--points-at", "HEAD" },
+            &code,
+            .ignore,
+        ) catch |err| switch (err) {
+            error.FileNotFound => return error.GitNotFound,
+            else => return err,
+        };
+
+        var list: std.ArrayList([]const u8) = .empty;
+        var it = std.mem.tokenizeAny(u8, output, "\r\n ");
+        while (it.next()) |tag| try list.append(b.allocator, tag);
+        break :tags list.items;
     };
 
     _ = b.runAllowFail(&[_][]const u8{
@@ -83,7 +89,7 @@ pub fn detect(b: *std.Build) !Version {
     return .{
         .short_hash = short_hash,
         .changes = changes,
-        .tag = if (tag.len > 0) std.mem.trimEnd(u8, tag, "\r\n ") else null,
+        .tags = tags,
         .branch = branch,
     };
 }

@@ -24,8 +24,13 @@ pub const Encoder = ?*KeyEncoderWrapper;
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *Encoder,
+    result_: ?*Encoder,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) {
+        if (result_) |o| o.* = null;
+        return .unsupported;
+    }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(KeyEncoderWrapper) catch
         return .out_of_memory;
@@ -38,6 +43,7 @@ pub fn new(
 }
 
 pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.input_encode)) return;
     const wrapper = encoder_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -45,18 +51,21 @@ pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
 
 /// C: GhosttyKeyEncoderOption
 pub const Option = enum(c_int) {
-    cursor_key_application = 0,
-    keypad_key_application = 1,
-    ignore_keypad_with_numlock = 2,
-    alt_esc_prefix = 3,
-    modify_other_keys_state_2 = 4,
-    kitty_flags = 5,
-    macos_option_as_alt = 6,
+    invalid = 0,
+    cursor_key_application = 1,
+    keypad_key_application = 2,
+    ignore_keypad_with_numlock = 3,
+    alt_esc_prefix = 4,
+    modify_other_keys_state_2 = 5,
+    kitty_flags = 6,
+    macos_option_as_alt = 7,
     /// DEC Backarrow Key Mode (DECBKM)
     /// See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
     /// If `false` (the default), `backspace` emits 0x7f
     /// If `true`, `backspace` emits 0x08
-    backarrow_key_mode = 7,
+    backarrow_key_mode = 8,
+
+    _,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -70,37 +79,43 @@ pub const Option = enum(c_int) {
             => bool,
             .kitty_flags => u8,
             .macos_option_as_alt => OptionAsAlt,
+            .invalid, _ => void,
         };
     }
 };
 
-pub fn setopt(
+pub fn set(
     encoder_: Encoder,
     option: Option,
     value: ?*const anyopaque,
-) callconv(lib.calling_conv) void {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("setopt invalid option value={d}", .{@backingInt(option)});
-            return;
-        };
-    }
-
+) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
     return switch (option) {
-        inline else => |comptime_option| setoptTyped(
-            encoder_,
-            comptime_option,
-            @ptrCast(@alignCast(value orelse return)),
-        ),
+        .invalid => .invalid_value,
+        _ => .unsupported,
+        inline else => |comptime_option| {
+            const encoder = encoder_ orelse return .invalid_value;
+            const ptr = value orelse return resetTyped(encoder, comptime_option);
+            return setTyped(encoder, comptime_option, @ptrCast(@alignCast(ptr)));
+        },
     };
 }
 
-fn setoptTyped(
-    encoder_: Encoder,
+/// Reset an option to the default from `key_encode.Options`. This is what a
+/// NULL value to `set` does.
+fn resetTyped(encoder: *KeyEncoderWrapper, comptime option: Option) Result {
+    const defaults: key_encode.Options = .{};
+    const name = @tagName(option);
+    @field(encoder.opts, name) = @field(defaults, name);
+    return .success;
+}
+
+fn setTyped(
+    encoder: *KeyEncoderWrapper,
     comptime option: Option,
     value: *const option.InType(),
-) void {
-    const opts = &encoder_.?.opts;
+) Result {
+    const opts = &encoder.opts;
     switch (option) {
         .cursor_key_application => opts.cursor_key_application = value.*,
         .keypad_key_application => opts.keypad_key_application = value.*,
@@ -111,26 +126,24 @@ fn setoptTyped(
             const bits: u5 = @truncate(value.*);
             break :flags @bitCast(bits);
         },
-        .macos_option_as_alt => {
-            if (comptime std.debug.runtime_safety) {
-                _ = std.enums.fromInt(OptionAsAlt, @backingInt(value.*)) orelse {
-                    log.warn("setopt invalid OptionAsAlt value={d}", .{@backingInt(value.*)});
-                    return;
-                };
-            }
-            opts.macos_option_as_alt = value.*;
-        },
+        .macos_option_as_alt => opts.macos_option_as_alt =
+            lib.enumFromPtr(OptionAsAlt, value) orelse return .invalid_value,
         .backarrow_key_mode => opts.backarrow_key_mode = value.*,
+        .invalid, _ => comptime unreachable,
     }
+
+    return .success;
 }
 
-pub fn setopt_from_terminal(
+pub fn set_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
-) callconv(lib.calling_conv) void {
-    const wrapper = encoder_ orelse return;
-    const t: *ZigTerminal = (terminal_ orelse return).terminal;
+) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
+    const wrapper = encoder_ orelse return .invalid_value;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
     wrapper.opts = .fromTerminal(t);
+    return .success;
 }
 
 pub fn encode(
@@ -138,14 +151,19 @@ pub fn encode(
     event_: KeyEvent,
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.input_encode)) return .unsupported;
+    const encoder = encoder_ orelse return .invalid_value;
+    const event = event_ orelse return .invalid_value;
+    const out_written = out_written_ orelse return .invalid_value;
+
     // Attempt to write to this buffer
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     key_encode.encode(
         &writer,
-        event_.?.event,
-        encoder_.?.opts,
+        event.event,
+        encoder.opts,
     ) catch |err| switch (err) {
         error.WriteFailed => {
             // If we don't have space, use a discarding writer to count
@@ -153,8 +171,8 @@ pub fn encode(
             var discarding: std.Io.Writer.Discarding = .init(&.{});
             key_encode.encode(
                 &discarding.writer,
-                event_.?.event,
-                encoder_.?.opts,
+                event.event,
+                encoder.opts,
             ) catch unreachable;
 
             // Discarding always uses a u64. If we're on 32-bit systems
@@ -178,7 +196,7 @@ test "alloc" {
     free(e);
 }
 
-test "setopt bool" {
+test "set bool" {
     const testing = std.testing;
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -189,18 +207,18 @@ test "setopt bool" {
 
     // Test setting bool options
     const val_true: bool = true;
-    setopt(e, .cursor_key_application, &val_true);
+    try testing.expectEqual(Result.success, set(e, .cursor_key_application, &val_true));
     try testing.expect(e.?.opts.cursor_key_application);
 
     const val_false: bool = false;
-    setopt(e, .cursor_key_application, &val_false);
+    try testing.expectEqual(Result.success, set(e, .cursor_key_application, &val_false));
     try testing.expect(!e.?.opts.cursor_key_application);
 
-    setopt(e, .keypad_key_application, &val_true);
+    try testing.expectEqual(Result.success, set(e, .keypad_key_application, &val_true));
     try testing.expect(e.?.opts.keypad_key_application);
 }
 
-test "setopt kitty flags" {
+test "set kitty flags" {
     const testing = std.testing;
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -215,13 +233,13 @@ test "setopt kitty flags" {
         .report_events = true,
     };
     const flags_int: u8 = @intCast(flags.int());
-    setopt(e, .kitty_flags, &flags_int);
+    try testing.expectEqual(Result.success, set(e, .kitty_flags, &flags_int));
     try testing.expect(e.?.opts.kitty_flags.disambiguate);
     try testing.expect(e.?.opts.kitty_flags.report_events);
     try testing.expect(!e.?.opts.kitty_flags.report_alternates);
 }
 
-test "setopt macos option as alt" {
+test "set macos option as alt" {
     const testing = std.testing;
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
@@ -232,15 +250,15 @@ test "setopt macos option as alt" {
 
     // Test setting option as alt
     const opt_left: OptionAsAlt = .left;
-    setopt(e, .macos_option_as_alt, &opt_left);
+    try testing.expectEqual(Result.success, set(e, .macos_option_as_alt, &opt_left));
     try testing.expectEqual(OptionAsAlt.left, e.?.opts.macos_option_as_alt);
 
     const opt_true: OptionAsAlt = .true;
-    setopt(e, .macos_option_as_alt, &opt_true);
+    try testing.expectEqual(Result.success, set(e, .macos_option_as_alt, &opt_true));
     try testing.expectEqual(OptionAsAlt.true, e.?.opts.macos_option_as_alt);
 }
 
-test "setopt_from_terminal" {
+test "set_from_terminal" {
     const testing = std.testing;
     const terminal_c = @import("terminal.zig");
 
@@ -263,7 +281,7 @@ test "setopt_from_terminal" {
     defer terminal_c.free(t);
 
     // Apply terminal state to encoder
-    setopt_from_terminal(e, t);
+    try testing.expectEqual(Result.success, set_from_terminal(e, t));
 
     // Options should reflect defaults from a fresh terminal
     try testing.expect(!e.?.opts.cursor_key_application);
@@ -272,11 +290,10 @@ test "setopt_from_terminal" {
     try testing.expectEqual(OptionAsAlt.false, e.?.opts.macos_option_as_alt);
 }
 
-test "setopt_from_terminal null" {
-    // Both null should be no-ops
-    setopt_from_terminal(null, null);
-
+test "set_from_terminal null" {
     const testing = std.testing;
+
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(null, null));
 
     // Encoder null with valid terminal
     const terminal_c = @import("terminal.zig");
@@ -288,16 +305,19 @@ test "setopt_from_terminal null" {
         24,
     ));
     defer terminal_c.free(t);
-    setopt_from_terminal(null, t);
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(null, t));
 
-    // Valid encoder with null terminal
+    // Valid encoder with null terminal leaves the options unchanged
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
         &lib.alloc.test_allocator,
         &e,
     ));
     defer free(e);
-    setopt_from_terminal(e, null);
+    const opt_true: OptionAsAlt = .true;
+    try testing.expectEqual(Result.success, set(e, .macos_option_as_alt, &opt_true));
+    try testing.expectEqual(Result.invalid_value, set_from_terminal(e, null));
+    try testing.expectEqual(OptionAsAlt.true, e.?.opts.macos_option_as_alt);
 }
 
 test "encode: kitty ctrl release with ctrl mod set" {
@@ -321,7 +341,7 @@ test "encode: kitty ctrl release with ctrl mod set" {
             .report_associated = true,
         };
         const flags_int: u8 = @intCast(flags.int());
-        setopt(encoder, .kitty_flags, &flags_int);
+        try testing.expectEqual(Result.success, set(encoder, .kitty_flags, &flags_int));
     }
 
     // Create key event
@@ -333,9 +353,9 @@ test "encode: kitty ctrl release with ctrl mod set" {
     defer key_event.free(event);
 
     // Set event properties: release action, ctrl key, ctrl modifier
-    key_event.set_action(event, .release);
-    key_event.set_key(event, .control_left);
-    key_event.set_mods(event, .{ .ctrl = true });
+    try testing.expectEqual(Result.success, key_event.set_action(event, .release));
+    try testing.expectEqual(Result.success, key_event.set_key(event, .control_left));
+    try testing.expectEqual(Result.success, key_event.set_mods(event, .{ .ctrl = true }));
 
     // Encode null should give us the length required
     var required: usize = 0;
@@ -346,6 +366,18 @@ test "encode: kitty ctrl release with ctrl mod set" {
         0,
         &required,
     ));
+
+    // An undersized buffer reports the same required size
+    var small: [4]u8 = undefined;
+    var small_written: usize = 0;
+    try testing.expectEqual(Result.out_of_space, encode(
+        encoder,
+        event,
+        &small,
+        small.len,
+        &small_written,
+    ));
+    try testing.expectEqual(required, small_written);
 
     // Encode the key event
     var buf: [128]u8 = undefined;

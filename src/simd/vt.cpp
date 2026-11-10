@@ -168,19 +168,22 @@ size_t DecodeUTF8(const uint8_t* HWY_RESTRICT input,
   const char* in = reinterpret_cast<const char*>(input);
   size_t remaining = count;
   char32_t* out = output;
-  while (remaining > 0) {
-    auto r = simdutf::convert_utf8_to_utf32_with_errors(in, remaining, out);
 
-    // If the decode was a full success then we're done!
-    if (r.error == simdutf::SUCCESS) {
-      out += r.count;
-      break;
+  // Common case: the input is all valid and this one pass both validates
+  // and decodes it.
+  auto r = simdutf::convert_utf8_to_utf32_with_errors(in, remaining, out);
+  if (r.error == simdutf::SUCCESS) {
+    return r.count;
+  }
+
+  while (true) {
+    // On error, r.count is the input byte position of the error, and
+    // everything before it is valid UTF-8. simdutf leaves the output
+    // undefined on error (its icelake kernels really don't leave the
+    // valid prefix decoded), so decode that prefix again here.
+    if (r.count > 0) {
+      out += simdutf::convert_valid_utf8_to_utf32(in, r.count, out);
     }
-
-    // On error, r.count is the input byte position of the error.
-    // The output buffer is already written up to that point, but
-    // we need count_utf8 to find how many char32_t that produced.
-    out += simdutf::count_utf8(in, r.count);
 
     // Compute the maximal subpart at the error position and emit
     // a single U+FFFD for it.
@@ -193,6 +196,19 @@ size_t DecodeUTF8(const uint8_t* HWY_RESTRICT input,
 
     in += skip;
     remaining -= skip;
+    if (remaining == 0) {
+      break;
+    }
+
+    // Input with one error usually has more. Converting with errors again
+    // would throw away its output and decode every valid run twice, so
+    // find the next error with the read-only validator (several times
+    // cheaper) and decode each valid run once.
+    r = simdutf::validate_utf8_with_errors(in, remaining);
+    if (r.error == simdutf::SUCCESS) {
+      out += simdutf::convert_valid_utf8_to_utf32(in, remaining, out);
+      break;
+    }
   }
 
   return static_cast<size_t>(out - output);

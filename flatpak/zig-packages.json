@@ -1,9 +1,9 @@
 [
   {
-    "type": "git",
-    "url": "https://codeberg.org/ziglang/arocc",
-    "commit": "d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
-    "dest": "vendor/p/aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa"
+    "type": "archive",
+    "url": "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
+    "dest": "vendor/p/aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa",
+    "sha256": "cbe70387fdec7ba9bdaea4c28f1ea4a09a771eec03fd8165bff1f9ae9f604daa"
   },
   {
     "type": "archive",
@@ -73,9 +73,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz",
-    "dest": "vendor/p/N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3",
-    "sha256": "38bb80d98456677bad9a78a76e83a1e4851e88900aec93af74c6251ca32b78a0"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261102-150615-3d8a6a1.tgz",
+    "dest": "vendor/p/N-V-__8AAFpzBgAPo4OIKKdP0WTD6scDoaBGVGTdltSyA2Hp",
+    "sha256": "b61b297e4245e0a5e46ac1e8d92ec8f7390d4394db4bafc93cfa3209f215435e"
   },
   {
     "type": "archive",
@@ -145,9 +145,21 @@
   },
   {
     "type": "archive",
+    "url": "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+    "dest": "vendor/p/uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
+    "sha256": "9e574f5b72c07f426eb31e2604860f22ba0fc5f9ccb44ef44e3212a5e9001828"
+  },
+  {
+    "type": "archive",
     "url": "https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz",
     "dest": "vendor/p/uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg",
     "sha256": "f37c4071a217853450d084cb9c12b6d4b68f887eb9cb42fe77a84f86056eacbf"
+  },
+  {
+    "type": "archive",
+    "url": "https://deps.files.ghostty.org/vaxis-0620b34e091deaa6f64608922be3814147128dfb.tar.gz",
+    "dest": "vendor/p/vaxis-0.6.0-BWNV_LoTDQCQSGhvBbu_-fOf3I2P3TIiGaUzCDniO12E",
+    "sha256": "29ab8319ac75a363716867bc9b3a3dfd973d27f30f4dec414d99a6daa447d6b9"
   },
   {
     "type": "archive",
@@ -181,7 +193,7 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
+    "url": "https://deps.files.ghostty.org/z2d-8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
     "dest": "vendor/p/z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_",
     "sha256": "9e094da050d264dabe8df55123328362f232908030e76c3e8323248553b26d25"
   },
@@ -190,6 +202,12 @@
     "url": "https://deps.files.ghostty.org/zf-87153bb86b75d21fbac897b738f316d449f5d0c9.tar.gz",
     "dest": "vendor/p/zf-0.11.0-OIRy8XCRAAB6FiMwIrtD6FqlagnFwpI6YyOu7bXeYH5J",
     "sha256": "56174bcd35fbeab7fd5501bdfa7175fd0474c88d733a6455050977075b8da50a"
+  },
+  {
+    "type": "archive",
+    "url": "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
+    "dest": "vendor/p/zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
+    "sha256": "5e427099ae2f1a52592c947117b1abe25a6e17a26d78c260e21b86fdf46b418f"
   },
   {
     "type": "archive",
@@ -211,9 +229,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
-    "dest": "vendor/p/zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4",
-    "sha256": "5e427099ae2f1a52592c947117b1abe25a6e17a26d78c260e21b86fdf46b418f"
+    "url": "https://deps.files.ghostty.org/zigimg-734fa919fb15b7917d4eb124f53600348f4ffa30.tar.gz",
+    "dest": "vendor/p/zigimg-0.1.0-8_eo2sBLGACBebrhQZUwRliZNSUyDn6szp99eip_6-Rw",
+    "sha256": "3edf278f2a57d47f7793a252a327f70f1ecc00900a15435fecf3beab59540983"
   },
   {
     "type": "archive",

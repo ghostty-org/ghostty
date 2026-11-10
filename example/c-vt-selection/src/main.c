@@ -9,7 +9,7 @@ static void vt_write(GhosttyTerminal terminal, const char *s) {
 }
 
 static GhosttyGridRef ref_at(GhosttyTerminal terminal, uint16_t x, uint16_t y) {
-  GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef ref = {0};
   GhosttyPoint point = {
     .tag = GHOSTTY_POINT_TAG_ACTIVE,
     .value = { .coordinate = { .x = x, .y = y } },
@@ -24,14 +24,22 @@ static void print_selection(
     GhosttyTerminal terminal,
     const char *label,
     const GhosttySelection *selection) {
-  GhosttyFormatterTerminalOptions opts = GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
-  opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  opts.trim = true;
-  opts.selection = selection;
-
   GhosttyFormatter formatter;
   GhosttyResult result = ghostty_formatter_terminal_new(
-      NULL, &formatter, terminal, opts);
+      NULL, &formatter, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
+  assert(result == GHOSTTY_SUCCESS);
+
+  // A NULL selection formats the whole screen.
+  result = ghostty_formatter_set(
+      formatter, GHOSTTY_FORMATTER_OPT_SELECTION, selection);
   assert(result == GHOSTTY_SUCCESS);
 
   uint8_t *buf = NULL;
@@ -62,7 +70,7 @@ int main() {
       "On branch main\r\n"
       "nothing to commit, working tree clean");
 
-  GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection selection = {0};
 
   // Double-click style word selection under the cursor.
   GhosttyTerminalSelectWordOptions word = GHOSTTY_INIT_SIZED(GhosttyTerminalSelectWordOptions);
@@ -84,7 +92,7 @@ int main() {
   start_word_opts.start = click_ref;
   start_word_opts.end = drag_ref;
 
-  GhosttySelection start_word = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection start_word = {0};
   result = ghostty_terminal_select_word_between(
       terminal, &start_word_opts, &start_word);
   assert(result == GHOSTTY_SUCCESS);
@@ -94,12 +102,12 @@ int main() {
   end_word_opts.start = drag_ref;
   end_word_opts.end = click_ref;
 
-  GhosttySelection end_word = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection end_word = {0};
   result = ghostty_terminal_select_word_between(
       terminal, &end_word_opts, &end_word);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttySelection drag_selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection drag_selection = {0};
   drag_selection.start = start_word.start;
   drag_selection.end = end_word.end;
   print_selection(terminal, "double-click drag", &drag_selection);
@@ -115,8 +123,8 @@ int main() {
   print_selection(terminal, "line", &selection);
 
   // Select exactly the command output for the command under the cursor.
-  result = ghostty_terminal_select_output(
-      terminal, ref_at(terminal, 0, 1), &selection);
+  GhosttyGridRef output_ref = ref_at(terminal, 0, 1);
+  result = ghostty_terminal_select_output(terminal, &output_ref, &selection);
   assert(result == GHOSTTY_SUCCESS);
   print_selection(terminal, "output", &selection);
 

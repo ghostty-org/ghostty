@@ -37,7 +37,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     try checkNixShell(exe, cfg);
 
     // Add patchelf step if that option is specified.
-    cfg.addPatchElf(exe, &install_step.step);
+    _ = cfg.addPatchElf(exe, &install_step.step);
 
     // OS-specific
     switch (cfg.target.result.os.tag) {

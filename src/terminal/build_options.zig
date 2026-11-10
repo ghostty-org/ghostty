@@ -43,10 +43,11 @@ pub const Options = struct {
     version: std.SemanticVersion,
 
     /// Optional features for lib artifacts. Disabling a feature removes
-    /// its C API exports and any stream-integrated handling from the
+    /// its implementation and any stream-integrated handling from the
     /// build, primarily so size-conscious embedders (e.g. wasm) can trim
-    /// the binary. The Ghostty application itself always builds with
-    /// every feature enabled.
+    /// the binary. Its C API functions are still exported, but they
+    /// return `GHOSTTY_UNSUPPORTED`. The Ghostty application itself
+    /// always builds with every feature enabled.
     ///
     /// Field names are the accepted tokens for `-Dvt-features`, which
     /// acts like `-Dcpu`: comma-separated modifications applied on top
@@ -72,8 +73,7 @@ pub const Options = struct {
         /// such as cursor position, palette, modes, and tabstops. Used
         /// for copy-to-clipboard, dump-to-file, and debugging.
         ///
-        /// C API: `ghostty_formatter_*` and, together with `selection`,
-        /// `ghostty_terminal_selection_format_*`.
+        /// C API: `ghostty_formatter_*`.
         formatter: bool = true,
 
         /// Text selection: select word/line/output/all, selection

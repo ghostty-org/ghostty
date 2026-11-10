@@ -1,8 +1,8 @@
 # swift-vt-xcframework
 
-Demonstrates consuming libghostty-vt from a Swift Package using the
-pre-built XCFramework. Creates a terminal, writes VT sequences into it,
-and formats the screen contents as plain text.
+Uses the pre-built XCFramework of libghostty-vt from a Swift Package. It
+creates a terminal, writes VT sequences into it, and formats the screen
+contents as plain text.
 
 This example requires the XCFramework to be built first.
 
@@ -11,7 +11,7 @@ This example requires the XCFramework to be built first.
 First, build the XCFramework from the repository root:
 
 ```shell-session
-zig build -Demit-lib-vt
+zig build -Demit-lib-vt -Demit-xcframework=true
 ```
 
 Then build and run the Swift package:

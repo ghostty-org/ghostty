@@ -10,7 +10,7 @@ static void vt_write(GhosttyTerminal terminal, const char *s) {
 }
 
 static GhosttyGridRef ref_at(GhosttyTerminal terminal, uint16_t x, uint16_t y) {
-  GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef ref = {0};
   GhosttyPoint point = {
     .tag = GHOSTTY_POINT_TAG_ACTIVE,
     .value = { .coordinate = { .x = x, .y = y } },
@@ -25,16 +25,26 @@ static void print_selection(
     GhosttyTerminal terminal,
     const char *label,
     const GhosttySelection *selection) {
-  GhosttyTerminalSelectionFormatOptions opts =
-      GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
-  opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  opts.trim = true;
-  opts.selection = selection;
+  GhosttyFormatter formatter;
+  GhosttyResult result = ghostty_formatter_terminal_new(
+      NULL, &formatter, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
+  assert(result == GHOSTTY_SUCCESS);
+
+  result = ghostty_formatter_set(
+      formatter, GHOSTTY_FORMATTER_OPT_SELECTION, selection);
+  assert(result == GHOSTTY_SUCCESS);
 
   uint8_t *buf = NULL;
   size_t len = 0;
-  GhosttyResult result = ghostty_terminal_selection_format_alloc(
-      terminal, NULL, opts, &buf, &len);
+  result = ghostty_formatter_format_alloc(formatter, NULL, &buf, &len);
   assert(result == GHOSTTY_SUCCESS);
 
   printf("%s: ", label);
@@ -42,6 +52,7 @@ static void print_selection(
   printf("\n");
 
   ghostty_free(NULL, buf, len);
+  ghostty_formatter_free(formatter);
 }
 
 static GhosttySelectionGestureEvent new_event(
@@ -111,7 +122,7 @@ int main() {
       drag, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY, &geometry);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection selection = {0};
   result = ghostty_selection_gesture_event(
       gesture, terminal, drag, &selection);
   assert(result == GHOSTTY_SUCCESS);

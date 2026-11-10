@@ -6,6 +6,7 @@ const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
+const c_deps = @import("c_deps.zig");
 
 /// The `_c`-suffixed modules are built with the C ABI enabled.
 vt: *std.Build.Module,
@@ -61,15 +62,24 @@ fn initInner(
     vt_name: ?[]const u8,
     vt_c_name: ?[]const u8,
 ) !GhosttyZig {
-    // Terminal module build options
-    var vt_options = cfg.terminalOptions(.lib, cfg.optimize);
-    vt_options.artifact = .lib;
-    // We presently don't allow Oniguruma in our Zig module at all.
-    // We should expose this as a build option in the future so we can
-    // conditionally do this.
-    vt_options.oniguruma = false;
-
+    const vt_options = vtOptions(cfg);
     var simd_libs: SharedDeps.LazyPathList = .empty;
+
+    const vt_c = try initVt(
+        vt_c_name,
+        b,
+        cfg,
+        deps,
+        vtCOptions(cfg),
+        &simd_libs,
+    );
+
+    // Every libghostty-vt artifact (shared, static, wasm and each
+    // xcframework slice) is built from the C ABI module, so setting
+    // -Dstrip here covers all of them. The Zig module is left alone.
+    // It is compiled into whatever program imports it, and that
+    // program's own build decides whether to strip.
+    vt_c.strip = cfg.strip_lib_vt;
 
     return .{
         .vt = try initVt(
@@ -81,23 +91,56 @@ fn initInner(
             null,
         ),
 
-        .vt_c = try initVt(
-            vt_c_name,
-            b,
-            cfg,
-            deps,
-            options: {
-                var dup = vt_options;
-                dup.c_abi = true;
-                break :options dup;
-            },
-            &simd_libs,
-        ),
+        .vt_c = vt_c,
 
         .version = cfg.lib_version,
 
         .simd_libs = simd_libs,
     };
+}
+
+/// Create the root module for the libghostty-vt C API tests.
+///
+/// This is the `vt_c` module with one addition: the C headers, translated
+/// into Zig by `c_deps.zig` and importable as `ghostty-vt-h`. The header
+/// parity tests in `src/terminal/c/abi_test.zig` use that import to compare
+/// every public C type against its Zig implementation.
+///
+/// It is a separate module so the library itself never pays for the
+/// translation. Only the test step builds it:
+///
+/// ```zig
+/// const test_exe = b.addTest(.{
+///     .name = "ghostty-vt-c-test",
+///     .root_module = try GhosttyZig.initVtCTest(b, &config, &deps),
+/// });
+/// ```
+pub fn initVtCTest(
+    b: *std.Build,
+    cfg: *const Config,
+    deps: *const SharedDeps,
+) !*std.Build.Module {
+    const mod = try initVt(null, b, cfg, deps, vtCOptions(cfg), null);
+    try c_deps.add(b, .@"ghostty-vt-h", mod, cfg, .{});
+    return mod;
+}
+
+/// The terminal build options shared by every libghostty-vt module.
+fn vtOptions(cfg: *const Config) TerminalBuildOptions {
+    var vt_options = cfg.terminalOptions(.lib, cfg.optimize);
+    vt_options.artifact = .lib;
+    // We presently don't allow Oniguruma in our Zig module at all.
+    // We should expose this as a build option in the future so we can
+    // conditionally do this.
+    vt_options.oniguruma = false;
+    return vt_options;
+}
+
+/// `vtOptions` with the C ABI enabled, for the `_c` modules.
+fn vtCOptions(cfg: *const Config) TerminalBuildOptions {
+    var vt_options = vtOptions(cfg);
+    vt_options.c_abi = true;
+    return vt_options;
 }
 
 fn initVt(

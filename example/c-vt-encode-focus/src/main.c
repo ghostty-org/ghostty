@@ -3,7 +3,7 @@
 
 //! [focus-encode]
 int main() {
-  char buf[8];
+  uint8_t buf[8];
   size_t written = 0;
 
   GhosttyResult result = ghostty_focus_encode(

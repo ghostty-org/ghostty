@@ -24,7 +24,7 @@ Two values tell a renderer what to redo on each frame:
 
 - `GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION` belongs to the
   whole list. It tells you when to read the list again.
-- `GHOSTTY_KITTY_IMAGE_DATA_GENERATION` belongs to a single image. It
+- `GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION` belongs to a single image. It
   tells you when to upload that image's pixels again. The render state
   reports the same value for each image as
   `GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION`.

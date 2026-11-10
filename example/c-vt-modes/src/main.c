@@ -21,7 +21,7 @@ void modes_example() {
 
 //! [modes-decrpm]
 void decrpm_example() {
-  char buf[32];
+  uint8_t buf[32];
   size_t written = 0;
 
   // Encode a report that DEC mode 25 (cursor visible) is set

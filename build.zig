@@ -2,13 +2,18 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
-const translate_c = @import("translate_c");
+
+const c_deps = @import("src/build/c_deps.zig");
 
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
 
-/// Libghostty version. We use a separate version from the app.
-const lib_version = "0.1.0-dev";
+/// The libghostty-vt version, released separately from the app with
+/// `vt-X.Y.Z` tags. See `Config.libVersion` for how builds use it.
+///
+/// CMakeLists.txt and CI read this line with a regular expression, so
+/// keep it on one line in this form.
+const lib_version = "1.1.0-dev";
 
 /// Minimum required zig version.
 const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;
@@ -22,30 +27,44 @@ pub fn build(b: *std.Build) !void {
     // want to know what options are available, you can run `--help` or
     // you can read `src/build/Config.zig`.
 
-    // If we have a VERSION file (present in source tarballs) then we
-    // use that as the version source of truth. Otherwise we fall back
-    // to what is in the build.zig.zon.
-    const file_version: ?[]const u8 = if (b.root.root_dir.handle.readFileAlloc(
-        b.graph.io,
-        "VERSION",
-        b.allocator,
-        .limited(128),
-    )) |content| std.mem.trim(
-        u8,
-        content,
-        &std.ascii.whitespace,
-    ) else |_| null;
-
-    const config = try buildpkg.Config.init(
-        b,
-        file_version orelse app_zon_version,
-        lib_version,
-    );
+    // Source tarballs have no git history, so they carry their version
+    // in a VERSION (app) or LIB_VERSION (libghostty-vt) file.
+    const config = try buildpkg.Config.init(b, .{
+        .app = app_zon_version,
+        .app_file = readVersionFile(b, "VERSION"),
+        .lib = lib_version,
+        .lib_file = readVersionFile(b, "LIB_VERSION"),
+    });
     const test_filters = b.option(
         [][]const u8,
         "test-filter",
         "Filter for test. Only applies to Zig tests.",
     ) orelse &[0][]const u8{};
+
+    // How many processes run each large test binary at once. Zig's test
+    // runner runs tests one after another on a single thread, and the
+    // Debug suite takes many minutes that way. With N shards the build
+    // starts N copies of the binary and each copy runs every N-th test
+    // (see src/build/test_runner.zig), so the suite finishes in about
+    // 1/N of the time on a machine with N free cores.
+    //
+    // The default is the CPU count, up to 64. Use 1 to run every test in
+    // a single process, in order, like Zig's default test runner:
+    //
+    //     zig build test -Dtest-shards=1
+    const test_shards: u32 = b.option(
+        u32,
+        "test-shards",
+        "Processes to split each test binary across (default: CPU count, at most 64)",
+    ) orelse @intCast(@min(std.Thread.getCpuCount() catch 1, 64));
+    if (test_shards == 0) {
+        std.debug.print("-Dtest-shards must be at least 1\n", .{});
+        std.process.exit(1);
+    }
+    const test_runner: std.Build.Step.Compile.TestRunner = .{
+        .path = b.path("src/build/test_runner.zig"),
+        .mode = .server,
+    };
 
     // Ghostty dependencies used by many artifacts.
     const deps = try buildpkg.SharedDeps.init(b, &config);
@@ -78,6 +97,14 @@ pub fn build(b: *std.Build) !void {
         "test-lib-vt-schema",
         "Validate the libghostty-vt ABI type manifest",
     );
+    const test_lib_vt_abi_step = b.step(
+        "test-lib-vt-abi",
+        "Fail if libghostty-vt changed its ABI in a way that is not an addition",
+    );
+    const update_lib_vt_abi_step = b.step(
+        "update-lib-vt-abi",
+        "Record the libghostty-vt ABI of the current target in src/terminal/c/abi",
+    );
     const test_valgrind_step = b.step(
         "test-valgrind",
         "Run tests under valgrind",
@@ -88,7 +115,13 @@ pub fn build(b: *std.Build) !void {
     );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
-    const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
+    // Only the app uses them, so a libghostty-vt build skips them, which
+    // also keeps it from downloading the themes package. This is null only
+    // when emit_lib_vt is set, and every use below is in an app-only branch.
+    const resources: ?buildpkg.GhosttyResources = if (config.emit_lib_vt)
+        null
+    else
+        try buildpkg.GhosttyResources.init(b, &config, &deps);
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
 
     // Ghostty executable, the actual runnable Ghostty program.
@@ -98,10 +131,13 @@ pub fn build(b: *std.Build) !void {
     const docs = try buildpkg.GhosttyDocs.init(b, &deps);
     if (config.emit_docs) {
         docs.install();
-    } else if (config.target.result.os.tag.isDarwin()) {
+    } else if (config.target.result.os.tag.isDarwin() and
+        !config.emit_lib_vt)
+    {
         // If we aren't emitting docs we need to emit a placeholder so
         // our macOS xcodeproject builds since it expects the `share/man`
-        // directory to exist to copy into the app bundle.
+        // directory to exist to copy into the app bundle. A libghostty-vt
+        // build has no app bundle, so it doesn't need one.
         docs.installDummy(b.getInstallStep());
     }
 
@@ -123,9 +159,24 @@ pub fn build(b: *std.Build) !void {
         const check_step = b.step("distcheck", "Install and validate the dist tarball");
         check_step.dependOn(dist.check_step);
         check_step.dependOn(dist.install_step);
+        // Only libghostty-vt builds (-Demit-lib-vt) have this step.
+        if (dist.deps_install_step) |deps_install| {
+            const deps_step = b.step(
+                "dist-deps",
+                "Build the libghostty-vt dependency tarball for offline builds (needs network)",
+            );
+            deps_step.dependOn(deps_install);
+        }
     }
 
     // libghostty-vt
+    //
+    // The libraries are always defined so that steps like test-lib-vt can
+    // use them, but they are only installed by a libghostty-vt build or
+    // when Ghostty is a dependency. A dependency must install them so
+    // that dep.artifact("ghostty-vt") and friends can find them. App
+    // builds install none of it, so they don't ship a stray C library.
+    const install_lib_vt = config.emit_lib_vt or config.is_dep;
     const native_freestanding = config.target.result.os.tag == .freestanding and
         !config.target.result.cpu.arch.isWasm();
     const libghostty_vt_shared: ?buildpkg.GhosttyLibVt = shared: {
@@ -140,19 +191,27 @@ pub fn build(b: *std.Build) !void {
         break :shared try buildpkg.GhosttyLibVt.initShared(
             b,
             &mod,
+            config.is_dep,
         );
     };
     if (libghostty_vt_shared) |shared| {
-        shared.install(b.getInstallStep());
+        if (install_lib_vt) shared.install(b.getInstallStep());
 
         const type_schema_test = b.addSystemCommand(&.{"python3"});
         type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
         type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
         type_schema_test.addFileArg(shared.output);
         test_lib_vt_schema_step.dependOn(&type_schema_test.step);
+
+        shared.addAbiCheck(b, config.target.result, test_lib_vt_abi_step, update_lib_vt_abi_step);
     } else {
         _ = b.addFail("cannot execute the ABI manifest for a native freestanding target");
     }
+
+    // The packages libghostty-vt uses, for gen-lib-vt-deps.sh. Defined
+    // only for library builds so app builds skip reading every package's
+    // build.zig.zon.
+    if (config.emit_lib_vt) _ = try buildpkg.LibVtPackages.init(b, mod.vt_c);
 
     // libghostty-vt static lib
     const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
@@ -163,7 +222,7 @@ pub fn build(b: *std.Build) !void {
         // If we're a dependency, we need to install everything as-is
         // so that dep.artifact("ghostty-vt-static") works.
         libghostty_vt_static.install(b.getInstallStep());
-    } else {
+    } else if (install_lib_vt) {
         // If we're not a dependency, we rename the static lib to
         // be idiomatic. On Windows, we use a distinct name to avoid
         // colliding with the DLL import library (ghostty-vt.lib).
@@ -211,7 +270,7 @@ pub fn build(b: *std.Build) !void {
     if (config.app_runtime != .none) {
         if (config.emit_exe) {
             exe.install();
-            resources.install();
+            if (resources) |v| v.install();
             if (i18n) |v| v.install();
         }
     } else if (!config.emit_lib_vt) {
@@ -254,7 +313,7 @@ pub fn build(b: *std.Build) !void {
 
             // The xcframework build always installs resources because our
             // macOS xcode project contains references to them.
-            resources.install();
+            resources.?.install();
             if (i18n) |v| v.install();
         }
 
@@ -266,7 +325,7 @@ pub fn build(b: *std.Build) !void {
                 .xcframework = &xcframework,
                 .docs = &docs,
                 .i18n = if (i18n) |v| &v else null,
-                .resources = &resources,
+                .resources = &resources.?,
             },
         );
         if (config.emit_macos_app) {
@@ -314,7 +373,7 @@ pub fn build(b: *std.Build) !void {
                     .xcframework = &xcframework_native,
                     .docs = &docs,
                     .i18n = if (i18n) |v| &v else null,
-                    .resources = &resources,
+                    .resources = &resources.?,
                 },
             );
 
@@ -360,17 +419,97 @@ pub fn build(b: *std.Build) !void {
             .name = "ghostty-vt-test",
             .root_module = mod.vt,
             .filters = test_filters,
+            .test_runner = test_runner,
         });
-        const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
-        test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_test.root_module, &config, .{});
+        addShardedTestRuns(b, &config, mod_vt_test, test_lib_vt_step, test_shards);
 
         const mod_vt_c_test = b.addTest(.{
             .name = "ghostty-vt-c-test",
-            .root_module = mod.vt_c,
+            .root_module = try buildpkg.GhosttyZig.initVtCTest(b, &config, &deps),
             .filters = test_filters,
+            .test_runner = test_runner,
         });
-        const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
-        test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
+        addShardedTestRuns(b, &config, mod_vt_c_test, test_lib_vt_step, test_shards);
+
+        // The committed version.h, the symbol version nodes in
+        // ghostty-vt.map and the version in the nix package must all match
+        // lib_version, so a version bump has to update them together. The
+        // test embeds these files, so they are all copied into one
+        // directory.
+        const version_test = version_test: {
+            const wf = b.addWriteFiles();
+            const root = wf.addCopyFile(
+                b.path("src/terminal/c/version_test.zig"),
+                "version_test.zig",
+            );
+            _ = wf.addCopyFile(
+                b.path("include/ghostty/vt/version.h"),
+                "version.h",
+            );
+            _ = wf.addCopyFile(
+                b.path("src/terminal/c/ghostty-vt.map"),
+                "ghostty-vt.map",
+            );
+            _ = wf.addCopyFile(
+                b.path("nix/libghostty-vt.nix"),
+                "libghostty-vt.nix",
+            );
+            const opts = b.addOptions();
+            opts.addOption(std.SemanticVersion, "lib_version", config.lib_version);
+            const test_mod = b.createModule(.{
+                .root_source_file = root,
+                .target = b.graph.host,
+                .optimize = .debug,
+            });
+            test_mod.addOptions("lib_version", opts);
+            break :version_test b.addTest(.{
+                .name = "ghostty-vt-version-test",
+                .root_module = test_mod,
+                .filters = test_filters,
+            });
+        };
+        test_lib_vt_step.dependOn(&b.addRunArtifact(version_test).step);
+
+        // The public headers must compile without warnings in every
+        // language standard we support, so compile a file that includes
+        // vt.h once per standard with strict warnings as errors.
+        {
+            const wf = b.addWriteFiles();
+            const c_src = wf.add("vt_h_test.c", "#include <ghostty/vt.h>\n");
+            const cpp_src = wf.add("vt_h_test.cpp", "#include <ghostty/vt.h>\n");
+            const warnings: []const []const u8 = &.{
+                "-Wall",
+                "-Wextra",
+                "-Wpedantic",
+                "-Werror",
+            };
+            const Case = struct { std: []const u8, src: std.Build.LazyPath };
+            const cases: []const Case = &.{
+                .{ .std = "c11", .src = c_src },
+                .{ .std = "c23", .src = c_src },
+                .{ .std = "c++17", .src = cpp_src },
+            };
+            for (cases) |case| {
+                const flags = std.mem.concat(b.allocator, []const u8, &.{
+                    &.{b.fmt("-std={s}", .{case.std})},
+                    warnings,
+                }) catch @panic("OOM");
+                const obj_mod = b.createModule(.{
+                    .target = b.graph.host,
+                    .optimize = .debug,
+                    .link_libc = true,
+                    .link_libcpp = std.mem.startsWith(u8, case.std, "c++"),
+                });
+                obj_mod.addIncludePath(b.path("include"));
+                obj_mod.addCSourceFile(.{ .file = case.src, .flags = flags });
+                const obj = b.addObject(.{
+                    .name = b.fmt("vt-h-{s}", .{case.std}),
+                    .root_module = obj_mod,
+                });
+                test_lib_vt_step.dependOn(&obj.step);
+            }
+        }
 
         if (config.emit_test_exe) {
             // With -Demit-test-exe, test-lib-vt-build builds only the C API
@@ -388,50 +527,96 @@ pub fn build(b: *std.Build) !void {
 
     // Tests (skip when building libghostty-vt)
     if (!config.emit_lib_vt) {
-        // Full unit tests
-        const test_exe = b.addTest(.{
-            .name = "ghostty-test",
-            .filters = test_filters,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/main.zig"),
+        // Full unit tests, built twice.
+        //
+        // ghostty-test is the normal test binary. It is built with Zig's
+        // self-hosted backend, which compiles it minutes faster than LLVM.
+        // In the Nix dev shell, its run steps start it through the
+        // shell's dynamic linker rather than patching it (see
+        // Config.addLoaderArgs).
+        //
+        // ghostty-test-valgrind holds the same tests built with LLVM, for
+        // `zig build test-valgrind`. Valgrind can't start a program
+        // through the dynamic linker, so this binary is patched with
+        // patchelf instead, and patchelf only accepts LLVM's ELF output.
+        var test_exes: [2]*std.Build.Step.Compile = undefined;
+        for (&test_exes, [_]bool{ false, true }) |*test_exe_ptr, valgrind| {
+            test_exe_ptr.* = b.addTest(.{
+                .name = if (valgrind) "ghostty-test-valgrind" else "ghostty-test",
+                .filters = test_filters,
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/main.zig"),
+                    .target = config.baselineTarget(b.graph.io),
+                    .optimize = .debug,
+                    .strip = false,
+                    .omit_frame_pointer = false,
+                    .unwind_tables = .sync,
+                }),
+                .use_llvm = if (valgrind) true else null,
+                .test_runner = test_runner,
+            });
+            _ = try deps.add(test_exe_ptr.*);
+            try c_deps.add(b, .@"ghostty-h", test_exe_ptr.*.root_module, &config, .{
                 .target = config.baselineTarget(b.graph.io),
-                .optimize = .debug,
-                .strip = false,
-                .omit_frame_pointer = false,
-                .unwind_tables = .sync,
-            }),
-            // Crash on x86_64 without this
-            .use_llvm = true,
-        });
+                .optimize = .Debug,
+            });
+            try c_deps.add(b, .@"ghostty-vt-h", test_exe_ptr.*.root_module, &config, .{
+                .target = config.baselineTarget(b.graph.io),
+                .optimize = .Debug,
+            });
+        }
+        const test_exe, const valgrind_exe = test_exes;
+
+        // The installed binary is not patched for the Nix dev shell,
+        // because patchelf can't rewrite the self-hosted backend's output.
+        // To run it there, start it through the shell's dynamic linker
+        // the same way the test run steps do (see Config.addLoaderArgs).
         if (config.emit_test_exe) {
             const test_exe_install = b.addInstallArtifact(test_exe, .{});
-            config.addPatchElf(test_exe, &test_exe_install.step);
             test_step.dependOn(&test_exe_install.step);
         }
-        _ = try deps.add(test_exe);
-
-        addGhosttyH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .debug);
 
         // Normal test running
-        const test_run = b.addRunArtifact(test_exe);
-        config.addPatchElf(test_exe, &test_run.step);
-        test_step.dependOn(&test_run.step);
+        addShardedTestRuns(b, &config, test_exe, test_step, test_shards);
 
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);
 
-        // Valgrind test running
-        const valgrind_run = b.addSystemCommand(&.{
-            "valgrind",
-            "--leak-check=full",
-            "--error-exitcode=1",
-            "--num-callers=50",
-            "--gen-suppressions=all",
-        });
-        valgrind_run.addFileArg2(b.path("valgrind.supp"), .{ .prefix = "--suppressions=" });
-        valgrind_run.addArtifactArg(test_exe);
-        config.addPatchElf(test_exe, &valgrind_run.step);
-        test_valgrind_step.dependOn(&valgrind_run.step);
+        // Valgrind test running. These are test runner steps like the
+        // normal runs above, with valgrind in front of the binary instead
+        // of the dynamic linker. A plain command step whose stdio goes to
+        // the terminal holds a global lock while it runs, so the build
+        // runner would run the shards one after another and sharding
+        // would gain nothing. As test runner steps the shards run at the
+        // same time, a failing test is reported by name, and valgrind's
+        // report on stderr is printed when each shard finishes rather
+        // than live. Valgrind's own errors exit with code 1 and fail the
+        // shard.
+        //
+        // patchelf rewrites the binary in place, so it runs once, before
+        // any shard starts. One patchelf step per shard would rewrite the
+        // file under the shards already running, and they die with
+        // SIGBUS: valgrind maps the file itself, so nothing stops the
+        // write.
+        const valgrind_patchelf = config.addPatchElf(valgrind_exe, test_valgrind_step);
+        for (0..test_shards) |shard| {
+            const valgrind_run = b.addSystemCommand(&.{
+                "valgrind",
+                "--leak-check=full",
+                "--error-exitcode=1",
+                "--num-callers=50",
+                "--gen-suppressions=all",
+            });
+            valgrind_run.producer = valgrind_exe;
+            valgrind_run.addFileArg2(b.path("valgrind.supp"), .{ .prefix = "--suppressions=" });
+            valgrind_run.addArtifactArg(valgrind_exe);
+            valgrind_run.enableTestRunnerMode();
+            if (test_shards > 1) {
+                valgrind_run.addArg(b.fmt("--shard={d}/{d}", .{ shard, test_shards }));
+            }
+            if (valgrind_patchelf) |patchelf| valgrind_run.step.dependOn(&patchelf.step);
+            test_valgrind_step.dependOn(&valgrind_run.step);
+        }
     }
 
     // update-translations does what it sounds like and updates the "pot"
@@ -443,18 +628,52 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn addGhosttyH(
+/// Makes `step` run the tests in `test_exe` as `shards` processes at
+/// once. Each process gets a `--shard=I/N` argument and runs only its
+/// share of the tests (see src/build/test_runner.zig). Nothing orders the
+/// run steps, so the build runner starts them in parallel, and it reports
+/// each failing test by name as usual.
+///
+/// For example, with `shards` set to 4 the build runs:
+///
+///     ghostty-test --shard=0/4
+///     ghostty-test --shard=1/4
+///     ghostty-test --shard=2/4
+///     ghostty-test --shard=3/4
+///
+/// With `shards` set to 1 there is no `--shard` argument, so the single
+/// process behaves exactly like Zig's default test runner. In the Nix dev
+/// shell each command starts with the shell's dynamic linker (see
+/// Config.addLoaderArgs).
+fn addShardedTestRuns(
     b: *std.Build,
-    module: *std.Build.Module,
-    target: std.Build.ResolvedTarget,
-    optimize: std.lang.Optimize,
+    config: *const buildpkg.Config,
+    test_exe: *std.Build.Step.Compile,
+    step: *std.Build.Step,
+    shards: u32,
 ) void {
-    translate_c.addImportToModule(b, "ghostty.h", module, .{
-        .source = .{ .includes = .{ .files = &.{
-            .{ .path = "ghostty.h" },
-        } } },
-        .target = target,
-        .optimize = optimize,
-        .system_include_paths = &.{b.path("include")},
-    }) catch unreachable;
+    for (0..shards) |shard| {
+        // Like b.addRunArtifact, with the loader in front of the binary.
+        const run = std.Build.Step.Run.create(b, b.fmt("run test {s}", .{test_exe.name}));
+        run.producer = test_exe;
+        config.addLoaderArgs(run);
+        run.addArtifactArg(test_exe);
+        run.enableTestRunnerMode();
+        if (shards > 1) {
+            run.addArg(b.fmt("--shard={d}/{d}", .{ shard, shards }));
+        }
+        step.dependOn(&run.step);
+    }
+}
+
+/// Returns the trimmed contents of `name` in the build root, or null if
+/// it doesn't exist.
+fn readVersionFile(b: *std.Build, name: []const u8) ?[]const u8 {
+    const content = b.root.root_dir.handle.readFileAlloc(
+        b.graph.io,
+        name,
+        b.allocator,
+        .limited(128),
+    ) catch return null;
+    return std.mem.trim(u8, content, &std.ascii.whitespace);
 }

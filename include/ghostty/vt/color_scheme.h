@@ -8,21 +8,22 @@
 #ifndef GHOSTTY_VT_COLOR_SCHEME_H
 #define GHOSTTY_VT_COLOR_SCHEME_H
 
-/** @defgroup color_scheme Color Scheme Report Encoding
+/** @addtogroup color_scheme
  *
- * Utilities for encoding color scheme reports into terminal escape
- * sequences for color scheme reporting mode (mode 2031).
+ * A color scheme report tells a program whether your terminal is light or dark.
  *
- * ## Basic Usage
- *
- * Use ghostty_color_scheme_report_encode() to encode a color scheme report
- * into a caller-provided buffer. If the buffer is too small, the function
- * returns GHOSTTY_OUT_OF_SPACE and sets the required size in the output
- * parameter.
+ * You need this when a program sets mode 2031 and expects to hear when the
+ * scheme changes. Encode the report and write it to the pty yourself. You don't
+ * need it to answer a `CSI ? 996 n` query. A terminal does that for you through
+ * a GhosttyTerminalColorSchemeFn.
  *
  * ## Example
  *
  * @snippet c-vt-color-scheme/src/main.c color-scheme-report-encode
+ *
+ * Full program: @ref c-vt-color-scheme/src/main.c
+ *
+ * See @ref guide-colors-scheme for when to send one.
  *
  * @{
  */
@@ -43,24 +44,27 @@ extern "C" {
  * The encoded bytes are identical to the terminal's internal CSI ? 996 n
  * query response.
  *
- * Hosts should gate unsolicited sends on GHOSTTY_MODE_COLOR_SCHEME_REPORT
- * (mode 2031) being set, which can be checked via the mode getters.
+ * Hosts should gate unsolicited sends on GHOSTTY_MODE_REPORT_COLOR_SCHEME
+ * (mode 2031) being set. Read it with ghostty_terminal_get() and
+ * GHOSTTY_TERMINAL_DATA_MODE.
  *
- * If the buffer is too small, the function returns GHOSTTY_OUT_OF_SPACE
- * and writes the required buffer size to @p out_written. The caller can
- * then retry with a sufficiently sized buffer.
+ * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
+ * @p out_written to the size needed. The buffer may then hold part of the
+ * sequence, which you should discard. To get the size without encoding
+ * anything, pass NULL for @p buf and 0 for @p buf_len.
  *
  * @param scheme The color scheme to encode
- * @param buf Output buffer to write the encoded sequence into (may be NULL)
- * @param buf_len Size of the output buffer in bytes
- * @param[out] out_written On success, the number of bytes written. On
- *             GHOSTTY_OUT_OF_SPACE, the required buffer size.
+ * @param buf Buffer to write the sequence into. May be NULL if @p buf_len
+ *            is 0.
+ * @param buf_len Size of @p buf in bytes
+ * @param[out] out_written The number of bytes written, or the size needed
+ *             if the result is GHOSTTY_OUT_OF_SPACE
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
- *         is too small
+ *         is too small, or GHOSTTY_INVALID_VALUE if @p out_written is NULL
  */
 GHOSTTY_API GhosttyResult ghostty_color_scheme_report_encode(
     GhosttyColorScheme scheme,
-    char* buf,
+    uint8_t* buf,
     size_t buf_len,
     size_t* out_written);
 

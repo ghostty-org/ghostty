@@ -7,34 +7,23 @@
 #ifndef GHOSTTY_VT_SGR_H
 #define GHOSTTY_VT_SGR_H
 
-/** @defgroup sgr SGR Parser
+/** @addtogroup sgr
  *
- * SGR (Select Graphic Rendition) attribute parser.
+ * The SGR parser turns the parameters of a Select Graphic Rendition sequence
+ * into text attributes, one at a time.
  *
- * SGR sequences are the syntax used to set styling attributes such as
- * bold, italic, underline, and colors for text in terminal emulators.
- * For example, you may be familiar with sequences like `ESC[1;31m`. The
- * `1;31` is the SGR attribute list.
- *
- * The parser processes SGR parameters from CSI sequences (e.g., `ESC[1;31m`)
- * and returns individual text attributes like bold, italic, colors, etc.
- * It supports both semicolon (`;`) and colon (`:`) separators, possibly mixed,
- * and handles SGR color attributes including 8-color, 16-color, 256-color,
- * direct RGB, underline color, and reset forms. Color values are returned
- * using the shared @ref color types; applications that need to parse Ghostty
- * config/theme color strings, generate palettes, inspect X11 color names, or
- * calculate luminance and contrast should use the @ref color APIs directly.
- *
- * ## Basic Usage
- *
- * 1. Create a parser instance with ghostty_sgr_new()
- * 2. Set SGR parameters with ghostty_sgr_set_params()
- * 3. Iterate through attributes using ghostty_sgr_next()
- * 4. Free the parser with ghostty_sgr_free() when done
+ * SGR is how programs set bold, italic, underline and colors. In `ESC[1;31m`,
+ * `1;31` is the attribute list. A terminal parses these by itself, so you only
+ * need this for SGR sequences outside of one. It accepts semicolons and colons,
+ * even mixed. Colors come back as @ref color types.
  *
  * ## Example
  *
  * @snippet c-vt-sgr/src/main.c sgr-basic
+ *
+ * Full program: @ref c-vt-sgr/src/main.c
+ *
+ * To read the styles of a terminal's cells, see @ref style.
  *
  * @{
  */
@@ -154,6 +143,10 @@ typedef union {
  * A complete SGR attribute with both its type tag and associated value.
  * Always check the tag field to determine which value union member is valid.
  *
+ * The parser handles SGR color attributes including 8-color, 16-color,
+ * 256-color, direct RGB, underline color, and reset forms. Color values use the
+ * shared @ref color types.
+ *
  * Attributes without associated data (e.g., GHOSTTY_SGR_ATTR_BOLD) can be
  * identified by tag alone; the value union is not used for these and
  * the memory in the value field is undefined.
@@ -174,7 +167,8 @@ typedef struct {
  *
  * @param allocator Pointer to the allocator to use for memory management, or
  * NULL to use the default allocator
- * @param parser Pointer to store the created parser handle
+ * @param parser Pointer to store the created parser handle (NULL returns
+ *               GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, or an error code on failure
  *
  * @ingroup sgr
@@ -202,7 +196,7 @@ GHOSTTY_API void ghostty_sgr_free(GhosttySgrParser parser);
  * After calling this, ghostty_sgr_next() will start from the beginning
  * of the parameter list again.
  *
- * @param parser The parser handle to reset, must not be NULL
+ * @param parser The parser handle to reset (NULL does nothing)
  *
  * @ingroup sgr
  */
@@ -224,13 +218,14 @@ GHOSTTY_API void ghostty_sgr_reset(GhosttySgrParser parser);
  * If separators is NULL, all parameters are assumed to be semicolon-separated.
  *
  * This function makes an internal copy of the parameter and separator data,
- * so the caller can safely free or modify the input arrays after this call.
+ * so you can safely free or modify the input arrays after this call.
  *
  * After calling this function, the parser is automatically reset and ready
  * to iterate from the beginning.
  *
- * @param parser The parser handle, must not be NULL
- * @param params Array of SGR parameter values
+ * @param parser The parser handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param params Array of SGR parameter values (NULL returns
+ * GHOSTTY_INVALID_VALUE)
  * @param separators Optional array of separator characters (';' or ':'), or
  * NULL
  * @param len Number of parameters (and separators if provided)
@@ -250,8 +245,8 @@ GHOSTTY_API GhosttyResult ghostty_sgr_set_params(GhosttySgrParser parser,
  * Call this function repeatedly until it returns false to process
  * all attributes in the sequence.
  *
- * @param parser The parser handle, must not be NULL
- * @param attr Pointer to store the next attribute
+ * @param parser The parser handle (NULL returns false)
+ * @param attr Pointer to store the next attribute (NULL returns false)
  * @return true if an attribute was returned, false if no more attributes
  *
  * @ingroup sgr
@@ -297,12 +292,13 @@ GHOSTTY_API size_t ghostty_sgr_unknown_partial(GhosttySgrUnknown unknown,
  * this is. Primarily useful in WebAssembly environments where accessing
  * struct fields directly is difficult.
  *
- * @param attr The SGR attribute
- * @return The attribute tag
+ * @param attr Pointer to the SGR attribute (may be NULL)
+ * @return The attribute tag, or GHOSTTY_SGR_ATTR_UNSET if `attr` is NULL
  *
  * @ingroup sgr
  */
-GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(GhosttySgrAttribute attr);
+GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(
+    const GhosttySgrAttribute* attr);
 
 /**
  * Get the value from an SGR attribute.
@@ -311,7 +307,7 @@ GHOSTTY_API GhosttySgrAttributeTag ghostty_sgr_attribute_tag(GhosttySgrAttribute
  * the tag to determine which field of the union is valid. Primarily useful in
  * WebAssembly environments where accessing struct fields directly is difficult.
  *
- * @param attr Pointer to the SGR attribute
+ * @param attr Pointer to the SGR attribute (NULL returns NULL)
  * @return Pointer to the attribute value union
  *
  * @ingroup sgr

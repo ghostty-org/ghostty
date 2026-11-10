@@ -555,15 +555,13 @@ fn installRemoteTerminfo(
     // Keep SSH authentication messages visible, including keyboard-interactive
     // instructions while stdin carries terminfo. Only remote installer stderr
     // is suppressed unless --verbose.
+    //
+    // The remote login shell may not be POSIX (e.g. tcsh, nushell, elvish),
+    // so run under sh. Use a single line to avoid quoting+newline issues.
     const remote_script = if (opts.verbose)
-        \\command -v tic >/dev/null 2>&1 || exit 1
-        \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - && exit 0
-        \\exit 1
+        "sh -c 'tic -x -o ~/.terminfo - && infocmp -x xterm-ghostty >/dev/null'"
     else
-        \\command -v tic >/dev/null 2>&1 || exit 1
-        \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
-        \\exit 1
-    ;
+        "sh -c 'tic -x -o ~/.terminfo - 2>/dev/null && infocmp -x xterm-ghostty >/dev/null 2>&1'";
 
     // Set up an SSH ControlMaster scoped to this single install:
     //   - ControlMaster=yes makes our client also act as the master.

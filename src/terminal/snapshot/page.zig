@@ -1017,20 +1017,27 @@ test "framed PAGE keeps every link of a map larger than the hint" {
         .id = .{ .implicit = 1 },
         .uri = "https://example.com/large",
     });
+    // In Debug builds every setHyperlink checks the whole page. Pause the
+    // checks while linking tens of thousands of cells, and check once after.
     var count: usize = 0;
-    outer: for (0..rows) |y| {
-        for (0..cols) |x| {
-            if (count == linked) break :outer;
-            const rac = page.getRowAndCell(x, y);
-            rac.cell.* = .{
-                .content_tag = .codepoint,
-                .content = .{ .codepoint = .{ .data = 'L' } },
-            };
-            if (count > 0) page.hyperlink_set.use(page.memory, id);
-            try page.setHyperlink(rac.row, rac.cell, id);
-            count += 1;
+    {
+        page.pauseIntegrityChecks(true);
+        defer page.pauseIntegrityChecks(false);
+        outer: for (0..rows) |y| {
+            for (0..cols) |x| {
+                if (count == linked) break :outer;
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = 'L' } },
+                };
+                if (count > 0) page.hyperlink_set.use(page.memory, id);
+                try page.setHyperlink(rac.row, rac.cell, id);
+                count += 1;
+            }
         }
     }
+    try page.verifyIntegrity(std.testing.allocator);
     try std.testing.expectEqual(linked, page.hyperlinkCount());
 
     var encoded: std.Io.Writer.Allocating = .init(std.testing.allocator);

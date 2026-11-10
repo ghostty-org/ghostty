@@ -55,13 +55,13 @@ int main() {
   // This scrolls the viewport to the match if it isn't visible, per
   // the GHOSTTY_SEARCH_OPT_SELECT_SCROLL policy.
   while (true) {
-    result = ghostty_search_set(search, GHOSTTY_SEARCH_OPT_SELECT_NEXT, NULL);
+    result = ghostty_search_select_next(search);
     if (result != GHOSTTY_SUCCESS) break;
 
     // Read the selection state in one call. Index 0 is the newest
     // match, so a "k of n" find bar renders index + 1.
     size_t idx = 0;
-    GhosttySelection match = GHOSTTY_INIT_SIZED(GhosttySelection);
+    GhosttySelection match = {0};
     const GhosttySearchData keys[] = {
       GHOSTTY_SEARCH_DATA_SELECTED_INDEX,
       GHOSTTY_SEARCH_DATA_SELECTED_MATCH,

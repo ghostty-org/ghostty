@@ -48,6 +48,10 @@ installed_exe_path: ?[]const u8 = null,
 /// Binary properties
 pie: bool = false,
 strip: bool = false,
+/// Whether to strip debug info and symbols from libghostty-vt. Both
+/// this and `strip` come from the `-Dstrip` option, but their defaults
+/// differ, so they are stored separately.
+strip_lib_vt: bool = false,
 patchelf: ?PatchElf = null,
 
 /// Artifacts
@@ -78,7 +82,26 @@ is_dep: bool = false,
 /// Environmental properties
 env: *const std.process.Environ.Map,
 
-pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Config {
+/// libghostty-vt releases are tagged `vt-X.Y.Z`. App releases are `vX.Y.Z`.
+const lib_tag_prefix = "vt-";
+
+/// The versions that `init` starts from. A version file, when present,
+/// replaces its constant.
+pub const Versions = struct {
+    /// From build.zig.zon.
+    app: []const u8,
+
+    /// The VERSION file in an app source tarball.
+    app_file: ?[]const u8 = null,
+
+    /// The `lib_version` constant in build.zig.
+    lib: []const u8,
+
+    /// The LIB_VERSION file in a libghostty-vt source tarball.
+    lib_file: ?[]const u8 = null,
+};
+
+pub fn init(b: *std.Build, versions: Versions) !Config {
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
     const optimize = b.standardOptimizeOption(.{});
@@ -89,8 +112,12 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     const emit_lib_vt = b.option(
         bool,
         "emit-lib-vt",
-        "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
-    ) orelse is_dep;
+        "Build and install libghostty-vt only. Disables the xcframework, " ++
+            "macOS app, and docs by default. Without this, libghostty-vt " ++
+            "is not installed unless Ghostty is a dependency.",
+    ) orelse (is_dep or
+        // A libghostty-vt source tarball has LIB_VERSION but no VERSION.
+        (versions.lib_file != null and versions.app_file == null));
     const target = target: {
         var result = b.standardTargetOptions(.{});
 
@@ -289,7 +316,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         // If an explicit version is given, we always use it.
         try std.SemanticVersion.parse(v)
     else version: {
-        const app_version = try std.SemanticVersion.parse(appVersion);
+        const app_version = try std.SemanticVersion.parse(versions.app_file orelse versions.app);
 
         // Is ghostty a dependency? If so, skip git detection.
         if (is_dep) break :version .{
@@ -313,25 +340,28 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
 
             else => return err,
         };
-        if (vsn.tag) |tag| {
+        for (vsn.tags) |tag| {
+            // libghostty-vt release tags are checked by libVersion.
+            if (std.mem.startsWith(u8, tag, lib_tag_prefix)) continue;
+
             // Tip releases behave just like any other pre-release so we skip.
-            if (!std.mem.eql(u8, tag, "tip")) {
-                const expected = b.fmt("v{d}.{d}.{d}", .{
-                    app_version.major,
-                    app_version.minor,
-                    app_version.patch,
-                });
+            if (std.mem.eql(u8, tag, "tip")) continue;
 
-                if (!std.mem.eql(u8, tag, expected)) {
-                    @panic("tagged releases must be in vX.Y.Z format matching build.zig");
-                }
+            const expected = b.fmt("v{d}.{d}.{d}", .{
+                app_version.major,
+                app_version.minor,
+                app_version.patch,
+            });
 
-                break :version .{
-                    .major = app_version.major,
-                    .minor = app_version.minor,
-                    .patch = app_version.patch,
-                };
+            if (!std.mem.eql(u8, tag, expected)) {
+                @panic("tagged releases must be in vX.Y.Z format matching build.zig");
             }
+
+            break :version .{
+                .major = app_version.major,
+                .minor = app_version.minor,
+                .patch = app_version.patch,
+            };
         }
 
         break :version .{
@@ -349,13 +379,14 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         []const u8,
         "lib-version-string",
         "A specific version string to use for the build of libghostty-vt. " ++
-            "If not specified, git will be used. This must be a semantic version.",
+            "If not specified, the LIB_VERSION file or git will be used. " ++
+            "This must be a semantic version.",
     );
 
     config.lib_version = if (lib_version_string) |v|
         try std.SemanticVersion.parse(v)
     else
-        try std.SemanticVersion.parse(libVersion);
+        try libVersion(b, versions, is_dep);
 
     // The install prefix is only known once the build runs, too late to
     // write it into the files that launch Ghostty, so a build installing
@@ -429,6 +460,15 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
                 PatchElf.setRpath(&config, ld_library_path);
             }
         }
+
+        // The dev shell also exports the library path with every
+        // propagated library, which the test binaries need (see
+        // addLoaderArgs and nix/devShell.nix).
+        if (env.get("GHOSTTY_TEST_LIBRARY_PATH")) |path| {
+            if (path.len > 0) {
+                PatchElf.setTestLibraryPath(&config, path);
+            }
+        }
     }
 
     config.pie = b.option(
@@ -437,15 +477,26 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "Build a Position Independent Executable. Default true for system packages.",
     ) orelse system_package;
 
-    config.strip = b.option(
+    const strip = b.option(
         bool,
         "strip",
-        "Strip the final executable. Default true for fast and small releases",
-    ) orelse switch (optimize) {
+        "Strip debug info and symbols from the final artifacts. For the " ++
+            "app, defaults to true for ReleaseFast and ReleaseSmall. For " ++
+            "libghostty-vt, defaults to true only for ReleaseSmall, so " ++
+            "packagers can split out debug info.",
+    );
+    config.strip = strip orelse switch (optimize) {
         .debug => false,
         .safe => false,
         .fast, .small => true,
     };
+
+    // Distributions usually ship a library's debug info in a separate
+    // package, which they can only do if the build leaves it in. So
+    // libghostty-vt keeps its debug info unless asked otherwise.
+    // ReleaseSmall is the exception. Zig strips it by default, and
+    // keeping that means the wasm build stays small.
+    config.strip_lib_vt = strip orelse (optimize == .small);
 
     //---------------------------------------------------------------
     // Artifacts to Emit
@@ -552,7 +603,16 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         bool,
         "emit-themes",
         "Install bundled iTerm2-Color-Schemes Ghostty themes",
-    ) orelse true;
+    ) orelse switch (target.result.os.tag) {
+        // There is no Windows app to install themes for, and asking for the
+        // themes package downloads and unpacks it on every build, whichever
+        // steps were requested. Some theme names (e.g. ones with a colon)
+        // aren't valid Windows file names, so unpacking it there fails and
+        // takes builds that never use the themes, such as
+        // `zig build test-lib-vt`, down with it.
+        .windows => false,
+        else => true,
+    };
 
     config.emit_webdata = b.option(
         bool,
@@ -563,18 +623,16 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.emit_xcframework = b.option(
         bool,
         "emit-xcframework",
-        "Build and install the xcframework for the macOS library.",
+        "Build and install the xcframework for the macOS library. With " ++
+            "-Demit-lib-vt, this builds the libghostty-vt xcframework " ++
+            "instead. That requires Xcode, so it defaults to false.",
     ) orelse emit_xcfw: {
         if (!builtin.target.os.tag.isDarwin() or target.result.os.tag != .macos)
             break :emit_xcfw false;
-        if (config.emit_lib_vt) {
-            // In lib-vt mode default to whether xcodebuild is available,
-            // since xcodebuild is required to produce the XCFramework.
-            const path = expandPath(b.graph.io, b.allocator, &b.graph.environ_map, "xcodebuild") catch
-                break :emit_xcfw false;
-            defer if (path) |p| b.allocator.free(p);
-            break :emit_xcfw path != null;
-        }
+        // Building the libghostty-vt xcframework needs xcodebuild, and
+        // only Apple app developers use it. Someone packaging the plain
+        // libraries on macOS shouldn't need Xcode, so it is opt-in.
+        if (config.emit_lib_vt) break :emit_xcfw false;
         break :emit_xcfw config.app_runtime == .none and
             (!config.emit_bench and
                 !config.emit_test_exe and
@@ -645,6 +703,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
 const PatchElf = struct {
     interp: ?[]const u8 = null,
     rpath: ?[]const u8 = null,
+    test_library_path: ?[]const u8 = null,
 
     fn setInterp(config: *Config, interp: []const u8) void {
         if (config.patchelf) |*patchelf| {
@@ -663,22 +722,78 @@ const PatchElf = struct {
 
         config.patchelf = .{ .rpath = rpath };
     }
+
+    fn setTestLibraryPath(config: *Config, path: []const u8) void {
+        if (config.patchelf) |*patchelf| {
+            patchelf.test_library_path = path;
+            return;
+        }
+
+        config.patchelf = .{ .test_library_path = path };
+    }
 };
 
 /// Add a patchelf step for the supplied `artifact`, depending on the supplied
-/// `step`, if `patchelf` is present in the config.
-pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) void {
+/// `step`, if `patchelf` is present in the config. Returns the patchelf step
+/// so that other steps can depend on it too. patchelf rewrites the artifact
+/// in place, so patch each artifact once and share the step.
+pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) ?*std.Build.Step.Run {
     const b = artifact.step.owner;
     std.debug.assert(b == step.owner);
 
-    if (self.patchelf) |patchelf| {
-        const run = std.Build.Step.Run.create(b, "patchelf");
-        run.addArgs(&.{"patchelf"});
-        if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
-        if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
-        run.addArtifactArg(artifact);
-        step.dependOn(&run.step);
-    }
+    const patchelf = self.patchelf orelse return null;
+    const run = std.Build.Step.Run.create(b, "patchelf");
+    run.addArgs(&.{"patchelf"});
+    if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
+    if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
+    run.addArtifactArg(artifact);
+    step.dependOn(&run.step);
+    return run;
+}
+
+/// Starts `run`'s command with the Nix dev shell's dynamic linker and
+/// library path, so the program finds its libraries in the Nix store
+/// the way a binary patched by addPatchElf would. Call this before
+/// adding the program itself. For example, a run of ghostty-test
+/// becomes:
+///
+///     /nix/store/...-glibc/lib/ld-linux-x86-64.so.2 \
+///         --inhibit-rpath "" \
+///         --library-path /nix/store/...-glibc/lib:/nix/store/...-freetype/lib:... \
+///         ghostty-test
+///
+/// Zig records every library directory it searched as the binary's
+/// RUNPATH, and on a host with a system glibc (any non-NixOS Linux,
+/// including the CI runners) that includes the system library
+/// directory. Followed, it hands the program the system libc.so.6, or a
+/// system libpango with dependencies that aren't there, and the program
+/// dies at startup. `--inhibit-rpath ""` makes ld.so ignore the
+/// program's own RUNPATH, so its libraries all come from the library
+/// path: the loader's directory for glibc, then the dev shell's
+/// GHOSTTY_TEST_LIBRARY_PATH, which unlike LD_LIBRARY_PATH also has the
+/// libraries that the inputs propagate (gtk4 propagates pango, cairo
+/// and more, and the self-hosted linker records every one of them as a
+/// direct dependency). The libraries' own RUNPATHs still apply, which
+/// is how their dependencies are found. patchelf got the same effect by
+/// replacing the RUNPATH outright.
+///
+/// Use this for binaries that patchelf can't rewrite, such as test
+/// binaries built by Zig's self-hosted x86_64 backend. They can't be
+/// built with the right dynamic linker either, because Zig 0.17 ignores
+/// one set on the target query. Outside the Nix dev shell there is no
+/// dynamic linker to add, so this does nothing and the program runs
+/// as is.
+pub fn addLoaderArgs(self: *const Config, run: *std.Build.Step.Run) void {
+    const patchelf = self.patchelf orelse return;
+    const interp = patchelf.interp orelse return;
+    run.addArgs(&.{ interp, "--inhibit-rpath", "" });
+    const glibc_lib = std.fs.path.dirname(interp) orelse return;
+    const b = run.step.owner;
+    const libs = patchelf.test_library_path orelse patchelf.rpath;
+    run.addArgs(&.{ "--library-path", if (libs) |path|
+        b.fmt("{s}:{s}", .{ glibc_lib, path })
+    else
+        glibc_lib });
 }
 
 /// Configure the build options with our values.
@@ -810,6 +925,70 @@ pub fn fromOptions() Config {
 pub fn omitFramePointer(self: *const Config) bool {
     if (self.target.result.os.tag.isDarwin()) return false;
     return self.strip;
+}
+
+/// Returns the libghostty-vt version when `-Dlib-version-string` isn't set.
+///
+/// A LIB_VERSION file is used as is, and so is `lib_version` when Ghostty
+/// is a dependency or git isn't available. Otherwise the version depends
+/// on the commit's `vt-` tag. With `lib_version = "0.1.0-dev"`:
+///
+///   | Commit                 | Version             |
+///   | ---------------------- | ------------------- |
+///   | Tagged `vt-0.1.0`      | 0.1.0               |
+///   | Tagged `vt-0.2.0`      | panic, tag mismatch |
+///   | Untagged, at c7f68a7f4 | 0.1.0-dev+c7f68a7f4 |
+///
+/// The untagged version leaves out the branch name, unlike the app
+/// version, so it doesn't change when switching branches.
+fn libVersion(
+    b: *std.Build,
+    versions: Versions,
+    is_dep: bool,
+) !std.SemanticVersion {
+    if (versions.lib_file) |v| return try std.SemanticVersion.parse(v);
+
+    const lib_version = try std.SemanticVersion.parse(versions.lib);
+    if (is_dep) return lib_version;
+
+    const vsn = GitVersion.detect(b) catch |err| switch (err) {
+        error.GitNotFound,
+        error.GitNotRepository,
+        => return lib_version,
+
+        else => return err,
+    };
+
+    for (vsn.tags) |tag| {
+        if (!std.mem.startsWith(u8, tag, lib_tag_prefix)) continue;
+
+        const expected = b.fmt("{s}{d}.{d}.{d}", .{
+            lib_tag_prefix,
+            lib_version.major,
+            lib_version.minor,
+            lib_version.patch,
+        });
+
+        if (!std.mem.eql(u8, tag, expected)) std.debug.panic(
+            "libghostty-vt release tag {s} doesn't match lib_version " ++
+                "\"{s}\" in build.zig. Expected the tag {s}.",
+            .{ tag, versions.lib, expected },
+        );
+
+        return .{
+            .major = lib_version.major,
+            .minor = lib_version.minor,
+            .patch = lib_version.patch,
+        };
+    }
+
+    return .{
+        .major = lib_version.major,
+        .minor = lib_version.minor,
+        .patch = lib_version.patch,
+        .pre = lib_version.pre orelse "dev",
+        .build = vsn.short_hash,
+    };
 }
 
 /// Returns the minimum OS version for the given OS tag. This shouldn't

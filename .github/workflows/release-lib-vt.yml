@@ -1,0 +1,1155 @@
+# Publishes a libghostty-vt release from a `vt-X.Y.Z` tag. The app has its
+# own `vX.Y.Z` tags and its own workflow, release-tag.yml.
+#
+# Cutting a release
+#
+#   Tag a commit and push the tag:
+#
+#     git tag -a vt-1.0.0 -m "libghostty-vt 1.0.0"
+#     git push origin vt-1.0.0
+#
+#   The tag must match lib_version in build.zig, minus any suffix. With
+#   lib_version = "1.0.0-dev", the tag is vt-1.0.0. build.zig doesn't
+#   change for a release: the build reads the version from the tag, and
+#   fails if the tag and lib_version disagree (see Config.libVersion).
+#
+#   The push starts this workflow. It builds every file from the tag and
+#   uploads them to https://release.files.ghostty.org/libghostty-vt/1.0.0/.
+#   There is no GitHub Release.
+#
+# Rehearsing a release
+#
+#   A manual run with a version and upload=false builds the branch it is
+#   started on as if it were that release, without a tag. Every file gets
+#   the release's name, such as libghostty-vt-1.0.0.tar.gz, and the run
+#   checks those names the same way a release does. The files are kept as
+#   workflow artifacts and nothing is published:
+#
+#     gh workflow run release-lib-vt.yml --ref main -f version=vt-1.0.0
+#
+#   The version must still match lib_version, so vt-1.0.0 only rehearses
+#   from a branch where lib_version is "1.0.0" or "1.0.0-dev". The builds
+#   take it through -Dlib-version-string instead of reading a tag.
+#
+# Dry run
+#
+#   A manual run without a version builds the branch it is started on with
+#   lib_version as it stands. On main that gives -dev files, such as
+#   libghostty-vt-1.0.0-dev.tar.gz. Nothing is published:
+#
+#     gh workflow run release-lib-vt.yml --ref main
+#
+# Publishing an existing tag again
+#
+#   For example after a run failed partway, start the workflow by hand with
+#   the tag and upload=true. It rebuilds from the tag and publishes:
+#
+#     gh workflow run release-lib-vt.yml -f version=vt-1.0.0 -f upload=true
+#
+# Files
+#
+#   Every run makes these files, where V is the version, such as 1.0.0.
+#   Each file is signed with minisign, and the signature sits next to it
+#   with .minisig added to the name:
+#
+#     libghostty-vt-V.tar.gz                 source tarball
+#     libghostty-vt-V-deps.tar.gz            Zig packages for an offline build
+#     ghostty-vt-V.xcframework.zip           static libraries for Apple platforms
+#     ghostty-vt-V.wasm                      WebAssembly, ReleaseFast
+#     ghostty-vt-V-small.wasm                WebAssembly, ReleaseSmall
+#     ghostty-vt-V-x86_64-windows-gnu.zip    DLL and libraries for Windows x64
+#     ghostty-vt-V-aarch64-windows-gnu.zip   DLL and libraries for Windows on Arm
+#     libghostty-vt-V-docs.zip               C API reference in HTML
+#
+#   A release also publishes SHA256SUMS, the checksums of these files.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The release to build, such as vt-1.0.0. With upload, the tag must exist and is what gets built. Without upload, the selected branch is built under this version as a rehearsal. Leave empty for a plain dry run."
+        required: false
+      upload:
+        description: "Publish the release: upload the files to release.files.ghostty.org. Leave unset for a dry run."
+        type: boolean
+        default: false
+
+  push:
+    tags:
+      - "vt-[0-9]+.[0-9]+.[0-9]+"
+
+name: Release libghostty-vt
+
+# We must only run one release workflow at a time to prevent corrupting
+# our release artifacts.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  # Decides what this run builds, under which version, and whether it
+  # publishes. There are four kinds of run:
+  #
+  #   run                            checks out      version
+  #   tag push                       the tag         the tag without vt-
+  #   manual, version, upload=true   the tag         the tag without vt-
+  #   manual, version, upload=false  its own commit  the input without vt-
+  #   manual, no version             its own commit  lib_version as it is
+  #
+  # Only the first two publish, and only they require the tag to exist.
+  #
+  # Its outputs:
+  #
+  #   release             "true" if this run publishes
+  #   ref                 what every job checks out
+  #   tag                 the tag or the version input, such as vt-1.0.0
+  #                       (empty for a plain dry run)
+  #   version             the version every file is named with, such as
+  #                       1.0.0 or 1.0.0-dev
+  #   lib_version_string  the version to pass to the builds with
+  #                       -Dlib-version-string, set only for a rehearsal
+  setup:
+    runs-on: namespace-profile-ghostty-sm
+    outputs:
+      release: ${{ steps.mode.outputs.release }}
+      ref: ${{ steps.mode.outputs.ref }}
+      tag: ${{ steps.mode.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      lib_version_string: ${{ steps.version.outputs.lib_version_string }}
+    steps:
+      - name: Pick the Mode
+        id: mode
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_UPLOAD: ${{ github.event.inputs.upload }}
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG=${GITHUB_REF#refs/tags/}
+            RELEASE=true
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG=$INPUT_VERSION
+            if [[ "$INPUT_UPLOAD" == "true" ]]; then
+              RELEASE=true
+              if [[ -z "$TAG" ]]; then
+                echo "Error: upload needs a version, such as vt-1.0.0." >&2
+                exit 1
+              fi
+            else
+              RELEASE=false
+            fi
+          else
+            echo "Error: Unsupported event type."
+            exit 1
+          fi
+
+          if [[ -n "$TAG" && ! "$TAG" =~ ^vt-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must follow the format vt-X.Y.Z (e.g., vt-1.0.0)."
+            exit 1
+          fi
+
+          # A release builds the tag. Every other run builds its own commit.
+          if [[ "$RELEASE" == "true" ]]; then
+            REF=refs/tags/$TAG
+          else
+            REF=$GITHUB_SHA
+          fi
+          {
+            echo "release=$RELEASE"
+            echo "ref=$REF"
+            echo "tag=$TAG"
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.mode.outputs.ref }}
+          # Fetch all history and tags so the tag check below sees them.
+          fetch-depth: 0
+
+      # Reads lib_version from build.zig with the regular expression
+      # CMakeLists.txt uses. A tag or version input must match its X.Y.Z:
+      # vt-1.0.0 goes with "1.0.0-dev" or "1.0.0". The build would also
+      # reject a mismatched tag, but only after every job has set up Nix
+      # and Zig. Checking here stops the run early, with a clearer message.
+      - name: Pick the Version
+        id: version
+        env:
+          RELEASE: ${{ steps.mode.outputs.release }}
+          TAG: ${{ steps.mode.outputs.tag }}
+        run: |
+          lib_version=$(sed -nE 's/^const lib_version = "([^"]+)";.*/\1/p' build.zig)
+          lib_xyz=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<< "$lib_version" | head -n 1)
+          if [[ -z "$lib_xyz" ]]; then
+            echo "Error: could not read lib_version from build.zig." >&2
+            exit 1
+          fi
+
+          if [[ -z "$TAG" ]]; then
+            VERSION=$lib_version
+            LIB_VERSION_STRING=
+          else
+            VERSION=${TAG#vt-}
+            if [[ "$VERSION" != "$lib_xyz" ]]; then
+              echo "Error: $TAG doesn't match lib_version \"$lib_version\" in build.zig." >&2
+              exit 1
+            fi
+            if [[ "$RELEASE" == "true" ]]; then
+              if ! git tag --points-at HEAD | grep -qxF "$TAG"; then
+                echo "Error: the tag $TAG isn't on the checked-out commit." >&2
+                exit 1
+              fi
+              LIB_VERSION_STRING=
+            else
+              LIB_VERSION_STRING=$VERSION
+            fi
+          fi
+          {
+            echo "version=$VERSION"
+            echo "lib_version_string=$LIB_VERSION_STRING"
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  # Builds the source tarball and checks it with `zig build distcheck`,
+  # which unpacks it, runs the tests and builds it with CMake.
+  #
+  # Every job names its files with the version from setup, so the tarball
+  # has to carry exactly that name too.
+  source-tarball:
+    runs-on: namespace-profile-ghostty-md
+    needs: [setup]
+    env:
+      TAG: ${{ needs.setup.outputs.tag }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      LIB_VERSION_STRING: ${{ needs.setup.outputs.lib_version_string }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Check the tag is on HEAD
+        if: needs.setup.outputs.release == 'true'
+        run: git tag --points-at HEAD | grep -qxF "$TAG"
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # dist makes exactly one tarball, and it must be named after the
+      # version, such as libghostty-vt-1.0.0.tar.gz. On a release, any other
+      # name, such as libghostty-vt-1.0.0-dev.tar.gz, means the build didn't
+      # see the tag. A rehearsal passes the version in with
+      # -Dlib-version-string instead of a tag.
+      - name: Create Tarball
+        run: |
+          rm -rf zig-out/dist
+          nix develop -c zig build distcheck -Demit-lib-vt \
+            ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+          ls zig-out/dist
+          shopt -s nullglob
+          tarballs=(zig-out/dist/libghostty-vt-*.tar.gz)
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "Error: expected one libghostty-vt tarball, found ${#tarballs[@]}." >&2
+            exit 1
+          fi
+          name=$(basename "${tarballs[0]}")
+          if [[ "$name" != "libghostty-vt-${VERSION}.tar.gz" ]]; then
+            echo "Error: built $name, expected libghostty-vt-${VERSION}.tar.gz." >&2
+            exit 1
+          fi
+          cp "${tarballs[0]}" .
+
+      - name: Sign Tarball
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "libghostty-vt-${VERSION}.tar.gz" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-tarball
+          path: |-
+            libghostty-vt-${{ env.VERSION }}.tar.gz
+            libghostty-vt-${{ env.VERSION }}.tar.gz.minisig
+
+  # Builds the dependency tarball with `zig build dist-deps`. It contains
+  # the Zig packages that deps/libghostty-vt.txt lists, already unpacked,
+  # so packagers can build with `zig build --system <unpacked dir>` and no
+  # network. It unpacks to libghostty-vt-X.Y.Z-deps/, with one directory
+  # per package, named by its hash.
+  #
+  # Like the source tarball, it must be named after the version from setup.
+  deps-tarball:
+    runs-on: namespace-profile-ghostty-sm
+    needs: [setup]
+    env:
+      TAG: ${{ needs.setup.outputs.tag }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      LIB_VERSION_STRING: ${{ needs.setup.outputs.lib_version_string }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Check the tag is on HEAD
+        if: needs.setup.outputs.release == 'true'
+        run: git tag --points-at HEAD | grep -qxF "$TAG"
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # dist-deps fetches into its own empty directory, so the global Zig
+      # cache can't add anything to the tarball. It fails by itself if the
+      # packages it fetched don't match the list.
+      - name: Create Dependency Tarball
+        run: |
+          rm -rf zig-out/dist
+          nix develop -c zig build dist-deps -Demit-lib-vt \
+            ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+          ls -l zig-out/dist
+          shopt -s nullglob
+          tarballs=(zig-out/dist/libghostty-vt-*-deps.tar.gz)
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "Error: expected one dependency tarball, found ${#tarballs[@]}." >&2
+            exit 1
+          fi
+          name=$(basename "${tarballs[0]}")
+          if [[ "$name" != "libghostty-vt-${VERSION}-deps.tar.gz" ]]; then
+            echo "Error: built $name, expected libghostty-vt-${VERSION}-deps.tar.gz." >&2
+            exit 1
+          fi
+          cp "${tarballs[0]}" .
+
+      # Checks the file that will be published, separately from the build:
+      #
+      #   - Every entry is inside libghostty-vt-X.Y.Z-deps/.
+      #   - Each directory in it is a package hash from deps/packages.json.
+      #   - There is one directory for each line of deps/libghostty-vt.txt.
+      - name: Check Dependency Tarball
+        run: |
+          top="libghostty-vt-${VERSION}-deps"
+          tar -tzf "$top.tar.gz" > entries
+          if grep -v "^$top/" entries; then
+            echo "Error: the entries above are outside $top/." >&2
+            exit 1
+          fi
+          cut -d/ -f2 entries | grep -v '^$' | sort -u > packages
+          cat packages
+          while read -r hash; do
+            if ! grep -qF "  \"$hash\": {" deps/packages.json; then
+              echo "Error: $hash is not a package in deps/packages.json." >&2
+              exit 1
+            fi
+          done < packages
+          listed=$(grep -c . deps/libghostty-vt.txt)
+          if [[ "$(wc -l < packages)" -ne "$listed" ]]; then
+            echo "Error: expected $listed packages, found $(wc -l < packages)." >&2
+            exit 1
+          fi
+          rm entries packages
+
+      - name: Sign Dependency Tarball
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "libghostty-vt-${VERSION}-deps.tar.gz" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deps-tarball
+          path: |-
+            libghostty-vt-${{ env.VERSION }}-deps.tar.gz
+            libghostty-vt-${{ env.VERSION }}-deps.tar.gz.minisig
+
+  # Builds the source tarball the way PACKAGING-LIBGHOSTTY.md tells
+  # packagers to, from the two release tarballs alone, then checks what it
+  # installs:
+  #
+  #   - The build is offline. Zig sees only the packages in the dependency
+  #     tarball, passed with --system, and starts from an empty cache.
+  #   - It installs into a staging directory with DESTDIR, under the prefix
+  #     /usr, with the libraries in lib64, the way distributions package.
+  #   - It passes no -Demit-lib-vt. The LIB_VERSION file in the tarball is
+  #     what tells the build to make the library.
+  #
+  # The DESTDIR commands follow the DESTDIR step in test.yml. The
+  # test-lib-vt-offline job there covers fetch-zig-cache.sh, the way to
+  # build without the dependency tarball.
+  verify-offline:
+    runs-on: namespace-profile-ghostty-md
+    needs: [setup, source-tarball, deps-tarball]
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      # The checkout only provides flake.nix, and with it the toolchain.
+      # The build runs in the unpacked tarball.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Download Source Tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: source-tarball
+          path: ${{ runner.temp }}/dist
+
+      - name: Download Dependency Tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: deps-tarball
+          path: ${{ runner.temp }}/dist
+
+      # Side by side, as PACKAGING-LIBGHOSTTY.md does it.
+      - name: Unpack Tarballs
+        run: |
+          mkdir -p "$RUNNER_TEMP/src"
+          tar -xzf "$RUNNER_TEMP/dist/libghostty-vt-${VERSION}.tar.gz" -C "$RUNNER_TEMP/src"
+          tar -xzf "$RUNNER_TEMP/dist/libghostty-vt-${VERSION}-deps.tar.gz" -C "$RUNNER_TEMP/src"
+          {
+            echo "SRC=$RUNNER_TEMP/src/libghostty-vt-${VERSION}"
+            echo "DEPS=$RUNNER_TEMP/src/libghostty-vt-${VERSION}-deps"
+          } >> "$GITHUB_ENV"
+
+      # --system turns off fetching and the build cache starts empty, so the
+      # dependency tarball is the only source of packages.
+      - name: Build and install offline
+        run: |
+          cd "$SRC"
+          echo "STAGE=$RUNNER_TEMP/stage" >> "$GITHUB_ENV"
+          DESTDIR="$RUNNER_TEMP/stage" nix develop "$GITHUB_WORKSPACE" -c \
+            env ZIG_GLOBAL_CACHE_DIR="$RUNNER_TEMP/build-cache" \
+            zig build \
+              --prefix /usr \
+              --prefix-lib-dir lib64 \
+              --system "$DEPS" \
+              -Doptimize=ReleaseFast \
+              -Dcpu=baseline
+
+      # The library file names carry only X.Y.Z, while the .pc files carry
+      # the tarball's full LIB_VERSION. A release of 1.0.0 installs
+      # libghostty-vt.so.1.0.0 with "Version: 1.0.0". A dry run at commit
+      # 9fc62a98c installs the same file name with
+      # "Version: 1.0.0-dev+9fc62a98c".
+      - name: Verify installed layout
+        run: |
+          lib_version=$(cat "$SRC/LIB_VERSION")
+          xyz=${lib_version%%[-+]*}
+          major=${xyz%%.*}
+          lib="$STAGE/usr/lib64"
+          echo "LIB_VERSION: $lib_version"
+          find "$STAGE" | sort
+
+          test -f "$lib/libghostty-vt.so.${xyz}"
+          test "$(readlink "$lib/libghostty-vt.so.${major}")" = "libghostty-vt.so.${xyz}"
+          test "$(readlink "$lib/libghostty-vt.so")" = "libghostty-vt.so.${major}"
+          objdump -p "$lib/libghostty-vt.so.${xyz}" | grep -E "^\s*SONAME\s+libghostty-vt\.so\.${major}\$"
+          test -f "$lib/libghostty-vt.a"
+          test -f "$STAGE/usr/include/ghostty/vt.h"
+          test -f "$lib/cmake/ghostty-vt/ghostty-vt-config.cmake"
+          test -f "$lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake"
+
+          if grep -rlF "$STAGE" "$STAGE"; then
+            echo "installed files name the staging directory" >&2
+            exit 1
+          fi
+          for pc in libghostty-vt libghostty-vt-static; do
+            file="$lib/pkgconfig/$pc.pc"
+            cat "$file"
+            grep -qx 'prefix=/usr' "$file"
+            grep -qxF 'libdir=${prefix}/lib64' "$file"
+            grep -qxF "Version: ${lib_version}" "$file"
+            PKG_CONFIG_PATH="$lib/pkgconfig" pkg-config --validate "$pc"
+          done
+
+      # Moves the tree out of the staging directory, as a package manager
+      # would, then builds a small C program against it twice: once with
+      # pkg-config and once with CMake. The .pc files say prefix=/usr, so
+      # --define-variable points pkg-config at the moved tree instead.
+      - name: Use the installed library
+        run: |
+          root=$(mktemp -d)
+          mv "$STAGE/usr" "$root/usr"
+          consumer=$(mktemp -d)
+          cat > "$consumer/main.c" << 'EOF'
+          #include <ghostty/vt.h>
+          #include <stdio.h>
+          int main(void) {
+              bool simd = false;
+              GhosttyResult r = ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd);
+              if (r != GHOSTTY_SUCCESS) return 1;
+              printf("SIMD: %s\n", simd ? "yes" : "no");
+              return 0;
+          }
+          EOF
+
+          export PKG_CONFIG_PATH="$root/usr/lib64/pkgconfig"
+          flags=$(pkg-config --define-variable=prefix="$root/usr" --cflags --libs libghostty-vt)
+          echo "pkg-config: $flags"
+          nix develop "$GITHUB_WORKSPACE" -c cc -o "$consumer/pkgconfig" "$consumer/main.c" \
+            $flags -Wl,-rpath,"$root/usr/lib64"
+          "$consumer/pkgconfig"
+
+          cat > "$consumer/CMakeLists.txt" << 'EOF'
+          cmake_minimum_required(VERSION 3.19)
+          project(consumer C)
+          find_package(ghostty-vt CONFIG REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE ghostty-vt::ghostty-vt)
+          EOF
+          nix develop "$GITHUB_WORKSPACE" -c cmake -S "$consumer" -B "$consumer/build" \
+            -DCMAKE_PREFIX_PATH="$root/usr"
+          nix develop "$GITHUB_WORKSPACE" -c cmake --build "$consumer/build"
+          "$consumer/build/consumer"
+
+  # Builds the XCFramework, the static libraries for macOS, iOS and the
+  # iOS simulator in one bundle. The build steps match the tip release in
+  # release-tip.yml.
+  xcframework:
+    runs-on: namespace-profile-ghostty-macos-golden
+    needs: [setup]
+    env:
+      TAG: ${{ needs.setup.outputs.tag }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      LIB_VERSION_STRING: ${{ needs.setup.outputs.lib_version_string }}
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Check the tag is on HEAD
+        if: needs.setup.outputs.release == 'true'
+        run: git tag --points-at HEAD | grep -qxF "$TAG"
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          cache: |
+            xcode
+          path: |
+            /Users/runner/zig
+
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_27.1.app
+
+      - name: Build XCFramework
+        run: |
+          nix develop -c zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast \
+            ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+
+      # The same build also installs the macOS dylib. Check that its
+      # install name and versions follow lib_version.
+      - name: Verify macOS dylib names and versions
+        run: |
+          nix develop -c nu .github/scripts/check-apple-libghostty-vt.nu \
+            zig-out/lib/libghostty-vt.dylib \
+            --expect-platform 1 \
+            --expect-arch "$(uname -m)"
+
+      - name: Zip XCFramework
+        run: |
+          cd zig-out/lib
+          zip -9 -r "../../ghostty-vt-${VERSION}.xcframework.zip" ghostty-vt.xcframework
+
+      - name: Sign XCFramework
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}.xcframework.zip" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcframework
+          path: |-
+            ghostty-vt-${{ env.VERSION }}.xcframework.zip
+            ghostty-vt-${{ env.VERSION }}.xcframework.zip.minisig
+
+  # Builds two WebAssembly modules, one optimized for speed (ReleaseFast)
+  # and one for size (ReleaseSmall). The build steps match the tip release
+  # in release-tip.yml.
+  wasm:
+    runs-on: namespace-profile-ghostty-sm
+    needs: [setup]
+    env:
+      TAG: ${{ needs.setup.outputs.tag }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      LIB_VERSION_STRING: ${{ needs.setup.outputs.lib_version_string }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Check the tag is on HEAD
+        if: needs.setup.outputs.release == 'true'
+        run: git tag --points-at HEAD | grep -qxF "$TAG"
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build ReleaseFast WASM
+        run: |
+          nix develop -c zig build \
+            -Demit-lib-vt \
+            -Dtarget=wasm32-freestanding \
+            -Doptimize=ReleaseFast \
+            ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+
+      - name: Optimize ReleaseFast WASM
+        run: |
+          nix develop -c wasm-opt -O3 --strip-dwarf \
+            --enable-simd \
+            --enable-bulk-memory \
+            --enable-sign-ext \
+            --enable-nontrapping-float-to-int \
+            --enable-multivalue \
+            --enable-reference-types \
+            zig-out/bin/ghostty-vt.wasm \
+            -o "ghostty-vt-${VERSION}.wasm"
+
+      - name: Build ReleaseSmall WASM
+        run: |
+          nix develop -c zig build \
+            -Demit-lib-vt \
+            -Dtarget=wasm32-freestanding \
+            -Doptimize=ReleaseSmall \
+            ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+
+      - name: Optimize ReleaseSmall WASM
+        run: |
+          nix develop -c wasm-opt -O3 \
+            --enable-simd \
+            --enable-bulk-memory \
+            --enable-sign-ext \
+            --enable-nontrapping-float-to-int \
+            --enable-multivalue \
+            --enable-reference-types \
+            zig-out/bin/ghostty-vt.wasm \
+            -o "ghostty-vt-${VERSION}-small.wasm"
+
+      - name: Verify WASM simd128
+        run: |
+          # wasm-tools names the simd128 proposal "simd". The artifact must
+          # fail validation when that feature is disabled.
+          for artifact in "ghostty-vt-${VERSION}.wasm" "ghostty-vt-${VERSION}-small.wasm"; do
+            nix develop -c wasm-tools validate "${artifact}"
+            if nix develop -c wasm-tools validate \
+              --features=-simd "${artifact}"; then
+              echo "${artifact} unexpectedly validates with simd128 disabled" >&2
+              exit 1
+            fi
+            echo "Verified ${artifact} requires simd128"
+          done
+
+      - name: Sign WASM
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}.wasm" -s minisign.key < minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}-small.wasm" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wasm
+          path: |-
+            ghostty-vt-${{ env.VERSION }}.wasm
+            ghostty-vt-${{ env.VERSION }}.wasm.minisig
+            ghostty-vt-${{ env.VERSION }}-small.wasm
+            ghostty-vt-${{ env.VERSION }}-small.wasm.minisig
+
+  # Builds libghostty-vt for Windows x64 and Windows on Arm, and zips
+  # each build with LICENSE and a README. Both builds run on Linux. Each
+  # zip unpacks into one folder with the same name as the zip:
+  #
+  #   ghostty-vt-1.0.0-x86_64-windows-gnu/
+  #     bin/ghostty-vt.dll          the DLL
+  #     bin/ghostty-vt.pdb          debug information for the DLL
+  #     include/ghostty/vt.h        the C headers
+  #     lib/ghostty-vt.lib          import library, for linking the DLL
+  #     lib/ghostty-vt-static.lib   static library
+  #     lib/cmake/ghostty-vt/       CMake package
+  #     lib/pkgconfig/              pkg-config files
+  #     LICENSE
+  #     README.md
+  #
+  # "gnu" in the name is the target Zig uses when it builds for Windows
+  # from Linux. Visual Studio projects can still use the DLL: it only
+  # needs DLLs that come with Windows 10 and later, and they link it
+  # through lib/ghostty-vt.lib. The CMake package and the pkg-config
+  # files find the folder from their own location, so the folder works
+  # wherever it is unzipped.
+  #
+  # verify-windows unzips the x86_64 zip on Windows and checks it with
+  # .github/scripts/check-windows-libghostty-vt.ps1, and test.yml runs
+  # the same script on every change. A change to this layout has to keep
+  # that check passing.
+  windows:
+    runs-on: namespace-profile-ghostty-sm
+    needs: [setup]
+    env:
+      TAG: ${{ needs.setup.outputs.tag }}
+      VERSION: ${{ needs.setup.outputs.version }}
+      LIB_VERSION_STRING: ${{ needs.setup.outputs.lib_version_string }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Check the tag is on HEAD
+        if: needs.setup.outputs.release == 'true'
+        run: git tag --points-at HEAD | grep -qxF "$TAG"
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # Each build installs straight into the folder that becomes its zip.
+      - name: Build Windows Libraries
+        run: |
+          for triple in x86_64-windows-gnu aarch64-windows-gnu; do
+            nix develop -c zig build \
+              -Demit-lib-vt \
+              -Dtarget="$triple" \
+              -Doptimize=ReleaseFast \
+              --prefix "ghostty-vt-${VERSION}-${triple}" \
+              ${LIB_VERSION_STRING:+"-Dlib-version-string=$LIB_VERSION_STRING"}
+          done
+
+      # Checks each folder before it is zipped:
+      #
+      #   - Every file a project needs to build against the library is
+      #     there.
+      #   - The pkg-config files start their paths at ${pcfiledir}, the
+      #     folder they are in.
+      #   - No text file names a folder on the build machine, such as the
+      #     checkout. Such a path would be wrong on every other computer.
+      #   - The DLL is built for the right processor.
+      #   - The DLL only needs ntdll.dll, KERNEL32.dll and the Universal C
+      #     Runtime (api-ms-win-crt-*.dll), which all come with Windows 10
+      #     and later. Any other DLL would have to ship in the zip.
+      #   - The CMake package has the version of this release.
+      - name: Verify Windows Install Trees
+        run: |
+          for triple in x86_64-windows-gnu aarch64-windows-gnu; do
+            dir="ghostty-vt-${VERSION}-${triple}"
+            echo "::group::$dir"
+            find "$dir" -type f | sort
+
+            for f in \
+              bin/ghostty-vt.dll \
+              bin/ghostty-vt.pdb \
+              lib/ghostty-vt.lib \
+              lib/ghostty-vt-static.lib \
+              include/ghostty/vt.h \
+              lib/cmake/ghostty-vt/ghostty-vt-config.cmake \
+              lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake \
+              lib/pkgconfig/libghostty-vt.pc \
+              lib/pkgconfig/libghostty-vt-static.pc; do
+              if [[ ! -f "$dir/$f" ]]; then
+                echo "Error: $dir/$f is missing." >&2
+                exit 1
+              fi
+            done
+
+            for pc in "$dir"/lib/pkgconfig/*.pc; do
+              if ! grep -qF 'prefix=${pcfiledir}/' "$pc"; then
+                cat "$pc"
+                echo "Error: $pc doesn't use \${pcfiledir}." >&2
+                exit 1
+              fi
+            done
+            if grep -rIlF -e "$GITHUB_WORKSPACE" -e "$RUNNER_TEMP" "$dir"; then
+              echo "Error: the files above name a folder on the build machine." >&2
+              exit 1
+            fi
+
+            case "$triple" in
+              x86_64-*) machine=x86-64 ;;
+              aarch64-*) machine=ARM64 ;;
+            esac
+            info=$(nix develop -c file -b "$dir/bin/ghostty-vt.dll")
+            echo "$info"
+            if [[ "$info" != *"(DLL)"*"$machine"* ]]; then
+              echo "Error: $dir/bin/ghostty-vt.dll isn't an $machine DLL." >&2
+              exit 1
+            fi
+
+            nix develop -c llvm-readobj --coff-imports "$dir/bin/ghostty-vt.dll" \
+              | sed -nE 's/^ *Name: (.+)$/\1/p' | sort -u > imports
+            cat imports
+            if [[ ! -s imports ]]; then
+              echo "Error: found no imports in $dir/bin/ghostty-vt.dll." >&2
+              exit 1
+            fi
+            if grep -viE '^(ntdll\.dll|kernel32\.dll|api-ms-win-crt-[a-z0-9-]+\.dll)$' imports; then
+              echo "Error: $dir/bin/ghostty-vt.dll imports the DLLs above." >&2
+              exit 1
+            fi
+            rm imports
+
+            if ! grep -qxF "set(PACKAGE_VERSION \"${VERSION}\")" \
+              "$dir/lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake"; then
+              echo "Error: the CMake package version isn't ${VERSION}." >&2
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      # zip runs from the folder above the build, so everything in the zip
+      # sits inside one folder named after it. The step then checks that
+      # the zip holds every file of that folder and nothing else.
+      - name: Zip Windows Libraries
+        run: |
+          for triple in x86_64-windows-gnu aarch64-windows-gnu; do
+            dir="ghostty-vt-${VERSION}-${triple}"
+            cp LICENSE "$dir/LICENSE"
+            cp dist/libghostty-vt/README-windows.md "$dir/README.md"
+            nix develop -c zip -9 -r -X "$dir.zip" "$dir"
+
+            nix develop -c python3 -c \
+              'import sys, zipfile; print(*zipfile.ZipFile(sys.argv[1]).namelist(), sep="\n")' \
+              "$dir.zip" > entries
+            cat entries
+            if grep -v "^$dir/" entries; then
+              echo "Error: the entries above are outside $dir/." >&2
+              exit 1
+            fi
+            if ! diff <(find "$dir" -type f | sort) <(grep -v '/$' entries | sort); then
+              echo "Error: $dir.zip doesn't hold exactly the files in $dir." >&2
+              exit 1
+            fi
+            rm entries
+          done
+
+      - name: Sign Windows Libraries
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}-x86_64-windows-gnu.zip" -s minisign.key < minisign.password
+          nix develop -c minisign -S -m "ghostty-vt-${VERSION}-aarch64-windows-gnu.zip" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: |-
+            ghostty-vt-${{ env.VERSION }}-x86_64-windows-gnu.zip
+            ghostty-vt-${{ env.VERSION }}-x86_64-windows-gnu.zip.minisig
+            ghostty-vt-${{ env.VERSION }}-aarch64-windows-gnu.zip
+            ghostty-vt-${{ env.VERSION }}-aarch64-windows-gnu.zip.minisig
+
+  # Checks the Windows zips from the windows job on a Windows machine,
+  # the way a user would get them:
+  #
+  #   - Each zip unpacks with Expand-Archive into exactly one folder with
+  #     the zip's name, holding README.md and LICENSE.
+  #   - A CMake project builds against the unzipped x86_64 folder with
+  #     Visual Studio and runs, through check-windows-libghostty-vt.ps1.
+  #
+  # The runner is x64, so the aarch64 zip only gets the first check.
+  verify-windows:
+    runs-on: namespace-profile-ghostty-windows
+    needs: [setup, windows]
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      # The checkout only provides check-windows-libghostty-vt.ps1.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Download Windows Libraries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows
+          path: ${{ runner.temp }}/dist
+
+      - name: Unzip Windows Libraries
+        shell: pwsh
+        run: |
+          foreach ($triple in "x86_64-windows-gnu", "aarch64-windows-gnu") {
+            $name = "ghostty-vt-$env:VERSION-$triple"
+            $dest = Join-Path $env:RUNNER_TEMP "unzipped/$triple"
+            if (Test-Path -LiteralPath $dest) {
+              "Error: $dest already exists."
+              exit 1
+            }
+            Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP "dist/$name.zip") -DestinationPath $dest
+            $entries = @(Get-ChildItem -LiteralPath $dest -Force)
+            $entries | ForEach-Object { $_.Name }
+            if ($entries.Count -ne 1 -or -not $entries[0].PSIsContainer -or $entries[0].Name -cne $name) {
+              "Error: $name.zip must unpack into one folder named $name."
+              exit 1
+            }
+            foreach ($file in "README.md", "LICENSE") {
+              if (-not (Test-Path -LiteralPath (Join-Path $entries[0].FullName $file) -PathType Leaf)) {
+                "Error: $name.zip has no $name/$file."
+                exit 1
+              }
+            }
+          }
+
+      - name: Build and run a CMake consumer
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "unzipped/x86_64-windows-gnu/ghostty-vt-$env:VERSION-x86_64-windows-gnu"
+          ./.github/scripts/check-windows-libghostty-vt.ps1 `
+            -Prefix $prefix `
+            -WorkDir (Join-Path $env:RUNNER_TEMP "consumer")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # Builds the HTML reference for the C API with Doxygen. It runs from the
+  # checkout rather than the tarball, because the tarball leaves out
+  # dist/doxygen.
+  docs:
+    runs-on: namespace-profile-ghostty-sm
+    needs: [setup]
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # Doxygen doesn't create the parent folders of its output directory,
+      # so make them first. The tip docs site does the same in lib-docs.yml.
+      # The Doxyfile says "tip", so read it from stdin with the real version
+      # appended, which wins.
+      #
+      # SITEMAP_URL makes Doxygen write a sitemap.xml with links under that
+      # URL. It's set here and not in the Doxyfile because only the release
+      # docs site wants one, and that site serves the newest release there.
+      - name: Build Docs
+        run: |
+          mkdir -p zig-out/share/ghostty/doc/libghostty
+          {
+            cat Doxyfile
+            echo "PROJECT_NUMBER = ${VERSION}"
+            echo "SITEMAP_URL = https://lib.ghostty.org/vt/"
+          } | nix develop -c doxygen -
+          test -f zig-out/share/ghostty/doc/libghostty/index.html
+
+      # The zip unpacks into one folder, such as libghostty-vt-1.0.0-docs/.
+      - name: Zip Docs
+        run: |
+          mkdir docs-zip
+          cp -R zig-out/share/ghostty/doc/libghostty "docs-zip/libghostty-vt-${VERSION}-docs"
+          cd docs-zip
+          zip -9 -r "../libghostty-vt-${VERSION}-docs.zip" "libghostty-vt-${VERSION}-docs"
+
+      - name: Sign Docs
+        run: |
+          echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
+          nix develop -c minisign -S -m "libghostty-vt-${VERSION}-docs.zip" -s minisign.key < minisign.password
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs
+          path: |-
+            libghostty-vt-${{ env.VERSION }}-docs.zip
+            libghostty-vt-${{ env.VERSION }}-docs.zip.minisig
+
+  # Publishes a release, after every other job has passed, including
+  # verify-offline and verify-windows, which check the tarballs and the
+  # Windows zips the way users get them. A dry run skips it. It writes and
+  # signs SHA256SUMS, then uploads it with every other file to
+  # libghostty-vt/X.Y.Z/ in the ghostty-release R2 bucket, which
+  # release.files.ghostty.org serves. Like the app's release-tag.yml, it
+  # creates no GitHub Release.
+  publish:
+    if: |-
+      (github.event_name == 'workflow_dispatch' &&
+        github.event.inputs.upload == 'true') ||
+      github.event_name == 'push'
+    needs:
+      - setup
+      - source-tarball
+      - deps-tarball
+      - verify-offline
+      - xcframework
+      - wasm
+      - windows
+      - verify-windows
+      - docs
+    runs-on: namespace-profile-ghostty-sm
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      # The checkout only provides flake.nix, and with it minisign.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1.7.0
+        with:
+          path: |
+            /nix
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      # Downloads every artifact of this run (source-tarball, deps-tarball,
+      # xcframework, wasm, windows and docs) into the folder that is
+      # uploaded to R2.
+      - name: Download Artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          merge-multiple: true
+          path: blob/libghostty-vt/${{ env.VERSION }}
+
+      # SHA256SUMS lists the eight files, not their .minisig signatures.
+      # Anyone can check a download against it:
+      #
+      #   sha256sum --ignore-missing -c SHA256SUMS
+      - name: Write and Sign Checksums
+        run: |
+          cd "blob/libghostty-vt/${VERSION}"
+          files=(
+            "libghostty-vt-${VERSION}.tar.gz"
+            "libghostty-vt-${VERSION}-deps.tar.gz"
+            "ghostty-vt-${VERSION}.xcframework.zip"
+            "ghostty-vt-${VERSION}.wasm"
+            "ghostty-vt-${VERSION}-small.wasm"
+            "ghostty-vt-${VERSION}-x86_64-windows-gnu.zip"
+            "ghostty-vt-${VERSION}-aarch64-windows-gnu.zip"
+            "libghostty-vt-${VERSION}-docs.zip"
+          )
+          for f in "${files[@]}"; do
+            test -f "$f"
+            test -f "$f.minisig"
+          done
+          sha256sum "${files[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
+          echo -n "${{ secrets.MINISIGN_KEY }}" > "$RUNNER_TEMP/minisign.key"
+          echo -n "${{ secrets.MINISIGN_PASSWORD }}" > "$RUNNER_TEMP/minisign.password"
+          nix develop "$GITHUB_WORKSPACE" -c minisign -S -m SHA256SUMS \
+            -s "$RUNNER_TEMP/minisign.key" < "$RUNNER_TEMP/minisign.password"
+          rm "$RUNNER_TEMP/minisign.key" "$RUNNER_TEMP/minisign.password"
+          ls -l
+
+      - name: Upload to R2
+        uses: ryand56/r2-upload-action@33ebb7a494b3a8a3c5ed2ea6bbdc72e707090317 # v1.5
+        with:
+          r2-account-id: ${{ secrets.CF_R2_RELEASE_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.CF_R2_RELEASE_AWS_KEY }}
+          r2-secret-access-key: ${{ secrets.CF_R2_RELEASE_SECRET_KEY }}
+          r2-bucket: ghostty-release
+          source-dir: blob
+          destination-dir: ./
+
+      - name: Echo Release URLs
+        run: |
+          echo "Release files:"
+          for f in "blob/libghostty-vt/${VERSION}"/*; do
+            echo "  https://release.files.ghostty.org/libghostty-vt/${VERSION}/$(basename "$f")"
+          done

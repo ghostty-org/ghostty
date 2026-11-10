@@ -12,43 +12,37 @@
 #include <stddef.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup wasm WebAssembly Utilities
+/** @addtogroup wasm
  *
- * Convenience functions for working with the low-level C ABI in WebAssembly
- * builds.
- * **These are only available the libghostty-vt wasm module.**
+ * These are helpers for calling the C API from WebAssembly, and they only exist
+ * in the wasm module.
  *
- * Ghostty relies on pointers to various types for ABI compatibility, and
- * creating those pointers in Wasm can be tedious. These functions provide
- * a purely additive set of utilities that simplify memory management in
- * Wasm environments without changing the core C library API.
+ * The C API passes a lot of pointers, and creating those in Wasm can be tedious.
+ * Use ghostty_wasm_alloc() and ghostty_wasm_free() for buffers and ABI values,
+ * and the `_opaque` functions for handles. They only add to the C API. They
+ * don't change it.
  *
- * @note These functions always use the default allocator. If you need
- * custom allocation strategies, you should allocate types manually using
- * your custom allocator. This is a very rare use case in the WebAssembly
- * world so these are optimized for simplicity.
+ * ghostty_key_event_get_utf8() returns a GhosttyString by value. A Wasm
+ * function can't return a struct, so the export takes an extra first argument:
+ * a pointer to memory that receives the result.
  *
- * Use ghostty_wasm_alloc() and ghostty_wasm_free() for host-owned scratch
- * buffers and ABI values. Dynamic-language hosts can use ghostty_type_json()
- * to discover pointer and size_t widths, maximum alignment, byte order, and
- * the size and alignment of public C structs. Do not mix allocation families:
- * buffers returned by libghostty-vt allocating APIs must still be released
- * with ghostty_free(), and opaque handles must be released with their
- * type-specific destructor.
+ * @code
+ * const out = exports.ghostty_wasm_alloc(8); // Pointer and length, 4 bytes each.
+ * exports.ghostty_key_event_get_utf8(out, event);
  *
- * ## Memory growth
+ * const view = new DataView(memory.buffer);
+ * const ptr = view.getUint32(out, true);
+ * const len = view.getUint32(out + 4, true);
+ * const text = new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len));
  *
- * An exported function may grow Wasm linear memory when it allocates. Numeric
- * pointers and handles remain valid, but JavaScript ArrayBuffer, DataView, and
- * typed-array objects created before the growth may no longer cover the live
- * memory. Reacquire `exports.memory.buffer` immediately before every host-side
- * memory access. A host that caches views should recreate them whenever either
- * the buffer identity or its byte length changes.
+ * exports.ghostty_wasm_free(out, 8);
+ * @endcode
  *
- * ## Example Usage
+ * ## Example
  *
- * Here's a simple example that creates a terminal, writes bytes, and safely
- * handles memory growth:
+ * This creates a terminal, writes bytes, and safely handles memory growth. It's
+ * the lowest level interface to the module and it's pretty ugly. In practice,
+ * you should wrap it in a higher-level API.
  *
  * @code
  * const { exports } = wasmInstance;
@@ -88,9 +82,8 @@
  * exports.ghostty_wasm_free_opaque(slot);
  * @endcode
  *
- * @remark The code above is pretty ugly! This is the lowest level interface
- * to the libghostty-vt Wasm module. In practice, this should be wrapped
- * in a higher-level API that abstracts away all this.
+ * See [wasm-vt](https://github.com/ghostty-org/ghostty/tree/main/example/wasm-vt)
+ * for a full program, and @ref installing-wasm for how to build the module.
  *
  * @{
  */
@@ -103,7 +96,24 @@
  * uninitialized. A zero-length request returns NULL.
  *
  * The returned pointer must be released with ghostty_wasm_free() using the
- * exact same length.
+ * exact same length. Do not mix allocation families: buffers returned by
+ * libghostty-vt allocating APIs must still be released with ghostty_free(),
+ * and opaque handles must be released with their type-specific destructor.
+ *
+ * This always uses the default allocator. If you need a custom allocation
+ * strategy, allocate types manually with your own allocator. That's very rare
+ * in WebAssembly, so these are optimized for simplicity.
+ *
+ * Dynamic-language hosts can use ghostty_type_json() to discover pointer and
+ * size_t widths, maximum alignment, byte order, and the size and alignment of
+ * public C structs.
+ *
+ * An exported function may grow Wasm linear memory when it allocates. Numeric
+ * pointers and handles remain valid, but JavaScript ArrayBuffer, DataView, and
+ * typed-array objects created before the growth may no longer cover the live
+ * memory. Reacquire `exports.memory.buffer` immediately before every host-side
+ * memory access. A host that caches views should recreate them whenever either
+ * the buffer identity or its byte length changes.
  *
  * @param len Number of bytes to allocate
  * @return Pointer to allocated storage, or NULL if len is zero or allocation

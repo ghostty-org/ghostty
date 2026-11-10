@@ -2337,6 +2337,10 @@ pub inline fn resize(
     // state is correct.
     self.cursorReload();
 
+    // Erasing history marks a cursor pin in the erased rows as garbage, but
+    // the cursor stays live wherever the pin moved to.
+    self.cursor.page_pin.garbage = false;
+
     // If resize moved a cursor with pending wrap away from the right edge,
     // advance to the next cell instead of wrapping on the next print.
     if (self.cursor.pending_wrap and self.cursor.x != opts.cols - 1) {
@@ -2615,8 +2619,10 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
         page.memory,
         self.cursor.style,
     ) catch |err| id: {
-        // Our style map is full or needs to be rehashed, so we need to
-        // increase style capacity (or rehash).
+        // Our style map is full, so we need to increase style capacity.
+        // `NeedsRehash` only happens if the set's bookkeeping is wrong
+        // (safe builds panic instead), and a clone at the same capacity
+        // rebuilds it.
         const node = self.increaseCapacity(
             self.cursor.page_pin.node,
             switch (err) {
@@ -2648,10 +2654,10 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
                 return error.OutOfMemory;
             },
             error.NeedsRehash => {
-                // This should be impossible because we rehash above
-                // and rehashing should never result in a duplicate. But
-                // we don't want to simply hard crash so log it and
-                // clear our style.
+                // This should be impossible because the page was just
+                // rebuilt, so the set's bookkeeping is right. But we
+                // don't want to simply hard crash so log it and clear
+                // our style.
                 log.err("style rehash resulted in needs rehash", .{});
                 return;
             },
@@ -2867,7 +2873,8 @@ pub fn startHyperlink(
                 .hyperlink_bytes,
             ),
 
-            // hyperlink set is too full, rehash it
+            // hyperlink set bookkeeping is wrong (safe builds panic
+            // instead), rebuild it with a clone at the same capacity
             error.SetNeedsRehash => _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
                 null,
@@ -4067,6 +4074,24 @@ test "Screen reset cursor pin is not garbage" {
     // that copies it (e.g. Kitty image placements) would otherwise be
     // born garbage and reaped.
     s.reset();
+    try testing.expect(!s.cursor.page_pin.garbage);
+}
+
+test "Screen resize erasing the cursor row leaves its pin not garbage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 12, .rows = 6, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    // Content on the bottom row stops the resize from trimming blank rows,
+    // so shrinking pushes the top rows and the cursor into erased history.
+    s.cursorAbsolute(0, 5);
+    try s.testWriteString("x");
+    s.cursorAbsolute(0, 0);
+
+    try s.resize(.{ .cols = 12, .rows = 3 });
     try testing.expect(!s.cursor.page_pin.garbage);
 }
 
@@ -9002,6 +9027,34 @@ test "Screen: resize more rows, less cols with reflow with scrollback" {
         const expected = "1A\nBC\nD\n2E\nFG\nH3\nIJ\nKL\n4M\nNO\nP";
         try testing.expectEqualStrings(expected, contents);
     }
+}
+
+test "Screen: resize more rows, less cols pulls scrollback like separate resizes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 2, .max_scrollback_bytes = null });
+    defer s.deinit();
+    try s.testWriteString("1A\n2B\n3C\n");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3C", contents);
+    }
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    // Growing the rows pulls the scrollback down because the cursor is at
+    // the bottom, and shrinking the cols in the same resize must not push
+    // it back.
+    try s.resize(.{ .cols = 4, .rows = 4 });
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1A\n2B\n3C", contents);
+    }
+    try testing.expectEqual(@as(size.CellCountInt, 3), s.cursor.y);
 }
 
 // This seems like it should work fine but for some reason in practice
