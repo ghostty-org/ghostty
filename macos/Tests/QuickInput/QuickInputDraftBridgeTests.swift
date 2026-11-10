@@ -458,7 +458,7 @@ struct QuickInputDraftBridgeTests {
     }
 
     @Test func sharedImportPolicyCoversEveryAgentAndCustomBindings() {
-        for agent in SupportedAgent.allCases {
+        for agent in SupportedAgent.allCases where !QuickInputDraftBridge.reprintsTranscriptAfterEditor(agent) {
             let keys = QuickInputDraftBridge.importKeys(setting: "auto", agent: agent, hasAgentActivity: false)
             #expect(keys != nil)
             #expect(keys?.map(\.key) == (agent == .opencode ? [.x, .e] : [.g]))
@@ -469,6 +469,19 @@ struct QuickInputDraftBridgeTests {
         #expect(QuickInputDraftBridge.importKeys(
             setting: "control+x,control+e", agent: nil, hasAgentActivity: false
         )?.map(\.key) == [.x, .e])
+    }
+
+    /// #64: agy reprints its full inline transcript after an editor round
+    /// trip, so auto mode must open Quick Input in place without editor keys.
+    /// An explicit custom chord remains an opt-in.
+    @Test func autoImportSkipsAgentsThatReprintTranscriptAfterEditor() {
+        #expect(QuickInputDraftBridge.reprintsTranscriptAfterEditor(.antigravity))
+        #expect(!QuickInputDraftBridge.reprintsTranscriptAfterEditor(.pi))
+        #expect(QuickInputDraftBridge.importKeys(setting: "auto", agent: .antigravity, hasAgentActivity: true) == nil)
+        #expect(QuickInputDraftBridge.importKeys(setting: "auto", agent: .antigravity, hasAgentActivity: false) == nil)
+        #expect(QuickInputDraftBridge.importKeys(
+            setting: "control+g", agent: .antigravity, hasAgentActivity: true
+        )?.map(\.key) == [.g])
     }
 
     @Test func remoteDraftResponsePreservesTextAndRejectsInvalidPayloads() throws {

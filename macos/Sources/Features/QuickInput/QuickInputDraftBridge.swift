@@ -62,12 +62,22 @@ final class QuickInputDraftBridge {
         return agent == .opencode ? "control+x,e" : "control+g"
     }
 
+    /// Agents whose external-editor round trip is not in place: returning from
+    /// the editor reprints the whole inline transcript (Antigravity `agy`),
+    /// which visibly redraws the pane and resets the user's scrollback
+    /// position on every Quick Input presentation (#64).
+    static func reprintsTranscriptAfterEditor(_ agent: SupportedAgent) -> Bool {
+        agent == .antigravity
+    }
+
     /// Shared by local and SSH imports: custom chords work without a known
-    /// agent, while auto mode must never invoke an editor at a shell prompt.
+    /// agent, while auto mode must never invoke an editor at a shell prompt
+    /// or in an agent whose editor handoff disrupts the visible transcript.
     static func importKeys(
         setting: String, agent: SupportedAgent?, hasAgentActivity: Bool
     ) -> [Ghostty.Input.KeyEvent]? {
         guard setting != "auto" || agent != nil || hasAgentActivity else { return nil }
+        if setting == "auto", let agent, reprintsTranscriptAfterEditor(agent) { return nil }
         return keys(shortcut(setting: setting, agent: agent))
     }
 
