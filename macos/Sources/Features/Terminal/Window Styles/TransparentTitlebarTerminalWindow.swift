@@ -111,6 +111,10 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             // 2. AppKit resets the style after adding a new tab
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
                 self?.reduceTabBarBackgroundGoldenGate()
+
+                // Sometimes the NSTitlebarBackgroundView gets reset (#15186),
+                // so we hide it again here.
+                self?.titlebarBackgroundView?.isHidden = true
             }
         }
 
