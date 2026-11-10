@@ -1,11 +1,11 @@
 //! Provides a fast `memset` that replaces compiler_rt's version on
-//! every target except Darwin.
+//! every target except Darwin and x86_64.
 //!
 //! Zig 0.17.0's compiler_rt memset (ziglang/zig#35754) is no longer a
-//! byte-at-a-time loop, but it is still slower than this one. On
-//! aarch64 it writes 16 bytes per loop iteration using ordinary integer
-//! registers, and it never uses `dc zva`, the instruction that zeroes a
-//! whole cache line at once. Compared to this file it is:
+//! byte-at-a-time loop, but on aarch64 it is still slower than this
+//! one. There it writes 16 bytes per loop iteration using ordinary
+//! integer registers, and it never uses `dc zva`, the instruction that
+//! zeroes a whole cache line at once. Compared to this file it is:
 //!
 //! - 1.5x to 2x slower for fills from 192 bytes to 32 KiB.
 //! - About 4x slower for zero fills of 1 MiB or more.
@@ -18,8 +18,8 @@
 //! Delete it once compiler_rt's memset catches up. To check, build
 //! `ghostty-bench` on Linux twice, once as-is and once with every
 //! `@import("quirks_memset.zig")` removed, then compare the two with
-//! hyperfine. Use arm64 if you can, since that is where the gap is
-//! largest:
+//! hyperfine. Use arm64, since x86_64 no longer uses this file (see
+//! "Why x86_64 is excluded" below):
 //!
 //! ```
 //! zig build -Demit-bench -Dapp-runtime=none -Doptimize=fast -p with
@@ -49,6 +49,28 @@
 //! compiler_rt's `memset` is a weak symbol. Exporting our own `memset`
 //! from an artifact root therefore takes its place for everything
 //! linked into that executable or library.
+//!
+//! ## Why x86_64 is excluded
+//!
+//! On x86_64, compiler_rt's memset is as fast as this one for aligned
+//! fills and much faster for unaligned ones. Both use the same vector
+//! width (16-byte SSE2 stores at `-Dcpu=baseline`, 32-byte AVX2 stores
+//! on newer CPUs). The difference is alignment: compiler_rt aligns its
+//! loop to the vector size and LLVM unrolls it eight times, while this
+//! file never aligns, so an unaligned destination makes every store in
+//! its loop unaligned. On a Ryzen 7 5800X (Zen 3) with Zig 0.17.0,
+//! for fills of 192 bytes to 1 MiB, compiler_rt is:
+//!
+//! - Within 5% of this file when the destination is vector aligned.
+//! - 1.5x to 2.3x faster when it is only 8-byte aligned.
+//! - 1.8x to 3.5x faster when it is 3 bytes past alignment.
+//! - 2.5x faster for random sizes from 640 to 2,400 bytes at random
+//!   offsets.
+//!
+//! End to end, `ghostty-bench` measures within 1.2% either way on
+//! every workload, for both `-Dcpu=baseline` and native (AVX2) builds,
+//! except ASCII with `--scrollback-max-bytes=0` at baseline, where
+//! this file is 3% faster.
 //!
 //! ## Why Darwin is excluded
 //!
@@ -119,11 +141,16 @@ comptime {
     //      fast as ours (within 2%). On Mach-O, Zig also drops the
     //      weak flag from our export, which breaks apps that link our
     //      static archives. See "Why Darwin is excluded" above.
+    //   5. On x86_64, compiler_rt's memset is as fast as ours for
+    //      aligned fills and up to 3.5x faster for unaligned ones,
+    //      because it aligns its loop and we don't. See "Why x86_64
+    //      is excluded" above.
     const enabled =
         std.simd.suggestVectorLength(u8) != null and
         builtin.target.ofmt != .c and
         !(linkage == .weak and builtin.target.ofmt == .coff) and
-        !builtin.target.os.tag.isDarwin();
+        !builtin.target.os.tag.isDarwin() and
+        builtin.target.cpu.arch != .x86_64;
 
     if (enabled) @export(&memset, .{
         .name = "memset",
