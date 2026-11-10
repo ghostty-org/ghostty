@@ -402,6 +402,8 @@ final class BuiltInFilesInspectorProvider {
                     if Self.findNode(id: path, in: tree.nodes) != nil {
                         current.revealToken &+= 1
                         tree.reveal = .init(path: path, token: current.revealToken)
+                    } else {
+                        NSSound.beep()
                     }
                 }
                 current.tree = tree

@@ -196,6 +196,7 @@ struct EditorWorkspaceHost<Terminal: View>: View {
                 GitEditorDiffView(request: request, theme: appearanceTheme, isActive: selected && workspace.isVisible,
                     actions: GitDiffEditorActions(
                         openFile: { file, directory in openGitFile(file, repository: request.repository, directory: directory) },
+                        selectFile: { file in workspace.updateGitDiffFile(file, for: request.id) },
                         hide: { workspace.isVisible = false },
                         open: openFile,
                         nextDocument: { workspace.selectAdjacentDocument(offset: 1) },

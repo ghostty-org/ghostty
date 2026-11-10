@@ -82,6 +82,7 @@ class NativeActionControl: NSButton, NSMenuDelegate {
     private static weak var hoveredControl: NativeActionControl?
     var showsHover = true { didSet { if oldValue != showsHover { needsDisplay = true } } }
     var showsKeyboardFocusBorder = true
+    var restingSymbolAlpha: CGFloat = 1 { didSet { if oldValue != restingSymbolAlpha { needsDisplay = true } } }
     var onPress: (() -> Void)?
     var contextEntries: [NativeMenuEntry] = []
     private(set) var theme = OMGNativeTheme(background: .windowBackgroundColor, foreground: .labelColor)
@@ -256,7 +257,8 @@ class NativeActionControl: NSButton, NSMenuDelegate {
                 rect.fill(using: .sourceAtop)
                 return true
             }
-            tinted.draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: color.alphaComponent,
+            let symbolAlpha = (isHovered || isHighlighted || isMenuOpen ? 1 : restingSymbolAlpha) * color.alphaComponent
+            tinted.draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: symbolAlpha,
                         respectFlipped: true, hints: nil)
         }
         if !title.isEmpty {

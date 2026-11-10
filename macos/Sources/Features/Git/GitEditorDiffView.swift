@@ -6,7 +6,7 @@ struct GitEditorDiffRequest: Identifiable {
     let id = UUID()
     let repository: GitRepositoryIdentity
     let target: GitDiffTarget
-    let file: GitDiffFile?
+    var file: GitDiffFile?
     var tabTitle: String {
         let name = file.map { ($0.path as NSString).lastPathComponent } ?? GitL10n.text("Git Diff")
         return name + " · " + target.description
@@ -15,6 +15,7 @@ struct GitEditorDiffRequest: Identifiable {
 
 struct GitDiffEditorActions {
     var openFile: (GitDiffFile, Bool) -> Void = { _, _ in }
+    var selectFile: (GitDiffFile?) -> Void = { _ in }
     var hide: () -> Void = {}
     var open: () -> Void = {}
     var nextDocument: () -> Void = {}
@@ -202,6 +203,7 @@ struct GitEditorDiffView: View {
         ))
         .onAppear { model.reload() }
         .onDisappear { model.cancel(); clearHint(); navigator.reset() }
+        .onChange(of: model.selected) { actions.selectFile($0) }
         .onChange(of: linkedScrolling) { scroll.enabled = $0 }
         .onChange(of: model.content?.presentation) {
             scroll.presentation = $0 ?? GitDiffPresentation(before: "", after: "", patch: "")

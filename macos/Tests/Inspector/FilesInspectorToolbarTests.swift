@@ -196,4 +196,26 @@ struct FilesInspectorToolbarTests {
         controller.expandAll()
         #expect(actions.suffix(3) == [.revealCurrentFile, .collapseAll, .expandAll])
     }
+
+    @Test func gitDiffCurrentFilePathResolvesExistingWorktreeFileAndFollowsSelection() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = GitRepositoryIdentity(
+            worktreePath: root.path,
+            gitDirPath: root.appendingPathComponent(".git").path,
+            commonGitDirPath: root.appendingPathComponent(".git").path
+        )
+        let existing = GitDiffFile(path: "Sources/App/Views/Main.swift", status: "M")
+        let second = GitDiffFile(path: "README.md", status: "M")
+        let deleted = GitDiffFile(path: "Sources/App/Views/Deleted.swift", status: "D")
+        let workspace = EditorWorkspace()
+        let request = GitEditorDiffRequest(repository: repository, target: .commit(GitCommitID("977ab3e2")), file: existing)
+        workspace.openGitDiff(request)
+
+        #expect(workspace.currentFilePath(for: .local) == root.appendingPathComponent("Sources/App/Views/Main.swift").path)
+        workspace.updateGitDiffFile(second, for: request.id)
+        #expect(workspace.currentFilePath(for: .local) == root.appendingPathComponent("README.md").path)
+        workspace.updateGitDiffFile(deleted, for: request.id)
+        #expect(workspace.currentFilePath(for: .local) == nil)
+    }
 }

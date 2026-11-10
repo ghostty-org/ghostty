@@ -140,6 +140,32 @@ final class EditorWorkspace: ObservableObject {
         isVisible = true
     }
 
+    func updateGitDiffFile(_ file: GitDiffFile?, for requestID: UUID) {
+        if let index = gitDiffs.firstIndex(where: { $0.id == requestID }), gitDiffs[index].file != file {
+            gitDiffs[index].file = file
+        }
+        if gitDiff?.id == requestID, gitDiff?.file != file {
+            gitDiff?.file = file
+        }
+    }
+
+    /// Path of the active document or Git diff file on `endpoint`, if any.
+    /// Local Git diff paths are only returned when present in the worktree.
+    func currentFilePath(for endpoint: EditorDocumentID.Endpoint) -> String? {
+        if let document = selectedDocument, document.id.endpoint == endpoint {
+            return document.path
+        }
+        guard let diff = gitDiff, let file = diff.file else { return nil }
+        let diffEndpoint: EditorDocumentID.Endpoint = diff.repository.sshConnection
+            .map { .ssh(workspaceID: $0.workspaceID) } ?? .local
+        guard diffEndpoint == endpoint,
+              let path = try? GitFileActions.absolutePath(file, repository: diff.repository) else { return nil }
+        if endpoint == .local, !FileManager.default.fileExists(atPath: path) {
+            return nil
+        }
+        return path
+    }
+
     func closeGitDiff(_ request: GitEditorDiffRequest) {
         gitDiffs.removeAll { $0.id == request.id }
         if gitDiff?.id == request.id {
@@ -361,8 +387,8 @@ final class EditorWorkspaceStore {
         let ordered = (preferredSurfaceID.map { [$0] } ?? []) + surfaces.filter { $0 != preferredSurfaceID }
         for surfaceID in ordered {
             guard owners[surfaceID] == tabID, let workspace = workspaces[surfaceID], workspace.isVisible,
-                  let document = workspace.selectedDocument, document.id.endpoint == endpoint else { continue }
-            return document.path
+                  let path = workspace.currentFilePath(for: endpoint) else { continue }
+            return path
         }
         return nil
     }

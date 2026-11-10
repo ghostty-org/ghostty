@@ -67,16 +67,28 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
         scrollView.drawsBackground = false
         header.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         header.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let toolbar = NSStackView(views: [header] + toolbarButtons)
-        toolbar.orientation = .horizontal
-        toolbar.alignment = .centerY
-        toolbar.spacing = 2
-        toolbar.setCustomSpacing(6, after: header)
+        let buttonStack = NSStackView(views: toolbarButtons)
+        buttonStack.orientation = .horizontal
+        buttonStack.alignment = .centerY
+        buttonStack.spacing = 2
+        buttonStack.setContentHuggingPriority(.required, for: .horizontal)
+        buttonStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let toolbar = NSView()
+        for child in [header, buttonStack] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            toolbar.addSubview(child)
+        }
         for child in [toolbar, scrollView] {
             child.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(child)
         }
         NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
+            header.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            header.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -6),
+            buttonStack.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
+            buttonStack.topAnchor.constraint(equalTo: toolbar.topAnchor),
+            buttonStack.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor),
             toolbar.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: InspectorContentMetrics.leadingInset),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -(InspectorContentMetrics.leadingInset - 4)),
@@ -181,7 +193,7 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
 
     // MARK: Toolbar
 
-    private lazy var toolbarButtons: [NSButton] = [
+    private lazy var toolbarButtons: [NativeActionControl] = [
         toolbarButton("doc.badge.plus", help: "New File", identifier: "files.new-file", action: #selector(newFile)),
         toolbarButton("folder.badge.plus", help: "New Folder", identifier: "files.new-folder", action: #selector(newFolder)),
         toolbarButton("scope", help: "Locate Current File", identifier: "files.locate-current-file",
@@ -192,22 +204,24 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
                       action: #selector(expandAll)),
     ]
 
-    private func toolbarButton(_ symbol: String, help: String, identifier: String, action: Selector) -> NSButton {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: help)
-        let button = image.map { NSButton(image: $0, target: self, action: action) }
-            ?? NSButton(title: help, target: self, action: action)
-        button.isBordered = false
-        button.bezelStyle = .accessoryBarAction
-        button.imageScaling = .scaleProportionallyDown
-        button.symbolConfiguration = .init(pointSize: 12, weight: .regular)
-        button.contentTintColor = .secondaryLabelColor
-        button.toolTip = help
-        button.setAccessibilityLabel(help)
-        button.identifier = .init(identifier)
+    private func toolbarButton(
+        _ symbol: String,
+        help: String,
+        identifier: String,
+        action: Selector
+    ) -> NativeActionControl {
+        let button = NativeActionControl()
+        button.configure(title: "", symbol: symbol, help: help, enabled: true, style: .plain, identifier: identifier)
+        button.showsKeyboardFocusBorder = false
+        button.restingSymbolAlpha = 0.72
+        button.onPress = { [weak self] in
+            guard let self else { return }
+            _ = self.perform(action)
+        }
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 22),
-            button.heightAnchor.constraint(equalToConstant: 22),
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
         ])
         return button
     }
