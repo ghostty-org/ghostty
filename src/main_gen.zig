@@ -1,8 +1,8 @@
 const synthetic = @import("synthetic/main.zig");
 
 comptime {
-    // Force-reference our memset override so its export is emitted.
-    // See quirks_memset.zig for details on why this exists.
+    // Force-reference our memset override so its export is emitted
+    // (not on Darwin). See quirks_memset.zig for why this exists.
     _ = @import("quirks_memset.zig");
 }
 

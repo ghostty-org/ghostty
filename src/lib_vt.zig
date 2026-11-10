@@ -188,9 +188,9 @@ comptime {
         }
 
         // Force-reference our memset override so its export is
-        // emitted. This must stay inside the root guard so that
-        // downstream Zig module consumers don't get the override
-        // injected into their binaries. See quirks_memset.zig.
+        // emitted (not on Darwin). This must stay inside the root
+        // guard so that downstream Zig module consumers don't get the
+        // override injected into their binaries. See quirks_memset.zig.
         _ = @import("quirks_memset.zig");
 
         const c = terminal.c_api;

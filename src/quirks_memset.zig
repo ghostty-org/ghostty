@@ -1,35 +1,83 @@
-//! Provides a fast `memset` symbol that overrides the slow scalar
-//! implementation provided by Zig 0.16's compiler_rt.
+//! Provides a fast `memset` that replaces compiler_rt's version on
+//! every target except Darwin.
 //!
-//! Consider deleting when upstream ships an optimized compiler_rt
-//! memset (tracked by ziglang/zig#32091, maybe fixed at
-//! ziglang/zig#35754). To verify it is safe to delete, check that
-//! the disassembly of `memset` in a ReleaseFast binary is vectorized
-//! (or at least not a byte-at-a-time loop).
+//! Zig 0.17.0's compiler_rt memset (ziglang/zig#35754) is no longer a
+//! byte-at-a-time loop, but it is still slower than this one. On
+//! aarch64 it writes 16 bytes per loop iteration using ordinary integer
+//! registers, and it never uses `dc zva`, the instruction that zeroes a
+//! whole cache line at once. Compared to this file it is:
+//!
+//! - 1.5x to 2x slower for fills from 192 bytes to 32 KiB.
+//! - About 4x slower for zero fills of 1 MiB or more.
+//!
+//! End to end, removing this file makes `ghostty-bench` on Linux arm64
+//! 13% to 35% slower on ASCII, scroll-clear and resize workloads.
+//!
+//! ## When to delete this file
+//!
+//! Delete it once compiler_rt's memset catches up. To check, build
+//! `ghostty-bench` on Linux twice, once as-is and once with every
+//! `@import("quirks_memset.zig")` removed, then compare the two with
+//! hyperfine. Use arm64 if you can, since that is where the gap is
+//! largest:
+//!
+//! ```
+//! zig build -Demit-bench -Dapp-runtime=none -Doptimize=fast -p with
+//! # Remove the imports, then:
+//! zig build -Demit-bench -Dapp-runtime=none -Doptimize=fast -p without
+//!
+//! hyperfine -N --warmup 3 \
+//!   'with/bin/ghostty-bench +terminal-stream --data=ascii.txt' \
+//!   'without/bin/ghostty-bench +terminal-stream --data=ascii.txt'
+//! hyperfine -N --warmup 3 \
+//!   'with/bin/ghostty-bench +terminal-resize' \
+//!   'without/bin/ghostty-bench +terminal-resize'
+//! ```
+//!
+//! Here `ascii.txt` is any large file of plain ASCII text (100 MB or
+//! more works well). If both comparisons are within run-to-run noise,
+//! the file is safe to delete.
 //!
 //! ## Background
 //!
-//! Zig 0.16.0 globally disabled LLVM loop auto-vectorization to work
-//! around an LLVM 21 miscompilation (llvm/llvm-project#186922, see
-//! the 0.16.0 release notes). compiler_rt's memset is a naive
-//! byte-at-a-time loop that relied entirely on auto-vectorization,
-//! so it now compiles to a scalar loop roughly 24x slower than what
-//! Zig 0.15 produced.
+//! Zig 0.16.0 turned off LLVM's loop auto-vectorization. compiler_rt's
+//! memset relied on it, so it became a byte-at-a-time loop and made
+//! `+terminal-stream` 2.8x slower on ASCII. This file was the fix. It
+//! is vectorized by hand with `@Vector`, so it does not depend on the
+//! compiler to vectorize it.
 //!
-//! In benchmarks this made `ghostty-bench +terminal-stream` 2.8x slower on
-//! ASCII input (memset was 63% of all executed instructions!).
+//! compiler_rt's `memset` is a weak symbol. Exporting our own `memset`
+//! from an artifact root therefore takes its place for everything
+//! linked into that executable or library.
 //!
-//! Because compiler_rt's symbol is weak, exporting a strong `memset`
-//! from our own code transparently overrides it everywhere. The
-//! implementation below is manually vectorized with `@Vector`, which
-//! does not depend on the disabled loop vectorizer.
+//! ## Why Darwin is excluded
+//!
+//! On Darwin the override does not help, and it breaks programs that
+//! link our static archives.
+//!
+//! - **It doesn't help.** Every Darwin binary links libSystem, Apple's
+//!   C library, which has its own fast memset. Without this file, our
+//!   executables, our dylibs, and programs that link our static
+//!   archives all use it. (For the archives, `libsystem_override.sh`
+//!   hides compiler_rt's copy so that libSystem's is used.)
+//!   `ghostty-bench` measures within 2% of ours on Apple silicon.
+//! - **It breaks static archives.** Zig writes our weak, hidden export
+//!   to Mach-O as an ordinary symbol and drops the weak flag. An app
+//!   that links `libghostty-vt.a` then gets our memset for its entire
+//!   binary, and an app that defines its own memset fails to link:
+//!
+//!   ```
+//!   duplicate symbol '_memset' in:
+//!       app.o
+//!       libghostty-vt.a(ghostty-vt-static_zcu.o)
+//!   ```
 //!
 //! Other mem functions deliberately not overridden:
 //!
 //! - memcpy/memmove: compiler_rt's implementations are manually
 //!   vectorized upstream ("memcpyFast") and remain fast.
-//! - memcmp/bcmp/strlen: also scalar in 0.16, but they never showed
-//!   up in our profiles.
+//! - memcmp/bcmp/strlen: these were also scalar in 0.16, but they
+//!   never showed up in our profiles.
 //!
 //! This file has no effect unless it is referenced from an artifact
 //! root (e.g. `comptime { _ = @import("quirks_memset.zig"); }`).
@@ -67,18 +115,25 @@ comptime {
     //   3. Weak COFF builds fatally error because MSVC's linker
     //      errors when two identical linked symbols exist. MSVC has
     //      CRT which links so we don't need this there anyways.
+    //   4. Darwin always links libSystem, whose memset is already as
+    //      fast as ours (within 2%). On Mach-O, Zig also drops the
+    //      weak flag from our export, which breaks apps that link our
+    //      static archives. See "Why Darwin is excluded" above.
     const enabled =
         std.simd.suggestVectorLength(u8) != null and
         builtin.target.ofmt != .c and
-        !(linkage == .weak and builtin.target.ofmt == .coff);
+        !(linkage == .weak and builtin.target.ofmt == .coff) and
+        !builtin.target.os.tag.isDarwin();
 
     if (enabled) @export(&memset, .{
         .name = "memset",
         .linkage = linkage,
 
         // Hidden so that shared library builds (libghostty,
-        // libghostty-vt) resolve this internally without exporting
-        // it to their host applications.
+        // libghostty-vt) use this internally without exporting it to
+        // their host applications. It does not help static archives.
+        // Their objects are linked straight into the host's binary,
+        // so the host's own memset calls bind to this one too.
         .visibility = .hidden,
     });
 }
