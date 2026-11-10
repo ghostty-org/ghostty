@@ -10,7 +10,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-11-01 10:35-0500\n"
-"PO-Revision-Date: 2026-11-02 21:53+0200\n"
+"PO-Revision-Date: 2026-11-10 11:42+0100\n"
 "Last-Translator: Merijntje Tak <merijntje@tak.io>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
 "Language: nl\n"
@@ -1022,35 +1022,35 @@ msgstr "Herlaad het configuratiebestand."
 
 #: src/input/command.zig:607
 msgid "Switch to Configured Appearance"
-msgstr ""
+msgstr "Schakel over op het ingestelde thema"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
-msgstr ""
+msgstr "Gebruik het thema zoals ingesteld in de configuratie."
 
 #: src/input/command.zig:612
 msgid "Switch to System Appearance"
-msgstr ""
+msgstr "Schakel over op het systeemthema"
 
 #: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
-msgstr ""
+msgstr "Gebruik het systeemthema voor deze sessie."
 
 #: src/input/command.zig:617
 msgid "Switch to Light Appearance"
-msgstr ""
+msgstr "Schakel over op het lichte thema"
 
 #: src/input/command.zig:618
 msgid "Use a light application appearance for this session."
-msgstr ""
+msgstr "Gebruik het lichte thema voor deze sessie."
 
 #: src/input/command.zig:622
 msgid "Switch to Dark Appearance"
-msgstr ""
+msgstr "Schakel over op het donkere thema"
 
 #: src/input/command.zig:623
 msgid "Use a dark application appearance for this session."
-msgstr ""
+msgstr "Gebruik het donkere thema voor deze sessie."
 
 #: src/input/command.zig:629
 msgid "Close Terminal"
