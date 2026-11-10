@@ -1022,35 +1022,35 @@ msgstr "Herlaad het configuratiebestand."
 
 #: src/input/command.zig:607
 msgid "Switch to Configured Appearance"
-msgstr "Schakel over op het ingestelde uiterlijk"
+msgstr "Schakel over op het ingestelde thema"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
-msgstr "Gebruik het uiterlijk zoals ingesteld in de configuratie."
+msgstr "Gebruik het thema zoals ingesteld in de configuratie."
 
 #: src/input/command.zig:612
 msgid "Switch to System Appearance"
-msgstr "Schakel over op het systeemuiterlijk"
+msgstr "Schakel over op het systeemthema"
 
 #: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
-msgstr "Gebruik het systeemuiterlijk voor deze sessie."
+msgstr "Gebruik het systeemthema voor deze sessie."
 
 #: src/input/command.zig:617
 msgid "Switch to Light Appearance"
-msgstr "Schakel over op het lichte uiterlijk"
+msgstr "Schakel over op het lichte thema"
 
 #: src/input/command.zig:618
 msgid "Use a light application appearance for this session."
-msgstr "Gebruik het lichte uiterlijk voor deze sessie."
+msgstr "Gebruik het lichte thema voor deze sessie."
 
 #: src/input/command.zig:622
 msgid "Switch to Dark Appearance"
-msgstr "Schakel over op het donkere uiterlijk"
+msgstr "Schakel over op het donkere thema"
 
 #: src/input/command.zig:623
 msgid "Use a dark application appearance for this session."
-msgstr "Gebruik het donkere uiterlijk voor deze sessie."
+msgstr "Gebruik het donkere thema voor deze sessie."
 
 #: src/input/command.zig:629
 msgid "Close Terminal"
