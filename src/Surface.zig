@@ -165,6 +165,11 @@ focused: bool = true,
 /// visible so reporting remains conservative.
 visible: bool = true,
 
+/// The broadcast input group this surface is a member of, or null if
+/// it isn't in a group. The group number doubles as the index into
+/// the broadcast-group-colors config. Managed by App.
+broadcast_group: ?u4 = null,
+
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
@@ -254,6 +259,11 @@ const Mouse = struct {
     /// True if the mouse is hidden
     hidden: bool = false,
 
+    /// True if the last left press toggled broadcast group membership,
+    /// so the matching release is swallowed instead of reaching the
+    /// terminal (which never saw the press).
+    broadcast_click: bool = false,
+
     /// True if the mouse position is currently over a link.
     over_link: bool = false,
 
@@ -296,6 +306,14 @@ pub const Keyboard = struct {
     /// a combination to be handled by different bindings before the release
     /// of the prior (namely since you can't bind modifier-only).
     last_trigger: ?u64 = null,
+
+    /// The last key press that was held back from broadcast input
+    /// replication because it matched a binding on this surface. This
+    /// is used to also hold back its release so a receiving terminal
+    /// never sees a release without the matching press. Like
+    /// last_trigger, one is enough since bound keys are combinations
+    /// that aren't rolled over with each other.
+    last_held: ?u64 = null,
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -316,6 +334,7 @@ const DerivedConfig = struct {
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
     middle_click_action: configpkg.MiddleClickAction,
+    broadcast_group_click_mods: configpkg.Config.BroadcastGroupClickMods,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -397,6 +416,7 @@ const DerivedConfig = struct {
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
             .middle_click_action = config.@"middle-click-action",
+            .broadcast_group_click_mods = config.@"broadcast-group-click-mods",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -2760,25 +2780,7 @@ pub fn keyEventIsBinding(
         .press, .repeat => {},
     }
 
-    // Look up our entry
-    const entry: input.Binding.Set.Entry = entry: {
-        // If we're in a sequence, check the sequence set
-        if (self.keyboard.sequence_set) |set| {
-            break :entry set.getEvent(event) orelse return null;
-        }
-
-        // Check active key tables (inner-most to outer-most)
-        const table_items = self.keyboard.table_stack.items;
-        for (0..table_items.len) |i| {
-            const rev_i: usize = table_items.len - 1 - i;
-            if (table_items[rev_i].set.getEvent(event)) |entry| {
-                break :entry entry;
-            }
-        }
-
-        // Check the root set
-        break :entry self.config.keybind.set.getEvent(event) orelse return null;
-    };
+    const entry = self.keyEventBindingEntry(event) orelse return null;
 
     // Return flags based on the
     return switch (entry.value_ptr.*) {
@@ -2787,9 +2789,135 @@ pub fn keyEventIsBinding(
     };
 }
 
+/// Find the binding set entry that the given key event would trigger,
+/// if any. The event must already have key remaps applied.
+fn keyEventBindingEntry(
+    self: *Surface,
+    event: input.KeyEvent,
+) ?input.Binding.Set.Entry {
+    // If we're in a sequence, only the sequence set applies
+    if (self.keyboard.sequence_set) |set| {
+        return set.getEvent(event);
+    }
+
+    // Check active key tables (inner-most to outer-most)
+    const table_items = self.keyboard.table_stack.items;
+    for (0..table_items.len) |i| {
+        const rev_i: usize = table_items.len - 1 - i;
+        if (table_items[rev_i].set.getEvent(event)) |entry| {
+            return entry;
+        }
+    }
+
+    // Check the root set
+    return self.config.keybind.set.getEvent(event);
+}
+
+/// Returns true if the given key event may be replicated as broadcast
+/// input from the perspective of this surface. The origin surface calls
+/// this before processing an event to decide whether to send it to its
+/// group, and every receiving member calls it again to decide whether
+/// to accept it, since each surface has its own binding state (active
+/// key sequences and key tables).
+///
+/// An event may not be replicated if it would trigger a keybinding on
+/// this surface, with one exception: bindings whose every action only
+/// sends terminal input (e.g. the default macOS cmd+left, which sends
+/// `text:\x01`) are replicated, since sending the same input to every
+/// member is exactly what broadcast is for. Bindings with any other
+/// effect (splits, tabs, paste, ...) must only run on the surface that
+/// actually received the key event. Leader keys, keys that continue a
+/// sequence and keys bound in an active key table are never replicated.
+///
+/// A release is only replicated if its press was, so a held back press
+/// never leaks a stray release to the receiving terminals.
+pub fn keyEventBroadcastable(
+    self: *Surface,
+    event_orig: input.KeyEvent,
+) bool {
+    // Apply key remappings for consistency with keyCallbackLocal
+    var event = event_orig;
+    if (self.config.key_remaps.isRemapped(event_orig.mods)) {
+        event.mods = self.config.key_remaps.apply(event_orig.mods);
+    }
+
+    switch (event.action) {
+        // We don't reset the last held press on release because an
+        // apprt may send multiple release events for a single press.
+        .release => {
+            const last = self.keyboard.last_held orelse return true;
+            return last != event.bindingHash();
+        },
+
+        .press, .repeat => {
+            const ok = self.keyEventTerminalInputOnly(event);
+            self.keyboard.last_held = if (ok) null else event.bindingHash();
+            return ok;
+        },
+    }
+}
+
+/// Returns true if the given press either triggers no binding on this
+/// surface or only a binding that sends terminal input. The event must
+/// already have key remaps applied. See keyEventBroadcastable.
+fn keyEventTerminalInputOnly(
+    self: *Surface,
+    event: input.KeyEvent,
+) bool {
+    const entry = self.keyEventBindingEntry(event) orelse return true;
+    const leaf = switch (entry.value_ptr.*) {
+        // Leader keys start a sequence whose state is local to each
+        // surface, so never replicate them.
+        .leader => return false,
+        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
+    };
+
+    for (leaf.actionsSlice()) |action| {
+        if (!action.terminalInput()) return false;
+    }
+
+    return true;
+}
+
 /// Called for any key events. This handles keybindings, encoding and
 /// sending to the terminal, etc.
+///
+/// If this surface is a member of a broadcast input group, the event is
+/// also replicated to the other group members.
 pub fn keyCallback(
+    self: *Surface,
+    event: input.KeyEvent,
+) !InputEffect {
+    // Decide whether to replicate the event before processing it
+    // locally: processing may change our binding state (a leader key
+    // starts a sequence, a binding activates a key table) and the
+    // event must be judged against the state it was typed in. Keys
+    // that trigger a binding here are held back so a key sequence or
+    // key table member isn't typed into the other members. Composing
+    // events stay local so IME preedit state doesn't leak to other
+    // surfaces; the committed text is replicated when it arrives.
+    // Modifier-only events are skipped because some apprts already fan
+    // those out to every surface in a window (e.g. macOS flagsChanged),
+    // which would produce duplicates.
+    const broadcast = self.broadcast_group != null and
+        !event.composing and
+        !event.key.modifier() and
+        self.keyEventBroadcastable(event);
+
+    const effect = try self.keyCallbackLocal(event);
+
+    // If the event closed us then self is no longer valid.
+    if (broadcast and effect != .closed) {
+        self.app.broadcastKeyEvent(self, event);
+    }
+
+    return effect;
+}
+
+/// Same as keyCallback but never replicates the event to the surface's
+/// broadcast input group. This is what broadcast itself uses to deliver
+/// replicated events, so it must not rebroadcast.
+pub fn keyCallbackLocal(
     self: *Surface,
     event_orig: input.KeyEvent,
 ) !InputEffect {
@@ -3424,6 +3552,17 @@ fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
 /// if bracketed mode is on this will do a bracketed paste. Otherwise,
 /// this will filter newlines to '\r'.
 pub fn textCallback(self: *Surface, text: []const u8) !void {
+    try self.textCallbackLocal(text);
+
+    // Replicate the text to the other members of our broadcast input
+    // group, if any.
+    self.app.broadcastTextEvent(self, text);
+}
+
+/// Same as textCallback but never replicates the text to the surface's
+/// broadcast input group. This is what broadcast itself uses to deliver
+/// replicated text, so it must not rebroadcast.
+pub fn textCallbackLocal(self: *Surface, text: []const u8) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
@@ -3940,6 +4079,28 @@ pub fn mouseButtonCallback(
 
     // Update our modifiers if they changed
     self.modsChanged(mods);
+
+    // Left-clicking with the broadcast-group-click-mods modifiers held
+    // toggles this surface's broadcast group membership. The click is
+    // consumed entirely: the press toggles and the matching release is
+    // swallowed so the terminal never sees an unpaired release. The
+    // configured modifiers must match exactly so that other modified
+    // clicks the terminal or Ghostty assigns meaning to are never
+    // shadowed by a superset combination.
+    if (button == .left) {
+        switch (action) {
+            .press => if (self.config.broadcast_group_click_mods.match(mods)) {
+                self.mouse.broadcast_click = true;
+                self.app.toggleBroadcastGroup(self.rt_app, self);
+                return true;
+            },
+
+            .release => if (self.mouse.broadcast_click) {
+                self.mouse.broadcast_click = false;
+                return true;
+            },
+        }
+    }
 
     // This is set to true if the terminal is allowed to capture the shift
     // modifier. Note we can do this more efficiently probably with less
@@ -5485,6 +5646,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .amount = position },
         ),
 
+        .toggle_broadcast_group => |v| return self.app.toggleNumberedBroadcastGroup(
+            self.rt_app,
+            self,
+            v,
+        ),
+
         .move_tab_to_new_window => return try self.rt_app.performAction(
             .{ .surface = self },
             .move_tab_to_new_window,
@@ -6020,10 +6187,18 @@ pub fn completeClipboardRequest(
     complete: CompleteClipboard,
 ) !void {
     switch (req) {
-        .paste => try self.completeClipboardPaste(
-            clipboardTextContent(complete.contents) orelse "",
-            complete.confirmed,
-        ),
+        .paste => {
+            const data = clipboardTextContent(complete.contents) orelse "";
+            try self.completeClipboardPaste(data, complete.confirmed);
+
+            // Replicate the paste to the other members of our broadcast
+            // input group, if any. This runs only after our own paste
+            // succeeded, so the data either passed the safety check or
+            // the user confirmed the paste; on an unsafe paste the error
+            // return above means we never get here and nothing is
+            // replicated until the apprt retries with confirmation.
+            self.app.broadcastPasteEvent(self, data);
+        },
 
         .list => |clipboard| if (!try self.completeClipboardPasteEvent(
             clipboard,
@@ -6261,7 +6436,7 @@ fn startClipboardRequest(
     return try self.rt_surface.clipboardRequest(loc, effective_req);
 }
 
-fn completeClipboardPaste(
+pub fn completeClipboardPaste(
     self: *Surface,
     data: []const u8,
     allow_unsafe: bool,

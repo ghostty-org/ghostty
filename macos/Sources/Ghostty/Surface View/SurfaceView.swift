@@ -161,6 +161,13 @@ extension Ghostty {
                     }
                 }
 
+                // Broadcast input group border. This goes above the unfocused
+                // dim overlay so the group color stays identifiable on
+                // unfocused surfaces.
+                if let broadcastColor = surfaceView.broadcastGroupColor {
+                    BroadcastGroupBorderOverlay(color: broadcastColor)
+                }
+
                 // Grab handle for dragging the window. We want this to appear at the very
                 // top Z-index os it isn't faded by the unfocused overlay.
                 SurfaceGrabHandle(
@@ -898,6 +905,18 @@ extension Ghostty {
                 let wave = sin((phase + offset) * .pi * 2)
                 return 0.3 + 0.7 * ((wave + 1) / 2)
             }
+        }
+    }
+
+    /// Visual overlay that shows a thin border around surfaces that are part of
+    /// a broadcast input group. Each group has a distinct color.
+    struct BroadcastGroupBorderOverlay: View {
+        let color: Color
+
+        var body: some View {
+            Rectangle()
+                .strokeBorder(color, lineWidth: 2)
+                .allowsHitTesting(false)
         }
     }
 
