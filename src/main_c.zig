@@ -46,7 +46,7 @@ comptime {
     _ = @import("benchmark/main.zig").CApi;
 
     // Force-reference our memset override so its export is emitted
-    // (not on Darwin or x86_64). See quirks_memset.zig for why this exists.
+    // when its needed. See quirks_memset.zig for lots of details.
     _ = @import("quirks_memset.zig");
 }
 

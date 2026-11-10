@@ -1,5 +1,7 @@
 //! Provides a fast `memset` that replaces compiler_rt's version on
-//! every target except Darwin and x86_64.
+//! every target except Darwin, x86_64, and binaries that link glibc
+//! dynamically. Those use glibc's `memset`, `memcpy` and `memmove`,
+//! which this file also arranges (see `Glibc` below).
 //!
 //! Zig 0.17.0's compiler_rt memset (ziglang/zig#35754) is no longer a
 //! byte-at-a-time loop, but on aarch64 it is still slower than this
@@ -10,20 +12,19 @@
 //! - 1.5x to 2x slower for fills from 192 bytes to 32 KiB.
 //! - About 4x slower for zero fills of 1 MiB or more.
 //!
-//! End to end, removing this file makes `ghostty-bench` on Linux arm64
-//! 13% to 35% slower on ASCII, scroll-clear and resize workloads.
-//!
 //! ## When to delete this file
 //!
 //! Delete it once compiler_rt's memset catches up. To check, build
-//! `ghostty-bench` on Linux twice, once as-is and once with every
-//! `@import("quirks_memset.zig")` removed, then compare the two with
-//! hyperfine. Use arm64, since x86_64 no longer uses this file (see
-//! "Why x86_64 is excluded" below):
+//! `ghostty-bench` on Linux twice, once as-is and once with the
+//! `@export` below removed, then compare the two with hyperfine. Use
+//! arm64, since x86_64 no longer uses this file (see "Why x86_64 is
+//! excluded" below). For both builds, set `Glibc.enabled` to false,
+//! otherwise glibc's memset is used and ours is not part of either
+//! build:
 //!
 //! ```
 //! zig build -Demit-bench -Dapp-runtime=none -Doptimize=fast -p with
-//! # Remove the imports, then:
+//! # Remove the export, then:
 //! zig build -Demit-bench -Dapp-runtime=none -Doptimize=fast -p without
 //!
 //! hyperfine -N --warmup 3 \
@@ -94,10 +95,25 @@
 //!       libghostty-vt.a(ghostty-vt-static_zcu.o)
 //!   ```
 //!
+//! ## Why glibc is excluded
+//!
+//! glibc's memset is at least as fast as this one, so executables and
+//! shared libraries that link glibc dynamically use it instead. On
+//! Linux arm64 (Apple M4, glibc 2.41), `ghostty-bench` with glibc's
+//! memset is 10% faster on ASCII with `--scrollback-max-bytes=0`, and
+//! no workload is slower.
+//!
+//! Zig doesn't do this by itself, though. `Glibc` below explains why
+//! and does it for `memset`, `memcpy` and `memmove`.
+//!
+//! Static archives and objects can't do this, because their consumer
+//! does the final link. They keep this memset on glibc targets too.
+//!
 //! Other mem functions deliberately not overridden:
 //!
 //! - memcpy/memmove: compiler_rt's implementations are manually
-//!   vectorized upstream ("memcpyFast") and remain fast.
+//!   vectorized upstream ("memcpyFast") and remain fast. (Where glibc
+//!   is available we still prefer its versions, see above.)
 //! - memcmp/bcmp/strlen: these were also scalar in 0.16, but they
 //!   never showed up in our profiles.
 //!
@@ -117,6 +133,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 comptime {
+    // When we have Glibc available with the proper version, we prefer that
+    // because their implementation is fantastic.
+    if (Glibc.enabled) asm (Glibc.assembly());
+
     // Strong linkage when we control the final link (executables,
     // shared libraries), weak otherwise.
     const linkage: std.lang.GlobalLinkage = switch (builtin.output_mode) {
@@ -145,12 +165,16 @@ comptime {
     //      aligned fills and up to 3.5x faster for unaligned ones,
     //      because it aligns its loop and we don't. See "Why x86_64
     //      is excluded" above.
+    //   6. Where we can forward to glibc's memset we do that instead,
+    //      because it is at least as fast as ours. See "Why glibc is
+    //      excluded" above.
     const enabled =
         std.simd.suggestVectorLength(u8) != null and
         builtin.target.ofmt != .c and
         !(linkage == .weak and builtin.target.ofmt == .coff) and
         !builtin.target.os.tag.isDarwin() and
-        builtin.target.cpu.arch != .x86_64;
+        builtin.target.cpu.arch != .x86_64 and
+        !Glibc.enabled;
 
     if (enabled) @export(&memset, .{
         .name = "memset",
@@ -164,6 +188,153 @@ comptime {
         .visibility = .hidden,
     });
 }
+
+/// Makes `memset`, `memcpy` and `memmove` use glibc's implementations
+/// in executables and shared libraries that link glibc dynamically.
+///
+/// ## Why
+///
+/// Zig links compiler_rt into an executable or shared library as a
+/// static archive holding one object. That object defines weak, hidden
+/// copies of `memset`, `memcpy`, `memmove`, `memcmp`, `bcmp` and
+/// `strlen` next to the compiler builtins (128-bit division, ...). As
+/// soon as one builtin is needed the whole object is linked, and a
+/// definition inside the binary always beats one in a shared library,
+/// weak or not. Every call in the binary then goes to compiler_rt's
+/// copy and glibc's is never used.
+///
+/// glibc's are faster. It picks an implementation at runtime for the
+/// CPU it is running on (AVX2, `rep stosb`, `dc zva`, ...), while
+/// compiler_rt's is fixed at compile time, which at `-Dcpu=baseline`
+/// on x86_64 means SSE2. With `ghostty-bench` on Zig 0.17.0, compared
+/// to compiler_rt's `memcpy` and `memmove` plus the best `memset` we
+/// had (this file's on aarch64, compiler_rt's on x86_64):
+///
+/// - Linux aarch64 (Apple M4, glibc 2.41): ASCII with
+///   `--scrollback-max-bytes=0` is 23% faster and `+terminal-resize`
+///   is 10% faster.
+/// - x86_64 at `-Dcpu=baseline` (Ryzen 7 5800X, glibc 2.42): ASCII is
+///   6% to 10% faster, erase with scroll-clear and resize are 4%
+///   faster.
+/// - x86_64 built for the native CPU (AVX2): no difference.
+///
+/// Nothing measured slower that I could find.
+///
+/// ## How
+///
+/// We define our own strong `memset` (etc.) so that compiler_rt's weak
+/// copy loses, and make it a single jump to glibc's.
+///
+/// The versions are the ones glibc currently exports as the default,
+/// which for all but one are also the oldest that exist for the
+/// architecture. The exception is x86_64 `memcpy`. Its older
+/// `memcpy@GLIBC_2.2.5` only exists for binaries linked against glibc
+/// older than 2.14 (2011), and it is a fixed SSE2 routine without the
+/// runtime CPU selection, so binding it would defeat the purpose.
+///
+/// ## When to delete this
+///
+/// Delete it once compiler_rt stops defining these functions when libc
+/// is linked. To check, set `enabled` to false, build `ghostty-bench`
+/// for x86_64 Linux, and look at its symbols:
+///
+/// ```
+/// zig build -Demit-bench -Dapp-runtime=none -Doptimize=fast
+/// readelf --dyn-syms -W zig-out/bin/ghostty-bench | grep -E ' (memset|memcpy|memmove)@'
+/// ```
+///
+/// If all three are listed as `UND`, glibc's are used without our help.
+const Glibc = struct {
+    const Versions = struct {
+        /// The glibc version our target must be at least for all of
+        /// the symbol versions below to exist.
+        min: std.SemanticVersion,
+        memset: []const u8,
+        memcpy: []const u8,
+        memmove: []const u8,
+    };
+
+    /// The symbol version of each function per architecture. Check with
+    /// `readelf --dyn-syms -W libc.so.6 | grep -E ' (memset|memcpy|memmove)@@'`
+    /// on a machine of that architecture (`@@` marks the default
+    /// version).
+    const versions: ?Versions = switch (builtin.target.cpu.arch) {
+        .x86_64 => .{
+            .min = .{ .major = 2, .minor = 14, .patch = 0 },
+            .memset = "GLIBC_2.2.5",
+            .memcpy = "GLIBC_2.14",
+            .memmove = "GLIBC_2.2.5",
+        },
+        .aarch64 => .{
+            .min = .{ .major = 2, .minor = 17, .patch = 0 },
+            .memset = "GLIBC_2.17",
+            .memcpy = "GLIBC_2.17",
+            .memmove = "GLIBC_2.17",
+        },
+        else => null,
+    };
+
+    /// Whether the functions are forwarded to glibc for this artifact.
+    const enabled = enabled: {
+        // We can only forward when we control the final link, and only
+        // when that link is against a shared glibc.
+        if (!builtin.link_libc or
+            !builtin.target.isGnuLibC() or
+            builtin.link_mode != .dynamic) break :enabled false;
+        switch (builtin.output_mode) {
+            .Exe, .Lib => {},
+            .Obj => break :enabled false,
+        }
+
+        const v = versions orelse break :enabled false;
+        const glibc = builtin.target.os.versionRange().gnuLibCVersion() orelse
+            break :enabled false;
+        break :enabled glibc.order(v.min) != .lt;
+    };
+
+    /// Assembly defining all three functions. Only valid if `enabled`.
+    fn assembly() []const u8 {
+        const v = versions.?;
+        return forward("memset", v.memset) ++
+            forward("memcpy", v.memcpy) ++
+            forward("memmove", v.memmove);
+    }
+
+    /// Assembly defining `name` as a jump to glibc's `name@ver`.
+    fn forward(comptime name: []const u8, comptime ver: []const u8) []const u8 {
+        // Notes on the assembly:
+        //
+        //   - `.symver` can't be applied to a symbol we also define,
+        //     so the versioned reference goes through an alias.
+        //   - Hidden so that shared library builds (libghostty,
+        //     libghostty-vt) don't export these to their host
+        //     applications.
+        return std.fmt.comptimePrint(
+            \\.symver ghostty_glibc_{[name]s}, {[name]s}@{[ver]s}
+            \\.pushsection .text.{[name]s}, "ax", %progbits
+            \\.globl {[name]s}
+            \\.hidden {[name]s}
+            \\.type {[name]s}, %function
+            \\{[name]s}:
+            \\  {[jump]s} ghostty_glibc_{[name]s}{[plt]s}
+            \\.size {[name]s}, .-{[name]s}
+            \\.popsection
+            \\
+        , .{
+            .name = name,
+            .ver = ver,
+            .jump = switch (builtin.target.cpu.arch) {
+                .x86_64 => "jmp",
+                .aarch64 => "b",
+                else => unreachable,
+            },
+            .plt = switch (builtin.target.cpu.arch) {
+                .x86_64 => "@PLT",
+                else => "",
+            },
+        });
+    }
+};
 
 /// Bytes stored per loop iteration. Twice the native vector size so
 /// each iteration issues two vector stores (e.g. `stp q0, q0` on
