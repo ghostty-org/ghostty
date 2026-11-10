@@ -2622,8 +2622,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         baseConfig config: Ghostty.SurfaceConfiguration? = nil
     ) -> Ghostty.SurfaceView? {
         do {
-            let configuration = try splitConfiguration(inherited: config, from: oldView)
-            return super.newSplit(at: oldView, direction: direction, baseConfig: configuration)
+            let launch = try newSplitLaunch(inherited: config, from: oldView)
+            let surface = super.newSplit(at: oldView, direction: direction, baseConfig: launch.configuration)
+            if let surface, let descriptor = launch.agentDescriptor {
+                adoptAgentResumeDescriptor(descriptor, for: surface)
+            }
+            return surface
         } catch {
             // Do not silently open a local pane when remote split setup fails.
             let alert = NSAlert(error: error)
@@ -4024,20 +4028,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Resolve the tab inheritance from the focused Surface here so those
         // paths receive the same SSH-safe local-directory handling as a core
         // new_tab notification.
-        let resolvedBaseConfig: Ghostty.SurfaceConfiguration? = if let baseConfig {
-            baseConfig
-        } else if let source = parentController.focusedSurface,
-                  let surface = source.surface {
-            parentController.tabConfiguration(
+        // OMG: a fresh tab applies the configured new-tab inheritance; moved
+        // trees keep the plain directory contract.
+        let inheritedLaunch: InheritedSessionLaunch? = if baseConfig == nil,
+            let source = parentController.focusedSurface,
+            let surface = source.surface {
+            parentController.newTabLaunch(
                 inherited: .init(from: ghostty_surface_inherited_config(
                     surface,
                     GHOSTTY_SURFACE_CONTEXT_TAB
                 )),
-                from: source
+                from: source,
+                level: surfaceTree == nil ? .current(for: .tab) : .workingDirectory
             )
         } else {
             nil
         }
+        let resolvedBaseConfig = baseConfig ?? inheritedLaunch?.configuration
 
         // A key-repeat burst can still target the old key window while the
         // latest tab awaits presentation. Insert after that latest intent, not
@@ -4069,6 +4076,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         controller.tabLayoutState = parentController.tabLayoutState
+        if let descriptor = inheritedLaunch?.agentDescriptor, let surface = controller.surfaceTree.first {
+            controller.adoptAgentResumeDescriptor(descriptor, for: surface)
+        }
         guard let window = controller.window else { return nil }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors

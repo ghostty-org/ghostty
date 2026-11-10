@@ -479,6 +479,26 @@ struct SettingsStrings: Equatable, Sendable {
         t("History storage failed. Current in-memory history is still available.",
           "历史存储失败，当前内存中的历史仍可使用。")
     }
+    var newSessionInheritanceSection: String { t("New tabs and splits", "新建标签与分屏") }
+    var newSessionInheritanceCaption: String {
+        t("Choose what a new tab or split carries over from the focused pane. Agent options also keep its SSH connection. Turning off Ghostty's tab/split-inherit-working-directory still starts from the default directory.",
+          "选择新建标签或分屏从当前 pane 继承什么。Agent 选项会同时沿用它的 SSH 连接。关闭 Ghostty 的 tab/split-inherit-working-directory 后，仍从默认目录启动。")
+    }
+    var newSessionInheritanceResumeWarning: String {
+        t("\"Same Agent session\" resumes the conversation by ID in a second live process. Both panes append to one transcript without seeing each other's new turns, so a later resume may show only one branch or a mixed history.",
+          "“同一 Agent 会话”会在第二个进程里按 ID resume 同一对话。两个 pane 会追加写入同一份 transcript，但互相看不到对方的新轮次；之后再 resume 时可能只看到其中一支，或得到混杂的历史。")
+    }
+    var newTabInheritanceLabel: String { t("New tab", "新建标签") }
+    var newSplitInheritanceLabel: String { t("New split", "新建分屏") }
+    func newSessionInheritanceTitle(_ value: NewSessionInheritance) -> String {
+        switch value {
+        case .defaultDirectory: t("Default directory", "默认目录")
+        case .workingDirectory: t("Inherit working directory", "继承工作目录")
+        case .ssh: t("Inherit SSH session", "继承 SSH 会话")
+        case .agentNewSession: t("Start the same Agent (new session)", "启动同一 Agent（新会话）")
+        case .agentResume: t("Resume the same Agent session", "恢复同一 Agent 会话")
+        }
+    }
     var quickInputHistoryScopeLabel: String { t("History Visibility", "历史可见范围") }
     func quickInputHistoryScopeName(_ scope: QuickInputHistoryScope) -> String {
         switch scope {

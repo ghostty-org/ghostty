@@ -84,6 +84,12 @@ extension NativeSettingsController {
     private func terminal(_ form: NativeSettingsForm) {
         form.section(text("On launch", "启动时"))
         picker(form, strings.startupModeLabel, \.startupMode, OMGStartupMode.allCases.map { ($0, strings.startupModeTitle($0)) })
+        form.section(strings.newSessionInheritanceSection, caption: strings.newSessionInheritanceCaption)
+        picker(form, strings.newTabInheritanceLabel, \.newTabInheritance,
+               NewSessionInheritance.allCases.map { ($0, strings.newSessionInheritanceTitle($0)) })
+        picker(form, strings.newSplitInheritanceLabel, \.newSplitInheritance,
+               NewSessionInheritance.allCases.map { ($0, strings.newSessionInheritanceTitle($0)) })
+        form.note(strings.newSessionInheritanceResumeWarning)
         form.section(text("When quitting OMG", "退出 OMG 时"),
                      caption: text("Leave a switch off to keep those sessions running in the background.", "关闭开关后，相应会话会在退出 OMG 后继续运行。"))
         for (title, key) in [(text("Close local sessions on quit", "退出时关闭本地会话"), \OhMyGhosttySettings.keepLocalSessionsOnQuit),

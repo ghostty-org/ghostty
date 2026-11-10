@@ -635,6 +635,20 @@ final class OhMyGhosttySettings: ObservableObject {
             minimum: nil, maximum: nil,
             description: "Choose a fresh terminal, layout-only tabs, or full session restoration on next launch.",
             requiresNewWindow: false, category: "general"),
+        .init(
+            id: "sessions.newTabInheritance", type: .enumeration,
+            defaultValue: NewSessionInheritance.defaultValue(for: .tab).rawValue,
+            allowedValues: NewSessionInheritance.allCases.map(\.rawValue),
+            minimum: nil, maximum: nil,
+            description: "What a new tab inherits from the focused pane: default directory, working directory, SSH, a new Agent session, or the same Agent session.",
+            requiresNewWindow: false, category: "general"),
+        .init(
+            id: "sessions.newSplitInheritance", type: .enumeration,
+            defaultValue: NewSessionInheritance.defaultValue(for: .split).rawValue,
+            allowedValues: NewSessionInheritance.allCases.map(\.rawValue),
+            minimum: nil, maximum: nil,
+            description: "What a new split inherits from the focused pane: default directory, working directory, SSH, a new Agent session, or the same Agent session.",
+            requiresNewWindow: false, category: "general"),
     ] + CoreSetting.all.map {
         .init(id: $0.id, type: .enumeration, defaultValue: "",
               allowedValues: [""] + $0.values, minimum: nil, maximum: nil,
@@ -1024,6 +1038,12 @@ final class OhMyGhosttySettings: ObservableObject {
     @Published var startupMode: OMGStartupMode = .restoreSessions {
         didSet { persist("sessions.startupMode", startupMode.rawValue) }
     }
+    @Published var newTabInheritance = NewSessionInheritance.defaultValue(for: .tab) {
+        didSet { persist("sessions.newTabInheritance", newTabInheritance.rawValue) }
+    }
+    @Published var newSplitInheritance = NewSessionInheritance.defaultValue(for: .split) {
+        didSet { persist("sessions.newSplitInheritance", newSplitInheritance.rawValue) }
+    }
     @Published var quitWithoutConfirmation =
         OMGApplicationEnvironment.quitWithoutConfirmationDefault() {
         didSet {
@@ -1346,6 +1366,8 @@ final class OhMyGhosttySettings: ObservableObject {
             keepLocalSessionsOnQuit = boolValue("sessions.keepLocalOnQuit", fallback: true)
             keepSSHSessionsOnQuit = boolValue("sessions.keepSSHOnQuit", fallback: true)
             startupMode = enumValue("sessions.startupMode", fallback: .restoreSessions)
+            newTabInheritance = enumValue("sessions.newTabInheritance", fallback: NewSessionInheritance.defaultValue(for: .tab))
+            newSplitInheritance = enumValue("sessions.newSplitInheritance", fallback: NewSessionInheritance.defaultValue(for: .split))
             runtimeDetachedHours = min(max(chosen["sessions.runtimeDetachedHours"] as? Double ?? 72, 0), 8760)
             runtimeExpiration = chosen["sessions.runtimeExpiration"] as? String ?? ""
             runtimeCloseOnAgentDone = chosen["sessions.runtimeCloseOnAgentDone"] as? Bool ?? false

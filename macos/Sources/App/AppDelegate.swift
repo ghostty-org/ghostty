@@ -893,12 +893,15 @@ class AppDelegate: NSObject,
 
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let inheritedConfig = configAny as? Ghostty.SurfaceConfiguration
-        let config = controller.tabConfiguration(
+        let launch = controller.newTabLaunch(
             inherited: inheritedConfig,
             from: surfaceView
         )
 
-        _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
+        let tab = TerminalController.newTab(ghostty, from: window, withBaseConfig: launch.configuration)
+        if let tab, let descriptor = launch.agentDescriptor, let surface = tab.surfaceTree.first {
+            tab.adoptAgentResumeDescriptor(descriptor, for: surface)
+        }
     }
 
     private func setDockBadge() {

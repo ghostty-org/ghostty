@@ -439,6 +439,20 @@
       "enum": ["newTerminal", "restoreTabs", "restoreSessions"],
       "type": "string"
     },
+    "sessions.newTabInheritance": {
+      "category": "general",
+      "default": "directory",
+      "description": "What a new tab inherits from the focused pane: default directory, working directory, SSH, a new Agent session, or the same Agent session.",
+      "enum": ["default", "directory", "ssh", "agent", "agentResume"],
+      "type": "string"
+    },
+    "sessions.newSplitInheritance": {
+      "category": "general",
+      "default": "ssh",
+      "description": "What a new split inherits from the focused pane: default directory, working directory, SSH, a new Agent session, or the same Agent session.",
+      "enum": ["default", "directory", "ssh", "agent", "agentResume"],
+      "type": "string"
+    },
     "tabs.grouping": {
       "category": "tabs",
       "default": "none",
