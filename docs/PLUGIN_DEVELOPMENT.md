@@ -3022,6 +3022,19 @@ chooser; SSH files are downloaded as read-only temporary copies and edits in the
 external application are not uploaded. Remote folders cannot be opened locally.
 These host-owned actions do not grant external plugins filesystem capabilities.
 
+The Files header also carries a host-owned toolbar: New File and New Folder
+(name prompt; created in the selected folder, next to the selected file, or in
+the root, then the parent is expanded and the new item selected), Locate Current
+File (expands the ancestors of the document shown by a visible editor in the same
+tab and on the same local/SSH endpoint, then selects and scrolls to it; a one-shot
+action, not continuous follow), Collapse All, and Expand All. Expand All walks
+directories breadth-first, bounded to 200 directories and 8 levels so large or
+remote trees stay responsive. Reveals travel in `InspectorFileTree.reveal` as a
+path plus token; the tree view applies each token once. The corresponding
+`InspectorPaneActionKind` cases are `promptCreateItem`, `createFile`/`createFolder`
+(optional `parent`, restricted to the root or a directory shown in the tree),
+`revealCurrentFile`, `collapseAll` and `expandAll`.
+
 ### Terminal file links and default destinations
 
 The macOS host routes OSC 8 `file:` links and detected paths to the built-in

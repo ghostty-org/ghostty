@@ -351,6 +351,22 @@ final class EditorWorkspaceStore {
         return workspace
     }
 
+    /// The document shown by a visible editor in `tabID` on the same endpoint
+    /// as `descriptor` (Files → Locate Current File). The preferred surface's
+    /// editor wins; other editors in the tab are fallbacks.
+    func currentDocumentPath(tabID: UUID, preferredSurfaceID: UUID?, descriptor: WorkspaceDescriptor) -> String? {
+        guard let endpoint = try? EditorDocumentID(descriptor: descriptor, path: descriptor.workingDirectory).endpoint
+        else { return nil }
+        let surfaces = owners.filter { $0.value == tabID }.map(\.key).sorted { $0.uuidString < $1.uuidString }
+        let ordered = (preferredSurfaceID.map { [$0] } ?? []) + surfaces.filter { $0 != preferredSurfaceID }
+        for surfaceID in ordered {
+            guard owners[surfaceID] == tabID, let workspace = workspaces[surfaceID], workspace.isVisible,
+                  let document = workspace.selectedDocument, document.id.endpoint == endpoint else { continue }
+            return document.path
+        }
+        return nil
+    }
+
     func open(path: String, context: InspectorPaneContext, destination: EditorOpenDestination? = nil) {
         guard let controller = NSApp.windows.compactMap({ $0.windowController as? TerminalController })
             .first(where: { $0.tabSessionID == context.tabID }),

@@ -12,6 +12,12 @@ final class BuiltInFilesInspectorProvider {
     static let pluginID = "builtin.files"
     static let paneID = "builtin.files"
     typealias OpenFileHandler = @MainActor (String, InspectorPaneContext, EditorOpenDestination) -> Void
+    /// Path of the editor document currently shown for this tab on the Files
+    /// filesystem endpoint, if any.
+    typealias CurrentDocumentHandler = @MainActor (InspectorPaneContext, WorkspaceDescriptor) -> String?
+    /// Expand All walks unloaded directories; keep remote/large trees bounded.
+    static let expandAllDirectoryLimit = 200
+    static let expandAllDepthLimit = 8
 
     private static let rootTaskID = "__root__"
     private static let loadingTaskID = "__loading__"
@@ -24,6 +30,9 @@ final class BuiltInFilesInspectorProvider {
         var expanded: Set<String> = []
         var generation: UInt64 = 0
         var tree: InspectorFileTree?
+        /// Applied to the next loaded tree as a one-shot reveal.
+        var pendingReveal: String?
+        var revealToken: UInt64 = 0
     }
 
     private struct LoadKey: Hashable {
@@ -34,6 +43,7 @@ final class BuiltInFilesInspectorProvider {
     private let registry: InspectorRegistry
     private let filesystemFactory: (InspectorPaneContext) -> any WorkspaceFilesystem
     private let openFile: OpenFileHandler
+    private let currentDocumentPath: CurrentDocumentHandler
     private var states: [UUID: BrowserState] = [:]
     private var loadTasks: [LoadKey: Task<Void, Never>] = [:]
 
@@ -41,10 +51,16 @@ final class BuiltInFilesInspectorProvider {
         registry: InspectorRegistry,
         filesystemFactory: @escaping (InspectorPaneContext) -> any WorkspaceFilesystem =
             WorkspaceFilesystemFactory.make,
+        currentDocumentPath: @escaping CurrentDocumentHandler = { context, descriptor in
+            EditorWorkspaceStore.shared.currentDocumentPath(tabID: context.tabID,
+                                                            preferredSurfaceID: context.surfaceID,
+                                                            descriptor: descriptor)
+        },
         openFile: @escaping OpenFileHandler
     ) {
         self.registry = registry
         self.filesystemFactory = filesystemFactory
+        self.currentDocumentPath = currentDocumentPath
         self.openFile = openFile
     }
 
@@ -195,11 +211,20 @@ final class BuiltInFilesInspectorProvider {
             states[context.tabID] = state
             publishTree(for: context.tabID)
 
-        case .createFile(let name):
-            create(name: name, directory: false, context: context)
+        case .expandAll:
+            expandAll(context: context)
 
-        case .createFolder(let name):
-            create(name: name, directory: true, context: context)
+        case .revealCurrentFile:
+            revealCurrentFile(context: context)
+
+        case .promptCreateItem(let directory, let parent):
+            promptCreate(directory: directory, parent: parent, context: context)
+
+        case .createFile(let name, let parent):
+            create(name: name, directory: false, parent: parent, context: context)
+
+        case .createFolder(let name, let parent):
+            create(name: name, directory: true, parent: parent, context: context)
 
         case .createPortForward, .openPortForward, .copyPortForward,
              .removePortForward, .refreshAgentHistory, .setAgentHistoryTimeRange,
@@ -370,10 +395,20 @@ final class BuiltInFilesInspectorProvider {
                 nodeID: Self.loadingTaskID
             )
             loadTasks.removeValue(forKey: loadingKey)?.cancel()
-            if case .fileTree(let tree) = content {
-                states[context.tabID]?.tree = tree
+            var published = content
+            if case .fileTree(var tree) = content, var current = states[context.tabID] {
+                if let path = current.pendingReveal {
+                    current.pendingReveal = nil
+                    if Self.findNode(id: path, in: tree.nodes) != nil {
+                        current.revealToken &+= 1
+                        tree.reveal = .init(path: path, token: current.revealToken)
+                    }
+                }
+                current.tree = tree
+                states[context.tabID] = current
+                published = .fileTree(tree)
             }
-            publish(content, tabID: context.tabID)
+            publish(published, tabID: context.tabID)
             loadTasks.removeValue(forKey: key)
             let elapsed = ContinuousClock.now - started
             Self.logger.debug("Files root refresh completed tab=\(context.tabID.uuidString, privacy: .public) generation=\(generation) elapsed=\(elapsed) summary=\(Self.summary(content), privacy: .public)")
@@ -470,6 +505,7 @@ final class BuiltInFilesInspectorProvider {
     private func create(
         name: String,
         directory: Bool,
+        parent requestedParent: String? = nil,
         context: InspectorPaneContext
     ) {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -478,6 +514,15 @@ final class BuiltInFilesInspectorProvider {
             return
         }
         let state = state(for: context)
+        // Only the root or a directory already shown in this tree.
+        let parent = requestedParent ?? state.rootPath
+        guard parent == state.rootPath ||
+                (state.tree.flatMap { Self.findNode(id: parent, in: $0.nodes) }?.isDirectory == true) else {
+            Self.logger.error("Files create rejected unknown parent=\(parent, privacy: .public)")
+            return
+        }
+        let idRoot = state.tree.map(Self.nodeRoot(of:)) ?? state.rootPath
+        let createdPath = ((parent == state.rootPath ? idRoot : parent) as NSString).appendingPathComponent(normalized)
         states[context.tabID] = state
         let expectedDescriptor = state.filesystem.descriptor
         let expectedSessionState = context.session.state
@@ -493,19 +538,21 @@ final class BuiltInFilesInspectorProvider {
             nodeID: Self.mutationTaskID + ":" + UUID().uuidString
         )
         loadTasks[key] = Task { [weak self] in
+            var created = true
             do {
                 if directory {
                     try await state.filesystem.createDirectory(
                         named: normalized,
-                        in: state.rootPath
+                        in: parent
                     )
                 } else {
                     try await state.filesystem.createFile(
                         named: normalized,
-                        in: state.rootPath
+                        in: parent
                     )
                 }
             } catch {
+                created = false
                 if !Task.isCancelled {
                     Self.logger.error("Files create failed error=\(error.localizedDescription, privacy: .public)")
                 }
@@ -519,11 +566,136 @@ final class BuiltInFilesInspectorProvider {
                 return
             }
             loadTasks.removeValue(forKey: key)
+            if created {
+                // Show the new item inside its (possibly collapsed) parent.
+                states[context.tabID]?.expanded.formUnion(
+                    Self.ancestorDirectories(of: createdPath, root: idRoot)
+                )
+                states[context.tabID]?.pendingReveal = createdPath
+            }
             reloadRoot(
                 context: current.context,
                 reason: directory ? "create-folder" : "create-file"
             )
         }
+    }
+
+    private func promptCreate(directory: Bool, parent: String?, context: InspectorPaneContext) {
+        let alert = NSAlert()
+        alert.messageText = directory ? "New Folder" : "New File"
+        let folder = ((parent ?? state(for: context).rootPath) as NSString).lastPathComponent
+        alert.informativeText = "Enter a name. It is created in \(folder)."
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: "")
+        field.placeholderString = directory ? "folder" : "file.txt"
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.validChildName(name) else {
+            showError(WorkspaceFilesystemError.operationFailed("Enter a name without “/” or “:”."))
+            return
+        }
+        create(name: name, directory: directory, parent: parent, context: context)
+    }
+
+    /// Expands the editor document's ancestors below the root and reveals it.
+    private func revealCurrentFile(context: InspectorPaneContext) {
+        var state = state(for: context)
+        let idRoot = state.tree.map(Self.nodeRoot(of:)) ?? state.rootPath
+        guard let document = currentDocumentPath(context, state.filesystem.descriptor),
+              let path = Self.treePath(document, rootPath: state.rootPath, nodeRoot: idRoot) else {
+            Self.logger.debug("Files reveal ignored: no current document below root")
+            NSSound.beep()
+            return
+        }
+        state.expanded.formUnion(Self.ancestorDirectories(of: path, root: idRoot))
+        state.pendingReveal = path
+        states[context.tabID] = state
+        reloadRoot(context: context, reason: "reveal-current-file")
+    }
+
+    /// The directory prefix the filesystem listing actually uses for root entries.
+    /// It can differ from `rootPath` through symlinks (`/var` → `/private/var`).
+    nonisolated static func nodeRoot(of tree: InspectorFileTree) -> String {
+        // Compacted folders (`a/b/c`) have longer IDs; the shortest parent wins.
+        tree.nodes.map { ($0.id as NSString).deletingLastPathComponent }
+            .min { $0.count < $1.count } ?? tree.rootPath
+    }
+
+    /// Maps a path below either root spelling into the tree's ID space.
+    nonisolated static func treePath(_ path: String, rootPath: String, nodeRoot: String) -> String? {
+        for prefix in [nodeRoot, rootPath] {
+            let base = prefix == "/" ? "/" : prefix + "/"
+            if path.hasPrefix(base) {
+                return (nodeRoot == "/" ? "/" : nodeRoot + "/") + path.dropFirst(base.count)
+            }
+        }
+        return nil
+    }
+
+    /// Directories strictly between `root` and `path`, outermost first.
+    nonisolated static func ancestorDirectories(of path: String, root: String) -> [String] {
+        let prefix = root == "/" ? "/" : root + "/"
+        guard path.hasPrefix(prefix) else { return [] }
+        let components = path.dropFirst(prefix.count).split(separator: "/").dropLast()
+        var current = root
+        return components.map { component in
+            current = (current as NSString).appendingPathComponent(String(component))
+            return current
+        }
+    }
+
+    /// Breadth-first expansion of directories, bounded by count and depth so
+    /// a large or remote tree never floods the filesystem.
+    private func expandAll(context: InspectorPaneContext) {
+        let state = state(for: context)
+        states[context.tabID] = state
+        let filesystem = state.filesystem
+        let rootPath = state.rootPath
+        let generation = state.generation
+        let key = LoadKey(tabID: context.tabID, nodeID: Self.mutationTaskID + ":expand-all")
+        loadTasks[key]?.cancel()
+        let walk = Task.detached(priority: .utility) {
+            await Self.directoriesForExpansion(root: rootPath, filesystem: filesystem)
+        }
+        loadTasks[key] = Task { [weak self] in
+            let directories = await withTaskCancellationHandler(
+                operation: { await walk.value },
+                onCancel: { walk.cancel() }
+            )
+            guard !Task.isCancelled, let self, var current = states[context.tabID],
+                  current.generation == generation, current.rootPath == rootPath else { return }
+            loadTasks.removeValue(forKey: key)
+            current.expanded.formUnion(directories)
+            states[context.tabID] = current
+            reloadRoot(context: current.context, reason: "expand-all")
+        }
+    }
+
+    nonisolated static func directoriesForExpansion(
+        root: String,
+        filesystem: any WorkspaceFilesystem,
+        limit: Int = expandAllDirectoryLimit,
+        depthLimit: Int = expandAllDepthLimit
+    ) async -> [String] {
+        var result: [String] = []
+        var queue: [(path: String, depth: Int)] = [(root, 0)]
+        var index = 0
+        while index < queue.count, result.count < limit, !Task.isCancelled {
+            let (path, depth) = queue[index]
+            index += 1
+            guard depth < depthLimit,
+                  let entries = try? await filesystem.listTreeDirectory(at: path) else { continue }
+            for entry in entries.prefix(500) where entry.isDirectory {
+                guard result.count < limit else { break }
+                result.append(entry.path)
+                queue.append((entry.path, depth + 1))
+            }
+        }
+        return result
     }
 
     nonisolated private static func validChildName(_ name: String) -> Bool {

@@ -32,6 +32,7 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
     private var rootPath: String?
     private var lastTree: InspectorFileTree?
     private var isApplyingSnapshot = false
+    private var appliedRevealToken: UInt64?
     private var isLight = false
     private var perform: (InspectorPaneActionKind) -> Void = { _ in }
 
@@ -64,15 +65,22 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
         scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
-        for child in [header, scrollView] {
+        header.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        header.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let toolbar = NSStackView(views: [header] + toolbarButtons)
+        toolbar.orientation = .horizontal
+        toolbar.alignment = .centerY
+        toolbar.spacing = 2
+        toolbar.setCustomSpacing(6, after: header)
+        for child in [toolbar, scrollView] {
             child.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(child)
         }
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: view.topAnchor, constant: 10),
-            header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: InspectorContentMetrics.leadingInset),
-            header.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -InspectorContentMetrics.leadingInset),
-            scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+            toolbar.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
+            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: InspectorContentMetrics.leadingInset),
+            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -(InspectorContentMetrics.leadingInset - 4)),
+            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 4),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -157,7 +165,67 @@ final class InspectorFileTreeController: NSViewController, NSOutlineViewDataSour
             scrollView.contentView.scroll(to: .zero)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+        applyReveal(tree.reveal)
     }
+
+    /// Select and scroll to a one-shot reveal target once per token.
+    private func applyReveal(_ reveal: InspectorFileReveal?) {
+        guard let reveal, reveal.token != appliedRevealToken else { return }
+        appliedRevealToken = reveal.token
+        guard let item = items[reveal.path] else { return }
+        let row = outline.row(forItem: item)
+        guard row >= 0 else { return }
+        outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outline.scrollRowToVisible(row)
+    }
+
+    // MARK: Toolbar
+
+    private lazy var toolbarButtons: [NSButton] = [
+        toolbarButton("doc.badge.plus", help: "New File", identifier: "files.new-file", action: #selector(newFile)),
+        toolbarButton("folder.badge.plus", help: "New Folder", identifier: "files.new-folder", action: #selector(newFolder)),
+        toolbarButton("scope", help: "Locate Current File", identifier: "files.locate-current-file",
+                      action: #selector(locateCurrentFile)),
+        toolbarButton("arrow.down.right.and.arrow.up.left", help: "Collapse All", identifier: "files.collapse-all",
+                      action: #selector(collapseAll)),
+        toolbarButton("arrow.up.left.and.arrow.down.right", help: "Expand All", identifier: "files.expand-all",
+                      action: #selector(expandAll)),
+    ]
+
+    private func toolbarButton(_ symbol: String, help: String, identifier: String, action: Selector) -> NSButton {
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: help)
+        let button = image.map { NSButton(image: $0, target: self, action: action) }
+            ?? NSButton(title: help, target: self, action: action)
+        button.isBordered = false
+        button.bezelStyle = .accessoryBarAction
+        button.imageScaling = .scaleProportionallyDown
+        button.symbolConfiguration = .init(pointSize: 12, weight: .regular)
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = help
+        button.setAccessibilityLabel(help)
+        button.identifier = .init(identifier)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 22),
+            button.heightAnchor.constraint(equalToConstant: 22),
+        ])
+        return button
+    }
+
+    /// New items go into the selected folder, or next to the selected file;
+    /// without a selection they go into the root.
+    var creationParent: String? {
+        guard let item = outline.item(atRow: outline.selectedRow) as? Item else { return nil }
+        if item.node.isDirectory { return item.node.id }
+        let parent = (item.node.id as NSString).deletingLastPathComponent
+        return parent == rootPath || items[parent]?.node.isDirectory == true ? parent : nil
+    }
+
+    @objc func newFile() { perform(.promptCreateItem(directory: false, parent: creationParent)) }
+    @objc func newFolder() { perform(.promptCreateItem(directory: true, parent: creationParent)) }
+    @objc func locateCurrentFile() { perform(.revealCurrentFile) }
+    @objc func collapseAll() { perform(.collapseAll) }
+    @objc func expandAll() { perform(.expandAll) }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
         (item as? Item)?.children.count ?? roots.count

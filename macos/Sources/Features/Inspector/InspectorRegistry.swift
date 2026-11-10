@@ -64,6 +64,14 @@ struct InspectorFileTree: Equatable, Sendable {
     let rootName: String
     let rootPath: String
     let nodes: [InspectorFileNode]
+    /// One-shot request to select and scroll to a node (Locate Current File,
+    /// newly created items). A new token re-applies the same path.
+    var reveal: InspectorFileReveal?
+}
+
+struct InspectorFileReveal: Equatable, Sendable {
+    let path: String
+    let token: UInt64
 }
 
 struct InspectorAgentHistoryContent: Equatable, Sendable {
@@ -178,8 +186,15 @@ enum InspectorPaneActionKind: Equatable, Sendable {
     case openFile(path: String, destination: EditorOpenDestination? = nil)
     case refresh
     case collapseAll
-    case createFile(name: String)
-    case createFolder(name: String)
+    /// Expands directories below the root, bounded by
+    /// `BuiltInFilesInspectorProvider.expandAllDirectoryLimit`.
+    case expandAll
+    /// Expands the editor's current document ancestors and reveals it.
+    case revealCurrentFile
+    /// Asks for a name, then creates the item in `parent` (root when nil).
+    case promptCreateItem(directory: Bool, parent: String?)
+    case createFile(name: String, parent: String? = nil)
+    case createFolder(name: String, parent: String? = nil)
     case createPortForward(target: String)
     case openPortForward(id: String)
     case copyPortForward(id: String)
