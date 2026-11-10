@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Ghostty
@@ -249,5 +250,36 @@ struct GitHistoryServiceTests {
         #expect(!second.hasMore)
         let last = try await service.loadPage(snapshot: snapshot, repository: repository, offset: 2, pageSize: 1)
         #expect(last.commits.isEmpty && !last.hasMore)
+    }
+
+    @Test func searchQueryProvidesHighlightTermsAndSnippets() {
+        var commit = GitHistoryCommit(
+            id: GitCommitID("977ab3e2112233445566"),
+            parentIDs: [],
+            authorName: "Alice Zhang",
+            authorEmail: "alice@example.com",
+            authoredAt: Date(timeIntervalSince1970: 0),
+            subject: "feat(git): refine history search"
+        )
+        commit.message = "feat(git): refine history search\n\nRefs #61 with body context."
+
+        let bodyQuery = GitHistorySearchQuery("message:#61 author:Alice email:example.com hash:977ab")
+        #expect(bodyQuery.authorTerms == ["Alice"])
+        #expect(bodyQuery.emailTerms == ["example.com"])
+        #expect(bodyQuery.hashTerms(for: commit.id) == ["977ab"])
+        #expect(bodyQuery.bodySnippet(for: commit) == "Refs #61 with body context.")
+
+        let pathQuery = GitHistorySearchQuery("path:src/foo.zig")
+        #expect(pathQuery.fileTerms.contains("src/foo.zig"))
+        #expect(pathQuery.fileTerms.contains("foo.zig"))
+        #expect(pathQuery.bodySnippet(for: commit) == "src/foo.zig")
+
+        let text = NSMutableAttributedString(string: "feat(git): refine history search · Refs #61")
+        GitSearchHighlight.apply(terms: ["history", "#61"], to: text)
+        let firstRange = (text.string as NSString).range(of: "history")
+        let secondRange = (text.string as NSString).range(of: "#61")
+        #expect(text.attribute(.backgroundColor, at: firstRange.location, effectiveRange: nil) != nil)
+        #expect(text.attribute(.backgroundColor, at: secondRange.location, effectiveRange: nil) != nil)
+        #expect(text.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
     }
 }

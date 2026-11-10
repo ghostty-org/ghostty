@@ -410,6 +410,7 @@ struct InspectorGitView: View {
                     headCommitID: content.history.snapshot?.headCommitID,
                     expandedCommits: content.expandedCommits,
                     fileMode: changesMode,
+                    searchQuery: historyQuery,
                     isSearching: !historyQuery.isEmpty,
                     isActive: content.activeTab == .history,
                     controller: historyController,

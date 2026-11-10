@@ -7,6 +7,7 @@ struct GitHistoryTable: NSViewRepresentable {
     var headCommitID: GitCommitID?
     var expandedCommits: [GitCommitID: GitCommitExpansion] = [:]
     var fileMode: GitCollectionMode = .list
+    var searchQuery = ""
     var isSearching = false
     var isActive = true
     var controller: GitCollectionController?
@@ -151,7 +152,8 @@ struct GitHistoryTable: NSViewRepresentable {
                 unfilteredOrigin = tableView?.enclosingScrollView?.contentView.bounds.origin
                 unfilteredIDs = content?.commits.map(\.id) ?? []
             }
-            let commitsChanged = content?.commits != new.commits || content?.isSearching != new.isSearching
+            let commitsChanged = content?.commits != new.commits || content?.isSearching != new.isSearching ||
+                content?.searchQuery != new.searchQuery
             let languageChanged = content?.languageCode != new.languageCode
             let footerChanged = content?.hasMore != new.hasMore
             let changed = content?.fileMode != new.fileMode || footerChanged || commitsChanged || content?.expandedCommits != new.expandedCommits ||
@@ -298,6 +300,7 @@ struct GitHistoryTable: NSViewRepresentable {
         private func measureRows() {
             guard let content, let table = tableView else { return }
             measuredWidth = max(1, table.enclosingScrollView?.contentSize.width ?? table.bounds.width)
+            let query = GitHistorySearchQuery(content.searchQuery)
             heights = rows.map { row in
                 let width = max(1, measuredWidth - graphColumns[row.commitIndex].contentX - 8)
                 let commit = content.commits[row.commitIndex]
@@ -305,7 +308,7 @@ struct GitHistoryTable: NSViewRepresentable {
                 case .commit:
                     return GitHistoryCell.height(commit: commit, refs: decorations(for: commit), width: width)
                 default:
-                    return GitHistoryDetailCell.height(for: childContent(for: row), width: width)
+                    return GitHistoryDetailCell.height(for: childContent(for: row), width: width, query: query)
                 }
             }
         }
@@ -355,6 +358,7 @@ struct GitHistoryTable: NSViewRepresentable {
             let item = rows[row]
             let commit = content.commits[item.commitIndex]
             let graph = graphRows[item.commitIndex]
+            let query = GitHistorySearchQuery(content.searchQuery)
             switch item {
             case .commit:
                 let cell = (tableView.makeView(withIdentifier: .init("git-commit"), owner: nil) as? GitHistoryCell) ?? GitHistoryCell()
@@ -362,6 +366,7 @@ struct GitHistoryTable: NSViewRepresentable {
                 cell.configure(commit: commit, graph: graph, graphLayout: graphColumns[item.commitIndex],
                                summary: (dateFormatter.string(from: commit.authoredAt), decorations(for: commit)),
                                state: (head: isHead(commit), expanded: content.expandedCommits[commit.id] != nil),
+                               query: query,
                                toggle: { [weak self] in self?.content?.onOpen(commit.id) },
                                contextMenu: { [weak self] in self?.makeContextMenu(commitID: commit.id) }, colors: content.colors)
                 return cell
@@ -370,7 +375,7 @@ struct GitHistoryTable: NSViewRepresentable {
                 cell.identifier = .init("git-child")
                 let isLast = row + 1 == rows.count || rows[row + 1].commitIndex != item.commitIndex
                 cell.configure(graph: graph, graphLayout: graphColumns[item.commitIndex], isLast: isLast,
-                               content: childContent(for: item), action: { [weak self] in
+                               content: childContent(for: item), query: query, action: { [weak self] in
                     self?.activateChild(item, commitID: commit.id)
                 })
                 return cell
@@ -416,8 +421,9 @@ struct GitHistoryTable: NSViewRepresentable {
             case .message:
                 guard let index = content.commits.firstIndex(where: { $0.id == id }) else { return }
                 let width = max(1, measuredWidth - graphColumns[index].contentX - 8)
+                let query = GitHistorySearchQuery(content.searchQuery)
                 messageExpansion[id] = !GitHistoryDetailCell.messageIsExpanded(details.metadata?.body ?? "",
-                    preference: messageExpansion[id], width: width)
+                    preference: messageExpansion[id], width: width, query: query)
             case .file(_, let file):
                 guard details.files.contains(file) else { return }
                 content.onOpenFile(id, file)

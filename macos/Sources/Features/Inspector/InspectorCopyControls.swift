@@ -39,6 +39,7 @@ final class InspectorMetadataText: NSButton {
     private(set) var value = ""
     private var displayText = ""
     private var copyLabel = ""
+    private var highlights: [String] = []
     var isCopied: Bool { feedback.isCopied }
     private(set) var isValueSelected = false
     var pasteboard = NSPasteboard.general
@@ -78,7 +79,7 @@ final class InspectorMetadataText: NSButton {
         present()
         return true
     }
-    func configure(text: String, value: String, label: String) {
+    func configure(text: String, value: String, label: String, highlights: [String] = []) {
         if self.value != value || displayText != text {
             feedback.cancel()
             if window?.firstResponder === self { window?.makeFirstResponder(nil) }
@@ -86,15 +87,20 @@ final class InspectorMetadataText: NSButton {
         self.value = value
         displayText = text
         copyLabel = label
+        self.highlights = highlights
         setAccessibilityLabel(label + ": " + value)
         present()
     }
     private func present() {
         let shown = feedback.isCopied ? CopyFeedback.confirmationLabel() : displayText
-        attributedTitle = NSAttributedString(string: shown, attributes: [
+        let title = NSMutableAttributedString(string: shown, attributes: [
             .font: NSFont.systemFont(ofSize: 10),
             .foregroundColor: NSColor.secondaryLabelColor,
         ])
+        if !feedback.isCopied, !highlights.isEmpty {
+            GitSearchHighlight.apply(terms: highlights, to: title)
+        }
+        attributedTitle = title
         // Clicking copies now, so there is no persistent selection highlight.
         layer?.backgroundColor = .clear
         let strings = SettingsStrings(language: OhMyGhosttySettings.shared.language)

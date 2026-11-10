@@ -1,7 +1,12 @@
 import AppKit
 
 final class GitMetadataLine: NSView {
-    struct Item { let text: String; let value: String; let label: String }
+    struct Item {
+        let text: String
+        let value: String
+        let label: String
+        var highlights: [String] = []
+    }
     private let first = InspectorMetadataText()
     private let second = InspectorMetadataText()
     private var firstNaturalWidth: CGFloat = 0
@@ -18,10 +23,12 @@ final class GitMetadataLine: NSView {
     func configure(_ first: Item, second: Item?, onDoubleClick: @escaping () -> Void) {
         self.first.onDoubleClick = onDoubleClick
         self.second.onDoubleClick = onDoubleClick
-        self.first.configure(text: first.text, value: first.value, label: first.label)
+        self.first.configure(text: first.text, value: first.value, label: first.label, highlights: first.highlights)
         if second == nil, window?.firstResponder === self.second { window?.makeFirstResponder(nil) }
         self.second.isHidden = second == nil
-        if let second { self.second.configure(text: second.text, value: second.value, label: second.label) }
+        if let second {
+            self.second.configure(text: second.text, value: second.value, label: second.label, highlights: second.highlights)
+        }
         firstNaturalWidth = self.first.naturalWidth
         secondNaturalWidth = self.second.naturalWidth
         needsLayout = true

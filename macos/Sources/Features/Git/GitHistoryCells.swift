@@ -39,18 +39,44 @@ final class GitHistoryCell: NSTableCellView {
     @objc private func toggleCommit() { toggle() }
 
     func configure(commit: GitHistoryCommit, graph: GitGraphRow, graphLayout: GitGraphColumnLayout,
-                   summary: (date: String, refs: [GitRefDecoration]), state: (head: Bool, expanded: Bool), toggle: @escaping () -> Void, contextMenu: (() -> NSMenu?)? = nil, colors: GitCollectionColors = .init()) {
+                   summary: (date: String, refs: [GitRefDecoration]), state: (head: Bool, expanded: Bool),
+                   query: GitHistorySearchQuery = .init(""),
+                   toggle: @escaping () -> Void, contextMenu: (() -> NSMenu?)? = nil,
+                   colors: GitCollectionColors = .init()) {
         self.toggle = toggle
         graphWidth = graphLayout.width
         contentX = graphLayout.contentX
         self.graph.configure(row: graph, isHead: state.head, layout: graphLayout,
                              section: state.expanded ? .expandedCommit : .commit)
-        subject.stringValue = commit.subject.isEmpty ? GitL10n.text("(no subject)") : commit.subject
+        let title = commit.subject.isEmpty ? GitL10n.text("(no subject)") : commit.subject
+        let subjectText = NSMutableAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.labelColor,
+        ])
+        if let snippet = query.bodySnippet(for: commit) {
+            subjectText.append(NSAttributedString(string: " · " + snippet, attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
+        GitSearchHighlight.apply(terms: query.subjectHighlightTerms, to: subjectText)
+        subject.attributedStringValue = subjectText
         let doubleClick = toggle
-        authorAndEmail.configure(.init(text: commit.authorName, value: commit.authorName, label: GitL10n.text("Author")),
-            second: commit.authorEmail.isEmpty ? nil : .init(text: commit.authorEmail, value: commit.authorEmail, label: GitL10n.text("Email")), onDoubleClick: doubleClick)
-        timeAndHash.configure(.init(text: summary.date, value: commit.authoredAt.description, label: GitL10n.text("Time")),
-            second: .init(text: commit.id.shortSHA, value: commit.id.rawValue, label: GitL10n.text("Commit SHA")), onDoubleClick: doubleClick)
+        authorAndEmail.configure(
+            .init(text: commit.authorName, value: commit.authorName, label: GitL10n.text("Author"),
+                  highlights: query.authorTerms),
+            second: commit.authorEmail.isEmpty ? nil : .init(
+                text: commit.authorEmail, value: commit.authorEmail, label: GitL10n.text("Email"),
+                highlights: query.emailTerms
+            ),
+            onDoubleClick: doubleClick
+        )
+        timeAndHash.configure(
+            .init(text: summary.date, value: commit.authoredAt.description, label: GitL10n.text("Time")),
+            second: .init(text: commit.id.shortSHA, value: commit.id.rawValue, label: GitL10n.text("Commit SHA"),
+                          highlights: query.hashTerms(for: commit.id)),
+            onDoubleClick: doubleClick
+        )
         subject.copyItems = [(GitL10n.text("Copy subject"), commit.subject)]
         subject.contextMenuProvider = contextMenu
         authorAndEmail.contextMenuProvider = contextMenu
@@ -94,6 +120,7 @@ final class GitHistoryDetailCell: NSTableCellView {
     private var graphWidth: CGFloat = 10
     private var contentX: CGFloat = 13
     private var content = Content.notice("", false)
+    private var query = GitHistorySearchQuery("")
     private var action: () -> Void = {}
 
     private struct Measurement: Hashable { let text: String; let width: CGFloat }
@@ -112,18 +139,24 @@ final class GitHistoryDetailCell: NSTableCellView {
         measurements[key] = height
         return height
     }
-    static func height(for content: Content, width: CGFloat) -> CGFloat {
+    static func height(for content: Content, width: CGFloat, query: GitHistorySearchQuery = .init("")) -> CGFloat {
         switch content {
         case .files: return 28
         case .file, .folder: return 22
         case .notice(let text, _): return max(26, textHeight(text, width: width) + 12)
         case .message(let text, let expanded):
-            return messageIsExpanded(text, preference: expanded, width: width)
+            return messageIsExpanded(text, preference: expanded, width: width, query: query)
                 ? textHeight(text, width: width - 12) + 36 : 28
         }
     }
-    static func messageIsExpanded(_ text: String, preference: Bool?, width: CGFloat) -> Bool {
+    static func messageIsExpanded(
+        _ text: String,
+        preference: Bool?,
+        width: CGFloat,
+        query: GitHistorySearchQuery = .init("")
+    ) -> Bool {
         if let preference { return preference }
+        if query.messageTerms.contains(where: { text.localizedCaseInsensitiveContains($0) }) { return true }
         guard text.utf16.count <= max(320, Int(width) * 2) else { return false }
         return textHeight(text, width: width - 12) <= 56
     }
@@ -149,11 +182,13 @@ final class GitHistoryDetailCell: NSTableCellView {
     @objc private func activate() { action() }
 
     func configure(graph: GitGraphRow, graphLayout: GitGraphColumnLayout, isLast: Bool,
-                   content: Content, action: @escaping () -> Void) {
+                   content: Content, query: GitHistorySearchQuery = .init(""),
+                   action: @escaping () -> Void) {
         graphWidth = graphLayout.width
         contentX = graphLayout.contentX
         self.graph.configure(row: graph, layout: graphLayout, section: isLast ? .expansionEnd : .continuation)
         self.content = content
+        self.query = query
         self.action = action
         toolTip = nil
         if case .file(let file, _, _) = content {
@@ -193,7 +228,12 @@ final class GitHistoryDetailCell: NSTableCellView {
         case .folder(let title, let depth, let expanded):
             label.isHidden = true
             button.isHidden = false
-            button.title = title
+            let folderTitle = NSMutableAttributedString(string: title, attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: NSColor.labelColor,
+            ])
+            GitSearchHighlight.apply(terms: query.fileTerms, to: folderTitle)
+            button.attributedTitle = folderTitle
             button.image = NSImage(systemSymbolName: expanded ? "folder.fill" : "folder", accessibilityDescription: nil)
             button.frame = NSRect(x: x + 12 + CGFloat(depth) * 14, y: 1,
                                   width: max(1, width - 12 - CGFloat(depth) * 14), height: 20)
@@ -214,9 +254,13 @@ final class GitHistoryDetailCell: NSTableCellView {
             let text = NSMutableAttributedString(string: file.kind.rawValue + "  ", attributes: [
                 .foregroundColor: file.kind.color, .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
             ])
-            text.append(NSAttributedString(string: tree ? (file.path as NSString).lastPathComponent : file.displayPath, attributes: [
+            let pathOffset = text.length
+            let display = tree ? (file.path as NSString).lastPathComponent : file.displayPath
+            text.append(NSAttributedString(string: display, attributes: [
                 .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 11),
             ]))
+            GitSearchHighlight.apply(terms: query.fileTerms, to: text,
+                                     range: NSRange(location: pathOffset, length: text.length - pathOffset))
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingMiddle
             text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
@@ -230,8 +274,13 @@ final class GitHistoryDetailCell: NSTableCellView {
             if label.stringValue != text { label.stringValue = text }
             label.textColor = isError ? .systemRed : .secondaryLabelColor
         case .message(let text, let preference):
-            let expanded = Self.messageIsExpanded(text, preference: preference, width: width)
-            if label.stringValue != text { label.stringValue = text }
+            let expanded = Self.messageIsExpanded(text, preference: preference, width: width, query: query)
+            let messageText = NSMutableAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ])
+            GitSearchHighlight.apply(terms: query.messageTerms, to: messageText)
+            label.attributedStringValue = messageText
             label.isHidden = !expanded
             button.isHidden = false
             let lines = text.components(separatedBy: "\n").count
@@ -261,17 +310,47 @@ final class GitHistoryDetailCell: NSTableCellView {
     }
 }
 
+enum GitSearchHighlight {
+    static let fillColor = NSColor.systemYellow.withAlphaComponent(0.45)
+
+    static func apply(terms: [String], to attributed: NSMutableAttributedString, range: NSRange? = nil) {
+        let bounds = range ?? NSRange(location: 0, length: attributed.length)
+        guard bounds.length > 0 else { return }
+        let source = attributed.string as NSString
+        for term in terms where !term.isEmpty {
+            var remaining = bounds
+            while remaining.length > 0 {
+                let match = source.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], range: remaining)
+                guard match.location != NSNotFound, match.length > 0 else { break }
+                attributed.addAttributes([
+                    .backgroundColor: fillColor,
+                    .foregroundColor: NSColor.labelColor,
+                ], range: match)
+                let end = NSMaxRange(match)
+                let maxEnd = NSMaxRange(bounds)
+                guard end < maxEnd else { break }
+                remaining = NSRange(location: end, length: maxEnd - end)
+            }
+        }
+    }
+}
+
 /// Draw at the row's content origin without NSTextField's internal text inset.
 /// Subject selection/copy remains owned by the history table.
 private final class GitHistorySubjectCell: NSTextFieldCell {
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = lineBreakMode
-        let text = NSAttributedString(string: stringValue, attributes: [
-            .font: font ?? NSFont.systemFont(ofSize: 12, weight: .medium),
-            .foregroundColor: textColor ?? NSColor.labelColor,
-            .paragraphStyle: paragraph,
-        ])
+        let text: NSMutableAttributedString
+        if attributedStringValue.length > 0 {
+            text = NSMutableAttributedString(attributedString: attributedStringValue)
+        } else {
+            text = NSMutableAttributedString(string: stringValue, attributes: [
+                .font: font ?? NSFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: textColor ?? NSColor.labelColor,
+            ])
+        }
+        text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
         text.draw(in: cellFrame)
     }
 }

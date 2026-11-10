@@ -346,6 +346,71 @@ struct GitHistorySearchQuery: Equatable, Sendable {
 
     var paths: [String] { terms[.path] ?? [] }
     var isEmpty: Bool { text.isEmpty && terms.values.allSatisfy(\.isEmpty) }
+    var messageTerms: [String] { (text.isEmpty ? [] : [text]) + (terms[.message] ?? []) }
+    var authorTerms: [String] { (text.isEmpty ? [] : [text]) + (terms[.author] ?? []) }
+    var emailTerms: [String] { (text.isEmpty ? [] : [text]) + (terms[.email] ?? []) }
+    var subjectHighlightTerms: [String] { messageTerms + fileTerms }
+
+    /// Highlight needles for a commit's short SHA, including prefix matches on
+    /// the full SHA (`hash:` or free text).
+    func hashTerms(for id: GitCommitID) -> [String] {
+        var result: [String] = []
+        if !text.isEmpty {
+            if id.shortSHA.localizedCaseInsensitiveContains(text) {
+                result.append(text)
+            } else if id.rawValue.lowercased().hasPrefix(text.lowercased()) {
+                result.append(id.shortSHA)
+            }
+        }
+        for value in terms[.hash] ?? [] where id.rawValue.lowercased().hasPrefix(value.lowercased()) {
+            let prefix = String(id.shortSHA.prefix(value.count))
+            if !prefix.isEmpty { result.append(prefix) }
+        }
+        return result
+    }
+
+    /// Highlight needles for changed file/folder rows when `path:` or free text
+    /// is active. Includes both full path fragments and individual components
+    /// so list mode (`src/foo.zig`) and tree mode (`src`, `foo.zig`) both highlight.
+    var fileTerms: [String] {
+        var result: [String] = text.isEmpty ? [] : [text]
+        for raw in paths {
+            let cleaned = raw
+                .trimmingCharacters(in: CharacterSet(charactersIn: "./*?[]"))
+            if !cleaned.isEmpty { result.append(cleaned) }
+            for part in raw.split(separator: "/") {
+                let segment = part.trimmingCharacters(in: CharacterSet(charactersIn: "*?[]"))
+                if !segment.isEmpty, segment != "." && segment != ".." {
+                    result.append(segment)
+                }
+            }
+        }
+        return result
+    }
+
+    /// First non-subject body line matching a message/text term when the
+    /// commit's subject itself does not contain that term, or the matched
+    /// `path:` filter when not already present in the subject.
+    func bodySnippet(for commit: GitHistoryCommit) -> String? {
+        let missing = messageTerms.filter { !commit.subject.localizedCaseInsensitiveContains($0) }
+        if !missing.isEmpty, !commit.message.isEmpty {
+            for (index, rawLine) in commit.message.components(separatedBy: .newlines).enumerated() {
+                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty else { continue }
+                if index == 0, line == commit.subject.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    continue
+                }
+                if missing.contains(where: { line.localizedCaseInsensitiveContains($0) }) {
+                    return line
+                }
+            }
+        }
+        if !paths.isEmpty,
+           !fileTerms.contains(where: { !$0.isEmpty && commit.subject.localizedCaseInsensitiveContains($0) }) {
+            return paths.joined(separator: ", ")
+        }
+        return nil
+    }
 
     init(_ query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
