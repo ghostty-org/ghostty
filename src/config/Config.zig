@@ -3180,7 +3180,7 @@ keybind: Keybinds = .{},
 ///
 ///  * `vec4 iPreviousCursorColor` - Color of the previous terminal cursor.
 ///
-///  * `vec4 iCurrentCursorStyle` - Style of the terminal cursor
+///  * `int iCurrentCursorStyle` - Style of the terminal cursor
 ///
 ///    Macros simplified use are defined for the various cursor styles:
 ///
@@ -3190,9 +3190,9 @@ keybind: Keybinds = .{},
 ///    - `CURSORSTYLE_UNDERLINE` or `3`
 ///    - `CURSORSTYLE_LOCK` or `4`
 ///
-///  * `vec4 iPreviousCursorStyle` - Style of the previous terminal cursor
+///  * `int iPreviousCursorStyle` - Style of the previous terminal cursor
 ///
-///  * `vec4 iCursorVisible` - Visibility of the terminal cursor.
+///  * `int iCursorVisible` - Visibility of the terminal cursor.
 ///
 ///  * `float iTimeCursorChange` - Timestamp of terminal cursor change.
 ///
