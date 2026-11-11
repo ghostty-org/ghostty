@@ -3,6 +3,7 @@ const lib = @import("../lib.zig");
 const grid_ref = @import("grid_ref.zig");
 const point = @import("../point.zig");
 const selection_codepoints = @import("../selection_codepoints.zig");
+const Screen = @import("../Screen.zig");
 const Selection = @import("../Selection.zig");
 const Result = @import("result.zig").Result;
 const terminal_c = @import("terminal.zig");
@@ -35,6 +36,14 @@ pub const CSelection = extern struct {
     pub fn toZig(self: CSelection) ?Selection {
         const start_pin = self.start.toPin() orelse return null;
         const end_pin = self.end.toPin() orelse return null;
+        return Selection.init(start_pin, end_pin, self.rectangle);
+    }
+
+    /// Like toZig, but null unless both refs are cells of pages in screen.
+    /// See CGridRef.toPinIn.
+    pub fn toZigIn(self: CSelection, screen: *const Screen) ?Selection {
+        const start_pin = self.start.toPinIn(&screen.pages) orelse return null;
+        const end_pin = self.end.toPinIn(&screen.pages) orelse return null;
         return Selection.init(start_pin, end_pin, self.rectangle);
     }
 
@@ -108,7 +117,7 @@ pub fn word(
     ) catch return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = opts.ref.toPin() orelse return .invalid_value;
+    const pin = opts.ref.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectWord(
         pin,
         boundary_codepoints orelse &selection_codepoints.default_word_boundaries,
@@ -134,8 +143,8 @@ pub fn word_between(
     ) catch return .invalid_value;
 
     const screen = t.screens.active;
-    const start = opts.start.toPin() orelse return .invalid_value;
-    const end = opts.end.toPin() orelse return .invalid_value;
+    const start = opts.start.toPinIn(&screen.pages) orelse return .invalid_value;
+    const end = opts.end.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectWordBetween(
         start,
         end,
@@ -162,7 +171,7 @@ pub fn line(
     ) catch return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = opts.ref.toPin() orelse return .invalid_value;
+    const pin = opts.ref.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectLine(.{
         .pin = pin,
         .whitespace = whitespace orelse &selection_codepoints.default_line_whitespace,
@@ -194,7 +203,7 @@ pub fn output(
     const out = out_selection orelse return .invalid_value;
 
     const screen = t.screens.active;
-    const pin = ref.toPin() orelse return .invalid_value;
+    const pin = ref.toPinIn(&screen.pages) orelse return .invalid_value;
     out.* = .fromZig(screen.selectOutput(pin) orelse return .no_value);
     return .success;
 }
@@ -242,7 +251,7 @@ pub fn adjust(
 
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const sel_ptr = selection orelse return .invalid_value;
-    var sel = sel_ptr.toZig() orelse return .invalid_value;
+    var sel = sel_ptr.toZigIn(t.screens.active) orelse return .invalid_value;
     sel.adjust(t.screens.active, adjustment);
     sel_ptr.* = .fromZig(sel);
     return .success;
@@ -255,7 +264,7 @@ pub fn order(
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
-    const sel = (selection orelse return .invalid_value).toZig() orelse
+    const sel = (selection orelse return .invalid_value).toZigIn(t.screens.active) orelse
         return .invalid_value;
     const out = out_order orelse return .invalid_value;
 
@@ -274,7 +283,7 @@ pub fn ordered(
         return .invalid_value;
 
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
-    const sel = (selection orelse return .invalid_value).toZig() orelse
+    const sel = (selection orelse return .invalid_value).toZigIn(t.screens.active) orelse
         return .invalid_value;
     const out = out_selection orelse return .invalid_value;
 
@@ -290,7 +299,7 @@ pub fn contains(
 ) callconv(lib.calling_conv) Result {
     if (comptime !lib.feature(.selection)) return .unsupported;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
-    const sel = (selection orelse return .invalid_value).toZig() orelse
+    const sel = (selection orelse return .invalid_value).toZigIn(t.screens.active) orelse
         return .invalid_value;
     const out = out_contains orelse return .invalid_value;
 

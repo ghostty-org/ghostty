@@ -1755,7 +1755,7 @@ fn setTyped(
         },
         .selection => {
             if (value) |ptr| {
-                const sel = ptr.toZig() orelse return .invalid_value;
+                const sel = ptr.toZigIn(wrapper.terminal.screens.active) orelse return .invalid_value;
                 wrapper.terminal.screens.active.select(sel) catch return .out_of_memory;
             } else {
                 wrapper.terminal.screens.active.clearSelection();
@@ -2181,6 +2181,22 @@ pub fn grid_ref(
     const zig_pt = point.Point.fromC(pt) orelse return .invalid_value;
     const p = t.screens.active.pages.pin(zig_pt) orelse
         return .invalid_value;
+    if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
+    return .success;
+}
+
+pub fn screen_grid_ref(
+    terminal_: Terminal,
+    screen_: lib.CEnum(TerminalScreen),
+    pt: point.Point.C,
+    out_ref: ?*grid_ref_c.CGridRef,
+) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.grid_introspection) or lib.feature(.selection))) return .unsupported;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    const key = lib.enumFromC(TerminalScreen, screen_) orelse return .invalid_value;
+    const zig_pt = point.Point.fromC(pt) orelse return .invalid_value;
+    const screen = t.screens.get(key) orelse return .no_value;
+    const p = screen.pages.pin(zig_pt) orelse return .invalid_value;
     if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
     return .success;
 }
@@ -5053,6 +5069,92 @@ test "selection_order invalid values" {
     try testing.expectEqual(Result.invalid_value, selection_c.order(t, null, &order));
 }
 
+test "selection calls invalid_value for refs in another screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello World", 11);
+
+    // Refs to "Hello" in the primary screen.
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &end_ref));
+    const sel: selection_c.CSelection = .{ .start = start_ref, .end = end_ref };
+
+    // Each call resolves its refs against the active screen, which is now
+    // the alternate one. Without the check they would be read as pins into
+    // the alternate screen's pages.
+    vt_write(t, "\x1b[?1049h", 8);
+
+    var out: selection_c.CSelection = undefined;
+    const word_opts: selection_c.SelectWordOptions = .{ .ref = start_ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.word(t, &word_opts, &out));
+    const between_opts: selection_c.SelectWordBetweenOptions = .{ .start = start_ref, .end = end_ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.word_between(t, &between_opts, &out));
+    const line_opts: selection_c.SelectLineOptions = .{ .ref = start_ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.line(t, &line_opts, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.output(t, &start_ref, &out));
+    var adjusted = sel;
+    try testing.expectEqual(Result.invalid_value, selection_c.adjust(t, &adjusted, .right));
+    var out_order: selection_c.Order = undefined;
+    try testing.expectEqual(Result.invalid_value, selection_c.order(t, &sel, &out_order));
+    try testing.expectEqual(Result.invalid_value, selection_c.ordered(t, &sel, .forward, &out));
+    var out_contains: bool = undefined;
+    try testing.expectEqual(Result.invalid_value, selection_c.contains(t, &sel, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_contains));
+    try testing.expectEqual(Result.invalid_value, set(t, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(Result.no_value, get(t, .selection, @ptrCast(&out)));
+
+    // Back on the primary screen the refs are valid again.
+    vt_write(t, "\x1b[?1049l", 8);
+    try testing.expectEqual(Result.success, selection_c.word(t, &word_opts, &out));
+    try testing.expectEqual(Result.success, selection_c.word_between(t, &between_opts, &out));
+    try testing.expectEqual(Result.success, selection_c.order(t, &sel, &out_order));
+    try testing.expectEqual(Result.success, set(t, .selection, @ptrCast(&sel)));
+}
+
+test "selection calls invalid_value for a ref outside its page" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+
+    var ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &ref));
+    ref.x = 200;
+
+    var out: selection_c.CSelection = undefined;
+    const word_opts: selection_c.SelectWordOptions = .{ .ref = ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.word(t, &word_opts, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.output(t, &ref, &out));
+    const sel: selection_c.CSelection = .{ .start = ref, .end = ref };
+    try testing.expectEqual(Result.invalid_value, set(t, .selection, @ptrCast(&sel)));
+}
+
 test "grid_ref" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -5078,6 +5180,88 @@ test "grid_ref" {
     var cp: u32 = 0;
     try testing.expectEqual(Result.success, cell_c.get(out_cell, .codepoint, @ptrCast(&cp)));
     try testing.expectEqual(@as(u32, 'H'), cp);
+}
+
+test "screen_grid_ref primary beneath the alternate screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+    vt_write(t, "\x1b[?1049h\x1b[HWorld", 16);
+
+    // grid_ref looks in the active (alternate) screen, screen_grid_ref in
+    // the screen it is given.
+    for ([_]struct { screen: ?lib.CEnum(TerminalScreen), want: u32 }{
+        .{ .screen = null, .want = 'W' },
+        .{ .screen = .primary, .want = 'H' },
+        .{ .screen = .alternate, .want = 'W' },
+    }) |tc| {
+        const pt: point.Point.C = .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 0, .y = 0 } },
+        };
+        var out_ref: grid_ref_c.CGridRef = .{};
+        try testing.expectEqual(Result.success, if (tc.screen) |screen|
+            screen_grid_ref(t, screen, pt, &out_ref)
+        else
+            grid_ref(t, pt, &out_ref));
+
+        var out_cell: cell_c.CCell = undefined;
+        try testing.expectEqual(Result.success, grid_ref_c.grid_ref_cell(&out_ref, &out_cell));
+        var cp: u32 = 0;
+        try testing.expectEqual(Result.success, cell_c.get(out_cell, .codepoint, @ptrCast(&cp)));
+        try testing.expectEqual(tc.want, cp);
+    }
+}
+
+test "screen_grid_ref no_value until the alternate screen exists" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const pt: point.Point.C = .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    };
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.no_value, screen_grid_ref(t, .alternate, pt, &out_ref));
+    vt_write(t, "\x1b[?1049h", 8);
+    try testing.expectEqual(Result.success, screen_grid_ref(t, .alternate, pt, &out_ref));
+}
+
+test "screen_grid_ref invalid_value" {
+    const pt: point.Point.C = .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    };
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(null, .primary, pt, &out_ref));
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(t, @fromBackingInt(99), pt, &out_ref));
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(t, .primary, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 100, .y = 0 } },
+    }, &out_ref));
 }
 
 test "grid_ref null terminal" {

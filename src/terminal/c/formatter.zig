@@ -7,6 +7,7 @@ const terminal_c = @import("terminal.zig");
 const grid_ref = @import("grid_ref.zig");
 const selection_c = @import("selection.zig");
 const ZigTerminal = @import("../Terminal.zig");
+const Screen = @import("../Screen.zig");
 const formatterpkg = @import("../formatter.zig");
 const Result = @import("result.zig").Result;
 
@@ -17,7 +18,42 @@ const FormatterWrapper = struct {
 
     const Kind = union(enum) {
         terminal: formatterpkg.TerminalFormatter,
+        screen: ScreenKind,
     };
+
+    /// A formatter for one of the terminal's screens, named by key. The
+    /// screen is looked up on every format call rather than at creation:
+    /// the alternate screen is initialized lazily and is replaced by a
+    /// reset or a failed resize, so a pointer taken earlier could dangle.
+    const ScreenKind = struct {
+        terminal: *const ZigTerminal,
+        key: terminal_c.TerminalScreen,
+        opts: formatterpkg.Options,
+        content: formatterpkg.ScreenFormatter.Content,
+        extra: formatterpkg.ScreenFormatter.Extra,
+
+        /// The screen formatter. NoValue while the screen is not
+        /// initialized, InvalidValue if the selection is not in it.
+        fn screenFormatter(self: ScreenKind) error{ NoValue, InvalidValue }!formatterpkg.ScreenFormatter {
+            const screen = self.terminal.screens.get(self.key) orelse return error.NoValue;
+            if (!selectionInScreen(self.content, screen)) return error.InvalidValue;
+            var result: formatterpkg.ScreenFormatter = .init(screen, self.opts);
+            result.content = self.content;
+            result.extra = self.extra;
+            return result;
+        }
+    };
+
+    /// The options and content that both kinds have.
+    fn optsAndContent(self: *FormatterWrapper) struct {
+        *formatterpkg.Options,
+        *formatterpkg.ScreenFormatter.Content,
+    } {
+        return switch (self.kind) {
+            .terminal => |*t| .{ &t.opts, &t.content },
+            .screen => |*s| .{ &s.opts, &s.content },
+        };
+    }
 };
 
 /// C: GhosttyFormatter
@@ -28,6 +64,7 @@ pub const Format = formatterpkg.Format;
 
 const CSelection = selection_c.CSelection;
 const ZigExtra = formatterpkg.TerminalFormatter.Extra;
+const ZigScreenExtra = formatterpkg.ScreenFormatter.Extra;
 
 /// C: GhosttyFormatterExtras
 ///
@@ -65,7 +102,6 @@ pub const ExtraBit = enum(u5) {
     }
 
     comptime {
-        const ZigScreenExtra = formatterpkg.ScreenFormatter.Extra;
         const info = @typeInfo(ExtraBit).@"enum";
         if (@bitSizeOf(ZigExtra) != info.field_names.len)
             @compileError("ExtraBit must have one bit per TerminalFormatter.Extra boolean");
@@ -96,9 +132,32 @@ fn extrasToZig(extras: Extras) ?ZigExtra {
     return @bitCast(@as(Int, @intCast(extras)));
 }
 
+/// The bits a screen formatter accepts: the extras of `ScreenFormatter.Extra`.
+/// The others are terminal state, which only a terminal formatter writes.
+const extras_screen: Extras = mask: {
+    var result: Extras = 0;
+    for (@typeInfo(ZigScreenExtra).@"struct".field_names) |name| {
+        result |= @field(ExtraBit, name).mask();
+    }
+    break :mask result;
+};
+
+fn screenExtrasFromZig(extra: ZigScreenExtra) Extras {
+    var result: ZigExtra = .none;
+    result.screen = extra;
+    return extrasFromZig(result);
+}
+
+/// Returns null if `extras` has a bit that isn't a screen extra.
+fn screenExtrasToZig(extras: Extras) ?ZigScreenExtra {
+    if (extras & ~extras_screen != 0) return null;
+    return (extrasToZig(extras) orelse unreachable).screen;
+}
+
 /// The value each option starts with, and the value a NULL `set` puts back.
 /// These are the Zig TerminalFormatter's own defaults. formatter.h lists
-/// them, so update the header when one changes.
+/// them, so update the header when one changes. A screen formatter starts
+/// with the screen extras of the same default.
 const defaults = struct {
     const opts: formatterpkg.Options = .plain;
     const extra: ZigExtra = .styles;
@@ -176,6 +235,65 @@ fn terminal_new_(
     return ptr;
 }
 
+pub fn screen_new(
+    alloc_: ?*const CAllocator,
+    result_: ?*Formatter,
+    terminal_: terminal_c.Terminal,
+    screen_: lib.CEnum(terminal_c.TerminalScreen),
+) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.formatter)) {
+        if (result_) |o| o.* = null;
+        return .unsupported;
+    }
+    const result = result_ orelse return .invalid_value;
+    const screen = lib.enumFromC(terminal_c.TerminalScreen, screen_) orelse {
+        result.* = null;
+        return .invalid_value;
+    };
+    result.* = screen_new_(
+        alloc_,
+        terminal_,
+        screen,
+    ) catch |err| {
+        result.* = null;
+        return switch (err) {
+            error.InvalidValue => .invalid_value,
+            error.OutOfMemory => .out_of_memory,
+        };
+    };
+
+    return .success;
+}
+
+fn screen_new_(
+    alloc_: ?*const CAllocator,
+    terminal_: terminal_c.Terminal,
+    screen: terminal_c.TerminalScreen,
+) error{
+    InvalidValue,
+    OutOfMemory,
+}!*FormatterWrapper {
+    const t: *ZigTerminal = (terminal_ orelse return error.InvalidValue).terminal;
+
+    const alloc = lib.alloc.default(alloc_);
+    const ptr = alloc.create(FormatterWrapper) catch
+        return error.OutOfMemory;
+    errdefer alloc.destroy(ptr);
+
+    ptr.* = .{
+        .kind = .{ .screen = .{
+            .terminal = t,
+            .key = screen,
+            .opts = defaults.opts,
+            .content = .{ .selection = null },
+            .extra = defaults.extra.screen,
+        } },
+        .alloc = alloc,
+    };
+
+    return ptr;
+}
+
 pub fn set(
     formatter_: Formatter,
     option: Option,
@@ -188,7 +306,7 @@ pub fn set(
         inline else => |comptime_option| {
             const wrapper = formatter_ orelse return .invalid_value;
             return setTyped(
-                terminalFormatter(wrapper),
+                wrapper,
                 comptime_option,
                 @ptrCast(@alignCast(value)),
             );
@@ -198,28 +316,38 @@ pub fn set(
 
 /// Set one option. A null value puts it back to its default.
 fn setTyped(
-    f: *formatterpkg.TerminalFormatter,
+    wrapper: *FormatterWrapper,
     comptime option: Option,
     value: ?*const option.InType(),
 ) Result {
+    const opts, const content = wrapper.optsAndContent();
     switch (option) {
         .invalid => comptime unreachable,
-        .emit => f.opts.emit = if (value) |v|
+        .emit => opts.emit = if (value) |v|
             lib.enumFromPtr(Format, v) orelse return .invalid_value
         else
             defaults.opts.emit,
-        .unwrap => f.opts.unwrap = if (value) |v| v.* else defaults.opts.unwrap,
-        .trim => f.opts.trim = if (value) |v| v.* else defaults.opts.trim,
-        .selection => f.content = .{
+        .unwrap => opts.unwrap = if (value) |v| v.* else defaults.opts.unwrap,
+        .trim => opts.trim = if (value) |v| v.* else defaults.opts.trim,
+        // The refs are checked against the formatted screen on each format
+        // call (selectionInScreen), not here: the screen they must be in
+        // can change before then.
+        .selection => content.* = .{
             .selection = if (value) |v|
                 v.toZig() orelse return .invalid_value
             else
                 null,
         },
-        .extras => f.extra = if (value) |v|
-            extrasToZig(v.*) orelse return .invalid_value
-        else
-            defaults.extra,
+        .extras => switch (wrapper.kind) {
+            .terminal => |*t| t.extra = if (value) |v|
+                extrasToZig(v.*) orelse return .invalid_value
+            else
+                defaults.extra,
+            .screen => |*sk| sk.extra = if (value) |v|
+                screenExtrasToZig(v.*) orelse return .invalid_value
+            else
+                defaults.extra.screen,
+        },
         _ => comptime unreachable,
     }
 
@@ -239,7 +367,7 @@ pub fn get(
             const wrapper = formatter_ orelse return .invalid_value;
             const out_ptr = out orelse return .invalid_value;
             return getTyped(
-                terminalFormatter(wrapper),
+                wrapper,
                 comptime_option,
                 @ptrCast(@alignCast(out_ptr)),
             );
@@ -248,29 +376,55 @@ pub fn get(
 }
 
 fn getTyped(
-    f: *const formatterpkg.TerminalFormatter,
+    wrapper: *FormatterWrapper,
     comptime option: Option,
     out: *option.InType(),
 ) Result {
+    const opts, const content = wrapper.optsAndContent();
     switch (option) {
         .invalid => comptime unreachable,
-        .emit => out.* = f.opts.emit,
-        .unwrap => out.* = f.opts.unwrap,
-        .trim => out.* = f.opts.trim,
-        .selection => out.* = CSelection.fromZig(switch (f.content) {
+        .emit => out.* = opts.emit,
+        .unwrap => out.* = opts.unwrap,
+        .trim => out.* = opts.trim,
+        .selection => out.* = CSelection.fromZig(switch (content.*) {
             .none => return .no_value,
             .selection => |sel| sel orelse return .no_value,
         }),
-        .extras => out.* = extrasFromZig(f.extra),
+        .extras => out.* = switch (wrapper.kind) {
+            .terminal => |*t| extrasFromZig(t.extra),
+            .screen => |*sk| screenExtrasFromZig(sk.extra),
+        },
         _ => comptime unreachable,
     }
 
     return .success;
 }
 
-fn terminalFormatter(wrapper: *FormatterWrapper) *formatterpkg.TerminalFormatter {
-    return switch (wrapper.kind) {
-        .terminal => |*t| t,
+/// Returns whether content's selection, if it has one, is in screen. A
+/// selection's grid refs are pins into one screen's page list, and the
+/// formatter assumes they are pins into the screen it formats: a ref from
+/// another screen is a null unwrap there (a panic in safe builds, undefined
+/// behavior in others). The refs come from the caller and the active screen
+/// can change between calls, so they are checked on every format. A stale
+/// ref into a page that still exists is not detected (the header documents
+/// that refs must be taken after the terminal's last update).
+fn selectionInScreen(
+    content: formatterpkg.ScreenFormatter.Content,
+    screen: *const Screen,
+) bool {
+    const sel = switch (content) {
+        .none => return true,
+        .selection => |sel| sel orelse return true,
+    };
+    return screen.pages.containsPin(sel.start()) and
+        screen.pages.containsPin(sel.end());
+}
+
+/// The result for an error from ScreenKind.screenFormatter.
+fn screenResult(err: error{ NoValue, InvalidValue }) Result {
+    return switch (err) {
+        error.NoValue => .no_value,
+        error.InvalidValue => .invalid_value,
     };
 }
 
@@ -290,7 +444,15 @@ pub fn format(
     var adapter: io_c.WriterAdapter = .initBuffered(writer, &buffer);
     format_: {
         switch (wrapper.kind) {
-            .terminal => |*t| t.format(adapter.writer()) catch break :format_,
+            .terminal => |*t| {
+                if (!selectionInScreen(t.content, t.terminal.screens.active))
+                    return .invalid_value;
+                t.format(adapter.writer()) catch break :format_;
+            },
+            .screen => |*sk| {
+                const f = sk.screenFormatter() catch |err| return screenResult(err);
+                f.format(adapter.writer()) catch break :format_;
+            },
         }
         adapter.writer().flush() catch break :format_;
         return .success;
@@ -317,17 +479,41 @@ pub fn format_buf(
         &.{});
 
     switch (wrapper.kind) {
-        .terminal => |*t| t.format(&writer) catch |err| switch (err) {
-            error.WriteFailed => {
-                // On write failed we always report how much
-                // space we actually needed.
-                var discarding: std.Io.Writer.Discarding = .init(&.{});
-                t.format(&discarding.writer) catch unreachable;
-                out_written.* = @intCast(discarding.count);
-                return .out_of_space;
-            },
+        .terminal => |*t| {
+            if (!selectionInScreen(t.content, t.terminal.screens.active)) {
+                out_written.* = 0;
+                return .invalid_value;
+            }
+            return formatIntoBuf(t, &writer, out_written);
+        },
+        .screen => |*sk| {
+            const f = sk.screenFormatter() catch |err| {
+                out_written.* = 0;
+                return screenResult(err);
+            };
+            return formatIntoBuf(&f, &writer, out_written);
         },
     }
+}
+
+/// Formats f into a fixed writer, reporting the bytes written. A writer
+/// that runs out of space fails the write; the size the whole output
+/// needs is then reported instead, with out_of_space.
+fn formatIntoBuf(
+    f: anytype,
+    writer: *std.Io.Writer,
+    out_written: *usize,
+) Result {
+    f.format(writer) catch |err| switch (err) {
+        error.WriteFailed => {
+            // On write failed we always report how much
+            // space we actually needed.
+            var discarding: std.Io.Writer.Discarding = .init(&.{});
+            f.format(&discarding.writer) catch unreachable;
+            out_written.* = @intCast(discarding.count);
+            return .out_of_space;
+        },
+    };
 
     out_written.* = writer.end;
     return .success;
@@ -349,7 +535,22 @@ pub fn format_alloc(
     defer aw.deinit();
 
     switch (wrapper.kind) {
-        .terminal => |*t| t.format(&aw.writer) catch return .out_of_memory,
+        .terminal => |*t| {
+            if (!selectionInScreen(t.content, t.terminal.screens.active)) {
+                out_ptr.* = null;
+                out_len.* = 0;
+                return .invalid_value;
+            }
+            t.format(&aw.writer) catch return .out_of_memory;
+        },
+        .screen => |*sk| {
+            const f = sk.screenFormatter() catch |err| {
+                out_ptr.* = null;
+                out_len.* = 0;
+                return screenResult(err);
+            };
+            f.format(&aw.writer) catch return .out_of_memory;
+        },
     }
 
     const buf = aw.toOwnedSlice() catch return .out_of_memory;
@@ -1008,4 +1209,584 @@ test "set and get reject unknown and invalid options" {
     try testing.expectEqual(Result.unsupported, get(f, unknown, &out));
     try testing.expectEqual(Result.unsupported, set(null, unknown, &yes));
     try testing.expectEqual(Result.unsupported, get(null, unknown, null));
+}
+
+test "format invalid_value for a selection in another screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello World", 11);
+
+    // A selection of "Hello" in the primary screen.
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &end_ref));
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+    ));
+    defer free(f);
+    try testing.expectEqual(Result.success, set(f, .selection, &sel));
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("Hello", buf[0..written]);
+
+    // The terminal formatter formats the active screen, and the
+    // selection's refs are not in the alternate one.
+    terminal_c.vt_write(t, "\x1b[?1049halt", 11);
+    written = 1;
+    try testing.expectEqual(Result.invalid_value, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqual(@as(usize, 0), written);
+
+    var out_ptr: ?[*]u8 = undefined;
+    var out_len: usize = 1;
+    try testing.expectEqual(Result.invalid_value, format_alloc(
+        f,
+        &lib.alloc.test_allocator,
+        &out_ptr,
+        &out_len,
+    ));
+    try testing.expect(out_ptr == null);
+    try testing.expectEqual(@as(usize, 0), out_len);
+
+    const Context = struct {
+        fn write(
+            _: ?*anyopaque,
+            _: [*]const u8,
+            _: usize,
+        ) callconv(lib.calling_conv) bool {
+            unreachable;
+        }
+    };
+    try testing.expectEqual(Result.invalid_value, format(f, .{
+        .write = &Context.write,
+    }));
+
+    // Back on the primary screen the selection is valid again.
+    terminal_c.vt_write(t, "\x1b[?1049l", 8);
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("Hello", buf[0..written]);
+}
+
+test "format invalid_value for a selection outside its page" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello", 5);
+
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref = start_ref;
+    end_ref.x = 200;
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+    ));
+    defer free(f);
+    try testing.expectEqual(Result.success, set(f, .selection, &sel));
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.invalid_value, format_buf(f, &buf, buf.len, &written));
+}
+
+/// A screen as the C API takes it.
+const CScreen = lib.CEnum(terminal_c.TerminalScreen);
+
+/// screen_new, then emit and extras set for a test.
+fn testScreenNew(
+    result: *Formatter,
+    terminal_: terminal_c.Terminal,
+    screen: CScreen,
+    emit: Format,
+    extras: Extras,
+) !void {
+    try testing.expectEqual(Result.success, screen_new(
+        &lib.alloc.test_allocator,
+        result,
+        terminal_,
+        screen,
+    ));
+    try testing.expectEqual(Result.success, set(result.*, .emit, &emit));
+    try testing.expectEqual(Result.success, set(result.*, .extras, &extras));
+}
+
+test "screen_new/free" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, screen_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .primary,
+    ));
+    try testing.expect(f != null);
+    free(f);
+}
+
+test "screen_new invalid_value" {
+    var f: Formatter = null;
+    try testing.expectEqual(Result.invalid_value, screen_new(
+        &lib.alloc.test_allocator,
+        &f,
+        null,
+        .primary,
+    ));
+    try testing.expect(f == null);
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    try testing.expectEqual(Result.invalid_value, screen_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        @fromBackingInt(99),
+    ));
+    try testing.expect(f == null);
+    try testing.expectEqual(Result.invalid_value, screen_new(
+        &lib.alloc.test_allocator,
+        null,
+        t,
+        .primary,
+    ));
+}
+
+test "format screen primary beneath the alternate screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "primary", 7);
+    terminal_c.vt_write(t, "\x1b[?1049h\x1b[Halternate", 20);
+
+    // A screen formatter formats the screen it was given, active or not.
+    for ([_]struct { screen: CScreen, want: []const u8 }{
+        .{ .screen = .primary, .want = "primary" },
+        .{ .screen = .alternate, .want = "alternate" },
+    }) |tc| {
+        var f: Formatter = null;
+        try testing.expectEqual(Result.success, screen_new(
+            &lib.alloc.test_allocator,
+            &f,
+            t,
+            tc.screen,
+        ));
+        defer free(f);
+
+        var buf: [1024]u8 = undefined;
+        var written: usize = 0;
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expectEqualStrings(tc.want, buf[0..written]);
+    }
+
+    // The terminal formatter formats the active screen.
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+    ));
+    defer free(f);
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("alternate", buf[0..written]);
+}
+
+test "format screen no_value until the alternate screen exists" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    // The alternate screen is created when a program first switches to it,
+    // and a full reset discards it, so the formatter is created regardless
+    // and the screen is looked up when formatting.
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, screen_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .alternate,
+    ));
+    defer free(f);
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 123;
+    try testing.expectEqual(Result.no_value, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqual(@as(usize, 0), written);
+
+    var ptr: ?[*]u8 = undefined;
+    var len: usize = 123;
+    try testing.expectEqual(Result.no_value, format_alloc(f, null, &ptr, &len));
+    try testing.expectEqual(null, ptr);
+    try testing.expectEqual(@as(usize, 0), len);
+
+    const Context = struct {
+        fn write(
+            _: ?*anyopaque,
+            _: [*]const u8,
+            _: usize,
+        ) callconv(lib.calling_conv) bool {
+            unreachable;
+        }
+    };
+    try testing.expectEqual(Result.no_value, format(f, .{
+        .write = &Context.write,
+    }));
+
+    terminal_c.vt_write(t, "\x1b[?1049halt", 11);
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("alt", buf[0..written]);
+
+    terminal_c.vt_write(t, "\x1bc", 2);
+    try testing.expectEqual(Result.no_value, format_buf(f, &buf, buf.len, &written));
+}
+
+test "format screen with a selection in the primary screen's scrollback" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        3,
+    ));
+    defer terminal_c.free(t);
+
+    // Two rows of scrollback, three on screen, then the alternate screen.
+    terminal_c.vt_write(t, "l0\r\nl1\r\nl2\r\nl3\r\nl4", 18);
+    terminal_c.vt_write(t, "\x1b[?1049halt", 11);
+
+    // Select from the last row of the primary screen's scrollback to the
+    // first row of its screen.
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.screen_grid_ref(t, .primary, .{
+        .tag = .history,
+        .value = .{ .history = .{ .x = 0, .y = 1 } },
+    }, &start_ref));
+    var end_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.screen_grid_ref(t, .primary, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 0 } },
+    }, &end_ref));
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, screen_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .primary,
+    ));
+    defer free(f);
+    try testing.expectEqual(Result.success, set(f, .selection, &sel));
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("l1\nl2", buf[0..written]);
+}
+
+test "format screen invalid_value for a selection in another screen" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "primary", 7);
+    terminal_c.vt_write(t, "\x1b[?1049h\x1b[Halt", 14);
+
+    const screens = [_]CScreen{ .primary, .alternate };
+    for (screens, 0..) |from, i| {
+        const other = screens[1 - i];
+
+        var start_ref: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, terminal_c.screen_grid_ref(t, from, .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 0, .y = 0 } },
+        }, &start_ref));
+        var end_ref: grid_ref.CGridRef = .{};
+        try testing.expectEqual(Result.success, terminal_c.screen_grid_ref(t, from, .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 2, .y = 0 } },
+        }, &end_ref));
+        const sel: selection_c.CSelection = .{
+            .start = start_ref,
+            .end = end_ref,
+        };
+
+        var buf: [1024]u8 = undefined;
+        var written: usize = 0;
+
+        // The refs' own screen formats them, the other screen refuses them.
+        for ([_]struct { screen: CScreen, want: Result }{
+            .{ .screen = from, .want = .success },
+            .{ .screen = other, .want = .invalid_value },
+        }) |tc| {
+            var f: Formatter = null;
+            try testing.expectEqual(Result.success, screen_new(
+                &lib.alloc.test_allocator,
+                &f,
+                t,
+                tc.screen,
+            ));
+            defer free(f);
+            try testing.expectEqual(Result.success, set(f, .selection, &sel));
+            try testing.expectEqual(tc.want, format_buf(f, &buf, buf.len, &written));
+            try testing.expectEqual(@as(usize, if (tc.want == .success) 3 else 0), written);
+        }
+    }
+}
+
+test "format screen vt emits the screen's own cursor" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "\x1b[5;10Hprimary", 14);
+    terminal_c.vt_write(t, "\x1b[?1049h\x1b[2;3Halt", 17);
+
+    for ([_]struct { screen: CScreen, want: []const u8 }{
+        .{ .screen = .primary, .want = "primary\x1b[5;17H" },
+        .{ .screen = .alternate, .want = "alt\x1b[2;6H" },
+    }) |tc| {
+        var f: Formatter = null;
+        try testScreenNew(&f, t, tc.screen, .vt, ExtraBit.cursor.mask());
+        defer free(f);
+
+        var buf: [4096]u8 = undefined;
+        var written: usize = 0;
+        try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+        try testing.expect(std.mem.endsWith(u8, buf[0..written], tc.want));
+    }
+}
+
+test "format screen restores the primary screen beneath the alternate" {
+    // A terminal with scrollback on the primary screen and a program on
+    // the alternate screen, as an editor leaves it.
+    var source: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &source,
+        20,
+        4,
+    ));
+    defer terminal_c.free(source);
+    const primary_vt = "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n$ vim";
+    terminal_c.vt_write(source, primary_vt, primary_vt.len);
+    const alternate_vt = "\x1b[?1049h\x1b[H\x1b[2Jedited text\x1b[3;4H";
+    terminal_c.vt_write(source, alternate_vt, alternate_vt.len);
+
+    // The primary screen is formatted first, with its cursor. The
+    // terminal formatter then formats the active (alternate) screen with
+    // the terminal's modes: mode 1049 switches the target over and saves
+    // the primary screen's cursor, as the program's own switch did.
+    const trim = false;
+    var primary_fmt: Formatter = null;
+    try testScreenNew(&primary_fmt, source, .primary, .vt, extras_screen);
+    defer free(primary_fmt);
+    try testing.expectEqual(Result.success, set(primary_fmt, .trim, &trim));
+
+    var terminal_fmt: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &terminal_fmt,
+        source,
+    ));
+    defer free(terminal_fmt);
+    const vt: Format = .vt;
+    const extras: Extras = extras_screen | ExtraBit.modes.mask() |
+        ExtraBit.scrolling_region.mask() | ExtraBit.tabstops.mask() |
+        ExtraBit.keyboard.mask();
+    try testing.expectEqual(Result.success, set(terminal_fmt, .emit, &vt));
+    try testing.expectEqual(Result.success, set(terminal_fmt, .extras, &extras));
+    try testing.expectEqual(Result.success, set(terminal_fmt, .trim, &trim));
+
+    var target: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &target,
+        20,
+        4,
+    ));
+    defer terminal_c.free(target);
+    var buf: [4096]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(primary_fmt, &buf, buf.len, &written));
+    terminal_c.vt_write(target, &buf, written);
+    try testing.expectEqual(Result.success, format_buf(terminal_fmt, &buf, buf.len, &written));
+    terminal_c.vt_write(target, &buf, written);
+
+    // The alternate screen is active in both, with the same contents and
+    // cursor.
+    const source_t: *ZigTerminal = source.?.terminal;
+    const target_t: *ZigTerminal = target.?.terminal;
+    try testing.expectEqual(terminal_c.TerminalScreen.alternate, target_t.screens.active_key);
+    try expectSameScreen(source_t, target_t);
+
+    // Leaving the alternate screen brings back the primary screen, its
+    // scrollback and its cursor in both.
+    terminal_c.vt_write(source, "\x1b[?1049l", 8);
+    terminal_c.vt_write(target, "\x1b[?1049l", 8);
+    try testing.expectEqual(terminal_c.TerminalScreen.primary, target_t.screens.active_key);
+    try expectSameScreen(source_t, target_t);
+    try testing.expectEqual(@as(usize, 2), target_t.screens.active.pages.total_rows - target_t.rows);
+}
+
+/// Expects the active screens of two terminals to hold the same text,
+/// scrollback included, with the cursor at the same place.
+fn expectSameScreen(want: *ZigTerminal, got: *ZigTerminal) !void {
+    const want_str = try want.screens.active.dumpStringAlloc(testing.allocator, .{ .screen = .{} });
+    defer testing.allocator.free(want_str);
+    const got_str = try got.screens.active.dumpStringAlloc(testing.allocator, .{ .screen = .{} });
+    defer testing.allocator.free(got_str);
+    try testing.expectEqualStrings(want_str, got_str);
+    try testing.expectEqual(want.screens.active.cursor.x, got.screens.active.cursor.x);
+    try testing.expectEqual(want.screens.active.cursor.y, got.screens.active.cursor.y);
+}
+
+test "screen formatter options" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "\x1b[31mred\x1b[0m   \r\nline2", 22);
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, screen_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .primary,
+    ));
+    defer free(f);
+
+    // The defaults are a terminal formatter's, with only the screen part
+    // of its extras: the whole screen as trimmed plain text.
+    var emit: Format = undefined;
+    try testing.expectEqual(Result.success, get(f, .emit, &emit));
+    try testing.expectEqual(defaults.opts.emit, emit);
+    var extras: Extras = undefined;
+    try testing.expectEqual(Result.success, get(f, .extras, &extras));
+    try testing.expectEqual(ExtraBit.style.mask() | ExtraBit.hyperlink.mask(), extras);
+    var sel_out: CSelection = undefined;
+    try testing.expectEqual(Result.no_value, get(f, .selection, &sel_out));
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("red\nline2", buf[0..written]);
+
+    // A screen formatter takes the screen extras and no others. A refused
+    // value leaves the option as it was.
+    try testing.expectEqual(Result.success, set(f, .extras, &extras_screen));
+    try testing.expectEqual(Result.success, get(f, .extras, &extras));
+    try testing.expectEqual(extras_screen, extras);
+    for ([_]Extras{
+        ExtraBit.palette.mask(),
+        ExtraBit.modes.mask() | ExtraBit.cursor.mask(),
+        extras_valid,
+        extras_valid + 1,
+    }) |bad| {
+        try testing.expectEqual(Result.invalid_value, set(f, .extras, &bad));
+        try testing.expectEqual(Result.success, get(f, .extras, &extras));
+        try testing.expectEqual(extras_screen, extras);
+    }
+
+    // NULL puts the default back.
+    try testing.expectEqual(Result.success, set(f, .extras, null));
+    try testing.expectEqual(Result.success, get(f, .extras, &extras));
+    try testing.expectEqual(ExtraBit.style.mask() | ExtraBit.hyperlink.mask(), extras);
+
+    // The other options work as on a terminal formatter.
+    const trim = false;
+    try testing.expectEqual(Result.success, set(f, .trim, &trim));
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expect(std.mem.startsWith(u8, buf[0..written], "red   \n"));
+    try testing.expectEqual(Result.success, set(f, .trim, null));
+
+    const vt: Format = .vt;
+    try testing.expectEqual(Result.success, set(f, .emit, &vt));
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expect(std.mem.indexOf(u8, buf[0..written], "\x1b[") != null);
 }
