@@ -2447,6 +2447,18 @@ keybind: Keybinds = .{},
 /// Default is false.
 @"focus-follows-mouse": bool = false,
 
+/// Whether the left click that focuses an inactive split pane also interacts
+/// with that pane. If `true`, clicking and dragging into an inactive pane focuses
+/// it and starts selecting text in a single gesture. The click that activates
+/// the split is also sent to terminal programs that have mouse reporting enabled.
+///
+/// If `false`, the first click only focuses the pane.
+///
+/// The default value is `false`.
+///
+/// On macOS, this only applies to splits in the currently focused window.
+@"split-focus-click-through": bool = false,
+
 /// Whether to allow programs running in the terminal to read/write to the
 /// system clipboard (OSC 52, for googling). The default is to allow clipboard
 /// reading after prompting the user and allow writing unconditionally.

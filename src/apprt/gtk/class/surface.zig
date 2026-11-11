@@ -2953,7 +2953,8 @@ pub const Surface = extern struct {
 
         // If this click is only transitioning split focus, suppress it so
         // it doesn't get forwarded to the terminal as a mouse event.
-        if (!had_focus and button == .left) {
+        const click_through = if (priv.config) |config| config.get().@"split-focus-click-through" else false;
+        if (!had_focus and button == .left and !click_through) {
             priv.suppress_left_mouse_release = true;
             return;
         }

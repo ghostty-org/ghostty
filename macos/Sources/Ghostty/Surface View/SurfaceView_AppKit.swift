@@ -709,8 +709,9 @@ extension Ghostty {
             }
 
             // If our window/app is already focused, then this click is only
-            // being used to transfer split focus.
-            suppressLeftMouseUntilRelease = NSApp.isActive && window.isKeyWindow
+            // being used to transfer split focus, unless click-through is enabled.
+            suppressLeftMouseUntilRelease = NSApp.isActive && window.isKeyWindow &&
+                !derivedConfig.splitFocusClickThrough
 
             // Make ourselves the first responder
             window.makeFirstResponder(self)
@@ -1867,6 +1868,7 @@ extension Ghostty {
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
+            let splitFocusClickThrough: Bool
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1876,6 +1878,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
                 self.scrollbar = .system
+                self.splitFocusClickThrough = false
             }
 
             init(_ config: Ghostty.Config) {
@@ -1886,6 +1889,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
+                self.splitFocusClickThrough = config.splitFocusClickThrough
             }
         }
 
