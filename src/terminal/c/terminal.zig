@@ -2185,6 +2185,22 @@ pub fn grid_ref(
     return .success;
 }
 
+pub fn screen_grid_ref(
+    terminal_: Terminal,
+    screen_: lib.CEnum(TerminalScreen),
+    pt: point.Point.C,
+    out_ref: ?*grid_ref_c.CGridRef,
+) callconv(lib.calling_conv) Result {
+    if (comptime !(lib.feature(.grid_introspection) or lib.feature(.selection))) return .unsupported;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    const key = lib.enumFromC(TerminalScreen, screen_) orelse return .invalid_value;
+    const zig_pt = point.Point.fromC(pt) orelse return .invalid_value;
+    const screen = t.screens.get(key) orelse return .no_value;
+    const p = screen.pages.pin(zig_pt) orelse return .invalid_value;
+    if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
+    return .success;
+}
+
 pub fn grid_ref_track(
     terminal_: Terminal,
     pt: point.Point.C,
@@ -5164,6 +5180,88 @@ test "grid_ref" {
     var cp: u32 = 0;
     try testing.expectEqual(Result.success, cell_c.get(out_cell, .codepoint, @ptrCast(&cp)));
     try testing.expectEqual(@as(u32, 'H'), cp);
+}
+
+test "screen_grid_ref primary beneath the alternate screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+    vt_write(t, "\x1b[?1049h\x1b[HWorld", 16);
+
+    // grid_ref looks in the active (alternate) screen, screen_grid_ref in
+    // the screen it is given.
+    for ([_]struct { screen: ?lib.CEnum(TerminalScreen), want: u32 }{
+        .{ .screen = null, .want = 'W' },
+        .{ .screen = .primary, .want = 'H' },
+        .{ .screen = .alternate, .want = 'W' },
+    }) |tc| {
+        const pt: point.Point.C = .{
+            .tag = .active,
+            .value = .{ .active = .{ .x = 0, .y = 0 } },
+        };
+        var out_ref: grid_ref_c.CGridRef = .{};
+        try testing.expectEqual(Result.success, if (tc.screen) |screen|
+            screen_grid_ref(t, screen, pt, &out_ref)
+        else
+            grid_ref(t, pt, &out_ref));
+
+        var out_cell: cell_c.CCell = undefined;
+        try testing.expectEqual(Result.success, grid_ref_c.grid_ref_cell(&out_ref, &out_cell));
+        var cp: u32 = 0;
+        try testing.expectEqual(Result.success, cell_c.get(out_cell, .codepoint, @ptrCast(&cp)));
+        try testing.expectEqual(tc.want, cp);
+    }
+}
+
+test "screen_grid_ref no_value until the alternate screen exists" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const pt: point.Point.C = .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    };
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.no_value, screen_grid_ref(t, .alternate, pt, &out_ref));
+    vt_write(t, "\x1b[?1049h", 8);
+    try testing.expectEqual(Result.success, screen_grid_ref(t, .alternate, pt, &out_ref));
+}
+
+test "screen_grid_ref invalid_value" {
+    const pt: point.Point.C = .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    };
+    var out_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(null, .primary, pt, &out_ref));
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(t, @fromBackingInt(99), pt, &out_ref));
+    try testing.expectEqual(Result.invalid_value, screen_grid_ref(t, .primary, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 100, .y = 0 } },
+    }, &out_ref));
 }
 
 test "grid_ref null terminal" {
