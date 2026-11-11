@@ -20,6 +20,7 @@ ghostty_formatter_format_alloc
 ghostty_formatter_format_buf
 ghostty_formatter_free
 ghostty_formatter_get
+ghostty_formatter_screen_new
 ghostty_formatter_set
 ghostty_formatter_terminal_new
 ghostty_free
@@ -184,6 +185,7 @@ ghostty_terminal_paste
 ghostty_terminal_point_from_grid_ref
 ghostty_terminal_reset
 ghostty_terminal_resize
+ghostty_terminal_screen_grid_ref
 ghostty_terminal_scroll_viewport
 ghostty_terminal_select_all
 ghostty_terminal_select_line

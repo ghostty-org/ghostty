@@ -29,6 +29,10 @@ extern "C" {
  * what's on the screen. You need a terminal first, and it must outlive the
  * formatter. Each format call reflects the terminal at the time of that call.
  *
+ * A formatter from ghostty_formatter_terminal_new() formats the active screen
+ * with the terminal's state. One from ghostty_formatter_screen_new() formats
+ * a single screen, active or not.
+ *
  * ## Example
  *
  * @snippet c-vt-formatter/src/main.c formatter-new
@@ -55,6 +59,12 @@ extern "C" {
  * Set extras with GHOSTTY_FORMATTER_OPT_EXTRAS. A new formatter uses
  * GHOSTTY_FORMATTER_EXTRAS_DEFAULT. Use GHOSTTY_FORMATTER_EXTRAS_ALL to
  * recreate the terminal as closely as possible.
+ *
+ * A formatter from ghostty_formatter_screen_new() formats one screen, so it
+ * only takes the extras that belong to a screen: the cursor, style,
+ * hyperlink, protection, Kitty keyboard and charsets bits. Its default is
+ * the screen part of GHOSTTY_FORMATTER_EXTRAS_DEFAULT, the style and the
+ * hyperlink.
  *
  * The bits combine with `|`. To change one extra and keep the rest, read the
  * current value first:
@@ -212,8 +222,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Terminal state to add to VT output. See GhosttyFormatterExtras.
    *
+   * A screen formatter only takes the screen extras, and returns
+   * GHOSTTY_INVALID_VALUE for any other bit.
+   *
    * Value type: GhosttyFormatterExtras. Default:
-   * GHOSTTY_FORMATTER_EXTRAS_DEFAULT.
+   * GHOSTTY_FORMATTER_EXTRAS_DEFAULT, or for a screen formatter
+   * GHOSTTY_FORMATTER_EXTRA_STYLE | GHOSTTY_FORMATTER_EXTRA_HYPERLINK.
    */
   GHOSTTY_FORMATTER_OPT_EXTRAS = 5,
 
@@ -229,6 +243,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * The new formatter starts with the default for every option, as listed on
  * GhosttyFormatterOption. Change them with ghostty_formatter_set().
  *
+ * To format a screen whether or not it is active, see
+ * ghostty_formatter_screen_new().
+ *
  * @param allocator Pointer to allocator, or NULL to use the default allocator
  * @param formatter Pointer to store the created formatter handle (NULL
  *                  returns GHOSTTY_INVALID_VALUE)
@@ -241,6 +258,56 @@ GHOSTTY_API GhosttyResult ghostty_formatter_terminal_new(
     const GhosttyAllocator* allocator,
     GhosttyFormatter* formatter,
     GhosttyTerminal terminal);
+
+/**
+ * Create a formatter for one of a terminal's screens.
+ *
+ * ghostty_formatter_terminal_new() formats whichever screen is active. This
+ * formats the given screen whether or not it is active, so the primary
+ * screen and its scrollback can be formatted while a program has the
+ * alternate screen up.
+ *
+ * The screen is looked up on each format call. Formatting returns
+ * GHOSTTY_NO_VALUE while the screen doesn't exist: the alternate screen
+ * exists once a program has switched to it, and a full reset (RIS) discards
+ * it.
+ *
+ * The output holds the screen's contents and its extras, such as the cursor
+ * and the style it writes with (see GhosttyFormatterExtras). Terminal state
+ * such as the palette, modes, tab stops and scrolling region belongs to a
+ * terminal formatter. To recreate a terminal with both screens, write the
+ * primary screen's output first, then a terminal formatter's for the
+ * alternate screen: its modes switch to the alternate screen the way the
+ * program did. The cursor position counts from the top-left of the screen,
+ * as CUP does outside origin mode, which is why it comes before the terminal
+ * formatter's modes and scrolling region.
+ *
+ * A selection must use refs into this screen. Use
+ * ghostty_terminal_screen_grid_ref() to get them for a screen that isn't
+ * active.
+ *
+ * The new formatter starts with the default for every option, as listed on
+ * GhosttyFormatterOption. Change them with ghostty_formatter_set().
+ *
+ * The terminal must outlive the formatter. The formatter stores a borrowed
+ * reference to the terminal and reads its current state on each format call.
+ *
+ * @param allocator Pointer to allocator, or NULL to use the default allocator
+ * @param formatter Pointer to store the created formatter handle (NULL
+ *                  returns GHOSTTY_INVALID_VALUE)
+ * @param terminal The terminal whose screen to format (NULL returns
+ *                 GHOSTTY_INVALID_VALUE)
+ * @param screen The screen to format (an unknown value returns
+ *               GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS on success, or an error code on failure
+ *
+ * @ingroup formatter
+ */
+GHOSTTY_API GhosttyResult ghostty_formatter_screen_new(
+    const GhosttyAllocator* allocator,
+    GhosttyFormatter* formatter,
+    GhosttyTerminal terminal,
+    GhosttyTerminalScreen screen);
 
 /**
  * Set a formatter option.
@@ -320,9 +387,10 @@ GHOSTTY_API GhosttyResult ghostty_formatter_get(GhosttyFormatter formatter,
  * @param formatter The formatter handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
- *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
+ *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows,
  *         GHOSTTY_INVALID_VALUE if an argument is invalid or the selection's
- *         refs are not in the formatted screen
+ *         refs are not in the formatted screen, or GHOSTTY_NO_VALUE if a
+ *         screen formatter's screen doesn't exist
  *
  * @ingroup formatter
  */
@@ -362,8 +430,9 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format(
  *                    or the required size on failure (NULL returns
  *                    GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the
- *         selection's refs are not in the formatted screen (out_written is
- *         then zero), or another error code on failure
+ *         selection's refs are not in the formatted screen, GHOSTTY_NO_VALUE
+ *         if a screen formatter's screen doesn't exist (out_written is zero
+ *         for both), or another error code on failure
  *
  * @ingroup formatter
  */
@@ -391,7 +460,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatte
  *                returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
  *         failure, GHOSTTY_INVALID_VALUE if an output pointer is NULL or the
- *         selection's refs are not in the formatted screen
+ *         selection's refs are not in the formatted screen, or
+ *         GHOSTTY_NO_VALUE if a screen formatter's screen doesn't exist
  *
  * @ingroup formatter
  */
