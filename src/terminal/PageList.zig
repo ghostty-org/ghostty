@@ -4925,6 +4925,29 @@ pub fn increaseCapacity(
     return new_node;
 }
 
+/// Returns `cap` with more rows, enough to fill the memory a pooled page
+/// takes up anyway. If a page with `cap` is too large for the pool, this
+/// returns `cap` unchanged.
+///
+/// Every page small enough for the pool gets a full `std_size` buffer,
+/// even when its capacity needs less. The leftover space can hold more
+/// rows at no extra cost. Use this when allocating a page that will keep
+/// receiving rows. A page allocated with only as many rows as it holds is
+/// already full, so the next `grow` has to allocate a whole new page.
+///
+/// Only `rows` changes, and it never gets smaller.
+///
+/// ```zig
+/// // Leave room for new output in a restored active page.
+/// const allocation = try list.allocatePage(PageList.fillPooled(capacity));
+/// ```
+pub fn fillPooled(cap: Capacity) Capacity {
+    if (Page.layout(cap).total_size > std_size) return cap;
+    const filled = cap.fitRows(std_size) orelse return cap;
+    assert(filled.rows >= cap.rows);
+    return filled;
+}
+
 /// Allocate a new page using the PageList's memory pools.
 ///
 /// The page is detached: it doesn't contribute to the memory limits or

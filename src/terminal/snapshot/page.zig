@@ -129,7 +129,8 @@ const PayloadDecodeError = std.Io.Reader.Error ||
         /// Native page backing memory could not be allocated.
         OutOfMemory,
 
-        /// The caller-provided page does not have the advertised capacity.
+        /// The caller-provided page has fewer rows than the advertised
+        /// capacity, or differs from it in any other capacity field.
         InvalidDestinationCapacity,
     };
 
@@ -225,6 +226,7 @@ pub const Decoder = struct {
     }
 
     /// Return the exact native capacity advertised by the PAGE header.
+    /// This is the smallest capacity `decode` accepts.
     pub fn capacity(self: *const Decoder) TerminalPageCapacity {
         return self.header.pageCapacity() catch unreachable;
     }
@@ -237,15 +239,22 @@ pub const Decoder = struct {
 
     /// Decode the remaining payload into caller-owned native page storage.
     ///
-    /// The destination must be freshly initialized with `capacity`. `alloc`
-    /// is used only for temporary staging, ID remaps, and integrity-check
-    /// storage.
+    /// The destination must be freshly initialized with `capacity`. It may
+    /// have more rows than `capacity`, which leaves room for rows written
+    /// after the restore (see `PageList.fillPooled`). Every other field
+    /// must match exactly. `alloc` is used only for temporary staging, ID
+    /// remaps, and integrity-check storage.
     pub fn decode(
         self: *Decoder,
         destination: *TerminalPage,
         alloc: Allocator,
     ) DecodeError!void {
-        if (!std.meta.eql(destination.capacity, self.capacity())) {
+        var expected = self.capacity();
+        if (destination.capacity.rows < expected.rows) {
+            return error.InvalidDestinationCapacity;
+        }
+        expected.rows = destination.capacity.rows;
+        if (!std.meta.eql(destination.capacity, expected)) {
             return error.InvalidDestinationCapacity;
         }
 
@@ -388,7 +397,8 @@ fn decodePayload(
 }
 
 /// Decode PAGE tables and grid after the header into initialized native page
-/// storage with the exact advertised capacity and dimensions.
+/// storage with at least the advertised capacity and exactly the advertised
+/// dimensions.
 fn decodePayloadBody(
     reader: *std.Io.Reader,
     alloc: Allocator,
