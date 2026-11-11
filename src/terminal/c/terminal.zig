@@ -1755,7 +1755,7 @@ fn setTyped(
         },
         .selection => {
             if (value) |ptr| {
-                const sel = ptr.toZig() orelse return .invalid_value;
+                const sel = ptr.toZigIn(wrapper.terminal.screens.active) orelse return .invalid_value;
                 wrapper.terminal.screens.active.select(sel) catch return .out_of_memory;
             } else {
                 wrapper.terminal.screens.active.clearSelection();
@@ -5051,6 +5051,92 @@ test "selection_order invalid values" {
     var order: selection_c.Order = undefined;
     try testing.expectEqual(Result.invalid_value, selection_c.order(null, null, &order));
     try testing.expectEqual(Result.invalid_value, selection_c.order(t, null, &order));
+}
+
+test "selection calls invalid_value for refs in another screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello World", 11);
+
+    // Refs to "Hello" in the primary screen.
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &end_ref));
+    const sel: selection_c.CSelection = .{ .start = start_ref, .end = end_ref };
+
+    // Each call resolves its refs against the active screen, which is now
+    // the alternate one. Without the check they would be read as pins into
+    // the alternate screen's pages.
+    vt_write(t, "\x1b[?1049h", 8);
+
+    var out: selection_c.CSelection = undefined;
+    const word_opts: selection_c.SelectWordOptions = .{ .ref = start_ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.word(t, &word_opts, &out));
+    const between_opts: selection_c.SelectWordBetweenOptions = .{ .start = start_ref, .end = end_ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.word_between(t, &between_opts, &out));
+    const line_opts: selection_c.SelectLineOptions = .{ .ref = start_ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.line(t, &line_opts, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.output(t, &start_ref, &out));
+    var adjusted = sel;
+    try testing.expectEqual(Result.invalid_value, selection_c.adjust(t, &adjusted, .right));
+    var out_order: selection_c.Order = undefined;
+    try testing.expectEqual(Result.invalid_value, selection_c.order(t, &sel, &out_order));
+    try testing.expectEqual(Result.invalid_value, selection_c.ordered(t, &sel, .forward, &out));
+    var out_contains: bool = undefined;
+    try testing.expectEqual(Result.invalid_value, selection_c.contains(t, &sel, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &out_contains));
+    try testing.expectEqual(Result.invalid_value, set(t, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(Result.no_value, get(t, .selection, @ptrCast(&out)));
+
+    // Back on the primary screen the refs are valid again.
+    vt_write(t, "\x1b[?1049l", 8);
+    try testing.expectEqual(Result.success, selection_c.word(t, &word_opts, &out));
+    try testing.expectEqual(Result.success, selection_c.word_between(t, &between_opts, &out));
+    try testing.expectEqual(Result.success, selection_c.order(t, &sel, &out_order));
+    try testing.expectEqual(Result.success, set(t, .selection, @ptrCast(&sel)));
+}
+
+test "selection calls invalid_value for a ref outside its page" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+
+    var ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &ref));
+    ref.x = 200;
+
+    var out: selection_c.CSelection = undefined;
+    const word_opts: selection_c.SelectWordOptions = .{ .ref = ref };
+    try testing.expectEqual(Result.invalid_value, selection_c.word(t, &word_opts, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.output(t, &ref, &out));
+    const sel: selection_c.CSelection = .{ .start = ref, .end = ref };
+    try testing.expectEqual(Result.invalid_value, set(t, .selection, @ptrCast(&sel)));
 }
 
 test "grid_ref" {

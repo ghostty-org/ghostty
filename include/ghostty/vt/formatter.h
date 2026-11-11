@@ -181,6 +181,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * terminal. After the terminal changes, set the selection again before
    * you format, or clear it.
    *
+   * Each format call checks that the selection's refs are in a page of the
+   * screen it formats, and returns GHOSTTY_INVALID_VALUE if they aren't,
+   * for example after a switch to the other screen. A stale ref into a page
+   * that still exists is not reliably detected: the output may cover other
+   * cells than intended.
+   *
    * Set NULL to clear the selection and format the whole screen again. When
    * no selection is set, ghostty_formatter_get() returns GHOSTTY_NO_VALUE.
    *
@@ -315,7 +321,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_get(GhosttyFormatter formatter,
  * @param writer Destination writer whose write callback must not be NULL
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the writer rejects
  *         output, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
- *         GHOSTTY_INVALID_VALUE if an argument is invalid
+ *         GHOSTTY_INVALID_VALUE if an argument is invalid or the selection's
+ *         refs are not in the formatted screen
  *
  * @ingroup formatter
  */
@@ -354,7 +361,9 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format(
  * @param out_written Pointer to receive the number of bytes written,
  *                    or the required size on failure (NULL returns
  *                    GHOSTTY_INVALID_VALUE)
- * @return GHOSTTY_SUCCESS on success, or an error code on failure
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the
+ *         selection's refs are not in the formatted screen (out_written is
+ *         then zero), or another error code on failure
  *
  * @ingroup formatter
  */
@@ -381,7 +390,8 @@ GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatte
  * @param out_len Pointer to receive the length of the output in bytes (NULL
  *                returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
- *         failure, GHOSTTY_INVALID_VALUE if an output pointer is NULL
+ *         failure, GHOSTTY_INVALID_VALUE if an output pointer is NULL or the
+ *         selection's refs are not in the formatted screen
  *
  * @ingroup formatter
  */
