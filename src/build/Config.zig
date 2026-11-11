@@ -563,10 +563,12 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
         "Build and install auto-generated documentation (requires pandoc)",
     ) orelse emit_docs: {
         // If we are emitting any other artifacts then we default to false.
+        // libghostty-vt with an explicit -Demit-exe still gets the app's
+        // docs, so one build installs what the two separate builds would.
         if (config.emit_bench or
             config.emit_test_exe or
             config.emit_helpgen or
-            config.emit_lib_vt) break :emit_docs false;
+            (config.emit_lib_vt and !config.emit_exe)) break :emit_docs false;
 
         // We always emit docs in system package mode.
         if (system_package) break :emit_docs true;
