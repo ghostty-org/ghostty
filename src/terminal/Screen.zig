@@ -2226,6 +2226,7 @@ pub const Resize = struct {
 
 const resize_tw = tripwire.module(enum {
     saved_cursor_pin,
+    prompt_pin,
     pages,
 }, resize);
 
@@ -2251,6 +2252,20 @@ pub inline fn resize(
         break :saved_cursor try self.pages.trackPin(pin);
     };
     defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
+
+    // Find where the prompt that the shell will redraw starts. We have to
+    // find it before the resize, because finding it relies on the rows'
+    // prompt marks, and reflow can split and join those rows. The tracked
+    // pin follows the row through the resize. A column reflow also uses
+    // it to keep the prompt's row count (see PageList.Resize.blank).
+    // Tracking can fail, so do it before changing any state.
+    const prompt_pin: ?*Pin = prompt: {
+        const start = self.promptRedrawStart(opts.prompt_redraw) orelse
+            break :prompt null;
+        try tw.check(.prompt_pin);
+        break :prompt try self.pages.trackPin(start);
+    };
+    defer if (prompt_pin) |p| self.pages.untrackPin(p);
 
     // A cursor style and hyperlink are partly stored in the page containing
     // the cursor. Their IDs only have meaning within that page, and the page
@@ -2319,6 +2334,14 @@ pub inline fn resize(
             .pin = self.cursor.page_pin,
         },
         .pull_scrollback = opts.pull_scrollback,
+        .blank = if (prompt_pin) |p| .{
+            .start = p,
+            .extent = switch (opts.prompt_redraw) {
+                .false => unreachable,
+                .last => .row,
+                .true => .to_bottom,
+            },
+        } else null,
     });
 
     // No more failures are possible after this. Enforced by compiler
@@ -2348,10 +2371,12 @@ pub inline fn resize(
         self.cursorRight(1);
     }
 
-    // Clear any redrawable prompt after the fallible resize but before
-    // restoring the cursor style and hyperlink, so cleared cells retain the
-    // same default styling they had with the previous ordering.
-    self.clearPromptForRedraw(opts.prompt_redraw);
+    // Clear any redrawable prompt. We do this after the fallible resize,
+    // so a failed resize leaves the prompt untouched. We also do it before
+    // restoring the cursor style and hyperlink, so cleared cells get the
+    // default style. A column reflow already wrote these rows blank, so
+    // this matters most when only the row count changed.
+    if (prompt_pin) |p| self.clearPromptForRedraw(p.*, opts.prompt_redraw);
 
     // Restore the cursor style.
     self.cursor.style = cursor_style;
@@ -2444,14 +2469,20 @@ pub inline fn resize(
     }
 }
 
-fn clearPromptForRedraw(
-    self: *Screen,
+/// Returns the first row of the prompt that the shell will redraw after
+/// a resize, or null if the cursor isn't at a prompt. With `.last`, this
+/// is the cursor's row, since the shell only redraws that line. With
+/// `.true`, this is the first row of the whole prompt, so for this
+/// two-line prompt it returns the row of "~/src", not the cursor's row:
+///
+/// ```
+/// ~/src         (.prompt)
+/// > echo hi_    (.prompt_continuation, cursor here)
+/// ```
+fn promptRedrawStart(
+    self: *const Screen,
     redraw: osc.semantic_prompt.Redraw,
-) void {
-    // If our cursor is on a prompt or input line, clear it so the shell can
-    // redraw it. This works with OSC 133 semantic prompts. We do this after
-    // the fallible resize so an error leaves the original prompt untouched.
-    //
+) ?Pin {
     // We check cursor.semantic_content rather than page_row.semantic_prompt
     // because some shells (e.g., Nu) mark input areas with OSC 133 B but don't
     // mark continuation lines with k=s. If the input spans multiple lines and
@@ -2459,47 +2490,48 @@ fn clearPromptForRedraw(
     // would miss them. By checking semantic_content, we assume that if the
     // cursor is on anything other than command output, we're at a prompt/input
     // line and should clear from there.
-    if (redraw != .false and
-        self.cursor.semantic_content != .output)
-    prompt: {
+    if (self.cursor.semantic_content == .output) return null;
+
+    return switch (redraw) {
+        .false => null,
+
+        .last => self.cursor.page_pin.left(self.cursor.x),
+        .true => start: {
+            var it = self.cursor.page_pin.promptIterator(.left_up, null);
+            break :start it.next() orelse {
+                // This should never happen because promptIterator should always
+                // find a prompt if we already verified our row is some kind of
+                // prompt.
+                log.warn("cursor on prompt line but promptIterator found no prompt", .{});
+                break :start null;
+            };
+        },
+    };
+}
+
+/// Clear the prompt that starts at `start`, as returned by
+/// promptRedrawStart, so the shell can redraw it. With `.last`, this
+/// clears only the row of `start`. With `.true`, it clears that row and
+/// every row below it.
+fn clearPromptForRedraw(
+    self: *Screen,
+    start: Pin,
+    redraw: osc.semantic_prompt.Redraw,
+) void {
+    // We replace the cells with spaces, and do not physically erase the
+    // rows (eraseRows), because the shell is going to expect this space to
+    // be available.
+    var it = start.rowIterator(.right_down, null);
+    while (it.next()) |pin| {
+        const page = pin.node.page();
+        const row = pin.rowAndCell().row;
+        const cells = page.getCells(row);
+        self.clearCells(page, row, cells);
+
         switch (redraw) {
             .false => unreachable,
-
-            // For `.last`, only clear the current line where the cursor is.
-            // For `.true`, clear all prompt lines starting from the beginning.
-            .last => {
-                const page = self.cursor.page_pin.node.page();
-                const row = self.cursor.page_row;
-                const cells = page.getCells(row);
-                self.clearCells(page, row, cells);
-            },
-
-            .true => {
-                const start = start: {
-                    var it = self.cursor.page_pin.promptIterator(
-                        .left_up,
-                        null,
-                    );
-                    break :start it.next() orelse {
-                        // This should never happen because promptIterator should always
-                        // find a prompt if we already verified our row is some kind of
-                        // prompt.
-                        log.warn("cursor on prompt line but promptIterator found no prompt", .{});
-                        break :prompt;
-                    };
-                };
-
-                // Clear cells from our start down. We replace it with spaces,
-                // and do not physically erase the rows (eraseRows) because the
-                // shell is going to expect this space to be available.
-                var it = start.rowIterator(.right_down, null);
-                while (it.next()) |pin| {
-                    const page = pin.node.page();
-                    const row = pin.rowAndCell().row;
-                    const cells = page.getCells(row);
-                    self.clearCells(page, row, cells);
-                }
-            },
+            .last => break,
+            .true => {},
         }
     }
 }
