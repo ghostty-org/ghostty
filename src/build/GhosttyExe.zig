@@ -30,8 +30,9 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     if (cfg.pie) exe.pie = true;
 
     // Add the shared dependencies. When building only lib-vt we skip
-    // heavy deps so cross-compilation doesn't pull in GTK, etc.
-    if (!cfg.emit_lib_vt) _ = try deps.add(exe);
+    // heavy deps so cross-compilation doesn't pull in GTK, etc. An
+    // explicit -Demit-exe builds the app alongside lib-vt, so it needs them.
+    if (!cfg.emit_lib_vt or cfg.emit_exe) _ = try deps.add(exe);
 
     // Check for possible issues
     try checkNixShell(exe, cfg);
