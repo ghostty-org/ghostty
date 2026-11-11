@@ -1263,6 +1263,33 @@ pub const Resize = struct {
     /// rows back and would otherwise get out of sync with us.
     pull_scrollback: bool = true,
 
+    /// Rows to reflow as blank rows, because the caller is about to clear
+    /// them. The main use is a shell prompt that the shell redraws after
+    /// the terminal is resized.
+    ///
+    /// A column reflow normally rewraps text, so a two-row prompt might
+    /// take three rows at a narrower width. That breaks a shell redraw:
+    /// the shell moves the cursor up by the number of rows the prompt took
+    /// at the old width, so it would redraw over the wrong rows. With this
+    /// set, each of these rows becomes exactly one blank row that ends its
+    /// line, and the prompt keeps the row count it had before the resize.
+    /// Each row keeps its semantic prompt mark and its tracked pins.
+    ///
+    /// A resize that doesn't reflow leaves these rows unchanged, so the
+    /// caller must still clear them afterward. `start` is a tracked pin,
+    /// so it follows the row to wherever the resize moves it:
+    ///
+    /// ```zig
+    /// const start = try pages.trackPin(prompt_start);
+    /// defer pages.untrackPin(start);
+    /// try pages.resize(.{
+    ///     .cols = 40,
+    ///     .blank = .{ .start = start, .extent = .to_bottom },
+    /// });
+    /// // Clear the cells from start.* to the bottom of the screen.
+    /// ```
+    blank: ?Blank = null,
+
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
@@ -1270,6 +1297,23 @@ pub const Resize = struct {
         /// When set, this pin preserves right-side blank cells up to the cursor
         /// during reflow.
         pin: ?*Pin = null,
+    };
+
+    /// The rows to reflow as blank. See `blank`.
+    pub const Blank = struct {
+        /// The first row. This must be a tracked pin (see `trackPin`).
+        start: *const Pin,
+
+        /// Which rows, starting at `start`.
+        extent: Extent,
+
+        pub const Extent = enum {
+            /// Only the row of `start`.
+            row,
+
+            /// The row of `start` and every row below it.
+            to_bottom,
+        };
     };
 };
 
@@ -1507,8 +1551,27 @@ fn resizeCols(
     // Reflow all our rows.
     {
         var reflow_cursor: ReflowCursor = .init(first_rewritten_node);
+
+        // Check each row against `blank.start` before reflowing it,
+        // because reflowing that row moves the pin into the new pages.
+        var blank_start: ?*const Pin = if (opts.blank) |b| b.start else null;
+        var blanking = false;
+
         while (it.next()) |row| {
-            try reflow_cursor.reflowRow(
+            if (blank_start) |p| {
+                if (p.node == row.node and p.y == row.y) {
+                    blanking = true;
+                    blank_start = null;
+                }
+            }
+
+            if (blanking) {
+                try reflow_cursor.reflowBlankRow(self, row);
+                switch (opts.blank.?.extent) {
+                    .row => blanking = false,
+                    .to_bottom => {},
+                }
+            } else try reflow_cursor.reflowRow(
                 self,
                 row,
                 if (preserved_cursor) |c| c.tracked_pin else null,
@@ -1778,7 +1841,25 @@ const ReflowCursor = struct {
             self.new_rows -= 1;
         }
 
-        self.copyRowMetadata(src_row);
+        // A destination row takes the prompt mark of the source row that
+        // starts it. For example, widening from 4 to 8 columns joins a
+        // prompt row with its wrapped continuation, and the joined row is
+        // still the prompt start:
+        //
+        //   "$ ec" (.prompt)
+        //   "ho"   (.prompt_continuation)  ->  "$ echo" (.prompt)
+        //
+        // So a wrap continuation that joins the current destination row
+        // only sets the mark if that row has none. That keeps a prompt
+        // that starts partway through a row findable. With a pending wrap,
+        // the continuation starts the next row instead, and the loop below
+        // marks that row.
+        if (!src_row.wrap_continuation or
+            (!self.pending_wrap and
+                (self.x == 0 or self.page_row.semantic_prompt == .none)))
+        {
+            self.copyRowMetadata(src_row);
+        }
 
         var x: usize = 0;
         while (x < cols_len) {
@@ -1787,6 +1868,17 @@ const ReflowCursor = struct {
                 try self.cursorScrollOrNewPage(list, cap);
                 self.copyRowMetadata(src_row);
                 self.page_row.wrap_continuation = true;
+
+                // This row continues the source row, so it can't be a
+                // prompt start. Narrowing from 8 to 4 columns splits a
+                // prompt row into the same marks that printing it at 4
+                // columns would give:
+                //
+                //   "$ echo" (.prompt)  ->  "$ ec" (.prompt)
+                //                           "ho"   (.prompt_continuation)
+                if (self.page_row.semantic_prompt == .prompt) {
+                    self.page_row.semantic_prompt = .prompt_continuation;
+                }
             }
 
             // Fast path: bulk-copy a run of simple cells directly
@@ -1881,6 +1973,64 @@ const ReflowCursor = struct {
         if (!src_row.wrap) {
             self.new_rows += 1;
         }
+    }
+
+    /// Reflow the provided row in to this cursor as one blank row that
+    /// ends its line (see Resize.blank). The row keeps only its prompt
+    /// mark and its tracked pins. Its text is dropped, so it never wraps
+    /// onto a second row or joins the rows around it.
+    fn reflowBlankRow(
+        self: *ReflowCursor,
+        list: *PageList,
+        row: Pin,
+    ) Allocator.Error!void {
+        const src_page: *Page = row.node.page();
+        const src_row = row.rowAndCell().row;
+
+        // If this row continued a line that isn't blanked, then that line
+        // now ends at the row before this one.
+        if (self.new_rows == 0 and (self.x > 0 or self.pending_wrap)) {
+            self.new_rows = 1;
+        }
+
+        // A blank row with no prompt mark and no pins is deferred like
+        // any other blank row, so blank rows at the end are never
+        // written. A prompt row is kept even though it's blank, the
+        // same as in reflowRow.
+        keep: {
+            if (src_row.semantic_prompt != .none) break :keep;
+            for (list.tracked_pins.keys()) |p| {
+                if (p.node == row.node and p.y == row.y) break :keep;
+            }
+
+            self.new_rows += 1;
+            return;
+        }
+
+        // Write any rows we deferred. See reflowRow for the capacity.
+        const cap: Capacity = if (self.cap_memo) |memo| cap: {
+            if (memo.src_page == src_page) break :cap memo.cap;
+            break :cap self.computeAndMemoizeCap(src_page);
+        } else self.computeAndMemoizeCap(src_page);
+        while (self.new_rows > 0) {
+            try self.cursorScrollOrNewPage(list, cap);
+            self.new_rows -= 1;
+        }
+
+        self.copyRowMetadata(src_row);
+
+        // Pins keep their column, clamped to the new width. This includes
+        // the cursor. Unlike reflowRow, we don't keep the blank cells
+        // before the cursor, because they could wrap this row onto a
+        // second row.
+        for (list.tracked_pins.keys()) |p| {
+            if (p.node != row.node or p.y != row.y) continue;
+            p.node = self.node;
+            p.y = self.y;
+            p.x = @min(p.x, self.page.size.cols - 1);
+        }
+
+        self.new_rows += 1;
     }
 
     /// Compute and memoize the new-page capacity for the given source
@@ -18562,9 +18712,118 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
             try testing.expect(rac.row.semantic_prompt == .prompt);
         }
         {
+            // The rest of the split row continues the prompt. It isn't a
+            // second prompt start.
             const p = s.pin(.{ .active = .{ .y = 2 } }).?;
             const rac = p.rowAndCell();
-            try testing.expect(rac.row.semantic_prompt == .prompt);
+            try testing.expect(rac.row.semantic_prompt == .prompt_continuation);
+        }
+    }
+}
+
+test "PageList resize reflow semantic prompt marks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Each case writes `rows` at `cols`, reflows to `new_cols`, and checks
+    // the marks of the rows from the top. A reflowed prompt must have the
+    // marks it would have had if it were printed at the new width. Only
+    // its first row is `.prompt`, and every other row of it is
+    // `.prompt_continuation`.
+    const Source = struct {
+        text: []const u8,
+        mark: Row.SemanticPrompt,
+        wrap: bool = false,
+    };
+    const cases = [_]struct {
+        cols: size.CellCountInt,
+        new_cols: size.CellCountInt,
+        rows: []const Source,
+        marks: []const Row.SemanticPrompt,
+    }{
+        // Splitting a prompt row.
+        .{
+            .cols = 4,
+            .new_cols = 2,
+            .rows = &.{.{ .text = "abcd", .mark = .prompt }},
+            .marks = &.{ .prompt, .prompt_continuation },
+        },
+        // Splitting a wrapped prompt, where the continuation starts a row.
+        .{
+            .cols = 4,
+            .new_cols = 2,
+            .rows = &.{
+                .{ .text = "abcd", .mark = .prompt, .wrap = true },
+                .{ .text = "ef", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .prompt_continuation, .prompt_continuation },
+        },
+        // Joining a prompt with its continuation into one row.
+        .{
+            .cols = 2,
+            .new_cols = 4,
+            .rows = &.{
+                .{ .text = "ab", .mark = .prompt, .wrap = true },
+                .{ .text = "cd", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .none },
+        },
+        // Joining part of a continuation.
+        .{
+            .cols = 3,
+            .new_cols = 4,
+            .rows = &.{
+                .{ .text = "abc", .mark = .prompt, .wrap = true },
+                .{ .text = "def", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .prompt_continuation },
+        },
+        // Joining two prompts in a row, each into its own row.
+        .{
+            .cols = 2,
+            .new_cols = 4,
+            .rows = &.{
+                .{ .text = "ab", .mark = .prompt, .wrap = true },
+                .{ .text = "cd", .mark = .prompt_continuation },
+                .{ .text = "ef", .mark = .prompt, .wrap = true },
+                .{ .text = "gh", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .prompt, .none },
+        },
+        // Splitting output doesn't add marks.
+        .{
+            .cols = 4,
+            .new_cols = 2,
+            .rows = &.{
+                .{ .text = "abcd", .mark = .none },
+                .{ .text = "ef", .mark = .prompt },
+            },
+            .marks = &.{ .none, .none, .prompt },
+        },
+    };
+
+    for (cases) |case| {
+        var s = try init(alloc, .{ .cols = case.cols, .rows = 4, .max_size = 0 });
+        defer s.deinit();
+        const page = s.pages.first.?.page();
+        for (case.rows, 0..) |src, y| {
+            const row = page.getRow(y);
+            row.semantic_prompt = src.mark;
+            row.wrap = src.wrap;
+            row.wrap_continuation = y > 0 and case.rows[y - 1].wrap;
+            for (src.text, 0..) |c, x| {
+                page.getRowAndCell(x, y).cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = c } },
+                };
+            }
+        }
+
+        try s.resize(.{ .cols = case.new_cols, .reflow = true });
+
+        for (case.marks, 0..) |mark, y| {
+            const p = s.pin(.{ .screen = .{ .y = @intCast(y) } }).?;
+            try testing.expectEqual(mark, p.rowAndCell().row.semantic_prompt);
         }
     }
 }
