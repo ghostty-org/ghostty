@@ -38,6 +38,3 @@ GHOSTTY_VT_1.0 {
     local:
         *;
 };
-
-/* Functions added during 1.1 are listed here. */
-GHOSTTY_VT_1.1 { } GHOSTTY_VT_1.0;
