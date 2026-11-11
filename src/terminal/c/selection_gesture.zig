@@ -3,6 +3,7 @@ const testing = std.testing;
 const builtin = @import("builtin");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
+const Screen = @import("../Screen.zig");
 const SelectionGesture = @import("../SelectionGesture.zig");
 const selection_codepoints = @import("../selection_codepoints.zig");
 const grid_ref = @import("grid_ref.zig");
@@ -316,6 +317,7 @@ pub fn handle_event(
     const wrapper = gesture_ orelse return .invalid_value;
     const t = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
     const event_wrapper = event_ orelse return .invalid_value;
+    if (!eventInScreen(event_wrapper, t.screens.active)) return .invalid_value;
 
     return switch (event_wrapper.event) {
         .press => |press| {
@@ -356,6 +358,21 @@ pub fn handle_event(
             return .success;
         },
     };
+}
+
+/// Returns whether the event's ref, if it has one, is a cell of a page in
+/// screen. The gesture resolves the ref against the active screen, and a
+/// ref from the other screen (set before a screen switch) would panic or
+/// select in the wrong screen there. The gesture's own stored pins need no
+/// check: it records the screen they belong to.
+fn eventInScreen(event: *const EventWrapper, screen: *const Screen) bool {
+    const pin = switch (event.event) {
+        .press => |press| if (event.event_validation.press_pin_set) press.pin else return true,
+        .drag => |drag| if (event.event_validation.drag_pin_set) drag.pin else return true,
+        .release => |release| release.pin orelse return true,
+        .autoscroll_tick, .deep_press => return true,
+    };
+    return screen.pages.containsPin(pin);
 }
 
 pub fn event_set(
@@ -1037,6 +1054,61 @@ test "selection gesture event press requires ref" {
 
     var sel: selection_c.CSelection = undefined;
     try testing.expectEqual(Result.invalid_value, handle_event(gesture, terminal, press_event, &sel));
+}
+
+test "selection gesture event invalid_value for a ref in another screen" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        5,
+        2,
+    ));
+    defer terminal_c.free(terminal);
+
+    var gesture: Gesture = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &gesture,
+    ));
+    defer free(gesture, terminal);
+
+    var press_event: Event = null;
+    try testing.expectEqual(Result.success, event_new(
+        &lib.alloc.test_allocator,
+        &press_event,
+        .press,
+    ));
+    defer event_free(press_event);
+    var release_event: Event = null;
+    try testing.expectEqual(Result.success, event_new(
+        &lib.alloc.test_allocator,
+        &release_event,
+        .release,
+    ));
+    defer event_free(release_event);
+
+    terminal_c.vt_write(terminal, "abc", 3);
+    var ref: grid_ref.CGridRef = undefined;
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(terminal, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 0 } },
+    }, &ref));
+    try testing.expectEqual(Result.success, event_set(press_event, .ref, &ref));
+    try testing.expectEqual(Result.success, event_set(release_event, .ref, &ref));
+
+    // The ref is in the primary screen, and the alternate one is active.
+    const enter = "\x1b[?1049h";
+    terminal_c.vt_write(terminal, enter, enter.len);
+    var sel: selection_c.CSelection = undefined;
+    try testing.expectEqual(Result.invalid_value, handle_event(gesture, terminal, press_event, &sel));
+    try testing.expectEqual(Result.invalid_value, handle_event(gesture, terminal, release_event, null));
+
+    // Back on the primary screen the press is handled. A single press
+    // selects nothing yet.
+    const leave = "\x1b[?1049l";
+    terminal_c.vt_write(terminal, leave, leave.len);
+    try testing.expectEqual(Result.no_value, handle_event(gesture, terminal, press_event, &sel));
 }
 
 test "selection gesture event null output still reports no selection" {
