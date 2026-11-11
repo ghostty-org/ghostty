@@ -19,7 +19,7 @@ const terminal = @import("../terminal/main.zig");
 const size = @import("size.zig");
 const Size = size.Size;
 const CellSize = size.CellSize;
-const ArcImage = @import("image.zig").ArcImage;
+const Image = terminal.Image;
 const global = @import("../global.zig");
 
 const log = std.log.scoped(.renderer_overlay);
@@ -108,15 +108,15 @@ pub fn deinit(self: *Overlay, alloc: Allocator) void {
 }
 
 /// Return an immutable snapshot independent of subsequent overlay drawing.
-pub fn pendingImage(self: *const Overlay, alloc: Allocator) Allocator.Error!*const ArcImage {
+pub fn pendingImage(self: *const Overlay, alloc: Allocator) Allocator.Error!Image {
     const pixels = try alloc.dupe(u8, std.mem.sliceAsBytes(self.surface.image_surface_rgba.buf));
     errdefer alloc.free(pixels);
-    return ArcImage.init(alloc, .{
+    return .{
         .width = @intCast(self.surface.getWidth()),
         .height = @intCast(self.surface.getHeight()),
         .format = .rgba,
-        .data = pixels,
-    });
+        .pixels = try terminal.ArcPixels.init(alloc, pixels),
+    };
 }
 
 /// Clear the overlay.

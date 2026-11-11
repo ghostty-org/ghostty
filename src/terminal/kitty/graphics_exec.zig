@@ -11,8 +11,8 @@ const Command = command.Command;
 const Response = command.Response;
 const LoadingImage = image.LoadingImage;
 const KittyImage = image.KittyImage;
-const Image = @import("../image.zig").Image;
 const ArcPixels = @import("../image.zig").ArcPixels;
+const Image = @import("../image.zig").Image;
 const ImageStorage = @import("graphics_storage.zig").ImageStorage;
 
 const log = std.log.scoped(.kitty_gfx);
@@ -187,7 +187,7 @@ fn query(
     };
     defer loading.deinit(alloc);
 
-    var img = loading.complete(alloc) catch |err| {
+    const img = loading.complete(alloc) catch |err| {
         encodeError(&result, err);
         return result;
     };
@@ -622,14 +622,23 @@ fn completeAnimationFrame(
                 .rgba => .rgba,
                 .bgr, .bgra => unreachable,
             },
-            frame_img.data,
+            frame_img.pixels.value,
         ) catch |err| {
             encodeError(&result, err);
             return result;
         };
-        alloc.free(frame_img.data);
-        frame_img.data = rgba;
-        frame_img.format = .rgba;
+        const converted: Image = .{
+            .width = frame_img.width,
+            .height = frame_img.height,
+            .format = .rgba,
+            .pixels = ArcPixels.init(alloc, rgba) catch |err| {
+                alloc.free(rgba);
+                encodeError(&result, err);
+                return result;
+            },
+        };
+        frame_img.deinit(alloc);
+        frame_img = converted;
     }
     storage.convertImageToRgba(io, alloc, img) catch |err| {
         encodeError(&result, err);
@@ -653,7 +662,7 @@ fn completeAnimationFrame(
     };
     result.frame = number;
 
-    const src = frame_img.data;
+    const src = frame_img.pixels.value;
     if (number == count + 1) {
         // Creating a new frame. The gap defaults to 40ms when omitted
         // and a negative gap creates a gapless (never shown) frame.
@@ -750,18 +759,25 @@ fn completeAnimationFrame(
             result.message = "EINVAL: frame data incomplete";
             return result;
         }
-        img.editFrame(alloc, number, .{
-            .source = frame_img.data,
-            .width = frame_img.width,
-            .height = frame_img.height,
-            .x = f.x,
-            .y = f.y,
-            .composition_mode = f.composition_mode,
-            .operation = .rectangle,
-        }) catch {
+        const data = if (number == 1)
+            &img.data.ready
+        else
+            &anim.frames.items[number - 2].data;
+        const dst = (ArcPixels.makeMut(data, alloc) catch {
             result.message = "ENOMEM: out of memory";
             return result;
-        };
+        }).*;
+        pixel.composeRect(
+            dst,
+            img.width,
+            img.height,
+            src,
+            frame_img.width,
+            frame_img.height,
+            f.x,
+            f.y,
+            f.composition_mode,
+        );
         if (f.gap_ms != 0) anim.setGapAt(
             number - 1,
             if (f.gap_ms > 0) @intCast(f.gap_ms) else 0,
@@ -952,26 +968,29 @@ fn composeAnimation(
     };
 
     // The rectangles were validated disjoint above, so in-place composition
-    // within one frame is well-defined.
-    //
-    // However, if the destination frame's pixel data is shared via ref-count
-    // we will allocate new bytes for it and release the old destination
-    // frame's ref-count to gain a mutable destination frame. As a result, for
-    // same-frame composition the source data is exactly the destination Image
-    // in the compose function instead of an extra parameter aliasing the
-    // destination, avoiding use-after-free bugs.
-    img.editFrame(alloc, c.dest_frame, .{
-        .source = if (c.source_frame == c.dest_frame) null else img.frameData(c.source_frame).?,
-        .width = @intCast(width),
-        .height = @intCast(height),
-        .x = c.x,
-        .y = c.y,
-        .composition_mode = c.composition_mode,
-        .operation = .{ .canvas = .{ .x = c.left_edge, .y = c.top_edge } },
-    }) catch {
+    // within one frame is well-defined. Resolve the source after makeMut so
+    // same-frame composition uses the mutable copy rather than released data.
+    const data = if (c.dest_frame == 1)
+        &img.data.ready
+    else
+        &img.animation.?.frames.items[c.dest_frame - 2].data;
+    const dst = (ArcPixels.makeMut(data, alloc) catch {
         result.message = "ENOMEM: out of memory";
         return result;
-    };
+    }).*;
+    const src = img.frameData(c.source_frame).?;
+    pixel.composeCanvasRect(
+        dst,
+        src,
+        img.width,
+        @intCast(width),
+        @intCast(height),
+        c.left_edge,
+        c.top_edge,
+        c.x,
+        c.y,
+        c.composition_mode,
+    );
 
     // If the destination is the displayed frame then the on-screen
     // content changed.
@@ -1099,11 +1118,8 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    var pixels = try loading.complete(alloc);
-    var img = KittyImage.init(alloc, loading.image, pixels) catch |err| {
-        pixels.deinit(alloc);
-        return err;
-    };
+    const pixels = try loading.complete(alloc);
+    var img = KittyImage.init(loading.image, pixels);
     errdefer img.deinit(alloc);
     try storage.addImage(io, alloc, terminal.screens.active, img);
 
@@ -3887,4 +3903,36 @@ test "kittygfx animation edits retain shared frame pixels and reuse unique pixel
     storage.setLimit(io, alloc, t.screens.active, 0);
     try testing.expectEqual(1, retained.refs.load(.monotonic));
     try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, retained.value);
+}
+
+// TODO(review)
+test "kittygfx animation: same-frame composition preserves retained pixels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t = try Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+
+    const transmission = try command.Parser.parseString(alloc, "a=t,f=32,s=2,v=1,i=1;/wAA/wAA//8=");
+    defer transmission.deinit(alloc);
+    try testing.expect(execute(io, alloc, &t, &transmission).?.ok());
+    const img = storage.images.getPtr(1).?;
+    const retained = img.renderPixels().?.clone();
+    defer retained.release(alloc);
+    try testing.expectEqual(2, retained.refs.load(.monotonic));
+
+    const compose = try command.Parser.parseString(alloc, "a=c,i=1,r=1,c=1,w=1,h=1,x=1");
+    defer compose.deinit(alloc);
+    try testing.expect(execute(io, alloc, &t, &compose).?.ok());
+    const edited = img.renderPixels().?;
+    try testing.expect(edited != retained);
+    try testing.expectEqual(1, edited.refs.load(.monotonic));
+    try testing.expectEqual(1, retained.refs.load(.monotonic));
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255, 0, 0, 255, 255 }, retained.value);
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255, 255, 0, 0, 255 }, edited.value);
+
+    try testing.expect(execute(io, alloc, &t, &compose).?.ok());
+    try testing.expectEqual(edited, img.renderPixels().?);
+    try testing.expectEqual(@as(usize, 8), storage.total_bytes);
 }

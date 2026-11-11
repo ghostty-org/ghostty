@@ -37,7 +37,6 @@ pub const CharsetActiveSlot = charsets.ActiveSlot;
 pub const charsetTable = charsets.table;
 pub const Cell = page.Cell;
 pub const Coordinate = point.Coordinate;
-pub const ArcImage = @import("image.zig").ArcImage;
 pub const ArcPixels = @import("image.zig").ArcPixels;
 pub const Image = @import("image.zig").Image;
 pub const CSI = Parser.Action.CSI;

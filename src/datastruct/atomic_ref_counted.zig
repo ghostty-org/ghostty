@@ -1,17 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// Shared ownership of an allocated slice or value with a `.deinit(alloc)`
-/// method. Implemented by atomic reference-counting to defer deinit to the
-/// last reference.
+/// Shared ownership of an allocated slice. Atomic reference-counting defers
+/// freeing the slice and control block until the last reference is released.
 ///
-/// The allocator used to initialize the control block must be the same as the
-/// allocator of the value so that `.deinit(alloc)` can free the inner
-/// allocation correctly.
+/// The control block and slice must use the same allocator.
 ///
-/// Like Rust's `Arc<T>`, clone shares ownership and `.makeMut()` clones the
-/// inner value only when it is shared. `.makeMut()` requires `T.dupe(alloc)`
-/// (for non-slices) for deep copying.
+/// Like Rust's `Arc<T>`, clone shares ownership and `.makeMut()` copies the
+/// slice's elements only when it is shared.
 /// https://doc.rust-lang.org/std/sync/struct.Arc.html#method.make_mut
 ///
 /// The allocator used must outlive all references and support cross-thread
@@ -21,8 +17,8 @@ pub fn AtomicRefCounted(comptime T: type) type {
         .pointer => |pointer| pointer.size == .slice,
         else => false,
     };
-    if (!is_slice and !std.meta.hasFn(T, "deinit"))
-        @compileError("AtomicRefCounted(" ++ @typeName(T) ++ "): trivial types are unsupported; non-slice payloads must provide pub fn deinit(*T, Allocator) void and, for makeMut, pub fn dupe(*const T, Allocator) Allocator.Error!T");
+    if (!is_slice)
+        @compileError("AtomicRefCounted(" ++ @typeName(T) ++ ") requires a slice type");
 
     return struct {
         const Self = @This();
@@ -52,15 +48,15 @@ pub fn AtomicRefCounted(comptime T: type) type {
             return self;
         }
 
-        /// Release to decrement the ref-count, potentially deinitialising the
-        /// inner allocation as well if the ref-count drops to 0.
+        /// Decrement the ref-count, freeing the slice and control block when
+        /// the last reference is released.
         pub fn release(self: *const Self, alloc: Allocator) void {
             const mutable = @constCast(self);
             const previous = mutable.refs.fetchSub(1, .release);
             std.debug.assert(previous > 0);
             if (previous == 1) {
                 _ = mutable.refs.load(.acquire);
-                deinitValue(&mutable.value, alloc);
+                alloc.free(mutable.value);
                 alloc.destroy(mutable);
             }
         }
@@ -69,60 +65,36 @@ pub fn AtomicRefCounted(comptime T: type) type {
         /// an independent copy of the value if other owners exist. Failure leaves the
         /// handle unchanged.
         pub fn makeMut(handle: *(*const Self), alloc: Allocator) Allocator.Error!*T {
-            comptime {
-                if (!is_slice) {
-                    if (!std.meta.hasFn(T, "dupe"))
-                        @compileError("AtomicRefCounted(" ++ @typeName(T) ++ ").makeMut requires pub fn dupe(*const T, Allocator) Allocator.Error!T");
-                    _ = @as(*const fn (*const T, Allocator) Allocator.Error!T, &T.dupe);
-                }
-            }
             const current = handle.*;
             // Acquire synchronizes with prior owners' releases before mutation.
             if (current.refs.load(.acquire) == 1) return &@constCast(current).value;
 
-            var copy: T = if (is_slice)
-                try alloc.dupe(@typeInfo(T).pointer.child, current.value)
-            else
-                try current.value.dupe(alloc);
-            errdefer deinitValue(&copy, alloc);
+            const copy = try alloc.dupe(@typeInfo(T).pointer.child, current.value);
+            errdefer alloc.free(copy);
             const replacement = try Self.init(alloc, copy);
             handle.* = replacement;
             current.release(alloc);
             return &@constCast(replacement).value;
         }
-
-        fn deinitValue(value: *T, alloc: Allocator) void {
-            if (is_slice) alloc.free(value.*) else value.deinit(alloc);
-        }
     };
 }
 
-test "AtomicRefCounted releases the inner value only on final release" {
-    const Value = struct {
-        destroyed: *usize,
-
-        pub fn deinit(self: *@This(), _: Allocator) void {
-            self.destroyed.* += 1;
-        }
-    };
-    const Arc = AtomicRefCounted(Value);
-    const alloc = std.testing.allocator;
-    var destroyed: usize = 0;
-    const shared = try Arc.init(alloc, .{ .destroyed = &destroyed });
-    try std.testing.expectEqual(1, shared.refs.load(.monotonic));
+test "AtomicRefCounted frees the slice and control block only on final release" {
+    const testing = std.testing;
+    var tracked = testing.FailingAllocator.init(testing.allocator, .{});
+    const alloc = tracked.allocator();
+    const Arc = AtomicRefCounted([]u16);
+    const pixels = try alloc.dupe(u16, &.{ 1, 2, 3 });
+    const shared = try Arc.init(alloc, pixels);
+    try testing.expectEqual(1, shared.refs.load(.monotonic));
     const retained = shared.clone();
-    try std.testing.expectEqual(2, retained.refs.load(.monotonic));
+    try testing.expectEqual(2, retained.refs.load(.monotonic));
     shared.release(alloc);
-    try std.testing.expectEqual(1, retained.refs.load(.monotonic));
-    try std.testing.expectEqual(0, destroyed);
+    try testing.expectEqual(1, retained.refs.load(.monotonic));
+    try testing.expectEqual(@as(usize, 0), tracked.freed_bytes);
+    try testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, retained.value);
     retained.release(alloc);
-    try std.testing.expectEqual(1, destroyed);
-
-    const unique = try Arc.init(alloc, .{ .destroyed = &destroyed });
-    try std.testing.expectEqual(1, unique.refs.load(.monotonic));
-    try std.testing.expectEqual(1, destroyed);
-    unique.release(alloc);
-    try std.testing.expectEqual(2, destroyed);
+    try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
 }
 
 test "AtomicRefCounted slices preserve ownership through mutable copies and allocation failures" {
