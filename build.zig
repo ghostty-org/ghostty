@@ -13,7 +13,7 @@ const app_zon_version = @import("build.zig.zon").version;
 ///
 /// CMakeLists.txt and CI read this line with a regular expression, so
 /// keep it on one line in this form.
-const lib_version = "1.0.1-dev";
+const lib_version = "1.0.2-dev";
 
 /// Minimum required zig version.
 const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;

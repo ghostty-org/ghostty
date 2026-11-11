@@ -38,7 +38,7 @@
 #define GHOSTTY_VT_VERSION_MINOR 0
 
 /** The patch version of the libghostty-vt headers. */
-#define GHOSTTY_VT_VERSION_PATCH 1
+#define GHOSTTY_VT_VERSION_PATCH 2
 
 /**
  * The version of the libghostty-vt headers as a string, such as "1.0.0".
@@ -57,7 +57,7 @@
  * it from a build system. This header contains only macros and includes
  * no other files, so a build system can also read it directly.
  */
-#define GHOSTTY_VT_VERSION "1.0.1"
+#define GHOSTTY_VT_VERSION "1.0.2"
 
 /**
  * True if the headers are version maj.min.pat or newer.

@@ -19,7 +19,7 @@
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "libghostty-vt";
-  version = "1.0.1-dev+${revision}-nix";
+  version = "1.0.2-dev+${revision}-nix";
 
   # We limit source like this to try and reduce the amount of rebuilds as possible
   # thus we only provide the source that is needed for the build.
