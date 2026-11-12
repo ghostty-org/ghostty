@@ -8,11 +8,6 @@ struct NormalizedMenuShortcutKeyTests {
 
     // MARK: - Init from keyEquivalent + modifiers
 
-    @Test func returnsNilForEmptyKeyEquivalent() {
-        let key = Key(keyEquivalent: "", modifiers: .command)
-        #expect(key == nil)
-    }
-
     @Test func stripsNonShortcutModifiers() {
         // .capsLock and .function should be stripped
         let key = Key(keyEquivalent: "c", modifiers: [.command, .capsLock, .function])
@@ -23,20 +18,20 @@ struct NormalizedMenuShortcutKeyTests {
     @Test func preservesShortcutModifiers() {
         let key = Key(keyEquivalent: "c", modifiers: [.shift, .control, .option, .command])
         let allMods: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
-        #expect(key?.modifierFlags == allMods)
+        #expect(key.modifierFlags == allMods)
     }
 
     @Test func uppercaseLetterInsertsShift() {
         // "A" is uppercase and case-sensitive, so .shift should be added
         let key = Key(keyEquivalent: "A", modifiers: .command)
         let expected = NSEvent.ModifierFlags([.command, .shift])
-        #expect(key?.modifierFlags == expected)
+        #expect(key.modifierFlags == expected)
     }
 
     @Test func lowercaseLetterDoesNotInsertShift() {
         let key = Key(keyEquivalent: "a", modifiers: .command)
         let expected = NSEvent.ModifierFlags.command
-        #expect(key?.modifierFlags == expected)
+        #expect(key.modifierFlags == expected)
     }
 
     @Test func nonCaseSensitiveCharacterDoesNotInsertShift() {
@@ -44,7 +39,7 @@ struct NormalizedMenuShortcutKeyTests {
         // but "1".uppercased() == "1".lowercased() == "1" so isCaseSensitive is false)
         let key = Key(keyEquivalent: "1", modifiers: .command)
         let expected = NSEvent.ModifierFlags.command
-        #expect(key?.modifierFlags == expected)
+        #expect(key.modifierFlags == expected)
     }
 
     // MARK: - Equality / Hashing
@@ -87,13 +82,13 @@ struct NormalizedMenuShortcutKeyTests {
     }
 
     @Test func canBeUsedAsDictionaryKey() {
-        let key = Key(keyEquivalent: "c", modifiers: .command)!
+        let key = Key(keyEquivalent: "c", modifiers: .command)
         var dict: [Key: String] = [:]
         dict[key] = "copy"
         #expect(dict[key] == "copy")
 
         // Same key created separately should find the same entry
-        let key2 = Key(keyEquivalent: "c", modifiers: .command)!
+        let key2 = Key(keyEquivalent: "c", modifiers: .command)
         #expect(dict[key2] == "copy")
     }
 }
