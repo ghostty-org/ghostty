@@ -2303,15 +2303,17 @@ fn writeCell(
     c: u21,
     wide: Cell.Wide,
 ) void {
-    defer self.screens.active.assertIntegrity();
+    const screen = self.screens.active;
+    const cursor = &screen.cursor;
+    defer screen.assertIntegrity();
 
     // TODO: spacers should use a bgcolor only cell
 
     // Done here rather than in callers so that every write is covered,
     // including the spacer head written before a wide char wraps.
-    self.screens.active.cursor.page_row.markWritten();
+    cursor.page_row.markWritten();
 
-    const cell = self.screens.active.cursor.page_cell;
+    const cell = cursor.page_cell;
 
     // If the wide property of this cell is the same, then we don't
     // need to do the special handling here because the structure will
@@ -2324,12 +2326,12 @@ fn writeCell(
 
             // Previous cell was wide. We need to clear the tail and head.
             .wide => wide: {
-                if (self.screens.active.cursor.x >= self.cols - 1) break :wide;
+                if (cursor.x >= self.cols - 1) break :wide;
 
-                const spacer_cell = self.screens.active.cursorCellRight(1);
-                self.screens.active.clearCells(
-                    self.screens.active.cursor.page_pin.node.page(),
-                    self.screens.active.cursor.page_row,
+                const spacer_cell = screen.cursorCellRight(1);
+                screen.clearCells(
+                    cursor.page_pin.node.page(),
+                    cursor.page_row,
                     spacer_cell[0..1],
                 );
 
@@ -2337,14 +2339,14 @@ fn writeCell(
                 // wrapped from the previous row, leaving a spacer_head
                 // at the end of that row. Clear it so the previous row
                 // doesn't keep a stale spacer_head.
-                if (self.screens.active.cursor.y > 0 and self.screens.active.cursor.x <= 1) {
-                    const head_cell = self.screens.active.cursorCellEndOfPrev();
+                if (cursor.y > 0 and cursor.x <= 1) {
+                    const head_cell = screen.cursorCellEndOfPrev();
                     if (head_cell.wide == .spacer_head) head_cell.wide = .narrow;
                 }
             },
 
             .spacer_tail => {
-                assert(self.screens.active.cursor.x > 0);
+                assert(cursor.x > 0);
 
                 // So integrity checks pass. We fix this up later so we don't
                 // need to do this without safety checks.
@@ -2352,18 +2354,18 @@ fn writeCell(
                     cell.wide = .narrow;
                 }
 
-                const wide_cell = self.screens.active.cursorCellLeft(1);
-                self.screens.active.clearCells(
-                    self.screens.active.cursor.page_pin.node.page(),
-                    self.screens.active.cursor.page_row,
+                const wide_cell = screen.cursorCellLeft(1);
+                screen.clearCells(
+                    cursor.page_pin.node.page(),
+                    cursor.page_row,
                     wide_cell[0..1],
                 );
                 // If we're near the left edge, a wide char may have
                 // wrapped from the previous row, leaving a spacer_head
                 // at the end of that row. Clear it so the previous row
                 // doesn't keep a stale spacer_head.
-                if (self.screens.active.cursor.y > 0 and self.screens.active.cursor.x <= 1) {
-                    const head_cell = self.screens.active.cursorCellEndOfPrev();
+                if (cursor.y > 0 and cursor.x <= 1) {
+                    const head_cell = screen.cursorCellEndOfPrev();
                     if (head_cell.wide == .spacer_head) head_cell.wide = .narrow;
                 }
             },
@@ -2377,20 +2379,20 @@ fn writeCell(
 
     // If the prior value had graphemes, clear those
     if (cell.hasGrapheme()) {
-        const page = self.screens.active.cursor.page_pin.node.page();
+        const page = cursor.page_pin.node.page();
         page.clearGrapheme(cell);
-        page.updateRowGraphemeFlag(self.screens.active.cursor.page_row);
+        page.updateRowGraphemeFlag(cursor.page_row);
     }
 
     // We don't need to update the style refs unless the
     // cell's new style will be different after writing.
-    const style_changed = cell.style_id != self.screens.active.cursor.style_id;
+    const style_changed = cell.style_id != cursor.style_id;
     if (style_changed) {
-        var page = self.screens.active.cursor.page_pin.node.page();
+        var page = cursor.page_pin.node.page();
 
         // Release the old style.
         if (cell.style_id != style.default_id) {
-            assert(self.screens.active.cursor.page_row.styled);
+            assert(cursor.page_row.styled);
             page.styles.release(page.memory, cell.style_id);
         }
     }
@@ -2402,19 +2404,19 @@ fn writeCell(
     cell.* = .{
         .content_tag = .codepoint,
         .content = .{ .codepoint = .{ .data = c } },
-        .style_id = self.screens.active.cursor.style_id,
+        .style_id = cursor.style_id,
         .wide = wide,
-        .protected = self.screens.active.cursor.protected,
-        .semantic_content = self.screens.active.cursor.semantic_content,
+        .protected = cursor.protected,
+        .semantic_content = cursor.semantic_content,
     };
 
     if (style_changed) {
-        var page = self.screens.active.cursor.page_pin.node.page();
+        var page = cursor.page_pin.node.page();
 
         // Use the new style.
         if (cell.style_id != style.default_id) {
             page.styles.use(page.memory, cell.style_id);
-            self.screens.active.cursor.page_row.styled = true;
+            cursor.page_row.styled = true;
         }
     }
 
@@ -2423,28 +2425,28 @@ fn writeCell(
     if (comptime build_options.kitty_graphics) {
         if (c == kitty.graphics.unicode.placeholder) {
             @branchHint(.unlikely);
-            self.screens.active.cursor.page_row.kitty_virtual_placeholder = true;
+            cursor.page_row.kitty_virtual_placeholder = true;
         }
     }
 
     // We check for an active hyperlink first because setHyperlink
     // handles clearing the old hyperlink and an optimization if we're
     // overwriting the same hyperlink.
-    if (self.screens.active.cursor.hyperlink_id > 0) {
-        self.screens.active.cursorSetHyperlink() catch |err| {
+    if (cursor.hyperlink_id > 0) {
+        screen.cursorSetHyperlink() catch |err| {
             @branchHint(.unlikely);
             log.warn("error reallocating for more hyperlink space, ignoring hyperlink err={}", .{err});
 
             // A partially successful grow can replace the page even when the
             // call fails, so `cell` may be stale here. The cursor pointers are
             // always reloaded, so read the cell through the cursor.
-            assert(!self.screens.active.cursor.page_cell.hyperlink);
+            assert(!cursor.page_cell.hyperlink);
         };
     } else if (had_hyperlink) {
         // If the previous cell had a hyperlink then we need to clear it.
-        var page = self.screens.active.cursor.page_pin.node.page();
+        var page = cursor.page_pin.node.page();
         page.clearHyperlink(cell);
-        page.updateRowHyperlinkFlag(self.screens.active.cursor.page_row);
+        page.updateRowHyperlinkFlag(cursor.page_row);
     }
 }
 
@@ -4030,10 +4032,13 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
 ///
 /// The inserted cells are colored according to the current SGR state.
 pub fn insertBlanks(self: *Terminal, count: usize) void {
+    const screen = self.screens.active;
+    const cursor = &screen.cursor;
+
     // Unset pending wrap state without wrapping. Note: this purposely
     // happens BEFORE the scroll region check below, because that's what
     // xterm does.
-    self.screens.active.cursor.pending_wrap = false;
+    cursor.pending_wrap = false;
 
     // If we're given a zero then we do nothing. The rest of this function
     // assumes count > 0 and will crash if zero so return early. Note that
@@ -4043,40 +4048,40 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 
     // If our cursor is outside the margins then do nothing. We DO reset
     // wrap state still so this must remain below the above logic.
-    if (self.screens.active.cursor.x < self.scrolling_region.left or
-        self.screens.active.cursor.x > self.scrolling_region.right) return;
+    if (cursor.x < self.scrolling_region.left or
+        cursor.x > self.scrolling_region.right) return;
 
     // If our count is larger than the remaining amount, we just erase right.
     // We only do this if we can erase the entire line (no right margin).
     // if (right_limit == self.cols and
-    //     count > right_limit - self.screens.active.cursor.x)
+    //     count > right_limit - cursor.x)
     // {
     //     self.eraseLine(.right, false);
     //     return;
     // }
 
     // left is just the cursor position but as a multi-pointer
-    const left: [*]Cell = @ptrCast(self.screens.active.cursor.page_cell);
-    var page = self.screens.active.cursor.page_pin.node.page();
+    const left: [*]Cell = @ptrCast(cursor.page_cell);
+    var page = cursor.page_pin.node.page();
 
     // If our X is a wide spacer tail then we need to erase the
     // previous cell too so we don't split a multi-cell character.
-    if (self.screens.active.cursor.page_cell.wide == .spacer_tail) {
-        assert(self.screens.active.cursor.x > 0);
-        self.screens.active.clearCells(page, self.screens.active.cursor.page_row, (left - 1)[0..2]);
+    if (cursor.page_cell.wide == .spacer_tail) {
+        assert(cursor.x > 0);
+        screen.clearCells(page, cursor.page_row, (left - 1)[0..2]);
     }
 
     // Remaining cols from our cursor to the right margin.
-    const rem = self.scrolling_region.right - self.screens.active.cursor.x + 1;
+    const rem = self.scrolling_region.right - cursor.x + 1;
 
     // If the cell at the right margin is wide, its spacer tail is
     // outside the scroll region and would be orphaned by either the
     // shift or the clear. Clean up both halves up front.
     {
         const right_cell: *Cell = @ptrCast(left + (rem - 1));
-        if (right_cell.wide == .wide) self.screens.active.clearCells(
+        if (right_cell.wide == .wide) screen.clearCells(
             page,
-            self.screens.active.cursor.page_row,
+            cursor.page_row,
             @as([*]Cell, @ptrCast(right_cell))[0..2],
         );
     }
@@ -4100,9 +4105,9 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
         if (end.wide == .wide) {
             const end_multi: [*]Cell = @ptrCast(end);
             assert(end_multi[1].wide == .spacer_tail);
-            self.screens.active.clearCells(
+            screen.clearCells(
                 page,
-                self.screens.active.cursor.page_row,
+                cursor.page_row,
                 end_multi[0..2],
             );
         }
@@ -4116,10 +4121,10 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.screens.active.clearCells(page, self.screens.active.cursor.page_row, left[0..adjusted_count]);
+    screen.clearCells(page, cursor.page_row, left[0..adjusted_count]);
 
     // Our row is always dirty
-    self.screens.active.cursorMarkDirty();
+    screen.cursorMarkDirty();
 }
 
 /// Removes amount characters from the current cursor position to the right.
@@ -4133,24 +4138,27 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 pub fn deleteChars(self: *Terminal, count_req: usize) void {
     if (count_req == 0) return;
 
+    const screen = self.screens.active;
+    const cursor = &screen.cursor;
+
     // If our cursor is outside the margins then do nothing. We DO reset
     // wrap state still so this must remain below the above logic.
-    if (self.screens.active.cursor.x < self.scrolling_region.left or
-        self.screens.active.cursor.x > self.scrolling_region.right) return;
+    if (cursor.x < self.scrolling_region.left or
+        cursor.x > self.scrolling_region.right) return;
 
     // left is just the cursor position but as a multi-pointer
-    const left: [*]Cell = @ptrCast(self.screens.active.cursor.page_cell);
-    var page = self.screens.active.cursor.page_pin.node.page();
+    const left: [*]Cell = @ptrCast(cursor.page_cell);
+    var page = cursor.page_pin.node.page();
 
     // Remaining cols from our cursor to the right margin.
-    const rem = self.scrolling_region.right - self.screens.active.cursor.x + 1;
+    const rem = self.scrolling_region.right - cursor.x + 1;
 
     // We can only insert blanks up to our remaining cols
     const count = @min(count_req, rem);
 
-    self.screens.active.splitCellBoundary(self.screens.active.cursor.x);
-    self.screens.active.splitCellBoundary(self.screens.active.cursor.x + count);
-    self.screens.active.splitCellBoundary(self.scrolling_region.right + 1);
+    screen.splitCellBoundary(cursor.x);
+    screen.splitCellBoundary(cursor.x + count);
+    screen.splitCellBoundary(self.scrolling_region.right + 1);
 
     // This is the amount of space at the right of the scroll region
     // that will NOT be blank, so we need to shift the correct cols right.
@@ -4171,13 +4179,13 @@ pub fn deleteChars(self: *Terminal, count_req: usize) void {
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.screens.active.clearCells(page, self.screens.active.cursor.page_row, x[0 .. rem - scroll_amount]);
+    screen.clearCells(page, cursor.page_row, x[0 .. rem - scroll_amount]);
 
     // Our row's soft-wrap is always reset.
-    self.screens.active.cursorResetWrap();
+    screen.cursorResetWrap();
 
     // Our row is always dirty
-    self.screens.active.cursorMarkDirty();
+    screen.cursorMarkDirty();
 }
 
 /// DECIC - Insert Column. Inserts count blank columns at the cursor
