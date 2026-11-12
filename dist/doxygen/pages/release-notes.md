@@ -4,7 +4,7 @@ The changes in each libghostty-vt release, newest first.
 
 ## 1.0.1 {#release-notes-1-0-1}
 
-Released November 11, 2026. 
+Released November 11, 2026.
 
 ### Highlights {#release-notes-1-0-1-highlights}
 
