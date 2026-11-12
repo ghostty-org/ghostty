@@ -32,7 +32,7 @@ pub const LoadingImage = struct {
     image: Image,
 
     /// The data that is being built up.
-    data: std.ArrayListUnmanaged(u8) = .empty,
+    data: std.ArrayList(u8) = .empty,
 
     /// This is non-null when a transmit and display command is given
     /// so that we display the image after it is fully loaded.

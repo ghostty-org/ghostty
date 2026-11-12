@@ -10,6 +10,7 @@
 const std = @import("std");
 const testing = std.testing;
 const ComptimeIntSet = @import("../datastruct/main.zig").ComptimeIntSet;
+const checkGhosttyVtHMacroExists = @import("../lib/enum.zig").checkGhosttyVtHMacroExists;
 
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
@@ -183,6 +184,10 @@ pub const Mode = mode_enum: {
     break :mode_enum @Enum(ModeTag.Backing, .exhaustive, &names, &values);
 };
 
+test "ghostty/vt.h Mode" {
+    try checkGhosttyVtHMacroExists(Mode, "GHOSTTY_MODE_");
+}
+
 /// The tag type for our enum is a u16 but we use a packed struct
 /// in order to pack the ansi bit into the tag.
 pub const ModeTag = packed struct(u16) {
@@ -291,6 +296,11 @@ pub const Report = struct {
         reset = 2,
         permanently_set = 3,
         permanently_reset = 4,
+
+        /// The integer type this enum crosses the C API as. The C enum
+        /// `GhosttyModeReportState` is a C int, while this enum is a u8 so
+        /// it stays small inside `Report`.
+        pub const C = c_int;
     };
 
     /// Encode the DECRPM report sequence.

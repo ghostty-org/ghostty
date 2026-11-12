@@ -25,9 +25,16 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    // The tests get a module of their own, so the test images they embed
+    // are not part of the module that other packages import.
+    const test_module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const unit_tests = b.addTest(.{
         .name = "test",
-        .root_module = module,
+        .root_module = test_module,
     });
 
     // Windows always has a libc available.
@@ -57,11 +64,14 @@ pub fn build(b: *std.Build) !void {
 
         // Larger flag set for C file build within module
         const c_flags = c_flags: {
-            var len: usize = macro_flags.len + 1;
+            var len: usize = macro_flags.len + 2;
             if (windows) len += 2;
             var flag_builder: std.ArrayList([]const u8) = try .initCapacity(b.allocator, len);
 
             flag_builder.appendAssumeCapacity("-DWUFFS_IMPLEMENTATION");
+
+            // Only linked statically into libghostty-vt and the app: export nothing.
+            flag_builder.appendAssumeCapacity("-fvisibility=hidden");
 
             // Disable ubsan on Windows to avoid undefined __ubsan_handle_*
             // references: Zig's ubsan runtime can't be bundled on Windows
@@ -96,8 +106,18 @@ pub fn build(b: *std.Build) !void {
         });
 
         module.addImport("wuffs_c", wuffs_c.mod);
+        test_module.addImport("wuffs_c", wuffs_c.mod);
     }
 
+    // The test images come from the pixels package. Only this package's own
+    // tests use them, and those only run when this package is built on its
+    // own:
+    //
+    //   cd pkg/wuffs && zig build test
+    //
+    // When another package depends on this one, as Ghostty does, we stop
+    // here, so pixels is never downloaded.
+    if (!b.isRoot()) return;
     if (b.lazyDependency("pixels", .{})) |pixels_dep| {
         inline for (.{ "000000", "FFFFFF" }) |color| {
             inline for (.{ "gif", "jpg", "png", "ppm" }) |extension| {
@@ -105,7 +125,7 @@ pub fn build(b: *std.Build) !void {
                     "1x1#{s}.{s}",
                     .{ color, extension },
                 );
-                unit_tests.root_module.addAnonymousImport(filename, .{
+                test_module.addAnonymousImport(filename, .{
                     .root_source_file = pixels_dep.path(filename),
                 });
             }

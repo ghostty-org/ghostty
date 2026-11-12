@@ -16,14 +16,28 @@
 extern "C" {
 #endif
 
-/** @defgroup screen Screen
+/** @addtogroup screen
  *
- * Terminal screen cell and row types.
+ * A GhosttyCell is a single grid cell and a GhosttyRow is a single row.
  *
- * These types represent the contents of a terminal screen. A GhosttyCell
- * is a single grid cell and a GhosttyRow is a single row. Cell fields can
- * be accessed via ghostty_cell_get() or decoded from the packed layout in
- * ghostty_type_json(). Rows are opaque and accessed via ghostty_row_get().
+ * You get these from a grid reference or a render state. You need them to read
+ * what's on the screen, one cell at a time. Cell fields can be accessed via
+ * ghostty_cell_get() or decoded from the packed layout in ghostty_type_json().
+ * Rows are opaque and accessed via ghostty_row_get().
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyCell cell;
+ * ghostty_grid_ref_cell(&ref, &cell);
+ *
+ * uint32_t codepoint = 0;
+ * ghostty_cell_get(cell, GHOSTTY_CELL_DATA_CODEPOINT, &codepoint);
+ * @endcode
+ *
+ * Full program: @ref c-vt-grid-traverse/src/main.c
+ *
+ * See the @ref guide-grid "Grid guide".
  *
  * @{
  */
@@ -184,7 +198,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * The style ID for the cell (for use with style lookups).
    *
-   * Output type: uint16_t *
+   * Output type: GhosttyStyleId * (uint16_t *)
    */
   GHOSTTY_CELL_DATA_STYLE_ID = 6,
 
@@ -328,8 +342,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @param cell The cell value
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the
- *         data type is invalid
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
+ *         GHOSTTY_CELL_DATA_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup screen
  */
@@ -339,6 +354,12 @@ GHOSTTY_API GhosttyResult ghostty_cell_get(GhosttyCell cell,
 
 /**
  * Get multiple data fields from a cell in a single call.
+ *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_cell_get() once per key, so use
+ * whichever reads better.
  *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.
@@ -354,7 +375,9 @@ GHOSTTY_API GhosttyResult ghostty_cell_get(GhosttyCell cell,
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup screen
  */
@@ -375,8 +398,9 @@ GHOSTTY_API GhosttyResult ghostty_cell_get_multi(GhosttyCell cell,
  * @param row The row value
  * @param data The type of data to extract
  * @param out Pointer to store the extracted data (type depends on data parameter)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the
- *         data type is invalid
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `data` is
+ *         GHOSTTY_ROW_DATA_INVALID or `out` is NULL, or GHOSTTY_UNSUPPORTED
+ *         if `data` is not known to this version of the library
  *
  * @ingroup screen
  */
@@ -386,6 +410,12 @@ GHOSTTY_API GhosttyResult ghostty_row_get(GhosttyRow row,
 
 /**
  * Get multiple data fields from a row in a single call.
+ *
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_row_get() once per key, so use whichever
+ * reads better.
  *
  * Each element in the keys array specifies a data kind, and the
  * corresponding element in the values array receives the result.
@@ -401,7 +431,9 @@ GHOSTTY_API GhosttyResult ghostty_row_get(GhosttyRow row,
  *               documented output type)
  * @param[out] out_written On return, receives the number of values
  *             successfully written (may be NULL)
- * @return GHOSTTY_SUCCESS if all queries succeed
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup screen
  */

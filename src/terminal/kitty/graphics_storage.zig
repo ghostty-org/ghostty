@@ -218,8 +218,7 @@ pub const ImageStorage = struct {
         /// Otherwise this returns false, changes nothing, and the caller
         /// still owns `data`.
         ///
-        /// Completing an image keeps its `generation`, so the image keeps
-        /// its age for eviction purposes.
+        /// Completing an image keeps its `generation`.
         pub fn complete(
             self: PendingImage,
             storage: *ImageStorage,
@@ -1051,7 +1050,7 @@ pub const ImageStorage = struct {
         }
     }
 
-    /// Returns the placement that a unicode placeholder cell referencing
+    /// Returns the virtual placement a unicode placeholder cell referencing
     /// this image/placement ID pair targets, or null if there is none. A
     /// zero placement ID targets one of the image's virtual placements,
     /// chosen by PlacementId.preferredOver so the choice is stable (an
@@ -1069,6 +1068,7 @@ pub const ImageStorage = struct {
                 .placement_id = .{ .tag = .external, .id = placement_id },
             };
             const p = self.placements.get(key) orelse return null;
+            if (p.location != .virtual) return null;
             return .{ .key = key, .placement = p };
         }
 
@@ -1103,7 +1103,7 @@ pub const ImageStorage = struct {
         while (it.next()) |kv| {
             if (kv.value_ptr.number == image_number) {
                 if (newest == null or
-                    kv.value_ptr.generation > newest.?.generation)
+                    kv.value_ptr.transmission > newest.?.transmission)
                 {
                     newest = kv.value_ptr.*;
                 }
@@ -1130,7 +1130,7 @@ pub const ImageStorage = struct {
         while (it.next()) |kv| {
             if (kv.value_ptr.number != image_number) continue;
             if (newest == null or
-                kv.value_ptr.generation > newest.?.generation)
+                kv.value_ptr.transmission > newest.?.transmission)
             {
                 newest = kv.value_ptr;
             }
@@ -1832,7 +1832,7 @@ pub const ImageStorage = struct {
 
         const Candidate = struct {
             id: u32,
-            generation: u64,
+            transmission: u64,
 
             // Lower values are evicted first:
             // 0: transient, unused
@@ -1844,7 +1844,7 @@ pub const ImageStorage = struct {
             fn init(img: *const Image) @This() {
                 return .{
                     .id = img.id,
-                    .generation = img.generation,
+                    .transmission = img.transmission,
                     .priority = (if (img.metadata.transient) @as(u2, 0) else @as(u2, 1)) +
                         (if (img.metadata.placement_count > 0) @as(u2, 2) else @as(u2, 0)),
                 };
@@ -1853,8 +1853,8 @@ pub const ImageStorage = struct {
             fn lessThan(lhs: @This(), rhs: @This()) bool {
                 if (lhs.priority != rhs.priority)
                     return lhs.priority < rhs.priority;
-                if (lhs.generation != rhs.generation)
-                    return lhs.generation < rhs.generation;
+                if (lhs.transmission != rhs.transmission)
+                    return lhs.transmission < rhs.transmission;
                 return lhs.id < rhs.id;
             }
         };
@@ -1912,7 +1912,7 @@ pub const ImageStorage = struct {
     /// complete.
     pub const ScrollMargins = struct {
         screen: *terminal.Screen,
-        restores: std.ArrayListUnmanaged(Restore) = .empty,
+        restores: std.ArrayList(Restore) = .empty,
 
         const Restore = struct {
             pin: *PageList.Pin,
@@ -3724,6 +3724,11 @@ test "storage: imageByNumber returns most recently transmitted" {
     // Retransmit the first: it becomes the newest.
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .number = 7 });
     try testing.expectEqual(@as(u32, 1), s.imageByNumber(7).?.id);
+
+    // Showing another frame of the second doesn't make it the newest.
+    s.markImageContentChanged(io, s.images.getPtr(2).?);
+    try testing.expectEqual(@as(u32, 1), s.imageByNumber(7).?.id);
+    try testing.expectEqual(@as(u32, 1), s.imagePtrByIdOrNumber(0, 7).?.id);
 }
 
 test "storage: nextGeneration is unique and monotonic" {
@@ -3837,6 +3842,9 @@ test "storage: eviction releases placement pins" {
         .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
     });
     try testing.expectEqual(tracked + 2, t.screens.active.pages.countTrackedPins());
+
+    // Showing another frame of the first doesn't make it newer.
+    s.markImageContentChanged(io, s.images.getPtr(1).?);
 
     // Adding a third image evicts the oldest equally-ranked image and its
     // placement. The newer image's placement and tracked pin remain intact.
@@ -4793,6 +4801,12 @@ test "storage: placeholderTarget lookup" {
 
     try testing.expect(s.placeholderTarget(1, 9) == null);
     try testing.expect(s.placeholderTarget(2, 0) == null);
+
+    // A non-virtual placement can't be targeted, even by its exact ID.
+    try s.addPlacement(io, alloc, t.screens.active, 1, 7, .{
+        .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) },
+    });
+    try testing.expect(s.placeholderTarget(1, 7) == null);
 
     // With multiple virtual placements, the zero-ID fallback picks
     // deterministically by PlacementId.preferredOver: lowest external.

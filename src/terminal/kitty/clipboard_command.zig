@@ -179,7 +179,7 @@ pub const Metadata = struct {
     /// Any other characters must be stripped out from the id by the terminal
     /// emulator before retransmitting it.
     fn sanitizeId(alloc: Allocator, value: []const u8) Allocator.Error![]const u8 {
-        var list: std.ArrayListUnmanaged(u8) = .empty;
+        var list: std.ArrayList(u8) = .empty;
         defer list.deinit(alloc);
         for (value) |c| {
             switch (c) {

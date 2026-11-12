@@ -279,13 +279,13 @@ pub const Keyboard = struct {
     ///
     /// This is naturally bounded due to the configuration maximum
     /// length of a sequence.
-    sequence_queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .empty,
+    sequence_queued: std.ArrayList(termio.Message.WriteReq) = .empty,
 
     /// The stack of tables that is currently active. The first value
     /// in this is the first activated table (NOT the default keybinding set).
     ///
     /// This is bounded by `max_active_key_tables`.
-    table_stack: std.ArrayListUnmanaged(struct {
+    table_stack: std.ArrayList(struct {
         set: *const input.Binding.Set,
         once: bool,
     }) = .empty,

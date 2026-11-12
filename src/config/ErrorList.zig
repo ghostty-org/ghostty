@@ -10,7 +10,7 @@ pub const Error = struct {
 /// The list of errors. This will use the arena allocator associated
 /// with the config structure (or whatever allocated used to call ErrorList
 /// functions).
-list: std.ArrayListUnmanaged(Error) = .{},
+list: std.ArrayList(Error) = .{},
 
 /// True if there are no errors.
 pub fn empty(self: ErrorList) bool {

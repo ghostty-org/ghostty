@@ -54,6 +54,15 @@ jobs:
           sudo mkdir -p /var/lib/snapd/cgroup
           echo 'self-managed=true' | sudo tee  "${_LXD_SNAP_DEVCGROUP_CONFIG}"
 
+      # Pin LXD 5.21: snapcraft fails in LXD 6 instances with "cannot create
+      # user data directory". action-build only refreshes an installed LXD,
+      # which keeps this channel.
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy snapd
+          sudo snap wait system seed.loaded
+          sudo snap install lxd --channel=5.21/stable
+
       - uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
         with:
           path: dist

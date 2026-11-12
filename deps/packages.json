@@ -1,0 +1,202 @@
+{
+  "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa": {
+    "name": "aro",
+    "url": "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
+    "hash": "sha256-hGxCOwFcqc+1V55j/4rmvMlwvISRHFwA5eK5CHrLaA8="
+  },
+  "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr": {
+    "name": "bindings",
+    "url": "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz",
+    "hash": "sha256-i/7FAOAJJvZ5hT7iPWfMOS08MYFzPKRwRzhlHT9wuqM="
+  },
+  "N-V-__8AALw2uwF_03u4JRkZwRLc3Y9hakkYV7NKRR9-RIZJ": {
+    "name": "breakpad",
+    "url": "https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz",
+    "hash": "sha256-bMqYlD0amQdmzvYQd8Ca/1k4Bj/heh7+EijlQSttatk="
+  },
+  "N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ": {
+    "name": "fontconfig",
+    "url": "https://deps.files.ghostty.org/N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ.tar.xz",
+    "hash": "sha256-T3tVSjjN94wDP2ZsiHHzdJ4UoJT2Wgf2MMke0LQ9NeM="
+  },
+  "N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub": {
+    "name": "freetype",
+    "url": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz",
+    "hash": "sha256-QnIB9dUVFnDQXB9bRb713aHy592XHvVPD+qqf/0quQw="
+  },
+  "N-V-__8AADcZkgn4cMhTUpIz6mShCKyqqB-NBtf_S2bHaTC-": {
+    "name": "gettext",
+    "url": "https://deps.files.ghostty.org/gettext-0.24.tar.gz",
+    "hash": "sha256-yRhQPVk9cNr0hE0XWhPYFq+stmfAb7oeydzVACwVGLc="
+  },
+  "N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy": {
+    "name": "glslang",
+    "url": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
+    "hash": "sha256-FKLtu1Ccs+UamlPj9eQ12/WXFgS0uDPmPmB26MCpl7U="
+  },
+  "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ": {
+    "name": "gobject",
+    "url": "https://deps.files.ghostty.org/gobject-2026-10-02-38-1.tar.zst",
+    "hash": "sha256-6ZoDkMCK8ytMLp+Ha9b2jJXwIXDxixuZwy+lEzdMwak="
+  },
+  "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr": {
+    "name": "gtk4_layer_shell",
+    "url": "https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz",
+    "hash": "sha256-mChCgSYKXu9bT2OlXxbEv2p4ihAgptsDfssPcfozaYg="
+  },
+  "N-V-__8AAG02ugUcWec-Ndp-i7JTsJ0dgF8nnJRUInkGLG7G": {
+    "name": "harfbuzz",
+    "url": "https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz",
+    "hash": "sha256-8WNRuv4hRyX+LB1bWfDZPkmQWkskeJn7kNcM/5U6K5s="
+  },
+  "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": {
+    "name": "highway",
+    "url": "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz",
+    "hash": "sha256-h9T4iT704I8iSXNgj/6/lCaKgTgLp5wS6IQZaMgKohI="
+  },
+  "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI": {
+    "name": "imgui",
+    "url": "https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.tar.gz",
+    "hash": "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs="
+  },
+  "N-V-__8AAFpzBgAPo4OIKKdP0WTD6scDoaBGVGTdltSyA2Hp": {
+    "name": "iterm2_themes",
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20261102-150615-3d8a6a1.tgz",
+    "hash": "sha256-thspfkJF4KXkasHo2S7I9zkNQ5TbS6/JPPoyCfIVQ14="
+  },
+  "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
+    "name": "jetbrains_mono",
+    "url": "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+    "hash": "sha256-xXppHouCrQmLWWPzlZAy5AOPORCHr3cViFulkEYQXMQ="
+  },
+  "N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD": {
+    "name": "libpng",
+    "url": "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz",
+    "hash": "sha256-/syVtGzwXo4/yKQUdQ4LparQDYnp/fF16U/wQcrxoDo="
+  },
+  "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn": {
+    "name": "libxev",
+    "url": "https://deps.files.ghostty.org/libxev-819ffa180ca20e31c7eded74e2e1aceb1eab557f.tar.gz",
+    "hash": "sha256-NQjVkejI44YRsXZoQeOfhb6Wb5+NMPXaA3VwmNaQM5c="
+  },
+  "N-V-__8AAG3RoQEyRC2Vw7Qoro5SYBf62IHn3HjqtNVY6aWK": {
+    "name": "libxml2",
+    "url": "https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz",
+    "hash": "sha256-bCgFni4+60K1tLFkieORamNGwQladP7jvGXNxdiaYhU="
+  },
+  "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s": {
+    "name": "nerd_fonts_symbols_only",
+    "url": "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
+    "hash": "sha256-EWTRuVbUveJI17LwmYxDzJT1ICQxoVZKeTiVsec7DQQ="
+  },
+  "N-V-__8AAHjwMQDBXnLq3Q2QhaivE0kE2aD138vtX2Bq1g7c": {
+    "name": "oniguruma",
+    "url": "https://deps.files.ghostty.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz",
+    "hash": "sha256-ABqhIC54RI9MC/GkjHblVodrNvFtks4yB+zP1h2Z8qA="
+  },
+  "N-V-__8AADYiAAB_80AWnH1AxXC0tql9thT-R-DYO1gBqTLc": {
+    "name": "pixels",
+    "url": "https://deps.files.ghostty.org/pixels-12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806.tar.gz",
+    "hash": "sha256-Veg7FtCRCCUCvxSb9FfzH0IJLFmCZQ4/+657SIcb8Ro="
+  },
+  "N-V-__8AAKYZBAB-CFHBKs3u4JkeiT4BMvyHu3Y5aaWF3Bbs": {
+    "name": "plasma_wayland_protocols",
+    "url": "https://deps.files.ghostty.org/plasma_wayland_protocols-12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566.tar.gz",
+    "hash": "sha256-XFi6IUrNjmvKNCbcCLAixGqN2Zeymhs+KLrfccIN9EE="
+  },
+  "N-V-__8AAPlZGwBEa-gxrcypGBZ2R8Bse4JYSfo_ul8i2jlG": {
+    "name": "sentry",
+    "url": "https://deps.files.ghostty.org/sentry-1220446be831adcca918167647c06c7b825849fa3fba5f22da394667974537a9c77e.tar.gz",
+    "hash": "sha256-KsZJfMjWGo0xCT5HrduMmyxFsWsHBbszSoNbZCPDGN8="
+  },
+  "N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv": {
+    "name": "spirv_cross",
+    "url": "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz",
+    "hash": "sha256-tStvz8Ref6abHwahNiwVVHNETizAmZVVaxVsU7pmV+M="
+  },
+  "translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5": {
+    "name": "translate_c",
+    "url": "https://deps.files.ghostty.org/translate_c-02ff0c523fb92a38939b04d0145c4a9602a74d56.tar.gz",
+    "hash": "sha256-13iPyWXUhBQXhF7AKbzKwrVdIrDQrMBNL8OfMyFdde0="
+  },
+  "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv": {
+    "name": "uucode",
+    "url": "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+    "hash": "sha256-fZTYVFN0N10R0Ty+3tpMkTLqEBq4tTpkBK6G1m6VgmY="
+  },
+  "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg": {
+    "name": "uucode",
+    "url": "https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz",
+    "hash": "sha256-dKrRJhFThGSdv5k6pEF2adGZIKxUQssAO30XAtLOFQ8="
+  },
+  "vaxis-0.6.0-BWNV_LoTDQCQSGhvBbu_-fOf3I2P3TIiGaUzCDniO12E": {
+    "name": "vaxis",
+    "url": "https://deps.files.ghostty.org/vaxis-0620b34e091deaa6f64608922be3814147128dfb.tar.gz",
+    "hash": "sha256-RagAiXeJFpeksnqgXXqCviHJKWLLtd6723O2/ioiJTo="
+  },
+  "vaxis-0.6.0-BWNV_MafDAAEzkVUvrW9NFUqnnMUoeHqrs2mecnD6D7w": {
+    "name": "vaxis",
+    "url": "https://deps.files.ghostty.org/vaxis-6fd944a27fb3d6f596e981076381a3131f2448b4.tar.gz",
+    "hash": "sha256-jXHnvLMpER4Z1FmiN1NBnHlYJH6vQ2XB8CSyTPezYwY="
+  },
+  "N-V-__8AAKrHGAAs2shYq8UkE6bGcR1QJtLTyOE_lcosMn6t": {
+    "name": "wayland",
+    "url": "https://deps.files.ghostty.org/wayland-9cb3d7aa9dc995ffafdbdef7ab86a949d0fb0e7d.tar.gz",
+    "hash": "sha256-6kGR1o5DdnflHzqs3ieCmBAUTpMdOXoyfcYDXiw5xQ0="
+  },
+  "N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA": {
+    "name": "wayland_protocols",
+    "url": "https://deps.files.ghostty.org/N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA.tar.gz",
+    "hash": "sha256-3S3xSrX0EDgleq7cxLX7msDuAY8/D5SvkJcCjmDTMiM="
+  },
+  "N-V-__8AAKw-DAAaV8bOAAGqA0-oD7o-HNIlPFYKRXSPT03S": {
+    "name": "wayland_protocols",
+    "url": "https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23ce1a0f12d9.tar.gz",
+    "hash": "sha256-XO3K3egbdeYPI+XoO13SuOtO+5+Peb16NH0UiusFMPg="
+  },
+  "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": {
+    "name": "wuffs",
+    "url": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+    "hash": "sha256-F4d9NG95iGUdbGLkWy47BchoCaZELF40YSN0sqlxmhw="
+  },
+  "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_": {
+    "name": "z2d",
+    "url": "https://deps.files.ghostty.org/z2d-8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz",
+    "hash": "sha256-EEs63f97CrNQy/p/1QOZ+F0Uus2++EtqODph1JiY2L4="
+  },
+  "zf-0.11.0-OIRy8XCRAAB6FiMwIrtD6FqlagnFwpI6YyOu7bXeYH5J": {
+    "name": "zf",
+    "url": "https://deps.files.ghostty.org/zf-87153bb86b75d21fbac897b738f316d449f5d0c9.tar.gz",
+    "hash": "sha256-ekfl/d+RAdCAjYC75bbAn/srS7RlfE2cuUGZLYg1ACw="
+  },
+  "zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4": {
+    "name": "zf_vaxis_zigimg",
+    "url": "https://deps.files.ghostty.org/zigimg-c701c9f99779d7ddf594dcc6da8f858fd277d61f.tar.gz",
+    "hash": "sha256-1Qye38dmT8tgqOmc36pVKY8idDEOVlCeFCT6QDTYlbw="
+  },
+  "zig_js-0.0.0-rjCAV7-GAADvMTBL7lPMuvDk7xgS9PCMIZWiOUXLZSlj": {
+    "name": "zig_js",
+    "url": "https://deps.files.ghostty.org/zig_js-3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.tar.gz",
+    "hash": "sha256-Q1643wb/MCX0QkPa9QEY9xeQbqpC2IOrjER0ZyL3mH0="
+  },
+  "zig_objc-0.0.0-Ir_Sp_4tAQDXtPi51nW_jD9LOEzBvU9lofwO9Pzi6IB4": {
+    "name": "zig_objc",
+    "url": "https://deps.files.ghostty.org/zig_objc-3352c12a868f8787ab71bf2ca6eab9fcfb635c52.tar.gz",
+    "hash": "sha256-aapY5DWn7QITFfMKc04bwH2a6sersRXvOhvkHE6t8LQ="
+  },
+  "wayland-0.7.0-dev-lQa1klz9AQB87V0pMKMdm8JvyOx32XR9FxcWnw9wh6XZ": {
+    "name": "zig_wayland",
+    "url": "https://deps.files.ghostty.org/zig_wayland-27dda01712ddf3cb46ebd93380d88b01a7c828f8.tar.gz",
+    "hash": "sha256-rtPmYAd+suOBW9bPmP42Tv1NGK+U5W0EDqpkakD8gtY="
+  },
+  "zigimg-0.1.0-8_eo2sBLGACBebrhQZUwRliZNSUyDn6szp99eip_6-Rw": {
+    "name": "zigimg",
+    "url": "https://deps.files.ghostty.org/zigimg-734fa919fb15b7917d4eb124f53600348f4ffa30.tar.gz",
+    "hash": "sha256-BT1kLSbTwTMEZ2C9cirNzodfPUoeWzUWnELW/LpI0w4="
+  },
+  "N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o": {
+    "name": "zlib",
+    "url": "https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz",
+    "hash": "sha256-F+iIY/NgBnKrSRgvIXKBtvxNPHYr3jYZNeQ2qVIU0Fw="
+  }
+}

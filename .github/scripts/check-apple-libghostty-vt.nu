@@ -22,16 +22,60 @@ def main [
     fail $"expected architecture ($expect_arch), found ($actual_arch)"
   }
 
-  # Framework consumers load this dylib through @rpath. Keep this stable even
-  # though the installed file also has versioned compatibility symlinks.
+  # The expected names and versions are computed from the real file's name,
+  # for example libghostty-vt.0.1.3.dylib. Passing a symlink to it works too,
+  # because `path expand` follows symlinks. The policy is documented on
+  # SharedVersion in src/build/GhosttyLibVt.zig.
+  let real_name = ($binary | path expand | path basename)
+  let version = (
+    $real_name
+    | parse --regex '^libghostty-vt\.(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.dylib$'
+  )
+  if ($version | is-empty) {
+    fail $"expected a file named libghostty-vt.X.Y.Z.dylib, found ($real_name)"
+  }
+  let version = ($version | first)
+
+  # Framework consumers load this dylib through @rpath, under a name that
+  # only carries the major version (@rpath/libghostty-vt.0.dylib).
   let install_names = (^otool -D $binary | lines | skip 1)
   if ($install_names | length) != 1 {
     fail "expected exactly one dylib install name"
   }
 
   let install_name = ($install_names | first | str trim)
-  if $install_name != "@rpath/libghostty-vt.dylib" {
-    fail $"unexpected install name: ($install_name)"
+  let expected_install_name = $"@rpath/libghostty-vt.($version.major).dylib"
+  if $install_name != $expected_install_name {
+    fail $"unexpected install name: ($install_name), expected ($expected_install_name)"
+  }
+
+  # The current version is the full version. The compatibility version is
+  # the oldest release with the same ABI: 0.<minor>.0 before 1.0, because
+  # every 0.x minor release may break the ABI, and <major>.0.0 after.
+  let versions = (
+    ^otool -L $binary
+    | lines
+    | skip 1
+    | first
+    | parse --regex 'compatibility version (?<compat>[0-9.]+), current version (?<current>[0-9.]+)'
+  )
+  if ($versions | is-empty) {
+    fail "could not read the dylib's compatibility and current versions"
+  }
+  let versions = ($versions | first)
+
+  let expected_compat = if $version.major == "0" {
+    $"0.($version.minor).0"
+  } else {
+    $"($version.major).0.0"
+  }
+  if $versions.compat != $expected_compat {
+    fail $"unexpected compatibility version: ($versions.compat), expected ($expected_compat)"
+  }
+
+  let expected_current = $"($version.major).($version.minor).($version.patch)"
+  if $versions.current != $expected_current {
+    fail $"unexpected current version: ($versions.current), expected ($expected_current)"
   }
 
   let load_command_lines = (^otool -l $binary | lines)

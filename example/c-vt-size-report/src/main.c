@@ -10,11 +10,11 @@ int main() {
     .cell_height = 18,
   };
 
-  char buf[64];
+  uint8_t buf[64];
   size_t written = 0;
 
   GhosttyResult result = ghostty_size_report_encode(
-      GHOSTTY_SIZE_REPORT_MODE_2048, size, buf, sizeof(buf), &written);
+      GHOSTTY_SIZE_REPORT_MODE_2048, &size, buf, sizeof(buf), &written);
 
   if (result == GHOSTTY_SUCCESS) {
     printf("Encoded %zu bytes: ", written);

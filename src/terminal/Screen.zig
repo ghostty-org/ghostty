@@ -98,12 +98,24 @@ pub const Dirty = packed struct {
 };
 
 pub const SemanticPrompt = struct {
-    /// This is flipped to true when any sort of semantic content is
-    /// seen. In particular, this is set to true only when a `prompt` type
-    /// is ever set on our cursor.
+    /// Whether this screen has ever had semantic prompt content (OSC 133)
+    /// that can mark rows as prompts.
     ///
-    /// This is used to optimize away semantic content operations if we know
-    /// we've never seen them.
+    /// This starts as false and becomes true the first time the cursor
+    /// enters prompt or input content. That happens through
+    /// `cursorSetSemanticContent`, or through `cursorCopy` when the copied
+    /// cursor is already in prompt or input content. Resetting the screen
+    /// sets it back to false.
+    ///
+    /// Rows are only marked as prompts while the cursor is in prompt or
+    /// input content. So when this is false, no row on the screen is a
+    /// prompt, and code that searches for prompt rows can skip the search.
+    /// For example, `Terminal.eraseDisplay` uses this to avoid scanning
+    /// the screen for a prompt on every full-screen erase.
+    ///
+    /// Code that marks rows as prompts in some new way must also set this
+    /// to true. Otherwise, code that relies on this flag, such as
+    /// `Terminal.eraseDisplay`, will not notice those rows.
     seen: bool,
 
     /// This is set on any `cl` or `click_events` option set on the
@@ -482,6 +494,9 @@ pub fn reset(self: *Screen) void {
 ///
 ///   - Screen dimensions
 ///   - Screen data (cell state, etc.) for the region
+///   - Semantic prompt state (`semantic_prompt`), so that prompt-aware
+///     operations such as a full-screen erase behave the same on the
+///     clone as on the original
 ///
 /// Anything not mentioned above is NOT copied. Some of this is for
 /// very good reason:
@@ -640,6 +655,7 @@ pub fn clone(
         .no_scrollback = self.no_scrollback,
         .cursor = cursor,
         .selection = sel,
+        .semantic_prompt = self.semantic_prompt,
         .dirty = self.dirty,
     };
     result.assertIntegrity();
@@ -1088,12 +1104,15 @@ pub fn cursorDownScroll(self: *Screen) !void {
             self.cursor.page_cell = page_rac.cell;
         }
 
-        // Our new row is always dirty
-        self.cursorMarkDirty();
+        // Our new row is always dirty. It is also always in the zero
+        // state: from unused page capacity, a fresh page, or a recycled
+        // page that grow() zeroed. Marking it blank too, in the same
+        // write, lets printing into it skip checking its old cells.
+        self.cursor.page_row.markCleared();
 
         // Clear the new row so it gets our bg color. We only do this
         // if we have a bg color at all.
-        if (self.cursor.style.bg_color != .none) {
+        if (self.cursor.style.bg_color.tag != .none) {
             const page: *Page = self.cursor.page_pin.node.page();
             self.clearCells(
                 page,
@@ -1109,6 +1128,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
         if (self.cursor.style.bgCell()) |blank_cell| {
             const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
             const cells = cell_current - self.cursor.x;
+            self.cursor.page_row.blank = false;
             @memset(cells[0..self.pages.cols], blank_cell);
         }
     }
@@ -1209,6 +1229,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
         if (self.cursor.style.bgCell()) |blank_cell| {
             const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
             const cells = cell_current - self.cursor.x;
+            self.cursor.page_row.blank = false;
             @memset(cells[0..self.pages.cols], blank_cell);
         }
     }
@@ -1343,14 +1364,15 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
     const page: *Page = pin.node.pageAssumeResident();
     const rows = page.rows.ptr(page.memory.ptr)[pin.y - limit ..][0 .. limit + 1];
 
-    // Clear the erased (top) row.
-    {
+    // Clear the erased (top) row and build its reset header, which the
+    // rotation below writes into the row's new slot.
+    const reset_row: Row = reset: {
         const row: *Row = &rows[0];
 
         // Whether our blank cell is a plain zero cell. This is true
         // unless the cursor has a background color set (see blankCell).
         const blank_is_zero = self.cursor.style_id == style.default_id or
-            self.cursor.style.bg_color == .none;
+            self.cursor.style.bg_color.tag == .none;
 
         if (!row.managedMemory() and blank_is_zero) {
             // Hot path: the row has no managed memory (styles,
@@ -1367,15 +1389,22 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
 
         // The row becomes the new blank cursor row after the rotation
         // below and must not retain metadata (wrap state, semantic
-        // prompt) from the discarded content.
-        row.reset();
-    }
+        // prompt) from the discarded content. This is Row.reset.
+        assert(!row.managedMemory());
+        break :reset .{ .cells = row.cells, .dirty = true };
+    };
 
     // Rotate the region rows so the now-blank top row moves to the
     // bottom (the cursor row) and everything else shifts up by one.
     // Rotating the region changes which logical row its coordinates identify.
+    //
+    // The reset header goes straight to its new slot rather than through
+    // row.reset() and rotateOnce: x86-64 codegen narrows that reset to a
+    // 4-byte store, and the rotation's 8-byte load of the same header
+    // right after it can't be store-forwarded, which stalls every
+    // scrolled line (about 6% on vtebench's region scrolling).
     self.pages.invalidateNodeLayout(pin.node);
-    fastmem.rotateOnce(Row, rows);
+    _ = fastmem.rotateIn(Row, rows, reset_row);
 
     // Mark the whole page as dirty.
     //
@@ -1460,6 +1489,7 @@ fn cursorScrollRegionUpSlow(self: *Screen, limit: usize) !void {
     const blank = self.blankCell();
     if (!blank.isZero()) {
         const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
+        self.cursor.page_row.blank = false;
         @memset((cells - self.cursor.x)[0..self.pages.cols], blank);
     }
 }
@@ -1490,6 +1520,9 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
     const old = self.cursor;
     self.cursor = other;
     errdefer self.cursor = old;
+
+    // copied prompt or input content can mark rows on this screen as prompts
+    if (other.semantic_content != .output) self.semantic_prompt.seen = true;
 
     // Keep our old style ID so it can be properly cleaned up below.
     self.cursor.style_id = old.style_id;
@@ -1812,12 +1845,19 @@ pub inline fn eraseActive(
     if (comptime build_options.kitty_graphics) self.kitty_images.markDirty();
 }
 
-// Clear the region specified by tl and bl, inclusive. Cleared cells are
-// colored with the current style background color. This will clear all
-// cells in the rows.
-//
-// If protected is true, the protected flag will be respected and only
-// unprotected cells will be cleared. Otherwise, all cells will be cleared.
+/// Clear the rows from tl to bl, inclusive. If bl is null, clear to the
+/// end of tl's region. Cleared cells take the current background color,
+/// and row metadata such as wrap state is reset.
+///
+/// If protected is true, protected cells and row metadata are kept.
+///
+/// ```zig
+/// // Clear the whole active area, like `ESC [ 2 J`.
+/// screen.clearRows(.{ .active = .{} }, null, false);
+/// ```
+///
+/// Rows that are already empty (see `Row.blank`) are skipped and not
+/// marked dirty, which makes clearing a mostly empty screen cheap.
 pub fn clearRows(
     self: *Screen,
     tl: point.Point,
@@ -1826,11 +1866,31 @@ pub fn clearRows(
 ) void {
     defer self.assertIntegrity();
 
+    // If the blank cell is the zero cell, a row already marked blank
+    // already holds exactly what the clear would write.
+    const blank_zero = self.blankCell().isZero();
+
     var it = self.pages.pageIterator(.right_down, tl, bl);
     while (it.next()) |chunk| {
         const page = chunk.node.page();
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
+
+            // Already empty: only reset metadata. The cells don't
+            // change, so the dirty state is kept as is.
+            if (row.blank and blank_zero) {
+                // Most rows are empty when shells and `clear` redraw.
+                @branchHint(.likely);
+
+                // A protected clear keeps metadata, so it has nothing to do.
+                if (!protected) row.* = .{
+                    .cells = cells_offset,
+                    .blank = true,
+                    .dirty = row.dirty,
+                };
+                continue;
+            }
+
             const cells = page.getCells(row);
 
             // Clear all cells
@@ -1839,12 +1899,17 @@ pub fn clearRows(
                 // We need to preserve other row attributes since we only
                 // cleared unprotected cells.
                 row.cells = cells_offset;
+                row.dirty = true;
             } else {
                 self.clearCells(page, row, cells);
-                row.* = .{ .cells = cells_offset };
+                // Reset the metadata but keep the blank flag that
+                // clearCells just set.
+                row.* = .{
+                    .cells = cells_offset,
+                    .blank = row.blank,
+                    .dirty = true,
+                };
             }
-
-            row.dirty = true;
         }
     }
 }
@@ -1852,6 +1917,15 @@ pub fn clearRows(
 /// Clear the cells with the blank cell.
 ///
 /// This takes care to handle cleaning up graphemes and styles.
+///
+/// It also updates `Row.blank`. A full-row clear with a zero blank cell
+/// sets it, a colored blank cell clears it, and a partial clear with a
+/// zero blank cell leaves it unchanged.
+///
+/// Clearing any part of a row marked blank with a zero blank cell does
+/// nothing, since the cells are already zero and there is no managed
+/// memory to release. Full-screen programs often erase lines (EL, ECH)
+/// that are already empty when they redraw.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1859,6 +1933,7 @@ pub fn clearCells(
     cells: []Cell,
 ) void {
     if (cells.len == 0) return;
+    if (row.blank and self.blankCell().isZero()) return;
 
     // This whole operation does unsafe things, so we just want to assert
     // the end state.
@@ -1948,7 +2023,15 @@ pub fn clearCells(
         }
     }
 
-    @memset(cells, self.blankCell());
+    const blank = self.blankCell();
+    @memset(cells, blank);
+
+    // Update Row.blank as described in the doc comment above.
+    if (cells.len == page.size.cols) {
+        row.blank = blank.isZero();
+    } else if (!blank.isZero()) {
+        row.blank = false;
+    }
 }
 
 /// Clear cells but only if they are not protected.
@@ -2143,6 +2226,7 @@ pub const Resize = struct {
 
 const resize_tw = tripwire.module(enum {
     saved_cursor_pin,
+    prompt_pin,
     pages,
 }, resize);
 
@@ -2168,6 +2252,20 @@ pub inline fn resize(
         break :saved_cursor try self.pages.trackPin(pin);
     };
     defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
+
+    // Find where the prompt that the shell will redraw starts. We have to
+    // find it before the resize, because finding it relies on the rows'
+    // prompt marks, and reflow can split and join those rows. The tracked
+    // pin follows the row through the resize. A column reflow also uses
+    // it to keep the prompt's row count (see PageList.Resize.blank).
+    // Tracking can fail, so do it before changing any state.
+    const prompt_pin: ?*Pin = prompt: {
+        const start = self.promptRedrawStart(opts.prompt_redraw) orelse
+            break :prompt null;
+        try tw.check(.prompt_pin);
+        break :prompt try self.pages.trackPin(start);
+    };
+    defer if (prompt_pin) |p| self.pages.untrackPin(p);
 
     // A cursor style and hyperlink are partly stored in the page containing
     // the cursor. Their IDs only have meaning within that page, and the page
@@ -2236,6 +2334,14 @@ pub inline fn resize(
             .pin = self.cursor.page_pin,
         },
         .pull_scrollback = opts.pull_scrollback,
+        .blank = if (prompt_pin) |p| .{
+            .start = p,
+            .extent = switch (opts.prompt_redraw) {
+                .false => unreachable,
+                .last => .row,
+                .true => .to_bottom,
+            },
+        } else null,
     });
 
     // No more failures are possible after this. Enforced by compiler
@@ -2254,6 +2360,10 @@ pub inline fn resize(
     // state is correct.
     self.cursorReload();
 
+    // Erasing history marks a cursor pin in the erased rows as garbage, but
+    // the cursor stays live wherever the pin moved to.
+    self.cursor.page_pin.garbage = false;
+
     // If resize moved a cursor with pending wrap away from the right edge,
     // advance to the next cell instead of wrapping on the next print.
     if (self.cursor.pending_wrap and self.cursor.x != opts.cols - 1) {
@@ -2261,10 +2371,12 @@ pub inline fn resize(
         self.cursorRight(1);
     }
 
-    // Clear any redrawable prompt after the fallible resize but before
-    // restoring the cursor style and hyperlink, so cleared cells retain the
-    // same default styling they had with the previous ordering.
-    self.clearPromptForRedraw(opts.prompt_redraw);
+    // Clear any redrawable prompt. We do this after the fallible resize,
+    // so a failed resize leaves the prompt untouched. We also do it before
+    // restoring the cursor style and hyperlink, so cleared cells get the
+    // default style. A column reflow already wrote these rows blank, so
+    // this matters most when only the row count changed.
+    if (prompt_pin) |p| self.clearPromptForRedraw(p.*, opts.prompt_redraw);
 
     // Restore the cursor style.
     self.cursor.style = cursor_style;
@@ -2357,14 +2469,20 @@ pub inline fn resize(
     }
 }
 
-fn clearPromptForRedraw(
-    self: *Screen,
+/// Returns the first row of the prompt that the shell will redraw after
+/// a resize, or null if the cursor isn't at a prompt. With `.last`, this
+/// is the cursor's row, since the shell only redraws that line. With
+/// `.true`, this is the first row of the whole prompt, so for this
+/// two-line prompt it returns the row of "~/src", not the cursor's row:
+///
+/// ```
+/// ~/src         (.prompt)
+/// > echo hi_    (.prompt_continuation, cursor here)
+/// ```
+fn promptRedrawStart(
+    self: *const Screen,
     redraw: osc.semantic_prompt.Redraw,
-) void {
-    // If our cursor is on a prompt or input line, clear it so the shell can
-    // redraw it. This works with OSC 133 semantic prompts. We do this after
-    // the fallible resize so an error leaves the original prompt untouched.
-    //
+) ?Pin {
     // We check cursor.semantic_content rather than page_row.semantic_prompt
     // because some shells (e.g., Nu) mark input areas with OSC 133 B but don't
     // mark continuation lines with k=s. If the input spans multiple lines and
@@ -2372,47 +2490,48 @@ fn clearPromptForRedraw(
     // would miss them. By checking semantic_content, we assume that if the
     // cursor is on anything other than command output, we're at a prompt/input
     // line and should clear from there.
-    if (redraw != .false and
-        self.cursor.semantic_content != .output)
-    prompt: {
+    if (self.cursor.semantic_content == .output) return null;
+
+    return switch (redraw) {
+        .false => null,
+
+        .last => self.cursor.page_pin.left(self.cursor.x),
+        .true => start: {
+            var it = self.cursor.page_pin.promptIterator(.left_up, null);
+            break :start it.next() orelse {
+                // This should never happen because promptIterator should always
+                // find a prompt if we already verified our row is some kind of
+                // prompt.
+                log.warn("cursor on prompt line but promptIterator found no prompt", .{});
+                break :start null;
+            };
+        },
+    };
+}
+
+/// Clear the prompt that starts at `start`, as returned by
+/// promptRedrawStart, so the shell can redraw it. With `.last`, this
+/// clears only the row of `start`. With `.true`, it clears that row and
+/// every row below it.
+fn clearPromptForRedraw(
+    self: *Screen,
+    start: Pin,
+    redraw: osc.semantic_prompt.Redraw,
+) void {
+    // We replace the cells with spaces, and do not physically erase the
+    // rows (eraseRows), because the shell is going to expect this space to
+    // be available.
+    var it = start.rowIterator(.right_down, null);
+    while (it.next()) |pin| {
+        const page = pin.node.page();
+        const row = pin.rowAndCell().row;
+        const cells = page.getCells(row);
+        self.clearCells(page, row, cells);
+
         switch (redraw) {
             .false => unreachable,
-
-            // For `.last`, only clear the current line where the cursor is.
-            // For `.true`, clear all prompt lines starting from the beginning.
-            .last => {
-                const page = self.cursor.page_pin.node.page();
-                const row = self.cursor.page_row;
-                const cells = page.getCells(row);
-                self.clearCells(page, row, cells);
-            },
-
-            .true => {
-                const start = start: {
-                    var it = self.cursor.page_pin.promptIterator(
-                        .left_up,
-                        null,
-                    );
-                    break :start it.next() orelse {
-                        // This should never happen because promptIterator should always
-                        // find a prompt if we already verified our row is some kind of
-                        // prompt.
-                        log.warn("cursor on prompt line but promptIterator found no prompt", .{});
-                        break :prompt;
-                    };
-                };
-
-                // Clear cells from our start down. We replace it with spaces,
-                // and do not physically erase the rows (eraseRows) because the
-                // shell is going to expect this space to be available.
-                var it = start.rowIterator(.right_down, null);
-                while (it.next()) |pin| {
-                    const page = pin.node.page();
-                    const row = pin.rowAndCell().row;
-                    const cells = page.getCells(row);
-                    self.clearCells(page, row, cells);
-                }
-            },
+            .last => break,
+            .true => {},
         }
     }
 }
@@ -2425,163 +2544,62 @@ pub fn setAttribute(
     self: *Screen,
     attr: sgr.Attribute,
 ) PageList.IncreaseCapacityError!void {
-    // If we fail to set our style for any reason, we should revert
-    // back to the old style. If we fail to do that, we revert back to
-    // the default style.
     const old_style = self.cursor.style;
-    errdefer {
-        self.cursor.style = old_style;
-        self.manualStyleUpdate() catch |err| {
-            log.warn("setAttribute error restoring old style after failure err={}", .{err});
-            self.cursor.style = .{};
-            self.manualStyleUpdate() catch unreachable;
-        };
-    }
+    self.cursor.style = self.cursor.style.withAttribute(attr);
+    try self.commitStyle(old_style);
+}
 
-    switch (attr) {
-        .unset => {
-            self.cursor.style = .{};
-        },
+/// Set all the style attributes of one SGR sequence for the current
+/// cursor. The resulting style is interned once, after every attribute
+/// is applied, so a sequence such as `CSI 0;1;31 m` costs one style
+/// update rather than three.
+///
+/// On failure the cursor style reverts to what it was before the
+/// sequence, as with `setAttribute`.
+pub fn setAttributes(
+    self: *Screen,
+    parser: sgr.Parser,
+) PageList.IncreaseCapacityError!void {
+    const old_style = self.cursor.style;
+    var p = parser;
+    while (p.next()) |attr| self.cursor.style = self.cursor.style.withAttribute(attr);
+    try self.commitStyle(old_style);
+}
 
-        .bold => {
-            self.cursor.style.flags.bold = true;
-        },
+const commitStyle_tw = tripwire.module(enum {
+    manual_style_update,
+}, commitStyle);
 
-        .reset_bold => {
-            // Bold and faint share the same SGR code for this
-            self.cursor.style.flags.bold = false;
-            self.cursor.style.flags.faint = false;
-        },
-
-        .italic => {
-            self.cursor.style.flags.italic = true;
-        },
-
-        .reset_italic => {
-            self.cursor.style.flags.italic = false;
-        },
-
-        .faint => {
-            self.cursor.style.flags.faint = true;
-        },
-
-        .underline => |v| {
-            self.cursor.style.flags.underline = v;
-        },
-
-        .underline_color => |rgb| {
-            self.cursor.style.underline_color = .{ .rgb = .{
-                .r = rgb.r,
-                .g = rgb.g,
-                .b = rgb.b,
-            } };
-        },
-
-        .@"256_underline_color" => |idx| {
-            self.cursor.style.underline_color = .{ .palette = idx };
-        },
-
-        .reset_underline_color => {
-            self.cursor.style.underline_color = .none;
-        },
-
-        .overline => {
-            self.cursor.style.flags.overline = true;
-        },
-
-        .reset_overline => {
-            self.cursor.style.flags.overline = false;
-        },
-
-        .blink => {
-            self.cursor.style.flags.blink = true;
-        },
-
-        .reset_blink => {
-            self.cursor.style.flags.blink = false;
-        },
-
-        .inverse => {
-            self.cursor.style.flags.inverse = true;
-        },
-
-        .reset_inverse => {
-            self.cursor.style.flags.inverse = false;
-        },
-
-        .invisible => {
-            self.cursor.style.flags.invisible = true;
-        },
-
-        .reset_invisible => {
-            self.cursor.style.flags.invisible = false;
-        },
-
-        .strikethrough => {
-            self.cursor.style.flags.strikethrough = true;
-        },
-
-        .reset_strikethrough => {
-            self.cursor.style.flags.strikethrough = false;
-        },
-
-        .direct_color_fg => |rgb| {
-            self.cursor.style.fg_color = .{
-                .rgb = .{
-                    .r = rgb.r,
-                    .g = rgb.g,
-                    .b = rgb.b,
-                },
-            };
-        },
-
-        .direct_color_bg => |rgb| {
-            self.cursor.style.bg_color = .{
-                .rgb = .{
-                    .r = rgb.r,
-                    .g = rgb.g,
-                    .b = rgb.b,
-                },
-            };
-        },
-
-        .@"8_fg" => |n| {
-            self.cursor.style.fg_color = .{ .palette = @backingInt(n) };
-        },
-
-        .@"8_bg" => |n| {
-            self.cursor.style.bg_color = .{ .palette = @backingInt(n) };
-        },
-
-        .reset_fg => self.cursor.style.fg_color = .none,
-
-        .reset_bg => self.cursor.style.bg_color = .none,
-
-        .@"8_bright_fg" => |n| {
-            self.cursor.style.fg_color = .{ .palette = @backingInt(n) };
-        },
-
-        .@"8_bright_bg" => |n| {
-            self.cursor.style.bg_color = .{ .palette = @backingInt(n) };
-        },
-
-        .@"256_fg" => |idx| {
-            self.cursor.style.fg_color = .{ .palette = idx };
-        },
-
-        .@"256_bg" => |idx| {
-            self.cursor.style.bg_color = .{ .palette = idx };
-        },
-
-        .unknown => return,
-    }
-
-    // If the attribute didn't change our style then we can skip the
+/// Update the cursor style ID to match the cursor style after it was
+/// changed by one or more attributes. `old_style` is the cursor style
+/// from before those changes.
+///
+/// If the style can't be set due to any internal errors (memory-related),
+/// then this reverts the cursor style to `old_style` (or the default
+/// style if even that fails) and returns an error.
+fn commitStyle(
+    self: *Screen,
+    old_style: style.Style,
+) PageList.IncreaseCapacityError!void {
+    // If the attributes didn't change our style then we can skip the
     // style update entirely: our current style ID is already correct.
     // This is a common case in the wild where programs re-assert the
     // same style repeatedly (e.g. per span or per line).
     if (self.cursor.style.eql(old_style)) return;
 
+    // If we fail to set our style for any reason, we should revert
+    // back to the old style. If we fail to do that, we revert back to
+    // the default style.
+    errdefer {
+        self.cursor.style = old_style;
+        self.manualStyleUpdate() catch |err| {
+            log.warn("commitStyle error restoring old style after failure err={}", .{err});
+            self.cursor.style = .{};
+            self.manualStyleUpdate() catch unreachable;
+        };
+    }
+
+    try commitStyle_tw.check(.manual_style_update);
     try self.manualStyleUpdate();
 }
 
@@ -2633,8 +2651,10 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
         page.memory,
         self.cursor.style,
     ) catch |err| id: {
-        // Our style map is full or needs to be rehashed, so we need to
-        // increase style capacity (or rehash).
+        // Our style map is full, so we need to increase style capacity.
+        // `NeedsRehash` only happens if the set's bookkeeping is wrong
+        // (safe builds panic instead), and a clone at the same capacity
+        // rebuilds it.
         const node = self.increaseCapacity(
             self.cursor.page_pin.node,
             switch (err) {
@@ -2666,10 +2686,10 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
                 return error.OutOfMemory;
             },
             error.NeedsRehash => {
-                // This should be impossible because we rehash above
-                // and rehashing should never result in a duplicate. But
-                // we don't want to simply hard crash so log it and
-                // clear our style.
+                // This should be impossible because the page was just
+                // rebuilt, so the set's bookkeeping is right. But we
+                // don't want to simply hard crash so log it and clear
+                // our style.
                 log.err("style rehash resulted in needs rehash", .{});
                 return;
             },
@@ -2885,7 +2905,8 @@ pub fn startHyperlink(
                 .hyperlink_bytes,
             ),
 
-            // hyperlink set is too full, rehash it
+            // hyperlink set bookkeeping is wrong (safe builds panic
+            // instead), rebuild it with a clone at the same capacity
             error.SetNeedsRehash => _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
                 null,
@@ -3000,7 +3021,7 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
             // must grow.
             _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .hyperlink_bytes,
+                .hyperlink_cells,
             );
 
             // Retry
@@ -3018,6 +3039,13 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
 /// Modify the semantic content type of the cursor. This should
 /// be preferred over setting it manually since it handles all the
 /// proper accounting.
+///
+/// Setting `prompt` or `input` content also sets `semantic_prompt.seen`,
+/// since both can mark rows as prompts. A `prompt` marks the cursor's
+/// row right away. `input` marks each new row the cursor moves to by
+/// linefeed. For example, a shell that only sends OSC 133;B before the
+/// user's input, and never OSC 133;A, still produces prompt rows once
+/// the input spans more than one line.
 pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
     prompt: osc.semantic_prompt.PromptKind,
     output,
@@ -3032,6 +3060,9 @@ pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
         },
 
         .input => |clear| {
+            // Rows that follow are marked as prompt continuations on
+            // linefeed (see Terminal.index).
+            self.semantic_prompt.seen = true;
             cursor.semantic_content = .input;
             cursor.semantic_content_clear_eol = switch (clear) {
                 .clear_explicit => false,
@@ -3957,6 +3988,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
         }
 
         assert(width == 1 or width == 2);
+        self.cursor.page_row.blank = false;
         switch (width) {
             1 => {
                 self.cursor.page_cell.* = .{
@@ -3996,6 +4028,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     try self.cursorDownOrScroll();
                     self.cursorHorizontalAbsolute(0);
                     self.cursor.page_row.wrap_continuation = true;
+                    self.cursor.page_row.blank = false;
                 }
 
                 // Write our wide char
@@ -4077,6 +4110,24 @@ test "Screen reset cursor pin is not garbage" {
     // that copies it (e.g. Kitty image placements) would otherwise be
     // born garbage and reaped.
     s.reset();
+    try testing.expect(!s.cursor.page_pin.garbage);
+}
+
+test "Screen resize erasing the cursor row leaves its pin not garbage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 12, .rows = 6, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    // Content on the bottom row stops the resize from trimming blank rows,
+    // so shrinking pushes the top rows and the cursor into erased history.
+    s.cursorAbsolute(0, 5);
+    try s.testWriteString("x");
+    s.cursorAbsolute(0, 0);
+
+    try s.resize(.{ .cols = 12, .rows = 3 });
     try testing.expect(!s.cursor.page_pin.garbage);
 }
 
@@ -4610,6 +4661,82 @@ test "Screen style basics" {
     try testing.expect(s.cursor.style.flags.italic);
 }
 
+test "Screen setAttributes applies several attributes with one style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 80, .rows = 24, .max_scrollback_bytes = 1000 });
+    defer s.deinit();
+    const page = s.cursor.page_pin.node.page();
+
+    // CSI 1;3;38;5;100 m
+    try s.setAttributes(.{ .params = &.{ 1, 3, 38, 5, 100 } });
+    try testing.expect(s.cursor.style_id != style.default_id);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+    const interned = page.styles.get(page.memory, s.cursor.style_id);
+    try testing.expect(interned.eql(s.cursor.style));
+    try testing.expect(interned.flags.bold);
+    try testing.expect(interned.flags.italic);
+    try testing.expectEqual(style.Style.Color.palette(100), interned.fg_color);
+
+    // A sequence that ends at the committed style keeps the same ID:
+    // CSI 0;1;3;38;5;100 m
+    const id = s.cursor.style_id;
+    try s.setAttributes(.{ .params = &.{ 0, 1, 3, 38, 5, 100 } });
+    try testing.expectEqual(id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+
+    // A sequence that ends at the default style releases the interned
+    // style: CSI 1;0 m
+    try s.setAttributes(.{ .params = &.{ 1, 0 } });
+    try testing.expectEqual(style.default_id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 0), page.styles.count());
+
+    // An empty sequence (CSI m) is a reset.
+    try s.setAttribute(.{ .bold = {} });
+    try s.setAttributes(.{ .params = &.{} });
+    try testing.expectEqual(style.default_id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 0), page.styles.count());
+}
+
+test "Screen setAttributes failure restores the previous style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+    const tw = commitStyle_tw;
+    defer tw.end(.reset) catch unreachable;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 80, .rows = 24, .max_scrollback_bytes = 1000 });
+    defer s.deinit();
+    const page = s.cursor.page_pin.node.page();
+
+    try s.setAttribute(.{ .bold = {} });
+    const old_style = s.cursor.style;
+    const old_id = s.cursor.style_id;
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+
+    // Fail interning the style of a sequence with several attributes:
+    // CSI 3;38;2;1;2;3 m
+    tw.errorAlways(.manual_style_update, error.OutOfMemory);
+    try testing.expectError(error.OutOfMemory, s.setAttributes(.{
+        .params = &.{ 3, 38, 2, 1, 2, 3 },
+    }));
+    try tw.end(.reset);
+
+    // The style from before the sequence is back, and still interned.
+    try testing.expect(s.cursor.style.eql(old_style));
+    try testing.expectEqual(old_id, s.cursor.style_id);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+    try testing.expect(page.styles.get(page.memory, s.cursor.style_id).eql(old_style));
+
+    // And the next sequence works normally.
+    try s.setAttributes(.{ .params = &.{3} });
+    try testing.expect(s.cursor.style.flags.bold);
+    try testing.expect(s.cursor.style.flags.italic);
+    try testing.expect(page.styles.get(page.memory, s.cursor.style_id).eql(s.cursor.style));
+}
+
 test "Screen style reset to default" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5083,7 +5210,7 @@ test "Screen: cursorAbsolute to page with insufficient capacity" {
         var n: u24 = 1;
         while (start_page.styles.add(
             start_page.memory,
-            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+            .{ .bg_color = .rgb(@bitCast(n)) },
         )) |_| n += 1 else |_| {}
     }
 
@@ -6566,6 +6693,22 @@ test "Screen: clone" {
     }
     try testing.expectEqual(@as(usize, 5), s2.cursor.x);
     try testing.expectEqual(@as(usize, 1), s2.cursor.y);
+}
+
+test "Screen: clone copies semantic prompt state" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    var s2 = try s.clone(io, alloc, .{ .active = .{} }, null);
+    defer s2.deinit();
+    try testing.expect(s2.semantic_prompt.seen);
+    try testing.expectEqual(s.semantic_prompt.click, s2.semantic_prompt.click);
 }
 
 test "Screen: clone partial" {
@@ -8922,6 +9065,34 @@ test "Screen: resize more rows, less cols with reflow with scrollback" {
     }
 }
 
+test "Screen: resize more rows, less cols pulls scrollback like separate resizes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 2, .max_scrollback_bytes = null });
+    defer s.deinit();
+    try s.testWriteString("1A\n2B\n3C\n");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3C", contents);
+    }
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    // Growing the rows pulls the scrollback down because the cursor is at
+    // the bottom, and shrinking the cols in the same resize must not push
+    // it back.
+    try s.resize(.{ .cols = 4, .rows = 4 });
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1A\n2B\n3C", contents);
+    }
+    try testing.expectEqual(@as(size.CellCountInt, 3), s.cursor.y);
+}
+
 // This seems like it should work fine but for some reason in practice
 // in the initial implementation I found this bug! This is a regression
 // test for that.
@@ -9289,7 +9460,7 @@ test "Screen: resize more cols with cursor at prompt" {
     defer s.deinit();
 
     // zig fmt: off
-    try s.testWriteString("ABCDE\n"); 
+    try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_eol });
@@ -9330,7 +9501,7 @@ test "Screen: resize more cols with cursor not at prompt" {
     defer s.deinit();
 
     // zig fmt: off
-    try s.testWriteString("ABCDE\n"); 
+    try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_eol });
@@ -11927,7 +12098,7 @@ test "Screen: cursorDown to page with insufficient capacity" {
         var n: u24 = 1;
         while (new_page.styles.add(
             new_page.memory,
-            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+            .{ .bg_color = .rgb(@bitCast(n)) },
         )) |_| n += 1 else |_| {}
     }
 
@@ -11995,7 +12166,7 @@ test "Screen setAttribute increases capacity when style map is full" {
         while (n < max_items) : (n += 1) {
             _ = page.styles.add(
                 page.memory,
-                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+                .{ .bg_color = .rgb(@bitCast(@as(u24, @intCast(n)))) },
             ) catch break;
         }
     }
@@ -12061,7 +12232,7 @@ test "Screen setAttribute splits page on OutOfSpace at max styles" {
         while (n < max_items) : (n += 1) {
             _ = page.styles.add(
                 page.memory,
-                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+                .{ .bg_color = .rgb(@bitCast(@as(u24, @intCast(n)))) },
             ) catch break;
         }
     }

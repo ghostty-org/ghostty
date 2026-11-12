@@ -8,21 +8,24 @@
 #ifndef GHOSTTY_VT_UNICODE_H
 #define GHOSTTY_VT_UNICODE_H
 
-/** @defgroup unicode Unicode Utilities
+/** @addtogroup unicode
  *
- * Unicode codepoint properties matching the terminal's text layout
- * semantics.
+ * These measure text the same way the terminal does, with the same width table
+ * and the same grapheme cluster rules.
  *
- * ## Basic Usage
+ * Use them to predict the layout of text you haven't written to the terminal,
+ * such as an IME preedit overlay. ghostty_unicode_codepoint_width() measures one
+ * codepoint. ghostty_unicode_grapheme_width() finds and measures a full grapheme
+ * cluster, with the rules the terminal uses when mode 2027 is on. You don't need
+ * a terminal.
  *
- * Use ghostty_unicode_codepoint_width() to determine how many terminal
- * grid cells a codepoint occupies, using the exact same width table the
- * terminal itself uses when laying out printed text. Use
- * ghostty_unicode_grapheme_width() to segment and measure full grapheme
- * clusters with the same rules the terminal uses when mode 2027 is
- * enabled. These functions are useful for predicting column layout of
- * text that has not yet been written to the terminal, such as IME
- * preedit (composition) overlays.
+ * ## Example
+ *
+ * @code{.c}
+ * uint8_t width = ghostty_unicode_codepoint_width(0x1F600);
+ * @endcode
+ *
+ * We don't have a guide or an example for these yet.
  *
  * @{
  */

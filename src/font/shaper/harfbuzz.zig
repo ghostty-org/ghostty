@@ -44,7 +44,7 @@ pub const Shaper = struct {
         codepoint: u32,
     };
 
-    const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
+    const CellBuf = std.ArrayList(font.shape.Cell);
 
     const RunOffset = struct {
         cluster: u32 = 0,

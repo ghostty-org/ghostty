@@ -1,8 +1,8 @@
 # Example: `ghostty-vt` Selection
 
-This contains a simple example of how to use the `ghostty-vt` terminal,
-grid reference, selection, and formatter APIs to derive selections such as a
-word, semantic command line, command output, and all visible content.
+Derive selections such as a word, semantic command line, command output, and
+all visible content with the `ghostty-vt` terminal, grid reference,
+selection, and formatter APIs.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

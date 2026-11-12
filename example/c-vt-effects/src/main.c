@@ -30,9 +30,9 @@ void on_bell(GhosttyTerminal terminal, void* userdata) {
 //! [effects-title-changed]
 void on_title_changed(GhosttyTerminal terminal, void* userdata) {
   (void)userdata;
-  // Query the cursor position to confirm the terminal processed the
-  // title change (the title itself is tracked by the embedder via the
-  // OSC parser or its own state).
+  // The new title is already set, so you can read it here with
+  // GHOSTTY_TERMINAL_DATA_TITLE. This example reads the cursor position
+  // to show that the terminal can be queried from a callback.
   uint16_t col = 0;
   ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_CURSOR_X, &col);
   printf("  title changed (cursor at col %u)\n", col);

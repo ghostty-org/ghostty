@@ -1,8 +1,7 @@
 # WebAssembly SGR Parser Example
 
-This example demonstrates how to use the Ghostty VT library from WebAssembly
-to parse terminal SGR (Select Graphic Rendition) sequences and extract text
-styling attributes.
+Parse terminal SGR (Select Graphic Rendition) sequences and extract text
+styling attributes using the Ghostty VT library from WebAssembly.
 
 ## Building
 

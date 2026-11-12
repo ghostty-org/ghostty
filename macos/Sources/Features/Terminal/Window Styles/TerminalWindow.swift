@@ -526,7 +526,11 @@ class TerminalWindow: NSWindow {
         defer { updateColorSchemeForSurfaceTree() }
 
         // Basic properties
-        appearance = surfaceConfig.windowAppearance
+        appearance = if let appearanceOverride = (NSApp.delegate as? AppDelegate)?.appearanceOverride {
+            appearanceOverride.nsAppearance
+        } else {
+            surfaceConfig.windowAppearance
+        }
         hasShadow = surfaceConfig.macosWindowShadow
 
         // Window transparency only takes effect if our window is not native fullscreen.
@@ -546,9 +550,11 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // We don't need to set blur when using glass
-            if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
+            if !surfaceConfig.backgroundBlur.isGlassStyle,
+               let appDelegate = NSApp.delegate as? AppDelegate,
+               let app = appDelegate.ghostty.app {
                 ghostty_set_window_background_blur(
-                    appDelegate.ghostty.app,
+                    app,
                     Unmanaged.passUnretained(self).toOpaque())
             }
         } else {

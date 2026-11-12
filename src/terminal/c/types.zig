@@ -12,6 +12,7 @@ const c_abi = @import("../../lib/c_abi.zig");
 
 const color = @import("../color.zig");
 const clipboard = @import("../clipboard.zig");
+const cursor = @import("../cursor.zig");
 const device_status = @import("../device_status.zig");
 const focus_pkg = @import("../focus.zig");
 const formatter_pkg = @import("../formatter.zig");
@@ -56,13 +57,62 @@ pub const SurfacePosition = extern struct {
     y: f64,
 };
 
+/// C: GhosttyCursorStyle
+///
+/// The cursor shape in the C API. The terminal option
+/// GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE reads it as input, and the
+/// render state reports it as output. Both convert to and from the core
+/// `cursor.Style`.
+pub const CursorStyle = enum(c_int) {
+    bar = 0,
+    block = 1,
+    underline = 2,
+    block_hollow = 3,
+    _,
+
+    /// Convert a core cursor style. Every core style has a C value.
+    pub fn fromZig(s: cursor.Style) CursorStyle {
+        return switch (s) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+        };
+    }
+
+    /// Convert a value from C. Returns null for a value this version of
+    /// the library doesn't know, which callers report as
+    /// GHOSTTY_INVALID_VALUE.
+    pub fn toZig(self: CursorStyle) ?cursor.Style {
+        return switch (self) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+            _ => null,
+        };
+    }
+};
+
 /// C: GhosttyCodepoints
 pub const Codepoints = extern struct {
     ptr: ?[*]const u32 = null,
     len: usize = 0,
 };
 
-const TypeDecl = struct {
+/// C: GhosttyCodepointBuffer
+///
+/// A caller-provided buffer of codepoints. The caller sets ptr and cap
+/// (in u32 elements). The library writes up to cap codepoints and sets
+/// len to the total count, returning out_of_space when len > cap.
+/// Frozen layout.
+pub const CodepointBuffer = extern struct {
+    ptr: ?[*]u32 = null,
+    cap: usize = 0,
+    len: usize = 0,
+};
+
+pub const TypeDecl = struct {
     name: []const u8,
     T: type,
     kind: Kind,
@@ -72,19 +122,25 @@ const TypeDecl = struct {
     tagged_union: ?TaggedUnion = null,
     union_field_names_T: ?type = null,
 
-    const Kind = enum {
+    pub const Kind = enum {
         @"struct",
         @"union",
         @"enum",
         @"packed",
         alias,
         @"opaque",
+        callback,
     };
 
     const TaggedUnion = struct {
         tag_field: []const u8,
         value_field: []const u8,
         arm_source: ArmSource,
+
+        /// The enum that names the arms when the tag field is a plain
+        /// integer instead of the enum, such as a `uint8_t tag`. When
+        /// null, the tag field's own type is used.
+        tag_enum: ?type = null,
 
         const ArmSource = enum {
             fields,
@@ -113,6 +169,22 @@ const TypeDecl = struct {
                 .arm_source = arm_source,
             },
         };
+    }
+
+    /// Like `initTaggedStruct` with `.fields` arms, for a struct whose
+    /// tag field is a plain integer (such as `uint8_t tag`) instead of
+    /// the enum. `tag_enum` is the enum whose values the tag holds. The
+    /// arms are named after its fields.
+    fn initTaggedStructByteTag(
+        comptime name: []const u8,
+        comptime T: type,
+        comptime tag_field: []const u8,
+        comptime value_field: []const u8,
+        comptime tag_enum: type,
+    ) TypeDecl {
+        var decl = initTaggedStruct(name, T, tag_field, value_field, .fields);
+        decl.tagged_union.?.tag_enum = tag_enum;
+        return decl;
     }
 
     fn initUnion(
@@ -166,11 +238,149 @@ const TypeDecl = struct {
     fn initOpaque(comptime name: []const u8) TypeDecl {
         return .{ .name = name, .T = *anyopaque, .kind = .@"opaque" };
     }
+
+    /// An opaque handle whose Zig type is known, so that key values and
+    /// callback parameters of that type can name it. `T` is the Zig handle
+    /// type itself, such as `?*TerminalWrapper`, and must be distinct from
+    /// every other registered type and from `anyopaque` pointers.
+    fn initHandle(comptime name: []const u8, comptime T: type) TypeDecl {
+        return .{ .name = name, .T = T, .kind = .@"opaque" };
+    }
+
+    /// A callback typedef. `T` is the Zig function pointer type, such as
+    /// `*const fn (Terminal, ?*anyopaque) callconv(.c) void`.
+    fn initCallback(comptime name: []const u8, comptime T: type) TypeDecl {
+        return .{ .name = name, .T = T, .kind = .callback };
+    }
+
+    /// A struct or union field as the C header declares it.
+    pub const Field = struct {
+        /// The C field name.
+        name: []const u8,
+
+        /// The Zig type of the field.
+        T: type,
+
+        /// The byte offset from the start of the type. Always 0 for unions.
+        offset: usize,
+    };
+
+    /// The fields of a struct or union, in the order the C header declares
+    /// them. Only valid for `.struct` and `.union`.
+    ///
+    /// Most fields keep their Zig names. The exception is unions built by
+    /// `lib.TaggedUnion`, whose fields take their C names from
+    /// `union_field_names_T`. For example, the Zig field `@"8_fg"` of
+    /// `GhosttySgrAttributeValue` is `fg_8` in C, since a C name cannot start
+    /// with a digit.
+    pub fn fields(comptime self: TypeDecl) []const Field {
+        comptime {
+            if (self.union_field_names_T) |FieldNames| {
+                const Tag = @FieldType(FieldNames, "tag");
+                const tag_fields = @typeInfo(Tag).@"enum".field_names;
+                var out: []const Field = &.{};
+                for (tag_fields, 0..) |field, i| {
+                    const name = FieldNames.cFieldRename(@field(Tag, field)) orelse continue;
+                    if (mappedUnionFieldIsDuplicate(self, i, name)) continue;
+                    out = out ++ [_]Field{.{
+                        .name = name,
+                        .T = @FieldType(self.T, field),
+                        .offset = 0,
+                    }};
+                }
+                if (@hasField(self.T, "_padding")) out = out ++ [_]Field{.{
+                    .name = "_padding",
+                    .T = @FieldType(self.T, "_padding"),
+                    .offset = 0,
+                }};
+                return out;
+            }
+
+            const info = switch (self.kind) {
+                .@"struct" => @typeInfo(self.T).@"struct",
+                .@"union" => @typeInfo(self.T).@"union",
+                else => unreachable,
+            };
+            var out: [info.field_names.len]Field = undefined;
+            for (&out, info.field_names, info.field_types) |*field, name, ty| field.* = .{
+                .name = name,
+                .T = ty,
+                .offset = if (self.kind == .@"union") 0 else @offsetOf(self.T, name),
+            };
+            const final = out;
+            return &final;
+        }
+    }
+
+    fn mappedUnionFieldIsDuplicate(
+        comptime decl: TypeDecl,
+        comptime index: usize,
+        comptime name: []const u8,
+    ) bool {
+        const FieldNames = decl.union_field_names_T.?;
+        const Tag = @FieldType(FieldNames, "tag");
+        const tag_fields = @typeInfo(Tag).@"enum".field_names;
+        const T = @FieldType(decl.T, tag_fields[index]);
+
+        inline for (tag_fields[0..index]) |previous| {
+            const previous_name = FieldNames.cFieldRename(@field(Tag, previous)) orelse continue;
+            if (std.mem.eql(u8, previous_name, name)) {
+                if (@FieldType(decl.T, previous) != T)
+                    @compileError("tagged union metadata maps different field types to " ++ name);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// The C name of a Zig enum value, without the enum's prefix.
+    ///
+    /// Most values are the Zig name in upper case. A few are renamed because
+    /// the plain upper case name would be awkward or invalid in C:
+    ///
+    /// | Enum                     | Zig value                 | Result                  |
+    /// | ------------------------ | ------------------------- | ----------------------- |
+    /// | `GhosttyCellWide`        | `.spacer_tail`            | `"SPACER_TAIL"`         |
+    /// | `GhosttyKey`             | `.key_a`                  | `"A"`                   |
+    /// | `GhosttySgrAttributeTag` | `.@"256_underline_color"` | `"UNDERLINE_COLOR_256"` |
+    /// | `GhosttyTerminalOption`  | `.size_cb`                | `"SIZE"`                |
+    ///
+    /// Add the prefix to get the full C enumerator, such as
+    /// `GHOSTTY_CELL_WIDE_SPACER_TAIL`.
+    pub fn enumValueName(
+        comptime enum_name: []const u8,
+        comptime zig_name: []const u8,
+    ) []const u8 {
+        if (std.mem.eql(u8, enum_name, "GhosttyKey") and std.mem.startsWith(u8, zig_name, "key_"))
+            return upper(zig_name["key_".len..]);
+        if (std.mem.eql(u8, enum_name, "GhosttySgrAttributeTag")) {
+            if (std.mem.eql(u8, zig_name, "256_underline_color")) return "UNDERLINE_COLOR_256";
+            if (std.mem.eql(u8, zig_name, "8_bg")) return "BG_8";
+            if (std.mem.eql(u8, zig_name, "8_fg")) return "FG_8";
+            if (std.mem.eql(u8, zig_name, "8_bright_bg")) return "BRIGHT_BG_8";
+            if (std.mem.eql(u8, zig_name, "8_bright_fg")) return "BRIGHT_FG_8";
+            if (std.mem.eql(u8, zig_name, "256_bg")) return "BG_256";
+            if (std.mem.eql(u8, zig_name, "256_fg")) return "FG_256";
+        }
+        if (std.mem.eql(u8, enum_name, "GhosttyTerminalOption") and std.mem.eql(u8, zig_name, "size_cb"))
+            return "SIZE";
+        return upper(zig_name);
+    }
+
+    fn upper(comptime name: []const u8) []const u8 {
+        comptime {
+            var buf: [name.len]u8 = undefined;
+            for (&buf, name) |*d, c| d.* = std.ascii.toUpper(c);
+            const final = buf;
+            return &final;
+        }
+    }
 };
 
 /// Public C types. Names and enum prefixes are intentionally explicit because
 /// Zig identifiers are not the C API contract.
-const type_decls = [_]TypeDecl{
+pub const type_decls = [_]TypeDecl{
     .initStruct("GhosttyAllocator", lib.alloc.Allocator),
     .initStruct("GhosttyAllocatorVtable", lib.alloc.VTable),
     .initStruct("GhosttyBuffer", lib.Buffer),
@@ -180,6 +390,7 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyClipboardReadReply", terminal.ClipboardReadReply),
     .initStruct("GhosttyClipboardWrite", terminal.ClipboardWrite),
     .initStruct("GhosttyClipboardWriteReply", terminal.ClipboardWriteReply),
+    .initStruct("GhosttyCodepointBuffer", CodepointBuffer),
     .initStruct("GhosttyCodepoints", Codepoints),
     .initStruct("GhosttyColorPaletteMask", color_c.PaletteMask),
     .initStruct("GhosttyColorRgb", color.RGB.C),
@@ -188,9 +399,6 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyDeviceAttributesPrimary", terminal.DeviceAttributes.Primary),
     .initStruct("GhosttyDeviceAttributesSecondary", terminal.DeviceAttributes.Secondary),
     .initStruct("GhosttyDeviceAttributesTertiary", terminal.DeviceAttributes.Tertiary),
-    .initStruct("GhosttyFormatterScreenExtra", formatter.ScreenOptions.Extra),
-    .initStruct("GhosttyFormatterTerminalExtra", formatter.TerminalOptions.Extra),
-    .initStruct("GhosttyFormatterTerminalOptions", formatter.TerminalOptions),
     .initStruct("GhosttyGridRef", grid_ref.CGridRef),
     .initStruct("GhosttyKittyGraphicsPlacementRenderInfo", kitty_graphics.PlacementRenderInfo),
     .initStruct("GhosttyMimeReader", io.MimeReader),
@@ -217,7 +425,7 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyString", lib.String),
     .initStruct("GhosttySurfacePosition", SurfacePosition),
     .initStruct("GhosttyStyle", style.Style),
-    .initTaggedStruct("GhosttyStyleColor", style.Color, "tag", "value", .fields),
+    .initTaggedStructByteTag("GhosttyStyleColor", style.Color, "tag", "value", style.ColorTag),
     .initUnion("GhosttyStyleColorValue", style.ColorValue, null),
     .initStruct("GhosttySysImage", sys.Image),
     .initStruct("GhosttyTerminalDesktopNotification", terminal.DesktopNotification),
@@ -243,7 +451,6 @@ const type_decls = [_]TypeDecl{
     .initStruct("GhosttyTerminalSelectLineOptions", selection.SelectLineOptions),
     .initStruct("GhosttyTerminalSelectWordBetweenOptions", selection.SelectWordBetweenOptions),
     .initStruct("GhosttyTerminalSelectWordOptions", selection.SelectWordOptions),
-    .initStruct("GhosttyTerminalSelectionFormatOptions", selection.FormatOptions),
     .initTaggedStruct("GhosttyTerminalUnknownSequence", terminal.UnknownSequence.C, "tag", "value", .generated),
     .initStruct("GhosttyTerminalUnknownOscSequence", terminal.UnknownOscSequence),
     .initStruct("GhosttyTerminalUnknownStringSequence", terminal.UnknownStringSequence),
@@ -265,20 +472,22 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyClipboardLocation", clipboard.Location, "GHOSTTY_CLIPBOARD_LOCATION_"),
     .initEnum("GhosttyClipboardReadResult", clipboard.Read.Status, "GHOSTTY_CLIPBOARD_READ_RESULT_"),
     .initEnum("GhosttyClipboardWriteResult", clipboard.Write.Status, "GHOSTTY_CLIPBOARD_WRITE_RESULT_"),
+    .initEnum("GhosttyCursorStyle", CursorStyle, "GHOSTTY_CURSOR_STYLE_"),
     .initEnum("GhosttyColorScheme", device_status.ColorScheme, "GHOSTTY_COLOR_SCHEME_"),
     .initEnum("GhosttyFocusEvent", focus_pkg.Event, "GHOSTTY_FOCUS_"),
     .initEnum("GhosttyFormatterFormat", formatter_pkg.Format, "GHOSTTY_FORMATTER_FORMAT_"),
+    .initEnum("GhosttyFormatterOption", formatter.Option, "GHOSTTY_FORMATTER_OPT_"),
+    .initEnum("GhosttyImageLayer", render.ImageLayer, "GHOSTTY_IMAGE_LAYER_"),
     .initEnum("GhosttyImageProtocol", render.ImageProtocol, "GHOSTTY_IMAGE_PROTOCOL_"),
     .initEnum("GhosttyKey", input_key.Key, "GHOSTTY_KEY_"),
     .initEnum("GhosttyKeyAction", input_key.Action, "GHOSTTY_KEY_ACTION_"),
     .initEnum("GhosttyKeyEncoderOption", key_encode.Option, "GHOSTTY_KEY_ENCODER_OPT_"),
     .initEnum("GhosttyKittyGraphicsData", kitty_graphics.Data, "GHOSTTY_KITTY_GRAPHICS_DATA_"),
-    .initEnum("GhosttyKittyGraphicsImageData", kitty_graphics.ImageData, "GHOSTTY_KITTY_IMAGE_DATA_"),
+    .initEnum("GhosttyKittyGraphicsImageData", kitty_graphics.ImageData, "GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_"),
     .initEnum("GhosttyKittyGraphicsPlacementData", kitty_graphics.PlacementData, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_"),
-    .initEnum("GhosttyKittyGraphicsPlacementIteratorOption", kitty_graphics.PlacementIteratorOption, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_"),
+    .initEnum("GhosttyKittyGraphicsPlacementIteratorOption", kitty_graphics.PlacementIteratorOption, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_"),
     .initEnum("GhosttyKittyImageCompression", kitty_graphics.ImageCompression, "GHOSTTY_KITTY_IMAGE_COMPRESSION_"),
     .initEnum("GhosttyKittyImageFormat", kitty_graphics.ImageFormat, "GHOSTTY_KITTY_IMAGE_FORMAT_"),
-    .initEnum("GhosttyKittyPlacementLayer", kitty_graphics.PlacementLayer, "GHOSTTY_KITTY_PLACEMENT_LAYER_"),
     .initEnum("GhosttyModeReportState", modes_pkg.Report.State, "GHOSTTY_MODE_REPORT_"),
     .initEnum("GhosttyMouseAction", input_mouse.Action, "GHOSTTY_MOUSE_ACTION_"),
     .initEnum("GhosttyMouseButton", input_mouse.Button, "GHOSTTY_MOUSE_BUTTON_"),
@@ -300,16 +509,14 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyPointTag", point.Tag, "GHOSTTY_POINT_TAG_"),
     .initEnum("GhosttyProgramStatusKind", terminal.ProgramStatusKind, "GHOSTTY_PROGRAM_STATUS_KIND_"),
     .initEnum("GhosttyProgramStatusState", terminal.ProgramStatusState, "GHOSTTY_PROGRAM_STATUS_STATE_"),
-    .initEnum("GhosttyRenderStateCursorVisualStyle", render.CursorVisualStyle, "GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_"),
     .initEnum("GhosttyRenderStateData", render.Data, "GHOSTTY_RENDER_STATE_DATA_"),
     .initEnum("GhosttyRenderStateDirty", render.Dirty, "GHOSTTY_RENDER_STATE_DIRTY_"),
     .initEnum("GhosttyRenderStateImageData", render.ImageData, "GHOSTTY_RENDER_STATE_IMAGE_DATA_"),
-    .initEnum("GhosttyRenderStateImageLayer", render.ImageLayer, "GHOSTTY_RENDER_STATE_IMAGE_LAYER_"),
     .initEnum("GhosttyRenderStateKittyPlacementKind", render.KittyPlacementKind, "GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_"),
-    .initEnum("GhosttyRenderStateOption", render.SetOption, "GHOSTTY_RENDER_STATE_OPTION_"),
+    .initEnum("GhosttyRenderStateOption", render.SetOption, "GHOSTTY_RENDER_STATE_OPT_"),
     .initEnum("GhosttyRenderStateRowCellsData", render.RowCellsData, "GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_"),
     .initEnum("GhosttyRenderStateRowData", render.RowData, "GHOSTTY_RENDER_STATE_ROW_DATA_"),
-    .initEnum("GhosttyRenderStateRowOption", render.RowOption, "GHOSTTY_RENDER_STATE_ROW_OPTION_"),
+    .initEnum("GhosttyRenderStateRowOption", render.RowOption, "GHOSTTY_RENDER_STATE_ROW_OPT_"),
     .initEnum("GhosttyRowData", row.RowData, "GHOSTTY_ROW_DATA_"),
     .initEnum("GhosttyRowSemanticPrompt", row.SemanticPrompt, "GHOSTTY_ROW_SEMANTIC_"),
     .initEnum("GhosttySearchData", search.Data, "GHOSTTY_SEARCH_DATA_"),
@@ -337,20 +544,21 @@ const type_decls = [_]TypeDecl{
     .initEnum("GhosttyTerminalBoundary", terminal.Boundary, "GHOSTTY_TERMINAL_BOUNDARY_"),
     .initEnum("GhosttyTerminalCompressionMode", terminal.CompressionMode, "GHOSTTY_TERMINAL_COMPRESSION_MODE_"),
     .initEnum("GhosttyTerminalCompressionResult", terminal.CompressionResult, "GHOSTTY_TERMINAL_COMPRESSION_RESULT_"),
-    .initEnum("GhosttyTerminalCursorStyle", terminal.TerminalCursorStyle, "GHOSTTY_TERMINAL_CURSOR_STYLE_"),
     .initEnum("GhosttyTerminalData", terminal.TerminalData, "GHOSTTY_TERMINAL_DATA_"),
     .initEnum("GhosttyTerminalOption", terminal.Option, "GHOSTTY_TERMINAL_OPT_"),
     .initEnum("GhosttyTerminalProgressState", terminal.ProgressState, "GHOSTTY_TERMINAL_PROGRESS_STATE_"),
     .initEnum("GhosttyTerminalScreen", terminal.TerminalScreen, "GHOSTTY_TERMINAL_SCREEN_"),
     .initEnum("GhosttyTerminalResizeWindowTag", terminal.ResizeWindow.Tag, "GHOSTTY_TERMINAL_RESIZE_WINDOW_"),
-    .initEnum("GhosttyTerminalScrollViewportTag", terminal.ZigTerminal.ScrollViewport.Tag, "GHOSTTY_SCROLL_VIEWPORT_"),
+    .initEnum("GhosttyTerminalScrollViewportTag", terminal.ZigTerminal.ScrollViewport.Tag, "GHOSTTY_TERMINAL_SCROLL_VIEWPORT_"),
     .initEnum("GhosttyTerminalStringEnd", terminal.StringEnd, "GHOSTTY_TERMINAL_STRING_END_"),
     .initEnum("GhosttyTerminalStringIntroducer", terminal.StringIntroducer, "GHOSTTY_TERMINAL_STRING_INTRODUCER_"),
     .initEnum("GhosttyTerminalStringKind", terminal.StringKind, "GHOSTTY_TERMINAL_STRING_KIND_"),
     .initEnum("GhosttyTerminalUnknownSequenceTag", terminal.UnknownSequence.Tag, "GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_"),
 
     .initPacked("GhosttyCell", page.Cell.CLayout),
+    .initPacked("GhosttyStyleFlags", style.FlagsLayout),
     .initAlias("GhosttyColorPaletteIndex", u8, "u8"),
+    .initAlias("GhosttyFormatterExtras", formatter.Extras, "u32"),
     .initAlias("GhosttyKittyKeyFlags", u8, "u8"),
     .initAlias("GhosttyMode", u16, "u16"),
     .initAlias("GhosttyMods", u16, "u16"),
@@ -360,24 +568,56 @@ const type_decls = [_]TypeDecl{
     .initOpaque("GhosttyFormatter"),
     .initOpaque("GhosttyKeyEncoder"),
     .initOpaque("GhosttyKeyEvent"),
-    .initOpaque("GhosttyKittyGraphics"),
+    .initHandle("GhosttyKittyGraphics", kitty_graphics.KittyGraphics),
     .initOpaque("GhosttyKittyGraphicsImage"),
-    .initOpaque("GhosttyKittyGraphicsPlacementIterator"),
+    .initHandle("GhosttyKittyGraphicsPlacementIterator", kitty_graphics.PlacementIterator),
     .initOpaque("GhosttyMouseEncoder"),
     .initOpaque("GhosttyMouseEvent"),
     .initOpaque("GhosttyOscCommand"),
     .initOpaque("GhosttyOscParser"),
     .initOpaque("GhosttyRenderState"),
-    .initOpaque("GhosttyRenderStateImageIterator"),
-    .initOpaque("GhosttyRenderStateRowCells"),
-    .initOpaque("GhosttyRenderStateRowIterator"),
+    .initHandle("GhosttyRenderStateImageIterator", render.ImageIterator),
+    .initHandle("GhosttyRenderStateRowCells", render.RowCells),
+    .initHandle("GhosttyRenderStateRowIterator", render.RowIterator),
     .initOpaque("GhosttySearch"),
     .initOpaque("GhosttySelectionGesture"),
     .initOpaque("GhosttySelectionGestureEvent"),
     .initOpaque("GhosttySgrParser"),
     .initOpaque("GhosttySnapshotDecoder"),
-    .initOpaque("GhosttyTerminal"),
+    .initHandle("GhosttyTerminal", terminal.Terminal),
     .initOpaque("GhosttyTrackedGridRef"),
+
+    .initCallback("GhosttyAllocatorAllocFn", lib.alloc.AllocFn),
+    .initCallback("GhosttyAllocatorFreeFn", lib.alloc.FreeFn),
+    .initCallback("GhosttyAllocatorRemapFn", lib.alloc.RemapFn),
+    .initCallback("GhosttyAllocatorResizeFn", lib.alloc.ResizeFn),
+    .initCallback("GhosttyClipboardReadReplyFn", terminal.ClipboardReadReplyFn),
+    .initCallback("GhosttyClipboardWriteReplyFn", terminal.ClipboardWriteReplyFn),
+    .initCallback("GhosttyMimeReaderFn", io.MimeReaderFn),
+    .initCallback("GhosttyReaderFn", io.ReaderFn),
+    .initCallback("GhosttySysDecodePngFn", sys.DecodePngFn),
+    .initCallback("GhosttySysLogFn", sys.LogFn),
+    .initCallback("GhosttySysRandomSecureFn", sys.RandomSecureFn),
+    .initCallback("GhosttyTerminalBellFn", terminal.Effects.BellFn),
+    .initCallback("GhosttyTerminalClipboardReadFn", terminal.Effects.ClipboardReadFn),
+    .initCallback("GhosttyTerminalClipboardWriteFn", terminal.Effects.ClipboardWriteFn),
+    .initCallback("GhosttyTerminalColorSchemeFn", terminal.Effects.ColorSchemeFn),
+    .initCallback("GhosttyTerminalDesktopNotificationFn", terminal.Effects.DesktopNotificationFn),
+    .initCallback("GhosttyTerminalDeviceAttributesFn", terminal.Effects.DeviceAttributesFn),
+    .initCallback("GhosttyTerminalEnquiryFn", terminal.Effects.EnquiryFn),
+    .initCallback("GhosttyTerminalProgramStatusFn", terminal.Effects.ProgramStatusFn),
+    .initCallback("GhosttyTerminalProgressReportFn", terminal.Effects.ProgressReportFn),
+    .initCallback("GhosttyTerminalPwdChangedFn", terminal.Effects.PwdChangedFn),
+    .initCallback("GhosttyTerminalRenderHoldFn", terminal.Effects.RenderHoldFn),
+    .initCallback("GhosttyTerminalResetFn", terminal.Effects.ResetFn),
+    .initCallback("GhosttyTerminalResizeWindowFn", terminal.Effects.ResizeWindowFn),
+    .initCallback("GhosttyTerminalSemanticPromptFn", terminal.Effects.SemanticPromptFn),
+    .initCallback("GhosttyTerminalSizeFn", terminal.Effects.SizeFn),
+    .initCallback("GhosttyTerminalTitleChangedFn", terminal.Effects.TitleChangedFn),
+    .initCallback("GhosttyTerminalUnknownSequenceFn", terminal.Effects.UnknownSequenceFn),
+    .initCallback("GhosttyTerminalWritePtyFn", terminal.Effects.WritePtyFn),
+    .initCallback("GhosttyTerminalXtversionFn", terminal.Effects.XtversionFn),
+    .initCallback("GhosttyWriterFn", io.WriterFn),
 };
 
 comptime {
@@ -387,11 +627,62 @@ comptime {
             if (std.mem.eql(u8, decl.name, previous.name))
                 @compileError("duplicate public ABI type: " ++ decl.name);
         }
+
+        switch (decl.kind) {
+            .@"opaque" => if (decl.T != *anyopaque) {
+                if (@sizeOf(decl.T) != @sizeOf(*anyopaque) or !isPointer(decl.T))
+                    @compileError(decl.name ++ ": a handle type must be a pointer");
+                if (isAnyopaquePointer(decl.T))
+                    @compileError(decl.name ++ ": a handle type cannot be an anyopaque pointer");
+            },
+            .callback => if (@typeInfo(decl.T) != .pointer or
+                @typeInfo(@typeInfo(decl.T).pointer.child) != .@"fn")
+                @compileError(decl.name ++ ": a callback type must be a function pointer"),
+            else => {},
+        }
+
+        // Key values and callback parameters find their registered name by
+        // Zig type, so two names for one Zig type would be ambiguous.
+        // Callbacks are exempt. Zig function pointer types are equal when
+        // their signatures are, so GhosttyTerminalBellFn and
+        // GhosttyTerminalResetFn are one Zig type. Keys find their callback
+        // by name instead, in `Json.keyCallbackName`.
+        if (!isTypeLookupKind(decl)) continue;
+        for (type_decls[0..i]) |previous| {
+            if (!isTypeLookupKind(previous)) continue;
+            if (previous.T == decl.T)
+                @compileError(decl.name ++ " and " ++ previous.name ++ " have the same Zig type");
+        }
     }
 }
 
+/// Whether `registeredName` finds this declaration by its Zig type.
+fn isTypeLookupKind(comptime decl: TypeDecl) bool {
+    return switch (decl.kind) {
+        .@"struct", .@"union", .@"enum" => true,
+        .@"opaque" => decl.T != *anyopaque,
+        .@"packed", .alias, .callback => false,
+    };
+}
+
+fn isPointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => true,
+        .optional => |info| @typeInfo(info.child) == .pointer,
+        else => false,
+    };
+}
+
+fn isAnyopaquePointer(comptime T: type) bool {
+    const P = switch (@typeInfo(T)) {
+        .optional => |info| info.child,
+        else => T,
+    };
+    return @typeInfo(P) == .pointer and @typeInfo(P).pointer.child == anyopaque;
+}
+
 pub const json: [:0]const u8 = json: {
-    @setEvalBranchQuota(1_000_000);
+    @setEvalBranchQuota(10_000_000);
     var counter: std.Io.Writer.Discarding = .init(&.{});
     Json.writeAll(&counter.writer) catch unreachable;
 
@@ -404,6 +695,35 @@ pub const json: [:0]const u8 = json: {
 
 pub fn get_json() callconv(lib.calling_conv) [*:0]const u8 {
     return json.ptr;
+}
+
+/// Initialize a sized struct for callers that cannot use the
+/// GHOSTTY_INIT_SIZED macro. Sets `size` bytes at `ptr` to zero, then
+/// stores `size` in the leading `size_t`. Does nothing if `ptr` is NULL or
+/// `size` is too small to hold the `size` field itself.
+pub fn sized_init(ptr: ?*anyopaque, size: usize) callconv(lib.calling_conv) void {
+    const bytes: [*]u8 = @ptrCast(ptr orelse return);
+    if (size < @sizeOf(usize)) return;
+    @memset(bytes[0..size], 0);
+    std.mem.writeInt(usize, bytes[0..@sizeOf(usize)], size, builtin.target.cpu.arch.endian());
+}
+
+test "sized_init" {
+    const Sized = extern struct {
+        size: usize,
+        a: u32,
+        b: bool,
+    };
+
+    var value: Sized = .{ .size = 1, .a = 7, .b = true };
+    sized_init(&value, @sizeOf(Sized));
+    try std.testing.expectEqual(Sized{ .size = @sizeOf(Sized), .a = 0, .b = false }, value);
+
+    // A struct too small for the size field and a NULL pointer are left alone.
+    var tiny: [@sizeOf(usize)]u8 = @splat(0xaa);
+    sized_init(&tiny, tiny.len - 1);
+    for (tiny) |b| try std.testing.expectEqual(@as(u8, 0xaa), b);
+    sized_init(null, 16);
 }
 
 const Json = struct {
@@ -458,24 +778,8 @@ const Json = struct {
                 try writeSizeAlign(decl.T, jws);
                 try jws.objectField("fields");
                 try jws.beginObject();
-                if (decl.union_field_names_T != null) {
-                    try writeMappedUnionFields(decl, jws);
-                } else {
-                    const info = switch (decl.kind) {
-                        .@"struct" => @typeInfo(decl.T).@"struct",
-                        .@"union" => @typeInfo(decl.T).@"union",
-                        else => unreachable,
-                    };
-                    inline for (info.field_names, info.field_types) |name, ty| {
-                        try writeField(
-                            decl,
-                            name,
-                            ty,
-                            if (decl.kind == .@"union") 0 else @offsetOf(decl.T, name),
-                            jws,
-                        );
-                    }
-                }
+                inline for (comptime decl.fields()) |field|
+                    try writeField(decl, field.name, field.T, field.offset, jws);
                 try jws.endObject();
             },
             .@"enum" => {
@@ -494,6 +798,7 @@ const Json = struct {
                 try jws.objectField(decl.sentinel_suffix);
                 try jws.write(std.math.maxInt(c_int));
                 try jws.endObject();
+                try writeKeys(decl, jws);
             },
             .@"packed" => try writePackedType(decl.T, jws),
             .alias => {
@@ -502,8 +807,262 @@ const Json = struct {
                 try jws.write(decl.alias_type);
             },
             .@"opaque" => try writeSizeAlign(*anyopaque, jws),
+            .callback => try writeCallback(decl, jws),
         }
         try jws.endObject();
+    }
+
+    /// The direction a key enum's values travel, found from the enum's
+    /// `InType` or `OutType` declaration, or null if it has neither.
+    fn keyDirection(comptime decl: TypeDecl) ?KeyDirection {
+        const in = @hasDecl(decl.T, "InType");
+        const out = @hasDecl(decl.T, "OutType");
+        if (in and out) @compileError(decl.name ++ " declares both InType and OutType");
+        if (in) return .in;
+        if (out) return .out;
+        return null;
+    }
+
+    const KeyDirection = enum { in, out };
+
+    /// Write the `keys` object of a key enum, such as
+    /// `GhosttyTerminalOption`. Each key gets its direction and the type
+    /// its `void *` value points at. An input key's value is a
+    /// `const T *` and an output key's value is a `T *`. A key whose type
+    /// is a callback takes the function pointer itself as its value.
+    fn writeKeys(comptime decl: TypeDecl, jws: *std.json.Stringify) std.Io.Writer.Error!void {
+        const direction = comptime keyDirection(decl) orelse return;
+        try jws.objectField("keys");
+        try jws.beginObject();
+        const info = @typeInfo(decl.T).@"enum";
+        inline for (info.field_names) |field| {
+            if (comptime std.mem.eql(u8, field, "invalid")) continue;
+            const key_name = comptime TypeDecl.enumValueName(decl.name, field);
+            const context = decl.prefix ++ key_name;
+            const T = comptime keyValueType(decl.T, @field(decl.T, field), direction);
+            if (T == void) @compileError(context ++ ": a key's value type cannot be void");
+
+            try jws.objectField(key_name);
+            try jws.beginObject();
+            try jws.objectField("direction");
+            try jws.write(@tagName(direction));
+            if (comptime keyTypeOverride(decl.name, field)) |name| {
+                comptime checkKeyTypeOverride(context, name, T);
+                try jws.objectField("type");
+                try jws.write(name);
+            } else if (comptime isCallbackPointer(T)) {
+                try jws.objectField("type");
+                try jws.write(comptime keyCallbackName(context, key_name, T));
+            } else {
+                try writeValueType(context, T, jws);
+            }
+            try jws.endObject();
+        }
+        try jws.endObject();
+    }
+
+    /// The type a key's value points at. Most key enums return that type
+    /// from `InType` or `OutType` directly. The terminal and sys options
+    /// instead return the type of the value pointer itself, such as
+    /// `?*const usize`, or the callback, such as `?BellFn`, and those are
+    /// unwrapped here.
+    fn keyValueType(comptime Key: type, comptime key: Key, comptime direction: KeyDirection) type {
+        const T = switch (direction) {
+            .in => key.InType(),
+            .out => key.OutType(),
+        };
+        if (direction == .out) return T;
+        return switch (@typeInfo(T)) {
+            .optional => |info| switch (@typeInfo(info.child)) {
+                .pointer => |ptr| if (@typeInfo(ptr.child) == .@"fn") info.child else ptr.child,
+                else => T,
+            },
+            else => T,
+        };
+    }
+
+    /// The header type of a key whose value is an integer typedef. The Zig
+    /// value type is the plain integer, so the typedef's name cannot be
+    /// found from it. For example, GHOSTTY_CELL_DATA_STYLE_ID writes a
+    /// `u16`, which the header calls `GhosttyStyleId`.
+    fn keyTypeOverride(comptime enum_name: []const u8, comptime key: []const u8) ?[]const u8 {
+        const overrides = [_]struct { []const u8, []const u8, []const u8 }{
+            .{ "GhosttyCellData", "color_palette", "GhosttyColorPaletteIndex" },
+            .{ "GhosttyCellData", "style_id", "GhosttyStyleId" },
+            .{ "GhosttyFormatterOption", "extras", "GhosttyFormatterExtras" },
+            .{ "GhosttyKeyEncoderOption", "kitty_flags", "GhosttyKittyKeyFlags" },
+            .{ "GhosttyRenderStateRowCellsData", "raw", "GhosttyCell" },
+            .{ "GhosttyRenderStateRowData", "raw", "GhosttyRow" },
+            .{ "GhosttyTerminalData", "kitty_keyboard_flags", "GhosttyKittyKeyFlags" },
+        };
+        for (overrides) |entry| {
+            const owner, const field, const name = entry;
+            if (std.mem.eql(u8, owner, enum_name) and std.mem.eql(u8, field, key)) return name;
+        }
+        return null;
+    }
+
+    /// Check that an override names a registered integer typedef with the
+    /// key's Zig type, so the table cannot drift from the code.
+    fn checkKeyTypeOverride(comptime context: []const u8, comptime name: []const u8, comptime T: type) void {
+        for (type_decls) |decl| {
+            if (!std.mem.eql(u8, decl.name, name)) continue;
+            const Int = switch (decl.kind) {
+                .alias => decl.T,
+                .@"packed" => decl.T.Backing,
+                else => @compileError(context ++ ": " ++ name ++ " is not an integer typedef"),
+            };
+            if (Int != T) @compileError(context ++ ": " ++ name ++ " is not " ++ @typeName(T));
+            return;
+        }
+        @compileError(context ++ ": " ++ name ++ " is not registered");
+    }
+
+    fn isCallbackPointer(comptime T: type) bool {
+        return @typeInfo(T) == .pointer and @typeInfo(@typeInfo(T).pointer.child) == .@"fn";
+    }
+
+    /// The callback that a callback key takes. The Zig type alone cannot
+    /// pick it, so the key's name does. For example, the key `WRITE_PTY`
+    /// takes the registered callback whose name ends in `WritePtyFn`, and
+    /// that callback must have the key's Zig type.
+    fn keyCallbackName(
+        comptime context: []const u8,
+        comptime key_name: []const u8,
+        comptime T: type,
+    ) []const u8 {
+        const suffix = pascal(key_name) ++ "Fn";
+        var found: ?[]const u8 = null;
+        for (type_decls) |decl| {
+            if (decl.kind != .callback or !std.mem.endsWith(u8, decl.name, suffix)) continue;
+            if (decl.T != T) continue;
+            if (found != null) @compileError(context ++ ": more than one callback ends in " ++ suffix);
+            found = decl.name;
+        }
+        return found orelse @compileError(context ++ ": no registered callback ending in " ++
+            suffix ++ " has its type");
+    }
+
+    /// `WRITE_PTY` to `WritePty`.
+    fn pascal(comptime name: []const u8) []const u8 {
+        comptime {
+            var out: []const u8 = "";
+            var upper_next = true;
+            for (name) |ch| {
+                if (ch == '_') {
+                    upper_next = true;
+                    continue;
+                }
+                out = out ++ [_]u8{if (upper_next) ch else std.ascii.toLower(ch)};
+                upper_next = false;
+            }
+            return out;
+        }
+    }
+
+    /// Write a callback descriptor: the function pointer's size and
+    /// alignment, its parameter types and its return type.
+    fn writeCallback(comptime decl: TypeDecl, jws: *std.json.Stringify) std.Io.Writer.Error!void {
+        const info = @typeInfo(@typeInfo(decl.T).pointer.child).@"fn";
+        try writeSizeAlign(decl.T, jws);
+        try jws.objectField("params");
+        try jws.beginArray();
+        inline for (info.param_types, 0..) |param, i| {
+            const context = std.fmt.comptimePrint("{s} parameter {d}", .{ decl.name, i });
+            const P = param orelse @compileError(context ++ " is generic");
+            if (P == void) @compileError(context ++ " is void");
+            try jws.beginObject();
+            try writeValueType(context, P, jws);
+            try jws.endObject();
+        }
+        try jws.endArray();
+        try jws.objectField("return");
+        try jws.beginObject();
+        const R = info.return_type.?;
+        if (R == void) {
+            try jws.objectField("type");
+            try jws.write("void");
+        } else try writeValueType(decl.name ++ " return", R, jws);
+        try jws.endObject();
+    }
+
+    /// Write a type reference for a key value or a callback parameter, in
+    /// the same form struct fields use. Unlike fields, handles resolve to
+    /// their registered names. A type the registry cannot name is a compile
+    /// error, rather than a vague "struct" or "opaque".
+    fn writeValueType(
+        comptime context: []const u8,
+        comptime T: type,
+        jws: *std.json.Stringify,
+    ) std.Io.Writer.Error!void {
+        if (comptime registeredName(T)) |name| {
+            try jws.objectField("type");
+            try jws.write(name);
+            return;
+        }
+
+        switch (@typeInfo(T)) {
+            .array => |info| {
+                try jws.objectField("type");
+                try jws.write("array");
+                try jws.objectField("elem");
+                try jws.write(comptime valueName(context, info.child));
+                try jws.objectField("count");
+                try jws.write(info.len);
+            },
+            .optional => |info| try writeValuePointer(context, info.child, true, jws),
+            .pointer => try writeValuePointer(context, T, false, jws),
+            else => {
+                try jws.objectField("type");
+                try jws.write(comptime valueName(context, T));
+            },
+        }
+    }
+
+    fn writeValuePointer(
+        comptime context: []const u8,
+        comptime P: type,
+        comptime nullable: bool,
+        jws: *std.json.Stringify,
+    ) std.Io.Writer.Error!void {
+        const info = switch (@typeInfo(P)) {
+            .pointer => |info| info,
+            else => @compileError(context ++ ": an optional must hold a pointer, not " ++ @typeName(P)),
+        };
+        if (info.size == .slice) @compileError(context ++ ": slices have no C type");
+        try jws.objectField("type");
+        try jws.write("pointer");
+        try jws.objectField("elem");
+        try jws.write(comptime valueName(context, info.child));
+        try jws.objectField("const");
+        try jws.write(info.attrs.@"const");
+        if (nullable) {
+            try jws.objectField("nullable");
+            try jws.write(true);
+        }
+    }
+
+    /// The name of a scalar or registered type, or a compile error.
+    fn valueName(comptime context: []const u8, comptime T: type) []const u8 {
+        if (registeredName(T)) |name| return name;
+        return switch (@typeInfo(T)) {
+            .bool, .int, .float => publicTypeName(T),
+            .@"opaque" => if (T == anyopaque)
+                "opaque"
+            else
+                @compileError(context ++ ": the type registry cannot name " ++ @typeName(T)),
+            else => @compileError(context ++ ": the type registry cannot name " ++ @typeName(T)),
+        };
+    }
+
+    /// The registered name of a Zig type, including handles. Integer
+    /// typedefs and callbacks are never returned, since their Zig types are
+    /// shared by unrelated values.
+    fn registeredName(comptime T: type) ?[]const u8 {
+        for (type_decls) |decl| {
+            if (isTypeLookupKind(decl) and decl.T == T) return decl.name;
+        }
+        return null;
     }
 
     fn writePackedType(
@@ -622,46 +1181,6 @@ const Json = struct {
         try jws.endObject();
     }
 
-    fn writeMappedUnionFields(
-        comptime decl: TypeDecl,
-        jws: *std.json.Stringify,
-    ) std.Io.Writer.Error!void {
-        const FieldNames = decl.union_field_names_T.?;
-        const Tag = @FieldType(FieldNames, "tag");
-        const tag_fields = @typeInfo(Tag).@"enum".field_names;
-
-        inline for (tag_fields, 0..) |field, i| {
-            const name = comptime FieldNames.cFieldRename(@field(Tag, field)) orelse continue;
-            if (comptime mappedUnionFieldIsDuplicate(decl, i, name)) continue;
-            try writeField(decl, name, @FieldType(decl.T, field), 0, jws);
-        }
-
-        if (@hasField(decl.T, "_padding"))
-            try writeField(decl, "_padding", @FieldType(decl.T, "_padding"), 0, jws);
-    }
-
-    fn mappedUnionFieldIsDuplicate(
-        comptime decl: TypeDecl,
-        comptime index: usize,
-        comptime name: []const u8,
-    ) bool {
-        const FieldNames = decl.union_field_names_T.?;
-        const Tag = @FieldType(FieldNames, "tag");
-        const tag_fields = @typeInfo(Tag).@"enum".field_names;
-        const T = @FieldType(decl.T, tag_fields[index]);
-
-        inline for (tag_fields[0..index]) |previous| {
-            const previous_name = FieldNames.cFieldRename(@field(Tag, previous)) orelse continue;
-            if (std.mem.eql(u8, previous_name, name)) {
-                if (@FieldType(decl.T, previous) != T)
-                    @compileError("tagged union metadata maps different field types to " ++ name);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     fn writeSizeAlign(comptime T: type, jws: *std.json.Stringify) std.Io.Writer.Error!void {
         try jws.objectField("size");
         try jws.write(@sizeOf(T));
@@ -687,6 +1206,24 @@ const Json = struct {
             try writePointerTypeNamed(T, true, "opaque", jws);
             return;
         }
+        // Function pointer fields normally have the element type "function".
+        // These name their typedefs so the manifest records each signature.
+        if (comptime std.mem.eql(u8, owner, "GhosttyAllocatorVtable")) {
+            const callback: ?[]const u8 = comptime if (std.mem.eql(u8, field_name, "alloc"))
+                "GhosttyAllocatorAllocFn"
+            else if (std.mem.eql(u8, field_name, "resize"))
+                "GhosttyAllocatorResizeFn"
+            else if (std.mem.eql(u8, field_name, "remap"))
+                "GhosttyAllocatorRemapFn"
+            else if (std.mem.eql(u8, field_name, "free"))
+                "GhosttyAllocatorFreeFn"
+            else
+                null;
+            if (comptime callback) |name| {
+                try writePointerTypeNamed(T, @typeInfo(T) == .optional, name, jws);
+                return;
+            }
+        }
 
         if (comptime fieldTypeOverride(owner, field_name)) |name| {
             try jws.objectField("type");
@@ -699,7 +1236,22 @@ const Json = struct {
                 try jws.objectField("type");
                 try jws.write("array");
                 try jws.objectField("elem");
-                try jws.write(publicTypeName(info.child));
+                switch (@typeInfo(info.child)) {
+                    // An array of pointers, such as the reserved slots of
+                    // GhosttyAllocatorVtable, describes its element in the
+                    // pointer field form.
+                    .optional => |elem| {
+                        try jws.beginObject();
+                        try writePointerType(elem.child, true, jws);
+                        try jws.endObject();
+                    },
+                    .pointer => {
+                        try jws.beginObject();
+                        try writePointerType(info.child, false, jws);
+                        try jws.endObject();
+                    },
+                    else => try jws.write(publicTypeName(info.child)),
+                }
                 try jws.objectField("count");
                 try jws.write(info.len);
             },
@@ -763,6 +1315,10 @@ const Json = struct {
             if (std.mem.eql(u8, owner, "GhosttyTerminalScrollViewport")) return "GhosttyTerminalScrollViewportValue";
             if (std.mem.eql(u8, owner, "GhosttyTerminalUnknownSequence")) return "GhosttyTerminalUnknownSequenceValue";
         }
+        if (std.mem.eql(u8, owner, "GhosttyStyleColor") and std.mem.eql(u8, field_name, "tag"))
+            return "GhosttyStyleColorTag";
+        if (std.mem.eql(u8, owner, "GhosttyStyle") and std.mem.eql(u8, field_name, "flags"))
+            return "GhosttyStyleFlags";
         if (std.mem.eql(u8, owner, "GhosttyStyleColorValue") and std.mem.eql(u8, field_name, "palette"))
             return "GhosttyColorPaletteIndex";
         if (std.mem.eql(u8, owner, "GhosttySgrAttributeValue")) {
@@ -780,7 +1336,7 @@ const Json = struct {
         comptime tagged: TypeDecl.TaggedUnion,
         jws: *std.json.Stringify,
     ) std.Io.Writer.Error!void {
-        const Tag = @FieldType(decl.T, tagged.tag_field);
+        const Tag = tagged.tag_enum orelse @FieldType(decl.T, tagged.tag_field);
         try jws.objectField("arms");
         try jws.beginObject();
         inline for (@typeInfo(Tag).@"enum".field_names) |field| {
@@ -792,7 +1348,7 @@ const Json = struct {
 
     fn taggedArm(comptime decl: TypeDecl, comptime tag_name: []const u8) ?[]const u8 {
         const tagged = decl.tagged_union.?;
-        const Tag = @FieldType(decl.T, tagged.tag_field);
+        const Tag = tagged.tag_enum orelse @FieldType(decl.T, tagged.tag_field);
         if (tagged.arm_source == .generated)
             return decl.T.cFieldRename(@field(Tag, tag_name));
 
@@ -804,7 +1360,7 @@ const Json = struct {
     fn publicTypeName(comptime T: type) []const u8 {
         inline for (type_decls) |decl| switch (decl.kind) {
             .@"struct", .@"union", .@"enum" => if (T == decl.T) return decl.name,
-            .@"packed", .alias, .@"opaque" => {},
+            .@"packed", .alias, .@"opaque", .callback => {},
         };
         return switch (@typeInfo(T)) {
             .bool => "bool",
@@ -844,31 +1400,12 @@ const Json = struct {
         };
     }
 
-    fn writeUpperObjectField(comptime name: []const u8, jws: *std.json.Stringify) std.Io.Writer.Error!void {
-        var upper: [name.len]u8 = undefined;
-        for (name, 0..) |c, i| upper[i] = std.ascii.toUpper(c);
-        try jws.objectField(&upper);
-    }
-
     fn writeEnumObjectField(
         comptime enum_name: []const u8,
         comptime zig_name: []const u8,
         jws: *std.json.Stringify,
     ) std.Io.Writer.Error!void {
-        if (std.mem.eql(u8, enum_name, "GhosttyKey") and std.mem.startsWith(u8, zig_name, "key_"))
-            return writeUpperObjectField(zig_name["key_".len..], jws);
-        if (std.mem.eql(u8, enum_name, "GhosttySgrAttributeTag")) {
-            if (std.mem.eql(u8, zig_name, "256_underline_color")) return jws.objectField("UNDERLINE_COLOR_256");
-            if (std.mem.eql(u8, zig_name, "8_bg")) return jws.objectField("BG_8");
-            if (std.mem.eql(u8, zig_name, "8_fg")) return jws.objectField("FG_8");
-            if (std.mem.eql(u8, zig_name, "8_bright_bg")) return jws.objectField("BRIGHT_BG_8");
-            if (std.mem.eql(u8, zig_name, "8_bright_fg")) return jws.objectField("BRIGHT_FG_8");
-            if (std.mem.eql(u8, zig_name, "256_bg")) return jws.objectField("BG_256");
-            if (std.mem.eql(u8, zig_name, "256_fg")) return jws.objectField("FG_256");
-        }
-        if (std.mem.eql(u8, enum_name, "GhosttyTerminalOption") and std.mem.eql(u8, zig_name, "size_cb"))
-            return jws.objectField("SIZE");
-        return writeUpperObjectField(zig_name, jws);
+        try jws.objectField(comptime TypeDecl.enumValueName(enum_name, zig_name));
     }
 
     fn isBuiltinType(name: []const u8) bool {
@@ -940,6 +1477,77 @@ test "manifest describes enums, arrays, and tagged unions" {
     try std.testing.expect(value.get("arms").?.object.get("NONE").? == .null);
 }
 
+test "manifest describes the frozen style layout" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const manifest_types = parsed.value.object.get("types").?.object;
+
+    // GhosttyStyle is a plain 16-byte struct on every target, with no
+    // size field.
+    const style_desc = manifest_types.get("GhosttyStyle").?.object;
+    try std.testing.expectEqualStrings("struct", style_desc.get("kind").?.string);
+    try std.testing.expectEqual(@as(i64, 16), style_desc.get("size").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), style_desc.get("align").?.integer);
+    const style_fields = style_desc.get("fields").?.object;
+    try std.testing.expectEqual(@as(usize, 5), style_fields.count());
+    try std.testing.expect(!style_fields.contains("size"));
+    const expected_style = [_]struct { []const u8, i64, i64, []const u8 }{
+        .{ "fg_color", 0, 4, "GhosttyStyleColor" },
+        .{ "bg_color", 4, 4, "GhosttyStyleColor" },
+        .{ "underline_color", 8, 4, "GhosttyStyleColor" },
+        .{ "flags", 12, 2, "GhosttyStyleFlags" },
+        .{ "reserved", 14, 2, "u16" },
+    };
+    for (expected_style) |entry| {
+        const name, const offset, const size, const type_name = entry;
+        const field = style_fields.get(name).?.object;
+        try std.testing.expectEqual(offset, field.get("offset").?.integer);
+        try std.testing.expectEqual(size, field.get("size").?.integer);
+        try std.testing.expectEqualStrings(type_name, field.get("type").?.string);
+    }
+
+    // The color is a byte tag followed by a three byte payload.
+    const color_desc = manifest_types.get("GhosttyStyleColor").?.object;
+    try std.testing.expectEqual(@as(i64, 4), color_desc.get("size").?.integer);
+    try std.testing.expectEqual(@as(i64, 1), color_desc.get("align").?.integer);
+    const color_fields = color_desc.get("fields").?.object;
+    const tag = color_fields.get("tag").?.object;
+    try std.testing.expectEqual(@as(i64, 0), tag.get("offset").?.integer);
+    try std.testing.expectEqual(@as(i64, 1), tag.get("size").?.integer);
+    try std.testing.expectEqualStrings("GhosttyStyleColorTag", tag.get("type").?.string);
+    const value = color_fields.get("value").?.object;
+    try std.testing.expectEqual(@as(i64, 1), value.get("offset").?.integer);
+    try std.testing.expectEqual(@as(i64, 3), value.get("size").?.integer);
+    try std.testing.expectEqualStrings("rgb", value.get("arms").?.object.get("RGB").?.string);
+    try std.testing.expectEqual(@as(i64, 3), manifest_types.get("GhosttyStyleColorValue").?.object
+        .get("size").?.integer);
+
+    // The flags are a packed u16 matching the GHOSTTY_STYLE_FLAG_* bits.
+    const flags_desc = manifest_types.get("GhosttyStyleFlags").?.object;
+    try std.testing.expectEqualStrings("packed", flags_desc.get("kind").?.string);
+    try std.testing.expectEqualStrings("u16", flags_desc.get("underlying").?.string);
+    const flag_bits = flags_desc.get("bits").?.object;
+    try std.testing.expectEqual(@as(usize, 9), flag_bits.count());
+    const expected_flags = [_]struct { []const u8, i64, i64, []const u8 }{
+        .{ "bold", 0, 1, "bool" },
+        .{ "italic", 1, 1, "bool" },
+        .{ "faint", 2, 1, "bool" },
+        .{ "blink", 3, 1, "bool" },
+        .{ "inverse", 4, 1, "bool" },
+        .{ "invisible", 5, 1, "bool" },
+        .{ "strikethrough", 6, 1, "bool" },
+        .{ "overline", 7, 1, "bool" },
+        .{ "underline", 8, 3, "GhosttySgrUnderline" },
+    };
+    for (expected_flags) |entry| {
+        const name, const lsb, const width, const type_name = entry;
+        const bit = flag_bits.get(name).?.object;
+        try std.testing.expectEqual(lsb, bit.get("lsb").?.integer);
+        try std.testing.expectEqual(width, bit.get("width").?.integer);
+        try std.testing.expectEqualStrings(type_name, bit.get("type").?.string);
+    }
+}
+
 test "manifest describes render state overscan types" {
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
     defer parsed.deinit();
@@ -970,7 +1578,7 @@ test "manifest describes render state overscan types" {
 
     const option_values = manifest_types.get("GhosttyRenderStateOption").?.object
         .get("values").?.object;
-    try std.testing.expectEqual(@as(i64, 1), option_values.get("OVERSCAN").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), option_values.get("OVERSCAN").?.integer);
 }
 
 test "manifest describes the complete packed cell layout" {
@@ -1074,10 +1682,10 @@ test "manifest uses public enum names" {
     try std.testing.expectEqualStrings("bg_8", sgr_arms.get("BG_8").?.string);
 
     const terminal_values = manifest_types.get("GhosttyTerminalOption").?.object.get("values").?.object;
-    try std.testing.expectEqual(@as(i64, 6), terminal_values.get("SIZE").?.integer);
+    try std.testing.expectEqual(@as(i64, 7), terminal_values.get("SIZE").?.integer);
     try std.testing.expect(!terminal_values.contains("SIZE_CB"));
-    try std.testing.expectEqual(@as(i64, 42), terminal_values.get("SEMANTIC_PROMPT").?.integer);
-    try std.testing.expectEqual(@as(i64, 43), terminal_values.get("RESET").?.integer);
+    try std.testing.expectEqual(@as(i64, 43), terminal_values.get("SEMANTIC_PROMPT").?.integer);
+    try std.testing.expectEqual(@as(i64, 44), terminal_values.get("RESET").?.integer);
 
     const semantic_prompt_values = manifest_types.get("GhosttySemanticPromptKind").?.object.get("values").?.object;
     try std.testing.expectEqual(@as(i64, 0), semantic_prompt_values.get("INVALID").?.integer);
@@ -1136,14 +1744,7 @@ test "manifest named references resolve" {
         while (field_iterator.next()) |field_entry| {
             const field = field_entry.value_ptr.object;
             const field_type = field.get("type").?.string;
-            if (!Json.isBuiltinType(field_type))
-                try std.testing.expect(manifest_types.contains(field_type));
-
-            if (field.get("elem")) |elem_value| {
-                const elem = elem_value.string;
-                if (!Json.isBuiltinType(elem))
-                    try std.testing.expect(manifest_types.contains(elem));
-            }
+            try expectTypeReferenceResolves(manifest_types, field);
 
             if (field.get("arms")) |arms_value| {
                 const union_descriptor = manifest_types.get(field_type).?.object;
@@ -1159,6 +1760,178 @@ test "manifest named references resolve" {
                 }
             }
         }
+    }
+
+    // Key value types, callback parameters and callback return types.
+    type_iterator = manifest_types.iterator();
+    while (type_iterator.next()) |type_entry| {
+        const descriptor = type_entry.value_ptr.object;
+        if (descriptor.get("keys")) |keys| {
+            const values = descriptor.get("values").?.object;
+            var key_iterator = keys.object.iterator();
+            while (key_iterator.next()) |key_entry| {
+                try std.testing.expect(values.contains(key_entry.key_ptr.*));
+                try expectTypeReferenceResolves(manifest_types, key_entry.value_ptr.object);
+            }
+        }
+        if (descriptor.get("params")) |params| {
+            for (params.array.items) |param|
+                try expectTypeReferenceResolves(manifest_types, param.object);
+            try expectTypeReferenceResolves(manifest_types, descriptor.get("return").?.object);
+        }
+    }
+}
+
+test "manifest types the value of every key" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const manifest_types = parsed.value.object.get("types").?.object;
+
+    // Every get or set key enum has a keys object with every key but
+    // INVALID, and no other enum has one.
+    inline for (type_decls) |decl| {
+        if (decl.kind != .@"enum") continue;
+        const descriptor = manifest_types.get(decl.name).?.object;
+        if (comptime Json.keyDirection(decl) == null) {
+            try std.testing.expect(!descriptor.contains("keys"));
+            continue;
+        }
+        const keys = descriptor.get("keys").?.object;
+        const values = descriptor.get("values").?.object;
+        try std.testing.expect(!keys.contains("INVALID"));
+        try std.testing.expect(!keys.contains(decl.sentinel_suffix));
+        // Every value except INVALID and the sentinel is a key.
+        const skipped: usize = if (values.contains("INVALID")) 2 else 1;
+        try std.testing.expectEqual(values.count() - skipped, keys.count());
+    }
+
+    const usize_name = comptime Json.publicTypeName(usize);
+    const expected = [_]struct { []const u8, []const u8, []const u8, []const u8 }{
+        // Input keys whose InType is the value pointer itself.
+        .{ "GhosttyTerminalOption", "SCROLLBACK_MAX_BYTES", "in", usize_name },
+        .{ "GhosttyTerminalOption", "TITLE", "in", "GhosttyString" },
+        .{ "GhosttyTerminalOption", "SELECTION", "in", "GhosttySelection" },
+        .{ "GhosttyTerminalOption", "USERDATA", "in", "opaque" },
+        .{ "GhosttyTerminalOption", "BELL", "in", "GhosttyTerminalBellFn" },
+        .{ "GhosttyTerminalOption", "RESET", "in", "GhosttyTerminalResetFn" },
+        .{ "GhosttyTerminalOption", "SIZE", "in", "GhosttyTerminalSizeFn" },
+        .{ "GhosttySysOption", "LOG", "in", "GhosttySysLogFn" },
+        // Input keys whose InType is the value itself.
+        .{ "GhosttyKeyEncoderOption", "ALT_ESC_PREFIX", "in", "bool" },
+        .{ "GhosttyKeyEncoderOption", "KITTY_FLAGS", "in", "GhosttyKittyKeyFlags" },
+        .{ "GhosttyMouseEncoderOption", "SIZE", "in", "GhosttyMouseEncoderSize" },
+        .{ "GhosttyKittyGraphicsPlacementIteratorOption", "LAYER", "in", "u32" },
+        .{ "GhosttyFormatterOption", "EMIT", "in", "GhosttyFormatterFormat" },
+        .{ "GhosttyFormatterOption", "SELECTION", "in", "GhosttySelection" },
+        .{ "GhosttyFormatterOption", "EXTRAS", "in", "GhosttyFormatterExtras" },
+        .{ "GhosttyOscOption", "UNKNOWN_MAX_BYTES", "in", usize_name },
+        .{ "GhosttySearchOption", "NEEDLE", "in", "GhosttyString" },
+        .{ "GhosttySelectionGestureEventOption", "REF", "in", "GhosttyGridRef" },
+        .{ "GhosttySelectionGestureEventOption", "REPEAT_DISTANCE", "in", "f64" },
+        .{ "GhosttySnapshotDecoderOption", "MAX_CONTINUATION_BYTES", "in", usize_name },
+        .{ "GhosttySnapshotDecoderOption", "KITTY_IMAGE_STORAGE_LIMIT", "in", "u64" },
+        // Output keys.
+        .{ "GhosttyBuildInfo", "VERSION_STRING", "out", "GhosttyString" },
+        .{ "GhosttyBuildInfo", "VERSION_MAJOR", "out", usize_name },
+        .{ "GhosttyBuildInfo", "OPTIMIZE", "out", "GhosttyOptimizeMode" },
+        .{ "GhosttyBuildInfo", "KITTY_GRAPHICS", "out", "bool" },
+        .{ "GhosttyTerminalData", "KITTY_GRAPHICS", "out", "GhosttyKittyGraphics" },
+        .{ "GhosttyKittyGraphicsData", "PLACEMENT_ITERATOR", "out", "GhosttyKittyGraphicsPlacementIterator" },
+        .{ "GhosttyRenderStateData", "ROW_ITERATOR", "out", "GhosttyRenderStateRowIterator" },
+        .{ "GhosttyRenderStateRowData", "RAW", "out", "GhosttyRow" },
+        .{ "GhosttyRenderStateRowCellsData", "RAW", "out", "GhosttyCell" },
+        .{ "GhosttyCellData", "STYLE_ID", "out", "GhosttyStyleId" },
+        .{ "GhosttyTerminalData", "COLS", "out", "u16" },
+        .{ "GhosttySnapshotDecoderData", "PROGRESS_SCREEN", "out", "GhosttyTerminalScreen" },
+    };
+    for (expected) |entry| {
+        const enum_name, const key_name, const direction, const type_name = entry;
+        errdefer std.log.err("{s} {s}", .{ enum_name, key_name });
+        const key = manifest_types.get(enum_name).?.object
+            .get("keys").?.object.get(key_name).?.object;
+        try std.testing.expectEqualStrings(direction, key.get("direction").?.string);
+        try std.testing.expectEqualStrings(type_name, key.get("type").?.string);
+    }
+
+    // The palette is an array value.
+    const palette = manifest_types.get("GhosttyTerminalOption").?.object
+        .get("keys").?.object.get("COLOR_PALETTE").?.object;
+    try std.testing.expectEqualStrings("array", palette.get("type").?.string);
+    try std.testing.expectEqualStrings("GhosttyColorRgb", palette.get("elem").?.string);
+    try std.testing.expectEqual(@as(i64, 256), palette.get("count").?.integer);
+
+    // Every feature key reports a bool.
+    var build_keys = manifest_types.get("GhosttyBuildInfo").?.object
+        .get("keys").?.object.iterator();
+    var features: usize = 0;
+    while (build_keys.next()) |entry| {
+        if (!std.mem.startsWith(u8, entry.key_ptr.*, "FEATURE_")) continue;
+        features += 1;
+        try std.testing.expectEqualStrings("bool", entry.value_ptr.object.get("type").?.string);
+    }
+    try std.testing.expectEqual(@as(usize, 9), features);
+}
+
+test "manifest describes callback signatures" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const manifest_types = parsed.value.object.get("types").?.object;
+
+    const bell = manifest_types.get("GhosttyTerminalBellFn").?.object;
+    try std.testing.expectEqualStrings("callback", bell.get("kind").?.string);
+    try std.testing.expectEqual(@as(i64, @sizeOf(*anyopaque)), bell.get("size").?.integer);
+    const bell_params = bell.get("params").?.array.items;
+    try std.testing.expectEqual(@as(usize, 2), bell_params.len);
+    try std.testing.expectEqualStrings("GhosttyTerminal", bell_params[0].object.get("type").?.string);
+    const userdata = bell_params[1].object;
+    try std.testing.expectEqualStrings("pointer", userdata.get("type").?.string);
+    try std.testing.expectEqualStrings("opaque", userdata.get("elem").?.string);
+    try std.testing.expect(!userdata.get("const").?.bool);
+    try std.testing.expect(userdata.get("nullable").?.bool);
+    try std.testing.expectEqualStrings("void", bell.get("return").?.object.get("type").?.string);
+
+    const write_pty = manifest_types.get("GhosttyTerminalWritePtyFn").?.object
+        .get("params").?.array.items;
+    try std.testing.expectEqual(@as(usize, 4), write_pty.len);
+    const data = write_pty[2].object;
+    try std.testing.expectEqualStrings("pointer", data.get("type").?.string);
+    try std.testing.expectEqualStrings("u8", data.get("elem").?.string);
+    try std.testing.expect(data.get("const").?.bool);
+    try std.testing.expect(!data.contains("nullable"));
+
+    const enquiry = manifest_types.get("GhosttyTerminalEnquiryFn").?.object;
+    try std.testing.expectEqualStrings("GhosttyString", enquiry.get("return").?.object.get("type").?.string);
+
+    // An array of nullable pointers describes its element as a pointer.
+    const reserved = manifest_types.get("GhosttyAllocatorVtable").?.object
+        .get("fields").?.object.get("reserved").?.object;
+    try std.testing.expectEqualStrings("array", reserved.get("type").?.string);
+    try std.testing.expectEqual(@as(i64, 4), reserved.get("count").?.integer);
+    const slot = reserved.get("elem").?.object;
+    try std.testing.expectEqualStrings("pointer", slot.get("type").?.string);
+    try std.testing.expectEqualStrings("opaque", slot.get("elem").?.string);
+    try std.testing.expect(slot.get("nullable").?.bool);
+}
+
+/// Check that the names in a type reference, such as a field, a key value
+/// or a callback parameter, are built in or registered.
+fn expectTypeReferenceResolves(
+    manifest_types: std.json.ObjectMap,
+    reference: std.json.ObjectMap,
+) !void {
+    const type_name = reference.get("type").?.string;
+    if (!Json.isBuiltinType(type_name))
+        try std.testing.expect(manifest_types.contains(type_name));
+
+    const elem = reference.get("elem") orelse return;
+    switch (elem) {
+        .string => |name| if (!Json.isBuiltinType(name))
+            try std.testing.expect(manifest_types.contains(name)),
+        .object => |pointer| {
+            try std.testing.expectEqualStrings("pointer", pointer.get("type").?.string);
+            try expectTypeReferenceResolves(manifest_types, pointer);
+        },
+        else => return error.TestUnexpectedResult,
     }
 }
 

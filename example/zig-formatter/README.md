@@ -1,9 +1,8 @@
 # Example: stdin to HTML using `vtStream` and `TerminalFormatter`
 
-This example demonstrates how to read VT sequences from stdin, parse them
-using `vtStream`, and output styled HTML using `TerminalFormatter`. The
-purpose of this example is primarily to show how to use formatters with
-terminals.
+Read VT sequences from stdin, parse them using `vtStream`, and output styled
+HTML using `TerminalFormatter`. The purpose of this example is primarily to
+show how to use formatters with terminals.
 
 Requires the Zig version stated in the `build.zig.zon` file.
 

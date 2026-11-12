@@ -4,11 +4,14 @@ const device_status = @import("../device_status.zig");
 const Result = @import("result.zig").Result;
 
 pub fn report_encode(
-    scheme: device_status.ColorScheme,
+    scheme_: lib.CEnum(device_status.ColorScheme),
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    const out_written = out_written_ orelse return .invalid_value;
+    const scheme = lib.enumFromC(device_status.ColorScheme, scheme_) orelse
+        return .invalid_value;
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     device_status.encodeColorSchemeReport(&writer, scheme) catch |err| switch (err) {
         error.WriteFailed => {

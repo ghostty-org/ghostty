@@ -12,211 +12,210 @@
 #include <stdint.h>
 #include <ghostty/vt/types.h>
 
-/** @defgroup allocator Memory Management
+/** @addtogroup allocator
  *
- * libghostty-vt does require memory allocation for various operations,
- * but is resilient to allocation failures and will gracefully handle
- * out-of-memory situations by returning error codes.
+ * An allocator is the set of functions libghostty-vt calls to get and free
+ * memory.
  *
- * The exact memory management semantics are documented in the relevant
- * functions and data structures.
+ * Most programs never need this. Any function that takes a
+ * `const GhosttyAllocator*` accepts NULL, which selects the default
+ * allocator. You only need your own to run the library on memory you control.
  *
- * libghostty-vt uses explicit memory allocation via an allocator
- * interface provided by GhosttyAllocator. The interface is based on the
- * [Zig](https://ziglang.org) allocator interface, since this has been
- * shown to be a flexible and powerful interface in practice and enables
- * a wide variety of allocation strategies.
+ * ## Example
  *
- * **For the common case, you can pass NULL as the allocator for any
- * function that accepts one,** and libghostty will use a default allocator.
- * The default allocator will be libc malloc/free if libc is linked. 
- * Otherwise, a custom allocator is used (currently Zig's SMP allocator)
- * that doesn't require any external dependencies. On native freestanding
- * targets, the default allocator always fails instead.
+ * @snippet c-vt-allocator/src/main.c allocator-use
  *
- * ## Basic Usage
+ * Full program: @ref c-vt-allocator/src/main.c
  *
- * For simple use cases, you can ignore this interface entirely by passing NULL
- * as the allocator parameter to functions that accept one. This will use the
- * default allocator (typically libc malloc/free, if libc is linked, but
- * we provide our own default allocator if libc isn't linked). Native
- * freestanding builds must provide a custom allocator for operations that
- * allocate memory.
- *
- * To use a custom allocator:
- * 1. Implement the GhosttyAllocatorVtable function pointers
- * 2. Create a GhosttyAllocator struct with your vtable and context
- * 3. Pass the allocator to functions that accept one
- *
- * ## Alloc/Free Helpers
- *
- * ghostty_alloc() and ghostty_free() provide a simple malloc/free-style
- * interface for allocating and freeing byte buffers through the library's
- * allocator. These are useful when:
- *
- * - You need to allocate a buffer to pass into a libghostty-vt function
- *   (e.g. preparing input data for ghostty_terminal_vt_write()).
- * - You need to free a buffer returned by a libghostty-vt function
- *   (e.g. the output of ghostty_formatter_format_alloc()).
- * - You are on a platform where the library's internal allocator differs
- *   from the consumer's C runtime (e.g. Windows, where Zig's libc and
- *   MSVC's CRT maintain separate heaps), so calling the standard C
- *   free() on library-allocated memory would be undefined behavior.
- *
- * Always use the same allocator (or NULL) for both the allocation and
- * the corresponding free.
+ * See @ref memory for what the default is, how to write your own allocator,
+ * and how to free memory the library gives you.
  *
  * @{
  */
 
 /**
- * Function table for custom memory allocator operations.
- * 
- * This vtable defines the interface for a custom memory allocator. All
- * function pointers must be valid and non-NULL.
+ * Allocate a block of memory.
+ *
+ * This is the `alloc` function of a GhosttyAllocatorVtable. It's required.
+ *
+ * @param ctx The allocator's context pointer
+ * @param len Number of bytes to allocate
+ * @param alignment The block's address must be a multiple of
+ *   `1 << alignment` bytes. See @ref memory-alignment.
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return The new block, or NULL if it could not be allocated
  *
  * @ingroup allocator
+ */
+typedef void* (*GhosttyAllocatorAllocFn)(void *ctx, size_t len, uint8_t alignment, uintptr_t ret_addr);
+
+/**
+ * Try to grow or shrink a block without moving it.
  *
- * If you're not going to use a custom allocator, you can ignore all of
- * this. All functions that take an allocator pointer allow NULL to use a
- * default allocator. Native freestanding builds must provide an allocator
- * for operations that allocate memory.
+ * This is the `resize` function of a GhosttyAllocatorVtable. It's optional,
+ * and leaving it NULL is the same as always returning false.
  *
- * The interface is based on the Zig allocator interface. I'll say up front
- * that it is easy to look at this interface and think "wow, this is really
- * overcomplicated". The reason for this complexity is well thought out by
- * the Zig folks, and it enables a diverse set of allocation strategies
- * as shown by the Zig ecosystem. As a consolation, please note that many
- * of the arguments are only needed for advanced use cases and can be
- * safely ignored in simple implementations. For example, if you look at 
- * the Zig implementation of the libc allocator in `lib/std/heap.zig`
- * (search for CAllocator), you'll see it is very simple.
+ * Return true only if the block at `memory` is now `new_len` bytes long at
+ * the same address. Return false if that would require moving it. The library
+ * then decides whether to allocate a new block and copy.
  *
- * We chose to align with the Zig allocator interface because:
+ * For example, an arena that hands out memory from one buffer can resize its
+ * most recent block, because nothing comes after it:
  *
- *   1. It is a proven interface that serves a wide variety of use cases
- *      in the real world via the Zig ecosystem. It's shown to work.
+ * @code{.c}
+ * typedef struct {
+ *   uint8_t* base;
+ *   size_t used;
+ *   size_t capacity;
+ * } Arena;
  *
- *   2. Our core implementation itself is Zig, and this lets us very
- *      cheaply and easily convert between C and Zig allocators.
+ * static bool arena_resize(void* ctx, void* memory, size_t memory_len,
+ *                          uint8_t alignment, size_t new_len,
+ *                          uintptr_t ret_addr) {
+ *   (void)alignment;
+ *   (void)ret_addr;
+ *   Arena* arena = ctx;
+ *   size_t start = (size_t)((uint8_t*)memory - arena->base);
  *
- * NOTE(mitchellh): In the future, we can have default implementations of
- * resize/remap and allow those to be null.
+ *   // Only the last block can change size in place.
+ *   if (start + memory_len != arena->used) return false;
+ *   if (start + new_len > arena->capacity) return false;
+ *
+ *   arena->used = start + new_len;
+ *   return true;
+ * }
+ * @endcode
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param new_len Requested length, always greater than zero
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return true if the block was resized in place, false otherwise
+ *
+ * @ingroup allocator
+ */
+typedef bool (*GhosttyAllocatorResizeFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+
+/**
+ * Grow or shrink a block, moving it if that is cheaper than a copy.
+ *
+ * This is the `remap` function of a GhosttyAllocatorVtable. It's optional,
+ * and leaving it NULL is the same as always returning NULL.
+ *
+ * Unlike GhosttyAllocatorResizeFn, this may return a new address, for example
+ * after remapping virtual memory pages. The block must hold the old contents
+ * at that address, and the old address is no longer valid.
+ *
+ * Return NULL when the only way to do it would be to allocate, copy, and free.
+ * The library does that itself, so there is no benefit in doing it here.
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param new_len Requested length, always greater than zero
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ * @return The resized block, or NULL to let the library copy instead
+ *
+ * @ingroup allocator
+ */
+typedef void* (*GhosttyAllocatorRemapFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
+
+/**
+ * Free a block.
+ *
+ * This is the `free` function of a GhosttyAllocatorVtable. It's required.
+ * After it returns, the library never uses `memory` again.
+ *
+ * @param ctx The allocator's context pointer
+ * @param memory Start of a block returned by `alloc` or `remap`
+ * @param memory_len Current length of the block
+ * @param alignment The alignment the block was allocated with
+ * @param ret_addr Address of the requesting code, or 0. Safe to ignore.
+ *
+ * @ingroup allocator
+ */
+typedef void (*GhosttyAllocatorFreeFn)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
+
+/**
+ * The functions that make up a custom allocator.
+ *
+ * `alloc` and `free` are required. `resize` and `remap` are optional, and
+ * when they are NULL the library grows memory by allocating a new block,
+ * copying, and freeing the old one. See @ref memory-custom for a complete
+ * example and @ref memory-alignment for an explanation of `alignment`.
+ *
+ * Every function receives the `ctx` pointer from the GhosttyAllocator it
+ * belongs to. When the library resizes, remaps, or frees memory, it always
+ * passes the same `alignment` it used for the original allocation and the
+ * current length of the block, so your allocator does not need to record
+ * either.
+ *
+ * Every function also receives `ret_addr`, the address of the code that
+ * requested the memory, or 0 if it is unknown. Allocators that track
+ * leaks or report where memory came from can use it. Most allocators
+ * ignore it.
+ *
+ * Initialize the whole struct to zero before setting the fields you use,
+ * so the reserved slots are NULL.
+ *
+ * The interface matches Zig's `std.mem.Allocator`. The library is written
+ * in Zig, so this lets it use your allocator directly, and it is an
+ * interface already proven by a wide range of allocators in the Zig
+ * ecosystem. Simple allocators can ignore most of the arguments. Zig's
+ * own libc allocator (CAllocator in `lib/std/heap.zig`) is a good short
+ * reference.
+ *
+ * @ingroup allocator
  */
 typedef struct {
+    /** Allocates a block. Required. */
+    GhosttyAllocatorAllocFn alloc;
+
+    /** Resizes a block without moving it. Optional. */
+    GhosttyAllocatorResizeFn resize;
+
+    /** Resizes a block and may move it. Optional. */
+    GhosttyAllocatorRemapFn remap;
+
+    /** Frees a block. Required. */
+    GhosttyAllocatorFreeFn free;
+
     /**
-     * Return a pointer to `len` bytes with specified `alignment`, or return
-     * `NULL` indicating the allocation failed.
+     * Reserved for future versions. Must be NULL.
      *
-     * @param ctx The allocator context
-     * @param len Number of bytes to allocate
-     * @param alignment Required alignment for the allocation, as the number
-     *   of low bits of the returned address that must be zero. This is not
-     *   a byte count: convert it with `1 << alignment` before passing it to
-     *   aligned_alloc or posix_memalign. For example:
-     *   - 1: the lowest bit must be zero (2-byte aligned)
-     *   - 2: the lowest two bits must be zero (4-byte aligned)
-     *   - 4: the lowest four bits must be zero (16-byte aligned)
-     *   This matches Zig's `std.mem.Alignment`.
-     * @param ret_addr First return address of the allocation call stack (0 if not provided)
-     * @return Pointer to allocated memory, or NULL if allocation failed
+     * These slots let a future release add new allocator functions
+     * without changing the size of this struct. The library ignores any
+     * slot it does not know about, so leaving them NULL keeps your code
+     * working with future versions.
+     *
+     * Debug builds of the library stop with an error if a reserved slot
+     * is not NULL, to catch a vtable that was not zero-initialized.
      */
-    void* (*alloc)(void *ctx, size_t len, uint8_t alignment, uintptr_t ret_addr);
-    
-    /**
-     * Attempt to expand or shrink memory in place.
-     *
-     * `memory_len` must equal the length requested from the most recent
-     * successful call to `alloc`, `resize`, or `remap`. `alignment` must
-     * equal the same value that was passed as the `alignment` parameter to
-     * the original `alloc` call.
-     *
-     * `new_len` must be greater than zero.
-     *
-     * @param ctx The allocator context
-     * @param memory Pointer to the memory block to resize
-     * @param memory_len Current size of the memory block
-     * @param alignment Alignment (must match original allocation)
-     * @param new_len New requested size
-     * @param ret_addr First return address of the allocation call stack (0 if not provided)
-     * @return true if resize was successful in-place, false if relocation would be required
-     */
-    bool (*resize)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
-    
-    /**
-     * Attempt to expand or shrink memory, allowing relocation.
-     *
-     * `memory_len` must equal the length requested from the most recent
-     * successful call to `alloc`, `resize`, or `remap`. `alignment` must
-     * equal the same value that was passed as the `alignment` parameter to
-     * the original `alloc` call.
-     *
-     * A non-`NULL` return value indicates the resize was successful. The
-     * allocation may have same address, or may have been relocated. In either
-     * case, the allocation now has size of `new_len`. A `NULL` return value
-     * indicates that the resize would be equivalent to allocating new memory,
-     * copying the bytes from the old memory, and then freeing the old memory.
-     * In such case, it is more efficient for the caller to perform the copy.
-     *
-     * `new_len` must be greater than zero.
-     *
-     * @param ctx The allocator context
-     * @param memory Pointer to the memory block to remap
-     * @param memory_len Current size of the memory block
-     * @param alignment Alignment (must match original allocation)
-     * @param new_len New requested size
-     * @param ret_addr First return address of the allocation call stack (0 if not provided)
-     * @return Pointer to resized memory (may be relocated), or NULL if manual copy is needed
-     */
-    void* (*remap)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, size_t new_len, uintptr_t ret_addr);
-    
-    /**
-     * Free and invalidate a region of memory.
-     *
-     * `memory_len` must equal the length requested from the most recent
-     * successful call to `alloc`, `resize`, or `remap`. `alignment` must
-     * equal the same value that was passed as the `alignment` parameter to
-     * the original `alloc` call.
-     *
-     * @param ctx The allocator context
-     * @param memory Pointer to the memory block to free
-     * @param memory_len Size of the memory block
-     * @param alignment Alignment (must match original allocation)
-     * @param ret_addr First return address of the allocation call stack (0 if not provided)
-     */
-    void (*free)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
+    void* reserved[4];
 } GhosttyAllocatorVtable;
 
 /**
- * Custom memory allocator.
+ * A custom allocator: a vtable and the context it operates on.
  *
- * For functions that take an allocator pointer, a NULL pointer indicates
- * that the default allocator should be used. The default allocator will 
- * be libc malloc/free if we're linking to libc. If libc isn't linked,
- * a custom allocator is used (currently Zig's SMP allocator). On native
- * freestanding targets, the default allocator always fails instead.
+ * Pass a pointer to one of these to any function that takes an allocator,
+ * or pass NULL to use the default allocator described in @ref memory-default.
+ * The library does not copy the allocator. It must stay valid for as long
+ * as anything allocated with it is in use.
  *
  * @ingroup allocator
- *
- * Usage example:
- * @code
- * GhosttyAllocator allocator = {
- *     .vtable = &my_allocator_vtable,
- *     .ctx = my_allocator_state
- * };
- * @endcode
  */
 typedef struct GhosttyAllocator {
     /**
-     * Opaque context pointer passed to all vtable functions.
-     * This allows the allocator implementation to maintain state
-     * or reference external resources needed for memory management.
+     * Your allocator's state, passed unchanged to every vtable function.
+     * May be NULL if your allocator has no state.
      */
     void *ctx;
 
     /**
-     * Pointer to the allocator's vtable containing function pointers
-     * for memory operations (alloc, resize, remap, free).
+     * The functions that implement this allocator. Must not be NULL.
      */
     const GhosttyAllocatorVtable *vtable;
 } GhosttyAllocator;
@@ -244,13 +243,10 @@ GHOSTTY_API uint8_t* ghostty_alloc(const GhosttyAllocator* allocator, size_t len
  * ghostty_formatter_format_alloc(). Pass the same allocator that was
  * used for the allocation, or NULL if the default allocator was used.
  *
- * On platforms where the library's internal allocator differs from the
- * consumer's C runtime (e.g. Windows, where Zig's libc and MSVC's CRT
- * maintain separate heaps), calling the standard C free() on memory
- * allocated by the library causes undefined behavior. This function
- * guarantees the correct allocator is used regardless of platform.
+ * Use this instead of the C `free()`, which can use a different heap than
+ * the library. See @ref memory-buffers for why.
  *
- * It is safe to pass a NULL pointer; the call is a no-op in that case.
+ * Passing a NULL `ptr` does nothing.
  *
  * @param allocator Pointer to the allocator that was used to allocate the
  *   memory, or NULL if the default allocator was used
