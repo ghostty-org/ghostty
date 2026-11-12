@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// When adding cases, also update the `tab color` enumeration in `Ghostty.sdef`.
 enum TerminalTabColor: Int, CaseIterable, Codable {
     case none
     case blue
