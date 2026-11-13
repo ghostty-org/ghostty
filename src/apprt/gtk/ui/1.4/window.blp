@@ -14,8 +14,6 @@ template $GhosttyWindow: Adw.ApplicationWindow {
   notify::maximized => $notify_maximized();
   notify::quick-terminal => $notify_quick_terminal();
   notify::scale-factor => $notify_scale_factor();
-  default-width: 800;
-  default-height: 600;
   // GTK4 grabs F10 input by default to focus the menubar icon. We want
   // to disable this so that terminal programs can capture F10 (such as htop)
   handle-menubar-accel: false;
