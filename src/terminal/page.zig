@@ -1273,6 +1273,7 @@ pub const Page = struct {
         left: usize,
         end: usize,
     ) void {
+        assert(left <= end and end <= self.size.cols);
         defer self.assertIntegrity();
 
         const cells = row.cells.ptr(self.memory)[left..end];
