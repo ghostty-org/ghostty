@@ -10,6 +10,7 @@ pub const pre_exec = @import("gtk/pre_exec.zig");
 pub const post_fork = @import("gtk/post_fork.zig");
 
 test {
+    _ = @import("gtk/UndoHistory.zig");
     @import("std").testing.refAllDecls(@This());
     _ = @import("gtk/desktop_notifications.zig");
     _ = @import("gtk/ext.zig");
