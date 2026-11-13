@@ -189,21 +189,37 @@ pub fn getIndex(
         // because getFace doesn't work with special fonts.
         if (idx.special() != null) break :preload;
 
-        // Load the face in case its deferred. If it cannot be loaded now
-        // it never will be, so treat the codepoint as having no font and
-        // cache that. Returning the error would make the caller drop
-        // everything around this codepoint (the renderer clears the whole
-        // row) and retry the same failing load on every frame. Running out
-        // of memory is the exception: that may pass, so it is returned and
-        // the errdefer above forgets this lookup.
-        _ = self.resolver.collection.getFace(idx) catch |err| {
-            if (err == error.OutOfMemory) return error.OutOfMemory;
-            log.warn(
-                "unable to load face for codepoint={X} err={}",
-                .{ cp, err },
-            );
-            gop.value_ptr.* = null;
-            return null;
+        // Load the face in case its deferred. The errors listed below
+        // mean the face has no file we can open or read, so it never will
+        // load: treat the codepoint as having no font and cache that.
+        // Returning the error would make the caller drop everything around
+        // this codepoint (the renderer clears the whole row) and retry the
+        // same failing load on every frame. Anything else, running out of
+        // memory included, is returned and the errdefer above forgets this
+        // lookup.
+        //
+        // The switch is over anyerror because the error set depends on the
+        // font backend: the fontconfig errors exist only with fontconfig,
+        // FontHasNoFile and FontPathCantDecode only with CoreText, and a
+        // prong naming an error outside the set does not compile.
+        _ = self.resolver.collection.getFace(idx) catch |err| switch (@as(anyerror, err)) {
+            error.FontconfigNoMatch,
+            error.FontconfigTypeMismatch,
+            error.FontconfigNoId,
+            error.FontHasNoFile,
+            error.FontPathCantDecode,
+            error.CannotOpenResource,
+            error.UnknownFileFormat,
+            error.InvalidFileFormat,
+            => {
+                log.warn(
+                    "unable to load face for codepoint={X} err={}",
+                    .{ cp, err },
+                );
+                gop.value_ptr.* = null;
+                return null;
+            },
+            else => return err,
         };
     }
 
