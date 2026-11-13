@@ -43,25 +43,20 @@ struct SurfaceViewKeyDownOutputsTests {
         key: String? = nil,
     ) -> [Sent] {
         _ = (handled, command)
-        // A temporary copy of `SurfaceView.shouldReplayCommittedPreeditKey`
-        let keysAllowedToReplay: [String?] = [
-            .character(for: .arrowDown),
-            .character(for: .arrowRight),
-            .character(for: .arrowUp),
-        ]
+
         let outputs = Ghostty.SurfaceView.keyDownOutputs(
             .init(
+                handledByIME: handled,
                 insertedTexts: inserted,
+                doCommand: command,
                 markedTextBefore: markedBefore,
                 markedTextAfter: markedAfter,
-                keyCharacters: key,
-                replaysAfterCommit: keysAllowedToReplay.contains(key),
             )
         )
 
         return outputs.compactMap { output in
             switch output {
-            case .keyWithText(_, let composing): composing ? nil : .key
+            case .keyWithText: .key
             case .text(let text): .text(text)
             }
         }
@@ -115,10 +110,8 @@ struct SurfaceViewKeyDownOutputsTests {
         // An input method that consumes a key without inserting text,
         // issuing a command or changing marked text, e.g. AquaSKK mode keys
         // (#4539, #2628).
-        withKnownIssue("AquaSKK switch keys are consumed by terminal") {
-            #expect(sent(key: "l").isEmpty)
-            #expect(sent(key: .character(for: .j, modifiers: .control)).isEmpty)
-        }
+        #expect(sent(key: "l").isEmpty)
+        #expect(sent(key: .character(for: .j, modifiers: .control)).isEmpty)
     }
 
     @Test func startingCompositionSendsNothing() {
@@ -129,16 +122,14 @@ struct SurfaceViewKeyDownOutputsTests {
     @Test func koreanBackspaceEditsOnlyThePreedit() {
         // Korean 2-set "gksr" composes "한ㄱ" with "ㄱ" in preedit.
         // Backspace should remove "ㄱ" (#1638).
-        withKnownIssue("Backspace ends Korean composition and clear") {
-            #expect(
-                sent(
-                    inserted: ["ㄱ"],
-                    command: true,
-                    markedBefore: true,
-                    key: .character(for: .backspace)
-                ) == [.text("ㄱ"), .key]
-            )
-        }
+        #expect(
+            sent(
+                inserted: ["ㄱ"],
+                command: true,
+                markedBefore: true,
+                key: .character(for: .backspace)
+            ) == [.text("ㄱ"), .key]
+        )
     }
 
     @Test func pinyinBackspaceEditsOnlyThePreedit() {
@@ -260,15 +251,13 @@ struct SurfaceViewKeyDownOutputsTests {
         // drop previous marked text, return after switching will only commit
         // a return character.
         // (#15105).
-        withKnownIssue("Return is dropped as control text while composing") {
-            #expect(
-                sent(
-                    inserted: [.character(for: .enter) ?? ""],
-                    markedBefore: true,
-                    key: .character(for: .enter)
-                ) == [.text(.character(for: .enter) ?? "")]
-            )
-        }
+        #expect(
+            sent(
+                inserted: [.character(for: .enter) ?? ""],
+                markedBefore: true,
+                key: .character(for: .enter)
+            ) == [.text(.character(for: .enter) ?? "")]
+        )
     }
 
     // MARK: Commit followed by a command
@@ -278,49 +267,42 @@ struct SurfaceViewKeyDownOutputsTests {
         // "ㅇ" and then issues deleteBackward:. The backspace must reach the
         // terminal so it erases the committed "ㅇ".
         // #14797, #13439
-        withKnownIssue("The backspace is dropped, leaving \"ㅇ\"") {
-            #expect(
-                sent(
-                    inserted: ["ㅇ"],
-                    command: true,
-                    markedBefore: true,
-                    key: .character(for: .backspace)
-                ) == [.text("ㅇ"), .key]
-            )
-        }
+        #expect(
+            sent(
+                inserted: ["ㅇ"],
+                command: true,
+                markedBefore: true,
+                key: .character(for: .backspace)
+            ) == [.text("ㅇ"), .key]
+        )
     }
 
     @Test func koreanEnterCommitsThenSendsReturn() {
         // Enter while composing "안" commits it and then issues
         // insertNewline:, same as in a text view.
         // #15108
-        withKnownIssue("Only the commit is sent, without the newline") {
-            #expect(
-                sent(
-                    inserted: ["안"],
-                    command: true,
-                    markedBefore: true,
-                    key: .character(for: .enter)
-                ) == [.text("안"), .key]
-            )
-        }
+        #expect(
+            sent(
+                inserted: ["안"],
+                command: true,
+                markedBefore: true,
+                key: .character(for: .enter)
+            ) == [.text("안"), .key]
+        )
     }
 
     @Test func koreanEscapeCommitsThenSendsEscape() {
         // vim: "한글" then Esc must commit "글" and leave insert mode with a
         // single Esc (#1663, #1638, #13750).
-        withKnownIssue("Esc is dropped after commit") {
-            #expect(
-                sent(
-                    inserted: ["글"],
-                    command: true,
-                    markedBefore: true,
-                    key: .character(for: .escape)
-                ) == [.text("글"), .key]
-            )
-        }
+        #expect(
+            sent(
+                inserted: ["글"],
+                command: true,
+                markedBefore: true,
+                key: .character(for: .escape)
+            ) == [.text("글"), .key]
+        )
     }
-
     @Test(arguments: [
         NSEvent.ModifierFlags.shift,
         .control,
@@ -355,16 +337,14 @@ struct SurfaceViewKeyDownOutputsTests {
                     ) == [.text("한"), .key]
                 )
             } else {
-                withKnownIssue("Arrow left are dropped and after commit") {
-                    #expect(
-                        sent(
-                            inserted: ["한"],
-                            command: true,
-                            markedBefore: true,
-                            key: .character(for: .arrowLeft, modifiers: modifiers),
-                        ) == [.text("한"), .key]
-                    )
-                }
+                #expect(
+                    sent(
+                        inserted: ["한"],
+                        command: true,
+                        markedBefore: true,
+                        key: .character(for: .arrowLeft, modifiers: modifiers),
+                    ) == [.text("한"), .key]
+                )
             }
         }
     }
@@ -378,10 +358,7 @@ extension String {
     ) -> String? {
         guard
             let keyCode = key.keyCode,
-            let char = KeyboardLayout.character(
-                for: keyCode,
-                modifiers: modifiers
-            )
+            let char = KeyboardLayout.character(for: keyCode, modifiers: modifiers)
         else {
             return nil
         }
