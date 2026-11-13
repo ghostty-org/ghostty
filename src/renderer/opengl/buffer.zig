@@ -59,7 +59,7 @@ pub fn Buffer(comptime T: type) type {
             return .{
                 .buffer = buffer,
                 .opts = opts,
-                .len = data.len * @sizeOf(T),
+                .len = data.len,
             };
         }
 
