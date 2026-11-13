@@ -716,10 +716,19 @@ const Subprocess = struct {
         if (comptime builtin.target.os.tag.isDarwin()) darwin: {
             const resources_dir = cfg.resources_dir orelse break :darwin;
 
-            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-
+            // Resolve bundle paths using a `BufferFirstAllocator` sized to
+            // a half of `max_path_bytes` to avoid heap/arena allocations
+            // in common cases.
+            //
+            // Setting the size to half of `max_path_bytes` saves stack real estate in
+            // most cases whilst still covering the worse case scenario with the provided arena allocator.
+            //
+            var path_stack_buf: [std.Io.Dir.max_path_bytes >> 1]u8 = undefined;
+            var path_stack_allocator: std.heap.BufferFirstAllocator = .init(&path_stack_buf, alloc);
+            const path_stack_alloc = path_stack_allocator.allocator();
             const xdg_data_dir_key = "XDG_DATA_DIRS";
-            if (std.mem.print(&buf, "{s}/..", .{resources_dir})) |data_dir| {
+            if (std.Io.Dir.path.resolve(path_stack_alloc, &.{ resources_dir, ".." })) |data_dir| {
+                defer path_stack_alloc.free(data_dir);
                 try env.put(
                     xdg_data_dir_key,
                     try appendEnv(
@@ -733,7 +742,8 @@ const Subprocess = struct {
             }
 
             const manpath_key = "MANPATH";
-            if (std.mem.print(&buf, "{s}/../man", .{resources_dir})) |man_dir| {
+            if (std.Io.Dir.path.resolve(path_stack_alloc, &.{ resources_dir, "..", "man" })) |man_dir| {
+                defer path_stack_alloc.free(man_dir);
                 // Always append with colon in front, as it mean that if
                 // `MANPATH` is empty, then it should be treated as an extra
                 // path instead of overriding all paths set by OS.
