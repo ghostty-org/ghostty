@@ -1,0 +1,6 @@
+[Shell Search Provider]
+DesktopId=@APPID@.desktop
+BusName=@APPID@
+ObjectPath=@OBJPATH@/SearchProvider
+Version=2
+AutoStart=false
