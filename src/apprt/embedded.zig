@@ -847,6 +847,7 @@ pub const Surface = struct {
                         .available_len = 0,
                         .name = if (kitty.name.len > 0) kitty.name.ptr else null,
                         .can_remember = kitty.pw.len > 0,
+                        .password_input = false,
                     },
                     state,
                     state.*,
@@ -916,6 +917,7 @@ pub const Surface = struct {
             .remember = complete.remember,
         }) catch |err| switch (err) {
             error.UnsafePaste,
+            error.UnsafePastePassword,
             error.UnauthorizedPaste,
             => {
                 // Session grant information for the permission prompt,
@@ -937,6 +939,7 @@ pub const Surface = struct {
                         .available_len = complete.available_len,
                         .name = name,
                         .can_remember = can_remember,
+                        .password_input = err == error.UnsafePastePassword,
                     },
                     state,
                     state.*,
@@ -1592,6 +1595,10 @@ pub const CAPI = struct {
         /// session grant, reported back through the completion's
         /// remember field.
         can_remember: bool,
+
+        /// True when an unsafe paste was attempted at a password prompt.
+        /// The preview must be hidden until explicitly revealed by the user.
+        password_input: bool,
     };
 
     // ghostty_text_s

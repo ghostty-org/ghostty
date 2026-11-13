@@ -37,6 +37,9 @@ struct ClipboardConfirmationView: View {
     /// grant, showing the remember toggle.
     var canRemember: Bool = false
 
+    /// Hide the preview when the paste originated at a password prompt.
+    var passwordInput: Bool = false
+
     /// An image decoded from the request contents, shown scaled in
     /// place of most of the text area when present.
     var previewImage: NSImage?
@@ -64,7 +67,12 @@ struct ClipboardConfirmationView: View {
                     .padding()
             }
 
-            if let previewImage {
+            if passwordInput {
+                Text("Clipboard contents hidden at a password prompt.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+            } else if let previewImage {
                 Image(nsImage: previewImage)
                     .resizable()
                     .scaledToFit()

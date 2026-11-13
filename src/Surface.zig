@@ -6010,9 +6010,9 @@ pub const CompleteClipboard = struct {
 /// Call this to complete a clipboard request sent to apprt. This should
 /// only be called once for each request.
 ///
-/// If `complete.confirmed` is false then this may return either an
-/// UnsafePaste or UnauthorizedPaste error, depending on the type of
-/// clipboard request. The request state remains alive in that case so
+/// If `complete.confirmed` is false then this may return an
+/// UnsafePaste, UnsafePastePassword, or UnauthorizedPaste error, depending
+/// on the request and password input state. The request remains alive so
 /// the apprt can run its confirmation flow.
 pub fn completeClipboardRequest(
     self: *Surface,
@@ -6303,7 +6303,12 @@ fn completeClipboardPaste(
 
         if (unsafe) {
             log.info("potentially unsafe paste detected, rejecting until confirmation", .{});
-            return error.UnsafePaste;
+            // Snapshot this while holding the terminal lock so the prompt
+            // does not reveal a password even if input mode changes later.
+            return if (self.io.terminal.flags.password_input)
+                error.UnsafePastePassword
+            else
+                error.UnsafePaste;
         }
 
         // With the lock held, we must scroll to the bottom.
@@ -6677,6 +6682,29 @@ fn presentSurface(self: *Surface) !void {
 /// not available on a particular platform.
 pub fn getProcessInfo(self: *Surface, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
     return self.io.getProcessInfo(info);
+}
+
+test "unsafe paste confirmation preserves password input state" {
+    const testing = std.testing;
+    const surface = try testing.allocator.create(Surface);
+    defer testing.allocator.destroy(surface);
+    var mutex: std.Io.Mutex = .init;
+    surface.renderer_state.mutex = &mutex;
+    surface.io.terminal = try terminal.Terminal.init(testing.io, testing.allocator, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer surface.io.terminal.deinit(testing.allocator);
+    surface.config.clipboard_paste_protection = true;
+    surface.config.clipboard_paste_bracketed_safe = true;
+
+    for ([_]bool{ false, true }) |password_input| {
+        surface.io.terminal.flags.password_input = password_input;
+        try testing.expectError(
+            if (password_input) error.UnsafePastePassword else error.UnsafePaste,
+            surface.completeClipboardPaste("ghostty-test-only\n", false),
+        );
+    }
 }
 
 test "queueIo frees allocated writes in readonly mode" {
