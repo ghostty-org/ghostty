@@ -44,9 +44,7 @@ import Testing
 
         #expect(hadMarkedText)
         #expect(markedText.length == 0)
-        withKnownIssue("The input method is not told to drop its composition") {
-            #expect(inputContext.discardCount == 1)
-        }
+        #expect(inputContext.discardCount == 1)
     }
 
     @Test func insertingWithoutMarkedTextLeavesTheInputMethodAlone() {

@@ -2113,6 +2113,7 @@ extension Ghostty.SurfaceView {
     ) -> Bool {
         guard markedText.length > 0 else { return false }
         markedText.mutableString.setString("")
+        inputContext?.discardMarkedText()
         return true
     }
 }
