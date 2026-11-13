@@ -153,7 +153,12 @@ extension Ghostty.MenuShortcutManager {
         }
 
         init?(event: NSEvent) {
-            guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
+            // We should use `characters` here to cover different layouts.
+            // `charactersIgnoringModifiers` produces different characters
+            // based on the layout and IME.
+            // `characters` is also the same text we use to query whether an event
+            // is a keybind in SurfaceView.performKeyEquivalent.
+            guard let keyEquivalent = event.characters else { return nil }
             self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
         }
 
