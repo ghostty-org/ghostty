@@ -1109,29 +1109,9 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // page that grow() zeroed. Marking it blank too, in the same
         // write, lets printing into it skip checking its old cells.
         self.cursor.page_row.markCleared();
-
-        // Clear the new row so it gets our bg color. We only do this
-        // if we have a bg color at all.
-        if (self.cursor.style.bg_color.tag != .none) {
-            const page: *Page = self.cursor.page_pin.node.page();
-            self.clearCells(
-                page,
-                self.cursor.page_row,
-                page.getCells(self.cursor.page_row),
-            );
-        }
     }
 
-    if (self.cursor.style_id != style.default_id) {
-        // The newly created line needs to be styled according to
-        // the bg color if it is set.
-        if (self.cursor.style.bgCell()) |blank_cell| {
-            const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-            const cells = cell_current - self.cursor.x;
-            self.cursor.page_row.blank = false;
-            @memset(cells[0..self.pages.cols], blank_cell);
-        }
-    }
+    self.cursorRowFillBackground();
 }
 
 /// This scrolls the active area at and above the cursor.
@@ -1223,16 +1203,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
         }
     }
 
-    if (self.cursor.style_id != style.default_id) {
-        // The newly created line needs to be styled according to
-        // the bg color if it is set.
-        if (self.cursor.style.bgCell()) |blank_cell| {
-            const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-            const cells = cell_current - self.cursor.x;
-            self.cursor.page_row.blank = false;
-            @memset(cells[0..self.pages.cols], blank_cell);
-        }
-    }
+    self.cursorRowFillBackground();
 }
 
 fn cursorScrollAboveRotate(
@@ -1484,14 +1455,16 @@ fn cursorScrollRegionUpSlow(self: *Screen, limit: usize) !void {
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 
-    // eraseRowBounded clears the new row with zero cells so if our
-    // blank cell isn't zero (bg color is set) we need to fill it.
+    self.cursorRowFillBackground();
+}
+
+/// Fill the blank cursor row exposed by scrolling with our
+/// background color, if we have one.
+fn cursorRowFillBackground(self: *Screen) void {
     const blank = self.blankCell();
-    if (!blank.isZero()) {
-        const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
-        self.cursor.page_row.blank = false;
-        @memset((cells - self.cursor.x)[0..self.pages.cols], blank);
-    }
+    if (blank.isZero()) return;
+    const page: *Page = self.cursor.page_pin.node.page();
+    page.clearCells(self.cursor.page_row, 0, page.size.cols, blank);
 }
 
 /// Move the cursor down if we're not at the bottom of the screen. Otherwise
@@ -1914,18 +1887,7 @@ pub fn clearRows(
     }
 }
 
-/// Clear the cells with the blank cell.
-///
-/// This takes care to handle cleaning up graphemes and styles.
-///
-/// It also updates `Row.blank`. A full-row clear with a zero blank cell
-/// sets it, a colored blank cell clears it, and a partial clear with a
-/// zero blank cell leaves it unchanged.
-///
-/// Clearing any part of a row marked blank with a zero blank cell does
-/// nothing, since the cells are already zero and there is no managed
-/// memory to release. Full-screen programs often erase lines (EL, ECH)
-/// that are already empty when they redraw.
+/// Clear the cells with the blank cell. See `Page.clearCells`.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1933,105 +1895,14 @@ pub fn clearCells(
     cells: []Cell,
 ) void {
     if (cells.len == 0) return;
-    if (row.blank and self.blankCell().isZero()) return;
+    defer self.assertIntegrity();
 
-    // This whole operation does unsafe things, so we just want to assert
-    // the end state.
-    page.pauseIntegrityChecks(true);
-    defer {
-        page.pauseIntegrityChecks(false);
-        page.assertIntegrity();
-        self.assertIntegrity();
-    }
-
+    const row_cells = page.getCells(row);
     if (comptime std.debug.runtime_safety) {
-        // Our row and cells should be within the page.
-        const page_rows = page.rows.ptr(page.memory.ptr);
-        assert(@intFromPtr(row) >= @intFromPtr(&page_rows[0]));
-        assert(@intFromPtr(row) <= @intFromPtr(&page_rows[page.size.rows - 1]));
-
-        const row_cells = page.getCells(row);
         assert(@intFromPtr(&cells[0]) >= @intFromPtr(&row_cells[0]));
-        assert(@intFromPtr(&cells[cells.len - 1]) <= @intFromPtr(&row_cells[row_cells.len - 1]));
     }
-
-    // If we have managed memory (styles, graphemes, or hyperlinks)
-    // in this row then we go cell by cell and clear them if present.
-    if (row.grapheme) {
-        for (cells) |*cell| {
-            if (cell.hasGrapheme())
-                page.clearGrapheme(cell);
-        }
-
-        // If we have no left/right scroll region we can be sure
-        // that we've cleared all the graphemes, so we clear the
-        // flag, otherwise we ask the page to update the flag.
-        if (cells.len == page.size.cols) {
-            row.grapheme = false;
-        } else {
-            page.updateRowGraphemeFlag(row);
-        }
-    }
-
-    if (row.hyperlink) {
-        for (cells) |*cell| {
-            if (cell.hyperlink)
-                page.clearHyperlink(cell);
-        }
-
-        // If we have no left/right scroll region we can be sure
-        // that we've cleared all the hyperlinks, so we clear the
-        // flag, otherwise we ask the page to update the flag.
-        if (cells.len == page.size.cols) {
-            row.hyperlink = false;
-        } else {
-            page.updateRowHyperlinkFlag(row);
-        }
-    }
-
-    if (row.styled) {
-        // Styled cells overwhelmingly come in runs sharing the same
-        // style (e.g. a colored status bar or a highlighted region),
-        // so group them and release each run with a single ref-count
-        // update rather than per cell.
-        var i: usize = 0;
-        while (i < cells.len) {
-            const id = cells[i].style_id;
-            if (id == style.default_id) {
-                i += 1;
-                continue;
-            }
-            var j = i + 1;
-            while (j < cells.len and cells[j].style_id == id) j += 1;
-            page.styles.releaseMultiple(page.memory, id, @intCast(j - i));
-            i = j;
-        }
-
-        // If we have no left/right scroll region we can be sure
-        // that we've cleared all the styles, so we clear the
-        // flag, otherwise we ask the page to update the flag.
-        if (cells.len == page.size.cols) {
-            row.styled = false;
-        } else {
-            page.updateRowStyledFlag(row);
-        }
-    }
-
-    if (comptime build_options.kitty_graphics) {
-        if (cells.len == page.size.cols) {
-            row.kitty_virtual_placeholder = false;
-        }
-    }
-
-    const blank = self.blankCell();
-    @memset(cells, blank);
-
-    // Update Row.blank as described in the doc comment above.
-    if (cells.len == page.size.cols) {
-        row.blank = blank.isZero();
-    } else if (!blank.isZero()) {
-        row.blank = false;
-    }
+    const left = (@intFromPtr(cells.ptr) - @intFromPtr(row_cells.ptr)) / @sizeOf(Cell);
+    page.clearCells(row, left, left + cells.len, self.blankCell());
 }
 
 /// Clear cells but only if they are not protected.

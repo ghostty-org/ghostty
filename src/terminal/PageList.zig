@@ -1223,7 +1223,7 @@ pub fn clone(
             const last = result.pages.last.?;
             const page = last.page();
             const row = &page.rows.ptr(page.memory)[last.rows() - 1];
-            page.clearCells(row, 0, page.size.cols);
+            page.clearCells(row, 0, page.size.cols, .{});
         }
 
         // Update our total rows to be our row size.
@@ -3007,7 +3007,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                         // If the cut splits a wide char, clear its head too.
                         const cells = row.cells.ptr(page.memory);
                         const start = if (cells[cols - 1].wide == .wide) cols - 1 else cols;
-                        page.clearCells(row, start, self.cols);
+                        page.clearCells(row, start, self.cols, .{});
                     }
 
                     page.size.cols = cols;
