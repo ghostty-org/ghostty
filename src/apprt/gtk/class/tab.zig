@@ -189,20 +189,8 @@ pub const Tab = extern struct {
     }
 
     pub fn new(config: ?*Config, overrides: Overrides) *Self {
-        const tab = gobject.ext.newInstance(Tab, .{});
-
+        const tab = newEmpty(config);
         const priv: *Private = tab.private();
-
-        if (config) |c| priv.config = c.ref();
-
-        // If our configuration is null then we get the configuration
-        // from the application.
-        if (priv.config == null) {
-            const app = Application.default();
-            priv.config = app.getConfig();
-        }
-
-        tab.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
 
         // Create our initial surface in the split tree.
         priv.split_tree.newSplit(.right, null, .{
@@ -219,6 +207,27 @@ pub const Tab = extern struct {
             },
         };
 
+        return tab;
+    }
+
+    /// Create a tab without any surface, for a caller that sets the
+    /// whole split tree itself. A tab whose tree becomes empty closes, so
+    /// the tree must be set before anything else happens to the tab.
+    pub fn newEmpty(config: ?*Config) *Self {
+        const tab = gobject.ext.newInstance(Tab, .{});
+
+        const priv: *Private = tab.private();
+
+        if (config) |c| priv.config = c.ref();
+
+        // If our configuration is null then we get the configuration
+        // from the application.
+        if (priv.config == null) {
+            const app = Application.default();
+            priv.config = app.getConfig();
+        }
+
+        tab.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
         return tab;
     }
 
@@ -247,6 +256,11 @@ pub const Tab = extern struct {
     //---------------------------------------------------------------
     // Properties
 
+    /// The overridden title, if any. See setTitleOverride.
+    pub fn getTitleOverride(self: *Self) ?[:0]const u8 {
+        return self.private().title_override;
+    }
+
     /// Overridden title. This will be generally be shown over the title
     /// unless this is unset (null).
     pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
@@ -262,6 +276,19 @@ pub const Tab = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const title = std.mem.span(title_ptr);
+
+        // The title of a tmux tab is the name of its window. Renaming the
+        // window sets it, once tmux reports the new name.
+        if (self.getSplitTree().getTmux() != null) tmux: {
+            const surface = self.getActiveSurface() orelse break :tmux;
+            const core = surface.core() orelse break :tmux;
+            const handled = core.tmuxBindingAction(.{ .set_tab_title = title }) catch |err| {
+                log.warn("failed to rename tmux window err={}", .{err});
+                break :tmux;
+            };
+            if (handled) return;
+        }
+
         self.setTitleOverride(if (title.len == 0) null else title);
     }
     pub fn promptTabTitle(self: *Self) void {

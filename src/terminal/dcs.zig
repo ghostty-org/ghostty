@@ -128,9 +128,17 @@ pub const Handler = struct {
             => {},
 
             .tmux => |*tmux| if (comptime build_options.tmux_control_mode) {
-                return .{
-                    .tmux = (try tmux.put(byte)) orelse return null,
+                const notification = tmux.put(byte) catch |err| {
+                    // The control stream can't be parsed any further, so
+                    // control mode is over for us. Say so rather than
+                    // silently dropping the rest of the DCS, which would
+                    // leave the session frozen with nobody the wiser.
+                    log.warn("tmux control mode stream failed err={}", .{err});
+                    self.discard();
+                    self.state = .ignore;
+                    return .{ .tmux = .exit };
                 };
+                return .{ .tmux = notification orelse return null };
             } else unreachable,
 
             .xtgettcap => |*list| {
@@ -568,4 +576,34 @@ test "tmux enter and implicit exit" {
         try testing.expect(cmd == .tmux);
         try testing.expect(cmd.tmux == .exit);
     }
+}
+
+test "tmux stream overflow exits exactly once" {
+    if (comptime !build_options.tmux_control_mode) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{ .max_bytes = 8 };
+    defer h.deinit();
+
+    {
+        var cmd = h.hook(alloc, .{ .params = &.{1000}, .final = 'p' }).?;
+        defer cmd.deinit();
+        try testing.expect(cmd.tmux == .enter);
+    }
+
+    // A notification line longer than the limit can't be recovered from.
+    var exits: usize = 0;
+    for ("%output %1 0123456789\n%window-add @1\n") |byte| {
+        var cmd = h.put(byte) orelse continue;
+        defer cmd.deinit();
+        try testing.expect(cmd == .tmux);
+        try testing.expect(cmd.tmux == .exit);
+        exits += 1;
+    }
+    try testing.expectEqual(1, exits);
+
+    // The rest of the DCS is dropped, including its end.
+    try testing.expect(h.unhook() == null);
 }

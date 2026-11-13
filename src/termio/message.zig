@@ -88,6 +88,51 @@ pub const Message = union(enum) {
     kitty_clipboard_grant_read: KittyClipboardGrant,
     kitty_clipboard_grant_write: KittyClipboardGrant,
 
+    /// tmux control mode: send a command to tmux. This can't be a plain
+    /// write because tmux answers every command with a `%begin`/`%end`
+    /// block that has to be matched against the viewer's command queue.
+    /// The data must include its trailing newline.
+    tmux_command: WriteReq.Alloc,
+
+    /// tmux control mode: a command the viewer sends on its own, such as
+    /// the next one of its queue. Unlike a plain write it is dropped once
+    /// we're detaching: tmux still runs what it reads after
+    /// `detach-client`.
+    tmux_write: WriteReq.Alloc,
+
+    /// tmux control mode: write bytes to the gateway pty as they are,
+    /// past the viewer's command queue and past the `send-keys` wrapping
+    /// that input gets. Only for detach and force-quit, when the viewer
+    /// is going away or already defunct.
+    tmux_raw: WriteReq.Alloc,
+
+    /// tmux control mode: print text on the gateway terminal without
+    /// sending anything to tmux. Used for the control plate.
+    tmux_echo: WriteReq.Alloc,
+
+    /// tmux control mode: fetch a pane's current contents so a newly
+    /// created follower surface isn't blank.
+    tmux_capture_pane: usize,
+
+    /// tmux control mode: list the windows again, for a change tmux
+    /// doesn't notify us about (such as reordering them).
+    tmux_refresh_windows: void,
+
+    /// tmux control mode: toggle protocol logging on the gateway.
+    tmux_logging_toggle: void,
+
+    /// tmux control mode: abandon control mode without detaching.
+    tmux_force_quit: void,
+
+    /// tmux control mode: we're about to detach by writing to tmux
+    /// directly, so the viewer must stop matching what tmux sends against
+    /// its command queue.
+    tmux_detaching: void,
+
+    /// tmux control mode follower: tmux sized our pane, so this becomes
+    /// the terminal grid from now on regardless of the surface size.
+    tmux_grid: renderer.GridSize,
+
     /// Write where the data fits in the union.
     write_small: WriteReq.Small,
 
@@ -123,7 +168,12 @@ pub const Message = union(enum) {
                 v.ptr.deinit();
                 v.alloc.destroy(v.ptr);
             },
-            .write_alloc => |v| v.alloc.free(v.data),
+            .write_alloc,
+            .tmux_command,
+            .tmux_write,
+            .tmux_raw,
+            .tmux_echo,
+            => |v| v.alloc.free(v.data),
             .kitty_clipboard_grant_read,
             .kitty_clipboard_grant_write,
             => |v| v.alloc.free(v.pw),

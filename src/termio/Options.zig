@@ -9,6 +9,16 @@ const termio = @import("../termio.zig");
 /// All size metrics for the terminal.
 size: renderer.Size,
 
+/// The terminal grid to use instead of the one that fits `size`. A tmux
+/// control mode follower shows a pane whose size tmux decides, so its
+/// grid has to be the pane's no matter how big the surface is.
+grid_override: ?renderer.GridSize = null,
+
+/// Whether a tmux control mode viewer on this terminal keeps a terminal
+/// for every pane (see `terminal.tmux.Viewer.mirror_panes`). Off when the
+/// apprt shows every pane in a view of its own.
+tmux_mirror_panes: bool = true,
+
 /// The full app configuration. This is only available during initialization.
 /// The memory it points to is NOT stable after the init call so any values
 /// in here must be copied.
