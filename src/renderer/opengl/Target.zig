@@ -150,33 +150,7 @@ pub fn exportDmabuf(
     display: *egl.Display,
     context: *egl.Context,
 ) !Dmabuf {
-    // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise
-    // the values may be linearized as they're copied, but even though
-    // the draw framebuffer has a linear internal format, the values in
-    // it should be sRGB, not linear!
-    try gl.disable(gl.c.GL_FRAMEBUFFER_SRGB);
-    defer gl.enable(gl.c.GL_FRAMEBUFFER_SRGB) catch |err| {
-        log.err("Error re-enabling GL_FRAMEBUFFER_SRGB, err={}", .{err});
-    };
-
-    const read_bind = try self.framebuffer.bind(.read);
-    defer read_bind.unbind();
-
-    const draw_bind = try self.export_framebuffer.bind(.draw);
-    defer draw_bind.unbind();
-
-    try gl.blitFramebuffer(
-        0,
-        0,
-        @intCast(self.width),
-        @intCast(self.height),
-        0,
-        0,
-        @intCast(self.width),
-        @intCast(self.height),
-        .{ .color_buffer_bit = true },
-        .nearest,
-    );
+    try self.blitToExport();
 
     const image: *egl.Image = try .create(
         display,
@@ -214,6 +188,42 @@ pub fn exportDmabuf(
     };
 }
 
+/// Copy the rendered frame into `export_framebuffer`, flipped vertically.
+///
+/// OpenGL stores the bottom row first, but consumers of the frame expect
+/// the top row first. Swapping the destination Y bounds of the blit flips
+/// the image as part of the copy, so both presentation paths (DMABUF and
+/// CPU readback) get a top-row-first image.
+fn blitToExport(self: *const Self) !void {
+    // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise
+    // the values may be linearized as they're copied, but even though
+    // the draw framebuffer has a linear internal format, the values in
+    // it should be sRGB, not linear!
+    try gl.disable(gl.c.GL_FRAMEBUFFER_SRGB);
+    defer gl.enable(gl.c.GL_FRAMEBUFFER_SRGB) catch |err| {
+        log.err("Error re-enabling GL_FRAMEBUFFER_SRGB, err={}", .{err});
+    };
+
+    const read_bind = try self.framebuffer.bind(.read);
+    defer read_bind.unbind();
+
+    const draw_bind = try self.export_framebuffer.bind(.draw);
+    defer draw_bind.unbind();
+
+    try gl.blitFramebuffer(
+        0,
+        0,
+        @intCast(self.width),
+        @intCast(self.height),
+        0,
+        @intCast(self.height),
+        @intCast(self.width),
+        0,
+        .{ .color_buffer_bit = true },
+        .nearest,
+    );
+}
+
 /// Read the current contents of the framebuffer into CPU memory.
 ///
 /// This is used by the CPU readback presentation fallback. The
@@ -222,7 +232,9 @@ pub fn exportDmabuf(
 /// `GL_FRAMEBUFFER_SRGB` has no effect on `ReadPixels`, so the stored
 /// values are returned verbatim.
 pub fn readPixelsAlloc(self: *const Self, alloc: std.mem.Allocator) ![]u8 {
-    const bind = try self.framebuffer.bind(.read);
+    try self.blitToExport();
+
+    const bind = try self.export_framebuffer.bind(.read);
     defer bind.unbind();
 
     const pixels = try alloc.alloc(u8, self.width * self.height * 4);
