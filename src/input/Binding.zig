@@ -890,12 +890,16 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     toggle_visibility,
 
-    /// Toggle the window background opacity between transparent and opaque.
+    /// Toggle the background opacity of all terminal windows between
+    /// transparent and opaque.
     ///
-    /// This does nothing when `background-opacity` is set to 1 or above.
+    /// This does nothing when `background-opacity` is set to 1 or above, or
+    /// when the focused window is in native fullscreen.
     ///
     /// When `background-opacity` is less than 1, this action will either make
-    /// the window transparent or not depending on its current transparency state.
+    /// all windows transparent or opaque, based on the current transparency
+    /// state of the focused window. The toggled state persists across
+    /// configuration reloads and is inherited by new windows.
     ///
     /// Only implemented on macOS.
     toggle_background_opacity,
