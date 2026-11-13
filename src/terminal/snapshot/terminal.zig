@@ -214,6 +214,10 @@
 //! well-defined and is the snapshot registry. Moving or adding a native mode
 //! therefore requires a snapshot version bump. Decoders ignore reserved bits.
 //!
+//! Bits 16, 33 and 35 are meaningful only in the saved word, where XTSAVE
+//! recorded which screen was active. Bit 34 is never meaningful. All four
+//! mode states come from `active_screen_key` and the saved cursors.
+//!
 //! ## Field classification
 //!
 //! The TERMINAL payload encodes terminal dimensions, pixel dimensions,
