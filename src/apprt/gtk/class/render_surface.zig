@@ -72,6 +72,16 @@ pub const RenderSurface = extern struct {
         /// One-shot so we log the first real allocation, not every size-allocate.
         scale_logged_size: bool = false,
 
+        /// Whether `resize` has been emitted at least once. The first
+        /// allocation is reported right away so that the apprt surface can
+        /// initialize the core surface as early as possible.
+        resized: bool = false,
+
+        /// Set by `size-allocate` once we have resized at least once.
+        /// The resize itself is emitted from `snapshot`, so that it is
+        /// emitted at most once per frame with the final allocation.
+        resize_pending: bool = false,
+
         pub var offset: c_int = 0;
     };
 
@@ -129,7 +139,7 @@ pub const RenderSurface = extern struct {
         baseline: c_int,
     ) callconv(.c) void {
         self.connectScaleNotify();
-        self.emitDeviceResize(width, height);
+        self.scheduleResize(width, height);
 
         gtk.Widget.virtual_methods.size_allocate.call(
             Class.parent,
@@ -148,6 +158,14 @@ pub const RenderSurface = extern struct {
 
     fn snapshot(self: *Self, snap: *gtk.Snapshot) callconv(.c) void {
         const priv = self.private();
+
+        // Report the allocation that this frame is actually drawn at.
+        // See `scheduleResize`.
+        if (priv.resize_pending) {
+            priv.resize_pending = false;
+            const widget = self.as(gtk.Widget);
+            _ = self.emitDeviceResize(widget.getWidth(), widget.getHeight());
+        }
 
         // Take the latest present from the renderer's queue, if any, and
         // build a texture from it. `take` closes any present that was
@@ -214,15 +232,44 @@ pub const RenderSurface = extern struct {
         return .{ .width = size.width, .height = size.height };
     }
 
-    fn emitDeviceResize(self: *Self, css_w: c_int, css_h: c_int) void {
+    /// Report a new allocation.
+    ///
+    /// A widget can be allocated more than once in a single layout pass,
+    /// and the allocations before the last are not ones it will ever be
+    /// drawn at. A `GtkScrolledWindow` with non-overlay scrollbars does
+    /// this all the time: it allocates its child as if the scrollbar were
+    /// hidden, looks at the adjustment, and allocates it again narrower to
+    /// make room for the scrollbar. Emitting `resize` for each of those
+    /// resizes the terminal back and forth, and anything that queues a
+    /// resize in response, such as the resize overlay, starts the next
+    /// layout pass and keeps it going indefinitely.
+    ///
+    /// So, as `GtkGLArea` did, only the first allocation is emitted
+    /// immediately and later ones are deferred to `snapshot`, which runs
+    /// once per frame after layout has settled.
+    fn scheduleResize(self: *Self, css_w: c_int, css_h: c_int) void {
+        const priv = self.private();
+        if (!priv.resized) {
+            priv.resized = self.emitDeviceResize(css_w, css_h);
+            return;
+        }
+
+        priv.resize_pending = true;
+        self.as(gtk.Widget).queueDraw();
+    }
+
+    /// Emit `resize` with the device size for the given CSS size. Returns
+    /// false, without emitting, if the device size is empty.
+    fn emitDeviceResize(self: *Self, css_w: c_int, css_h: c_int) bool {
         const size = scale_util.widgetLayoutForSize(self.as(gtk.Widget), css_w, css_h).size;
-        if (size.width == 0 or size.height == 0) return;
+        if (size.width == 0 or size.height == 0) return false;
         signals.resize.impl.emit(
             self,
             null,
             .{ @intCast(size.width), @intCast(size.height) },
             null,
         );
+        return true;
     }
 
     fn connectScaleNotify(self: *Self) void {
@@ -270,7 +317,7 @@ pub const RenderSurface = extern struct {
     ) callconv(.c) void {
         const widget = self.as(gtk.Widget);
         self.logScale("changed", widget.getWidth(), widget.getHeight());
-        self.emitDeviceResize(widget.getWidth(), widget.getHeight());
+        _ = self.emitDeviceResize(widget.getWidth(), widget.getHeight());
         widget.queueDraw();
     }
 
