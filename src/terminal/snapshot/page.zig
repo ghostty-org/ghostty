@@ -1945,7 +1945,7 @@ test "decode reuses duplicate hyperlinks" {
     // Overwriting the sole linked cell must make the deduplicated entry dead.
     // Any surviving reference belongs to the decode-time wire table, not the
     // native page.
-    decoded.clearCells(decoded.getRow(0), 0, 1);
+    decoded.clearCells(decoded.getRow(0), 0, 1, .{});
     try std.testing.expectEqual(@as(usize, 0), decoded.hyperlink_set.count());
 }
 
