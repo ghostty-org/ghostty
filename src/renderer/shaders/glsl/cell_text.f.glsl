@@ -77,21 +77,18 @@ void main() {
 
         case ATLAS_COLOR:
         {
-            // For now, we assume that color glyphs
-            // are already premultiplied linear colors.
             vec4 color = texture(atlas_color, in_data.tex_coord);
 
-            // If we are doing linear blending, we can return this right away.
-            if (use_linear_blending) {
-                out_FragColor = color;
-                return;
+            // `src/font/face/freetype.zig` has a `renderGlyph()` that requests
+            // sRGB with premultiplied alpha.
+            // This is the FT_PIXEL_MODE_BGRA representation documented at
+            // https://freetype.org/freetype2/docs/reference/ft2-basic_types.html#ft_pixel_mode
+            // To linearly blend, we need to decode this to premultiplied linear RGB
+            if (use_linear_blending && color.a > 0.0) {
+                color.rgb /= color.a;
+                color = linearize(color);
+                color.rgb *= color.a;
             }
-
-            // Otherwise we need to unlinearize the color. Since the alpha is
-            // premultiplied, we need to divide it out before unlinearizing.
-            color.rgb /= vec3(color.a);
-            color = unlinearize(color);
-            color.rgb *= vec3(color.a);
 
             out_FragColor = color;
             return;
