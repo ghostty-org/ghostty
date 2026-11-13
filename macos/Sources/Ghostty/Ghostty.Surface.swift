@@ -12,11 +12,11 @@ extension Ghostty {
     @MainActor
     final class Surface {
         /// Nonisolated because `deinit` is nonisolated and must read this to free the surface.
-        nonisolated(unsafe) private let surface: ghostty_surface_t
+        nonisolated(unsafe) private var surface: ghostty_surface_t?
 
-        /// Read the underlying C value for this surface. This is unsafe because the value will be
-        /// freed when the Surface class is deinitialized.
-        var unsafeCValue: ghostty_surface_t {
+        /// Read the underlying C value for this surface. This is unsafe because the value may be
+        /// freed explicitly or when the Surface class is deinitialized.
+        var unsafeCValue: ghostty_surface_t? {
             surface
         }
 
@@ -25,7 +25,15 @@ extension Ghostty {
             self.surface = cSurface
         }
 
+        /// Free the underlying surface. This is safe to call multiple times.
+        func free() {
+            guard let surface else { return }
+            self.surface = nil
+            ghostty_surface_free(surface)
+        }
+
         deinit {
+            guard let surface else { return }
             guard !Thread.isMainThread else {
                 // The surface remains registered with the app and holds unretained
                 // userdata until it is freed. When already on the main thread, free
@@ -38,9 +46,9 @@ extension Ghostty {
             // value so we don't capture `self` and then we detach it in a task.
             // We can't wait for the task to succeed so this will happen sometime
             // but that's okay.
-            nonisolated(unsafe) let surface = self.surface
+            nonisolated(unsafe) let unsafeSurface = surface
             Task.detached { @MainActor in
-                ghostty_surface_free(surface)
+                ghostty_surface_free(unsafeSurface)
             }
         }
 
@@ -48,6 +56,7 @@ extension Ghostty {
         /// shortcuts and other encodings do not take effect. Bracketed paste framing is applied when
         /// the terminal has enabled it.
         func sendText(_ text: String) {
+            guard let surface else { return }
             let len = text.utf8CString.count
             if len == 0 { return }
 
@@ -61,6 +70,7 @@ extension Ghostty {
         /// honors paste protection, so unsafe text (e.g. containing newlines) prompts for
         /// confirmation first. Use this for text from external sources such as drag and drop.
         func pasteText(_ text: String) {
+            guard let surface else { return }
             let len = text.utf8CString.count
             if len <= 1 { return }
 
@@ -77,7 +87,8 @@ extension Ghostty {
         /// - Parameter mods: The full set of modifiers for the key event.
         /// - Returns: The subset of `mods` to use for keyboard layout translation.
         func keyTranslationMods(_ mods: Input.Mods) -> Input.Mods {
-            Input.Mods(cMods: ghostty_surface_key_translation_mods(surface, mods.cMods))
+            guard let surface else { return mods }
+            return Input.Mods(cMods: ghostty_surface_key_translation_mods(surface, mods.cMods))
         }
 
         /// Send a key event to the terminal.
@@ -88,6 +99,7 @@ extension Ghostty {
         ///
         /// - Parameter event: The key event to send to the terminal
         func sendKeyEvent(_ event: Input.KeyEvent) {
+            guard let surface else { return }
             event.withCValue { cEvent in
                 ghostty_surface_key(surface, cEvent)
             }
@@ -101,6 +113,7 @@ extension Ghostty {
         /// - Parameter event: The key event to check
         /// - Returns: The binding flags if a binding matches, or nil if no binding matches
         func keyIsBinding(_ event: ghostty_input_key_s) -> Input.BindingFlags? {
+            guard let surface else { return nil }
             var flags = ghostty_binding_flags_e(0)
             guard ghostty_surface_key_is_binding(surface, event, &flags) else { return nil }
             return Input.BindingFlags(cFlags: flags)
@@ -117,11 +130,13 @@ extension Ghostty {
         /// directly rather than the host system handling them. This typically occurs when
         /// a terminal application enables mouse reporting mode.
         var mouseCaptured: Bool {
-            ghostty_surface_mouse_captured(surface)
+            guard let surface else { return false }
+            return ghostty_surface_mouse_captured(surface)
         }
 
         /// The PID of the foreground process group attached to the PTY.
         var foregroundPID: Int? {
+            guard let surface else { return nil }
             let pid = ghostty_surface_foreground_pid(surface)
             guard pid != 0 else { return nil }
             return Int(exactly: pid)
@@ -129,6 +144,7 @@ extension Ghostty {
 
         /// The PTY device name for this surface.
         var ttyName: String? {
+            guard let surface else { return nil }
             let ttyName = AllocatedString(ghostty_surface_tty_name(surface)).string
             return ttyName.isEmpty ? nil : ttyName
         }
@@ -141,6 +157,7 @@ extension Ghostty {
         ///
         /// - Parameter event: The mouse button event to send to the terminal
         func sendMouseButton(_ event: Input.MouseButtonEvent) {
+            guard let surface else { return }
             ghostty_surface_mouse_button(
                 surface,
                 event.action.cMouseState,
@@ -156,6 +173,7 @@ extension Ghostty {
         ///
         /// - Parameter event: The mouse position event to send to the terminal
         func sendMousePos(_ event: Input.MousePosEvent) {
+            guard let surface else { return }
             ghostty_surface_mouse_pos(
                 surface,
                 event.x,
@@ -171,6 +189,7 @@ extension Ghostty {
         ///
         /// - Parameter event: The mouse scroll event to send to the terminal
         func sendMouseScroll(_ event: Input.MouseScrollEvent) {
+            guard let surface else { return }
             ghostty_surface_mouse_scroll(
                 surface,
                 event.x,
@@ -185,6 +204,7 @@ extension Ghostty {
         ///
         /// Returns true if the action was performed. Invalid actions return false.
         func perform(action: String) -> Bool {
+            guard let surface else { return false }
             let len = action.utf8CString.count
             if len == 0 { return false }
             return action.withCString { cString in
