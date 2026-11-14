@@ -30,6 +30,7 @@ const Collection = font.Collection;
 const Face = font.Face;
 const Glyph = font.Glyph;
 const Library = font.Library;
+const DeferredFace = font.DeferredFace;
 const Metrics = font.Metrics;
 const Presentation = font.Presentation;
 const Style = font.Style;
@@ -188,10 +189,38 @@ pub fn getIndex(
         // because getFace doesn't work with special fonts.
         if (idx.special() != null) break :preload;
 
-        // Load the face in case its deferred. If this fails then we would've
-        // failed to load it in the future anyways so we want to undo all
-        // the caching we did.
-        _ = try self.resolver.collection.getFace(idx);
+        // Load the face in case its deferred. The errors listed below
+        // mean the face has no file we can open or read, so it never will
+        // load: treat the codepoint as having no font and cache that.
+        // Returning the error would make the caller drop everything around
+        // this codepoint (the renderer clears the whole row) and retry the
+        // same failing load on every frame. Anything else, running out of
+        // memory included, is returned and the errdefer above forgets this
+        // lookup.
+        //
+        // The switch is over anyerror because the error set depends on the
+        // font backend: the fontconfig errors exist only with fontconfig,
+        // FontHasNoFile and FontPathCantDecode only with CoreText, and a
+        // prong naming an error outside the set does not compile.
+        _ = self.resolver.collection.getFace(idx) catch |err| switch (@as(anyerror, err)) {
+            error.FontconfigNoMatch,
+            error.FontconfigTypeMismatch,
+            error.FontconfigNoId,
+            error.FontHasNoFile,
+            error.FontPathCantDecode,
+            error.CannotOpenResource,
+            error.UnknownFileFormat,
+            error.InvalidFileFormat,
+            => {
+                log.warn(
+                    "unable to load face for codepoint={X} err={}",
+                    .{ cp, err },
+                );
+                gop.value_ptr.* = null;
+                return null;
+            },
+            else => return err,
+        };
     }
 
     return value;
@@ -594,6 +623,58 @@ test getIndex {
         try testing.expectEqual(Style.regular, idx.style);
         try testing.expectEqual(@as(Collection.Index.IndexInt, 0), idx.idx);
     }
+}
+
+test "getIndex: face that fails to load is treated as no font" {
+    // Fontconfig can hand back a match whose charset claims a codepoint but
+    // which has no file to load. Choosing that face for the codepoint must
+    // not turn into an error: the renderer would drop the whole row and
+    // retry the load on every frame.
+    if (comptime font.options.backend != .fontconfig_freetype) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const fontconfig = @import("fontconfig");
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var grid = try testGrid(.normal, alloc, lib);
+    defer grid.deinit(alloc);
+
+    // U+1F17C NEGATIVE SQUARED LATIN CAPITAL LETTER M, which the primary
+    // font does not have.
+    const cp = 0x1F17C;
+
+    const pat = fontconfig.Pattern.create();
+    {
+        const cs = fontconfig.CharSet.create();
+        defer cs.destroy();
+        try testing.expect(cs.addChar(cp));
+        try testing.expect(pat.add(.charset, .{ .char_set = cs }, false));
+    }
+    try testing.expect(pat.add(.lang, .{ .string = "en" }, false));
+    var deferred: DeferredFace = .{ .fc = .{
+        .pattern = pat,
+        .charset = (try pat.get(.charset, 0)).char_set,
+        .langset = try pat.get(.lang, 0),
+        .variations = &.{},
+    } };
+    _ = grid.resolver.collection.addDeferred(alloc, deferred, .{
+        .style = .regular,
+        .fallback = true,
+        .size_adjustment = .none,
+    }) catch |err| {
+        deferred.deinit();
+        return err;
+    };
+
+    try testing.expectEqual(null, try grid.getIndex(alloc, cp, .regular, null));
+
+    // The miss is cached rather than retried.
+    const key = CodepointKey.from(.{ .style = .regular, .codepoint = cp, .presentation = null });
+    try testing.expectEqual(@as(??Collection.Index, @as(?Collection.Index, null)), grid.codepoints.get(key));
+    try testing.expectEqual(null, try grid.getIndex(alloc, cp, .regular, null));
 }
 
 test "renderGlyph error after cache insert rolls back cache entry" {
