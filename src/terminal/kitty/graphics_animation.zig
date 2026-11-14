@@ -22,7 +22,7 @@
 //! graphics_pixel.zig.
 
 const std = @import("std");
-const ArcPixels = @import("../image.zig").ArcPixels;
+const ArcPixels = @import("../../datastruct/main.zig").AtomicRefCounted([]u8);
 const Allocator = std.mem.Allocator;
 
 /// The gap assigned to a newly created frame when the command doesn't
@@ -85,6 +85,7 @@ pub const Animation = struct {
     /// ```zig
     /// // A pending frame for a 2x2 image: 2 * 2 * 4 bytes of RGBA.
     /// const frame: Frame = .{ .data = try ArcPixels.init(alloc, &.{}), .gap_ms = 40, .pending_len = 16 };
+    /// defer frame.data.release(alloc);
     /// frame.isPending(); // true
     /// frame.storageSize(); // 16
     /// ```

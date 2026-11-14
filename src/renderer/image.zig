@@ -10,7 +10,7 @@ const GraphicsAPI = Renderer.API;
 const Texture = GraphicsAPI.Texture;
 const Overlay = @import("Overlay.zig");
 
-const ArcPixels = terminal.ArcPixels;
+pub const ArcPixels = @import("../datastruct/main.zig").AtomicRefCounted([]u8);
 
 const log = std.log.scoped(.renderer_image);
 
@@ -405,7 +405,7 @@ pub const State = struct {
         alloc: Allocator,
         id: Id,
         generation: u64,
-        pending: terminal.Image,
+        pending: Image.Pending,
     ) PrepImageError!void {
         // If this image exists and its generation is the same it is the
         // identical image so we don't need to send it to the GPU.
@@ -576,10 +576,52 @@ pub const Image = union(enum) {
         pending: Pending,
     };
 
-    pub const Pending = terminal.Image;
+    /// Pending image data that needs to be uploaded to the GPU.
+    pub const Pending = struct {
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        pixels: *const ArcPixels,
 
-    /// Convert layouts without native backend support into RGBA.
-    /// A Graphics API may accept more than the shared format of RGBA
+        pub const PixelFormat = enum {
+            /// 1 byte per pixel grayscale.
+            gray,
+            /// 2 bytes per pixel grayscale + alpha.
+            gray_alpha,
+            /// 3 bytes per pixel RGB.
+            rgb,
+            /// 3 bytes per pixel BGR.
+            bgr,
+            /// 4 byte per pixel RGBA.
+            rgba,
+            /// 4 byte per pixel BGRA.
+            bgra,
+
+            /// Get bytes per pixel for this format.
+            pub inline fn bpp(self: PixelFormat) usize {
+                return switch (self) {
+                    .gray => 1,
+                    .gray_alpha => 2,
+                    .rgb => 3,
+                    .bgr => 3,
+                    .rgba => 4,
+                    .bgra => 4,
+                };
+            }
+        };
+
+        pub fn clone(self: Pending) Pending {
+            var result = self;
+            result.pixels = self.pixels.clone();
+            return result;
+        }
+
+        pub fn deinit(self: Pending, alloc: Allocator) void {
+            self.pixels.release(alloc);
+        }
+    };
+
+    /// Convert layouts that can't be uploaded directly via the GraphicsAPI
     fn convertForUpload(alloc: Allocator, shared: Pending) wuffs.Error!Pending {
         const source = &shared;
         const rgba = try switch (source.format) {
@@ -598,11 +640,15 @@ pub const Image = union(enum) {
         };
     }
 
-    /// Prepare the pending image data for upload to the GPU. This doesn't
-    /// need GPU access and is a no-op for formats the graphics API accepts.
+    /// Prepare the pending image data for upload to the GPU by ensuring it
+    /// is in an uploadable format. This is a no-op when the pixel data is
+    /// in a native upload format, and a copy when we need to swizzle the pixels
+    /// into RGBA layout.
     fn prepForUpload(self: *Image, alloc: Allocator) wuffs.Error!void {
         const pending = self.getPendingPointer().?;
-        if (Texture.imageTextureFormat(pending.*.format) != null) return;
+        // Early return when the Image's format can be mapped to a
+        // GraphicsAPI format.
+        if (Texture.mapImageFormat(pending.*.format) != null) return;
         const converted = try convertForUpload(alloc, pending.*);
         pending.*.deinit(alloc);
         pending.* = converted;
@@ -716,7 +762,7 @@ pub const Image = union(enum) {
 
         // Create our texture
         const texture = Texture.init(
-            api.imageTextureOptions(Texture.imageTextureFormat(p.*.format).?, true),
+            api.imageTextureOptions(Texture.mapImageFormat(p.*.format).?, true),
             @intCast(p.*.width),
             @intCast(p.*.height),
             p.*.pixels.value,
@@ -1383,10 +1429,10 @@ test "kitty renderer retains pixels and converts outside storage" {
         try testing.expectEqual(retained, entry.image.pending.pixels);
     }
     try entry.image.prepForUpload(alloc);
-    try testing.expectEqual(terminal.Image.Format.rgba, entry.image.pending.format);
+    try testing.expectEqual(Image.Pending.PixelFormat.rgba, entry.image.pending.format);
     try testing.expectEqualSlices(u8, &.{ 1, 1, 1, 2 }, entry.image.pending.pixels.value);
     try testing.expectEqualSlices(u8, &.{ 1, 2 }, retained.value);
-    try testing.expectEqual(terminal.Image.Format.gray_alpha, original.format);
+    try testing.expectEqual(Image.Pending.PixelFormat.gray_alpha, original.format);
     try testing.expectEqual(@as(u32, 1), original.width);
     try testing.expectEqual(@as(u32, 1), original.height);
     try testing.expectEqual(retained, original.pixels);
@@ -1401,7 +1447,7 @@ test "kitty renderer retains pixels and converts outside storage" {
 test "kitty renderer releases pending replacement and canceled unload" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const first: terminal.Image = .{
+    const first: Image.Pending = .{
         .width = 1,
         .height = 1,
         .format = .rgba,
@@ -1413,7 +1459,7 @@ test "kitty renderer releases pending replacement and canceled unload" {
     image.markForUnload();
     image.cancelUnload();
     try testing.expectEqual(first.pixels, image.pending.pixels);
-    const second: terminal.Image = .{
+    const second: Image.Pending = .{
         .width = 1,
         .height = 1,
         .format = .rgba,
@@ -1454,9 +1500,9 @@ test "kitty renderer overlay snapshot survives drawing and teardown" {
 test "kitty renderer uploads native formats without copying" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    for (std.enums.values(terminal.Image.Format)) |format| {
-        if (Texture.imageTextureFormat(format) == null) continue;
-        const shared: terminal.Image = .{
+    for (std.enums.values(Image.Pending.PixelFormat)) |format| {
+        if (Texture.mapImageFormat(format) == null) continue;
+        const shared: Image.Pending = .{
             .width = 3,
             .height = 2,
             .format = format,
@@ -1505,4 +1551,106 @@ test "kitty renderer releases retained pixels after storage eviction" {
         try testing.expectEqualSlices(u8, &.{ 1, 1, 1, 2 }, entry.image.pending.pixels.value);
     }
     try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
+}
+
+test "renderer pending image makeMut reuses unique pixels without allocating" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const alloc = failing.allocator();
+    const pixels = try alloc.dupe(u8, "rgba");
+    var image: Image.Pending = .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .pixels = try ArcPixels.init(alloc, pixels),
+    };
+    defer image.deinit(alloc);
+    const original = image.pixels;
+    try std.testing.expectEqual(1, image.pixels.refs.load(.monotonic));
+    const temporary = image.clone();
+    try std.testing.expectEqual(2, image.pixels.refs.load(.monotonic));
+    temporary.deinit(alloc);
+    try std.testing.expectEqual(1, image.pixels.refs.load(.monotonic));
+    failing.fail_index = failing.alloc_index;
+    const mutable = try ArcPixels.makeMut(&image.pixels, alloc);
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(1, image.pixels.refs.load(.monotonic));
+    try std.testing.expectEqual(original, image.pixels);
+    try std.testing.expectEqual(pixels.ptr, mutable.ptr);
+    mutable.*[0] = 'R';
+    const cloned = image.clone();
+    try std.testing.expectEqual(2, image.pixels.refs.load(.monotonic));
+    try std.testing.expectEqualSlices(u8, "Rgba", cloned.pixels.value);
+    cloned.deinit(alloc);
+    try std.testing.expectEqual(1, image.pixels.refs.load(.monotonic));
+}
+
+test "renderer pending image makeMut preserves other readers" {
+    const alloc = std.testing.allocator;
+    var image: Image.Pending = .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .pixels = try ArcPixels.init(alloc, try alloc.dupe(u8, "rgba")),
+    };
+    defer image.deinit(alloc);
+    const retained = image.clone();
+    defer retained.deinit(alloc);
+
+    try std.testing.expectEqual(2, image.pixels.refs.load(.monotonic));
+    const mutable = try ArcPixels.makeMut(&image.pixels, alloc);
+    try std.testing.expect(image.pixels != retained.pixels);
+    try std.testing.expect(mutable.ptr != retained.pixels.value.ptr);
+    try std.testing.expectEqual(retained.width, image.width);
+    try std.testing.expectEqual(retained.height, image.height);
+    try std.testing.expectEqual(retained.format, image.format);
+    try std.testing.expectEqualSlices(u8, "rgba", mutable.*);
+    mutable.*[0] = 'R';
+    try std.testing.expectEqualSlices(u8, "rgba", retained.pixels.value);
+    try std.testing.expectEqualSlices(u8, "Rgba", image.pixels.value);
+    try std.testing.expectEqual(1, retained.pixels.refs.load(.monotonic));
+    try std.testing.expectEqual(1, image.pixels.refs.load(.monotonic));
+}
+
+test "renderer pending image makeMut allocation failure preserves shared ownership" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const alloc = failing.allocator();
+    var image: Image.Pending = .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .pixels = try ArcPixels.init(alloc, try alloc.dupe(u8, "rgba")),
+    };
+    defer image.deinit(alloc);
+    const retained = image.clone();
+    defer retained.deinit(alloc);
+
+    try std.testing.expectEqual(2, image.pixels.refs.load(.monotonic));
+    // Fail both the pixel copy and the replacement control block allocation.
+    for (0..2) |fail_index| {
+        failing.fail_index = failing.alloc_index + fail_index;
+        try std.testing.expectError(error.OutOfMemory, ArcPixels.makeMut(&image.pixels, alloc));
+        try std.testing.expectEqual(retained.pixels, image.pixels);
+        try std.testing.expectEqual(2, image.pixels.refs.load(.monotonic));
+        try std.testing.expectEqualSlices(u8, "rgba", image.pixels.value);
+    }
+}
+
+test "renderer pending image retains immutable pixels without copying" {
+    const alloc = std.testing.allocator;
+    const data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 });
+    const image: Image.Pending = .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .pixels = try ArcPixels.init(alloc, data),
+    };
+    try std.testing.expectEqual(1, image.pixels.refs.load(.monotonic));
+    const retained = image.clone();
+    try std.testing.expectEqual(2, retained.pixels.refs.load(.monotonic));
+    image.deinit(alloc);
+    defer retained.deinit(alloc);
+    try std.testing.expectEqual(1, retained.pixels.refs.load(.monotonic));
+    try std.testing.expectEqual(*const ArcPixels, @TypeOf(retained.pixels));
+    try std.testing.expectEqual(data.ptr, retained.pixels.value.ptr);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, retained.pixels.value);
 }

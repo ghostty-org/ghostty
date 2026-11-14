@@ -300,7 +300,7 @@ fn addFixedPlacements(self: *ScreenClone, span: usize) !void {
     const height = 16;
     const pixels = try alloc.alloc(u8, width * height * 4);
     @memset(pixels, 0x80);
-    const shared = terminalpkg.ArcPixels.init(alloc, pixels) catch |err| {
+    const shared = terminalpkg.kitty.graphics.ArcPixels.init(alloc, pixels) catch |err| {
         alloc.free(pixels);
         return err;
     };

@@ -2137,7 +2137,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .width = image_data.width,
                         .height = image_data.height,
                         .format = .rgba,
-                        .pixels = terminal.ArcPixels.init(self.alloc, image_data.data) catch |err| {
+                        .pixels = imagepkg.ArcPixels.init(self.alloc, image_data.data) catch |err| {
                             self.alloc.free(image_data.data);
                             return err;
                         },

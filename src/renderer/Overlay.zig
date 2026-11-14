@@ -19,7 +19,8 @@ const terminal = @import("../terminal/main.zig");
 const size = @import("size.zig");
 const Size = size.Size;
 const CellSize = size.CellSize;
-const Image = terminal.Image;
+const Image = @import("image.zig").Image.Pending;
+const ArcPixels = @import("image.zig").ArcPixels;
 const global = @import("../global.zig");
 
 const log = std.log.scoped(.renderer_overlay);
@@ -115,7 +116,7 @@ pub fn pendingImage(self: *const Overlay, alloc: Allocator) Allocator.Error!Imag
         .width = @intCast(self.surface.getWidth()),
         .height = @intCast(self.surface.getHeight()),
         .format = .rgba,
-        .pixels = try terminal.ArcPixels.init(alloc, pixels),
+        .pixels = try ArcPixels.init(alloc, pixels),
     };
 }
 

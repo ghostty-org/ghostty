@@ -374,7 +374,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const io = @import("io.zig");
 const record = @import("record.zig");
-const ArcPixels = @import("../image.zig").ArcPixels;
+const ArcPixels = graphics.ArcPixels;
 const terminal_kitty = @import("../kitty.zig");
 const graphics_command = @import("../kitty/graphics_command.zig");
 const TerminalPageList = @import("../PageList.zig");
@@ -454,10 +454,10 @@ const ImageFlags = packed struct(u8) {
     _padding: u6 = 0,
 };
 
-fn imageFlags(metadata: Image.Metadata) ImageFlags {
+fn imageFlags(img: *const Image) ImageFlags {
     return .{
-        .transient = metadata.transient,
-        .implicit_id = metadata.implicit_id,
+        .transient = img.metadata.transient,
+        .implicit_id = img.metadata.implicit_id,
     };
 }
 
@@ -1031,7 +1031,7 @@ fn encodeImage(writer: *std.Io.Writer, img: *const Image) !void {
     try io.writeInt(writer, u32, img.width);
     try io.writeInt(writer, u32, img.height);
     try writer.writeByte(encodeFormat(img.format));
-    try writer.writeByte(@bitCast(imageFlags(img.metadata)));
+    try writer.writeByte(@bitCast(imageFlags(img)));
     try io.writeInt(writer, u64, img.data.len());
 
     const anim = img.animation orelse {
@@ -1122,7 +1122,7 @@ fn encodeLoading(writer: *std.Io.Writer, loading: *const LoadingImage) !void {
     try io.writeInt(writer, u32, img.height);
     try writer.writeByte(encodeFormat(img.format));
     try writer.writeByte(encodeCompression(img.compression));
-    try writer.writeByte(@bitCast(imageFlags(img.metadata)));
+    try writer.writeByte(@bitCast(imageFlags(img)));
     try writer.writeByte(switch (loading.quiet) {
         .no => 0,
         .ok => 1,

@@ -8,8 +8,7 @@ const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const animation = @import("graphics_animation.zig");
-const ArcPixels = @import("../image.zig").ArcPixels;
-const Image = @import("../image.zig").Image;
+pub const ArcPixels = @import("../../datastruct/main.zig").AtomicRefCounted([]u8);
 const command = @import("graphics_command.zig");
 const kitty_windows = @import("windows.zig");
 const PageList = @import("../PageList.zig");
@@ -31,7 +30,7 @@ const max_size = 400 * 1024 * 1024; // 400MB
 pub const LoadingImage = struct {
     /// The in-progress image. The first chunk must have all the metadata
     /// so this comes from that initially.
-    image: Info,
+    image: KittyImage,
 
     /// The data that is being built up.
     data: std.ArrayList(u8) = .empty,
@@ -57,17 +56,6 @@ pub const LoadingImage = struct {
     /// The temporary directory for file transmission (null means that
     /// temporary directory transmission is disabled).
     temporary_directory: ?[]const u8,
-
-    /// Transmission metadata, independent of decoded pixel ownership.
-    pub const Info = struct {
-        id: u32 = 0,
-        number: u32 = 0,
-        width: u32 = 0,
-        height: u32 = 0,
-        format: command.Transmission.Format = .rgb,
-        compression: command.Transmission.Compression = .none,
-        metadata: KittyImage.Metadata = .{},
-    };
 
     pub const FrameContext = struct {
         /// The frame parameters from the initial a=f command. Chunked
@@ -548,6 +536,7 @@ pub const LoadingImage = struct {
     }
 
     pub fn deinit(self: *LoadingImage, alloc: Allocator) void {
+        self.image.deinit(alloc);
         self.data.deinit(alloc);
     }
 
@@ -577,9 +566,8 @@ pub const LoadingImage = struct {
         fastmem.copy(u8, self.data.items[start_i..], data);
     }
 
-    /// Transfer the decoded pixels into an owned CPU image. Transmission
-    /// metadata remains available in image until the loading state is discarded.
-    pub fn complete(self: *LoadingImage, alloc: Allocator) !Image {
+    /// Complete the chunked image, returning a completed image.
+    pub fn complete(self: *LoadingImage, alloc: Allocator) !KittyImage {
         const img = &self.image;
 
         // Decompress the data if it is compressed.
@@ -618,18 +606,10 @@ pub const LoadingImage = struct {
 
         const data = try self.data.toOwnedSlice(alloc);
         errdefer alloc.free(data);
-        return .{
-            .width = img.width,
-            .height = img.height,
-            .format = switch (img.format) {
-                .gray => .gray,
-                .gray_alpha => .gray_alpha,
-                .rgb => .rgb,
-                .rgba => .rgba,
-                .png => unreachable,
-            },
-            .pixels = try ArcPixels.init(alloc, data),
-        };
+        var result = self.image;
+        result.data = .{ .ready = try ArcPixels.init(alloc, data) };
+        self.image = .{};
+        return result;
     }
 
     /// Debug function to write the data to a file. This is useful for
@@ -755,7 +735,22 @@ pub const KittyImage = struct {
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
     data: Data = .{ .pending = 0 },
-    metadata: Metadata = .{},
+    metadata: packed struct(u32) {
+        /// The image's transient usage hint, used to prioritize eviction.
+        transient: bool = false,
+
+        /// Set this if the image was loaded without an ID or number. Such
+        /// images must not receive responses. Kitty gives these client ID
+        /// 0 (unaddressable); our storage keys everything by one public
+        /// u32 ID, so they get an ID from the upper half of the range
+        /// that is guaranteed unused at assignment time, but a client
+        /// that explicitly transmits that ID later can still replace
+        /// them.
+        implicit_id: bool = false,
+
+        /// Number of placements referencing this image.
+        placement_count: u30 = 0,
+    } = .{},
 
     /// Unique, monotonically increasing stamp assigned each time an
     /// image is added to (or replaced in) an ImageStorage. A changed
@@ -801,23 +796,6 @@ pub const KittyImage = struct {
     /// pointer and never own it).
     animation: ?*animation.Animation = null,
 
-    pub const Metadata = packed struct(u32) {
-        /// The image's transient usage hint, used to prioritize eviction.
-        transient: bool = false,
-
-        /// Set this if the image was loaded without an ID or number. Such
-        /// images must not receive responses. Kitty gives these client ID
-        /// 0 (unaddressable); our storage keys everything by one public
-        /// u32 ID, so they get an ID from the upper half of the range
-        /// that is guaranteed unused at assignment time, but a client
-        /// that explicitly transmits that ID later can still replace
-        /// them.
-        implicit_id: bool = false,
-
-        /// Number of placements referencing this image.
-        placement_count: u30 = 0,
-    };
-
     pub const Error = error{
         InsufficientData,
         InvalidData,
@@ -833,7 +811,7 @@ pub const KittyImage = struct {
     };
 
     pub const Data = union(enum) {
-        /// Completed decoded pixels, always reference-counted.
+        /// Owned, decoded image bytes
         ready: *const ArcPixels,
 
         /// Expected decoded byte length for a payload that has not arrived.
@@ -866,25 +844,6 @@ pub const KittyImage = struct {
             }
         }
     };
-
-    /// Transfer ownership of a decoded image into Kitty storage.
-    pub fn init(info: LoadingImage.Info, pixels: Image) KittyImage {
-        return .{
-            .id = info.id,
-            .number = info.number,
-            .width = pixels.width,
-            .height = pixels.height,
-            .format = switch (pixels.format) {
-                .gray => .gray,
-                .gray_alpha => .gray_alpha,
-                .rgb => .rgb,
-                .rgba => .rgba,
-                .bgr, .bgra => unreachable,
-            },
-            .metadata = info.metadata,
-            .data = .{ .ready = pixels.pixels },
-        };
-    }
 
     /// Borrow the immutable displayed frame while terminal state is locked.
     /// Without incrementing the ref-count.
@@ -962,7 +921,7 @@ pub const KittyImage = struct {
     }
 
     /// Mostly for logging
-    pub fn withoutData(self: *const KittyImage) LoadingImage.Info {
+    pub fn withoutData(self: *const KittyImage) KittyImage {
         return .{
             .id = self.id,
             .number = self.number,
@@ -1309,11 +1268,11 @@ test "image load: rgb, zlib compressed, direct" {
     defer cmd.deinit(alloc);
     var loading = try LoadingImage.init(io, alloc, &cmd, .direct);
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
 
     // should be decompressed
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 }
 
 test "image load: rgb, not compressed, direct" {
@@ -1338,11 +1297,11 @@ test "image load: rgb, not compressed, direct" {
     defer cmd.deinit(alloc);
     var loading = try LoadingImage.init(io, alloc, &cmd, .direct);
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
 
     // should be decompressed
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 }
 
 test "image load: rgb, zlib compressed, direct, chunked" {
@@ -1378,9 +1337,9 @@ test "image load: rgb, zlib compressed, direct, chunked" {
     } else |err| return err;
 
     // Complete
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 }
 
 test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk" {
@@ -1415,9 +1374,9 @@ test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk"
     } else |err| return err;
 
     // Complete
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 }
 
 test "image load: temporary file without correct path" {
@@ -1548,9 +1507,9 @@ test "image load: temporary file in /tmp on macOS" {
     defer cmd.deinit(alloc);
     var loading = try LoadingImage.init(io, alloc, &cmd, .allWithTempDir(dir_path));
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(
@@ -1595,9 +1554,9 @@ test "image load: rgb, not compressed, temporary file" {
         .allWithTempDir(dir_path_buf[0..try tmp_dir.dir.realPath(testing.io, &dir_path_buf)]),
     );
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(error.FileNotFound, tmp_dir.dir.access(testing.io, path, .{}));
@@ -1639,9 +1598,9 @@ test "image load: rgb, not compressed, regular file" {
         .allWithTempDir(dir_path_buf[0..try tmp_dir.dir.realPath(testing.io, &dir_path_buf)]),
     );
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
     try tmp_dir.dir.access(testing.io, path, .{});
 }
 
@@ -1692,10 +1651,10 @@ test "image load: regular file size reads exactly requested bytes" {
             .shared_memory = false,
         });
         defer loading.deinit(alloc);
-        const img = try loading.complete(alloc);
+        var img = try loading.complete(alloc);
         defer img.deinit(alloc);
 
-        try testing.expectEqualSlices(u8, &case.expected, img.pixels.value);
+        try testing.expectEqualSlices(u8, &case.expected, img.data.bytes().?);
     }
 }
 
@@ -1774,9 +1733,9 @@ test "image load: rgb, not compressed, relative regular file" {
         .shared_memory = false,
     });
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 }
 
 test "image load: blocklist applies to opened file after symlink swap" {
@@ -2007,9 +1966,9 @@ test "image load: windows local file accepted in forward slash and upper case sp
             .shared_memory = false,
         });
         defer loading.deinit(alloc);
-        const img = try loading.complete(alloc);
+        var img = try loading.complete(alloc);
         defer img.deinit(alloc);
-        try testing.expect(loading.image.compression == .none);
+        try testing.expect(img.compression == .none);
     }
 
     try tmp_dir.dir.access(io, filename, .{});
@@ -2059,9 +2018,9 @@ test "image load: windows temporary file with differently spelled directory" {
     defer cmd.deinit(alloc);
     var loading = try LoadingImage.init(io, alloc, &cmd, .allWithTempDir(dir_upper));
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
 
     // Temporary file should be gone
     try testing.expectError(error.FileNotFound, tmp_dir.dir.access(io, filename, .{}));
@@ -2171,9 +2130,9 @@ test "image load: png, not compressed, regular file" {
         .allWithTempDir(dir_path_buf[0..try tmp_dir.dir.realPath(testing.io, &dir_path_buf)]),
     );
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
-    try testing.expect(loading.image.compression == .none);
+    try testing.expect(img.compression == .none);
     try testing.expect(img.format == .rgba);
     try tmp_dir.dir.access(testing.io, path, .{});
 }
@@ -2198,11 +2157,11 @@ test "image load: png, zlib compressed, direct" {
     defer cmd.deinit(alloc);
     var loading = try LoadingImage.init(io, alloc, &cmd, .direct);
     defer loading.deinit(alloc);
-    const img = try loading.complete(alloc);
+    var img = try loading.complete(alloc);
     defer img.deinit(alloc);
 
-    try testing.expectEqual(command.Transmission.Compression.none, loading.image.compression);
-    try testing.expectEqual(Image.Format.rgba, img.format);
+    try testing.expectEqual(command.Transmission.Compression.none, img.compression);
+    try testing.expectEqual(command.Transmission.Format.rgba, img.format);
     try testing.expectEqual(@as(u32, 50), img.width);
     try testing.expectEqual(@as(u32, 76), img.height);
 }

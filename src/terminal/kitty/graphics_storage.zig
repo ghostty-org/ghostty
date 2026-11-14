@@ -13,7 +13,7 @@ const PageList = @import("../PageList.zig");
 const Screen = @import("../Screen.zig");
 const LoadingImage = @import("graphics_image.zig").LoadingImage;
 const KittyImage = @import("graphics_image.zig").KittyImage;
-const ArcPixels = @import("../image.zig").ArcPixels;
+const ArcPixels = @import("graphics_image.zig").ArcPixels;
 const Rect = @import("graphics_image.zig").Rect;
 const Command = command.Command;
 
@@ -198,8 +198,8 @@ pub const ImageStorage = struct {
     ///
     /// // ... later, once the 16 bytes of pixels have arrived ...
     ///
-    /// if (!ticket.complete(&storage, io, pixels)) {
-    ///     // The image is gone or was replaced, so the pixels are still ours.
+    /// if (!ticket.complete(&storage, io, alloc, pixels)) {
+    ///     // The pixels were not attached and are still ours.
     ///     alloc.free(pixels);
     /// }
     /// ```
@@ -213,11 +213,13 @@ pub const ImageStorage = struct {
 
         /// Attach the image's decoded pixels.
         ///
-        /// Returns true if the image is still the one this ticket was
-        /// issued for, its pixels are still pending, and `data` has
-        /// exactly the expected length. The storage then owns `data`.
-        /// Otherwise this returns false, changes nothing, and the caller
-        /// still owns `data`.
+        /// Returns true and transfers ownership of `data` to storage on
+        /// success. Returns false if the ticket is stale, the image is no
+        /// longer pending, the length is wrong, or allocation fails. On
+        /// failure, nothing changes and the caller still owns `data`.
+        ///
+        /// Use the allocator that will release the stored images.
+        /// `data` must have also been allocated with `alloc`.
         ///
         /// Completing an image keeps its `generation`, so the image keeps
         /// its age for eviction purposes.
@@ -253,6 +255,9 @@ pub const ImageStorage = struct {
         /// this ticket was issued for, the frame is still pending, and
         /// `data` has exactly the frame's length. On success, the caller
         /// relinquishes ownership and must no longer access `data`.
+        /// The allocator requirements of `complete` also apply here.
+        /// On failure, including allocation failure, nothing changes and
+        /// the caller still owns `data`.
         ///
         /// If the completed frame is the one on screen, the image gets a
         /// new `generation` so that renderers pick up the new pixels.

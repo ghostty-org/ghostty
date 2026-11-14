@@ -1,17 +1,21 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 /// Shared ownership of an allocated slice. Atomic reference-counting defers
 /// freeing the slice and control block until the last reference is released.
 ///
-/// The control block and slice must use the same allocator.
+/// Shared elements are immutable by contract. Publishing a reference to
+/// another thread requires external synchronization.
+///
+/// Use the same allocator for the slice, control block, makeMut and release.
+/// It must outlive all references and support cross-thread frees when
+/// references are transferred between threads.
 ///
 /// Like Rust's `Arc<T>`, clone shares ownership and `.makeMut()` copies the
-/// slice's elements only when it is shared.
+/// slice's elements only when it is shared. Copies preserve slice alignment
+/// and any sentinel.
 /// https://doc.rust-lang.org/std/sync/struct.Arc.html#method.make_mut
-///
-/// The allocator used must outlive all references and support cross-thread
-/// frees when references are transferred between threads.
 pub fn AtomicRefCounted(comptime T: type) type {
     const is_slice = switch (@typeInfo(T)) {
         .pointer => |pointer| pointer.size == .slice,
@@ -64,13 +68,23 @@ pub fn AtomicRefCounted(comptime T: type) type {
         /// Return a pointer to a value safe for mutation, replacing this handle with
         /// an independent copy of the value if other owners exist. Failure leaves the
         /// handle unchanged.
+        ///
+        /// The caller must finish mutable access before cloning, releasing or
+        /// publishing the reference.
         pub fn makeMut(handle: *(*const Self), alloc: Allocator) Allocator.Error!*T {
             const current = handle.*;
             // Acquire synchronizes with prior owners' releases before mutation.
             if (current.refs.load(.acquire) == 1) return &@constCast(current).value;
 
-            const copy = try alloc.dupe(@typeInfo(T).pointer.child, current.value);
+            const info = @typeInfo(T).pointer;
+            const copy = try alloc.allocWithOptions(
+                info.child,
+                current.value.len,
+                comptime std.mem.Alignment.fromByteUnitsOptional(info.attrs.@"align"),
+                comptime info.sentinel(),
+            );
             errdefer alloc.free(copy);
+            @memcpy(copy, current.value);
             const replacement = try Self.init(alloc, copy);
             handle.* = replacement;
             current.release(alloc);
@@ -134,4 +148,93 @@ test "AtomicRefCounted slices preserve ownership through mutable copies and allo
     mutable.*[1] = 'G';
     try testing.expectEqualSlices(u8, "Rgba", retained.value);
     try testing.expectEqualSlices(u8, "RGba", shared.value);
+}
+
+test "AtomicRefCounted can release its final reference on another thread" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const Arc = AtomicRefCounted([]u8);
+    const shared = try Arc.init(alloc, try alloc.dupe(u8, "rgba"));
+    const worker = struct {
+        fn run(value: *const Arc, allocator: Allocator) !void {
+            defer value.release(allocator);
+            try testing.expectEqual(1, value.refs.load(.monotonic));
+            for (0..1000) |_| {
+                const cloned = value.clone();
+                try testing.expectEqual(2, value.refs.load(.monotonic));
+                cloned.release(allocator);
+                try testing.expectEqual(1, value.refs.load(.monotonic));
+            }
+            try testing.expectEqualSlices(u8, "rgba", value.value);
+        }
+    };
+    const thread = std.Thread.spawn(.{}, worker.run, .{ shared, alloc }) catch |err| {
+        shared.release(alloc);
+        return err;
+    };
+    thread.join();
+}
+
+test "AtomicRefCounted allocation failure leaves the slice with the caller" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const pixels = try alloc.dupe(u8, "rgba");
+    defer alloc.free(pixels);
+    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    try testing.expectError(error.OutOfMemory, AtomicRefCounted([]u8).init(failing.allocator(), pixels));
+    try testing.expectEqualSlices(u8, "rgba", pixels);
+}
+
+test "AtomicRefCounted makeMut preserves slice alignment and sentinels" {
+    const testing = std.testing;
+    inline for (.{ []align(16) u8, [:0]align(32) u8, [:0]const u8 }) |Slice| {
+        var failing = testing.FailingAllocator.init(testing.allocator, .{});
+        const alloc = failing.allocator();
+        const info = @typeInfo(Slice).pointer;
+        const Arc = AtomicRefCounted(Slice);
+        const pixels = try alloc.allocWithOptions(
+            info.child,
+            4,
+            comptime std.mem.Alignment.fromByteUnitsOptional(info.attrs.@"align"),
+            comptime info.sentinel(),
+        );
+        @memcpy(pixels, "rgba");
+        var shared = try Arc.init(alloc, pixels);
+        defer shared.release(alloc);
+
+        failing.fail_index = failing.alloc_index;
+        const unique = try Arc.makeMut(&shared, alloc);
+        try testing.expect(!failing.has_induced_failure);
+        try testing.expectEqual(pixels.ptr, unique.ptr);
+        try testing.expectEqual(1, shared.refs.load(.monotonic));
+
+        const retained = shared.clone();
+        defer retained.release(alloc);
+        failing.fail_index = failing.alloc_index + 1;
+        try testing.expectError(error.OutOfMemory, Arc.makeMut(&shared, alloc));
+        try testing.expect(failing.has_induced_failure);
+        try testing.expectEqual(retained, shared);
+        try testing.expectEqual(2, shared.refs.load(.monotonic));
+        try testing.expectEqualSlices(u8, "rgba", shared.value);
+
+        failing.fail_index = std.math.maxInt(usize);
+        const mutable = try Arc.makeMut(&shared, alloc);
+        try testing.expectEqual(Slice, @TypeOf(mutable.*));
+        try testing.expect(shared != retained);
+        try testing.expect(mutable.ptr != retained.value.ptr);
+        const alignment = info.attrs.@"align" orelse @alignOf(info.child);
+        try testing.expectEqual(@as(usize, 0), @intFromPtr(mutable.ptr) % alignment);
+        try testing.expectEqual(1, shared.refs.load(.monotonic));
+        try testing.expectEqual(1, retained.refs.load(.monotonic));
+        if (comptime info.sentinel()) |sentinel| {
+            try testing.expectEqual(sentinel, shared.value.ptr[shared.value.len]);
+            try testing.expectEqual(sentinel, retained.value.ptr[retained.value.len]);
+        }
+        if (comptime !info.attrs.@"const") {
+            mutable.*[0] = 'R';
+            try testing.expectEqualSlices(u8, "Rgba", shared.value);
+        }
+        try testing.expectEqualSlices(u8, "rgba", retained.value);
+    }
 }

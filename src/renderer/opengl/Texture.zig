@@ -3,7 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Image = @import("../../terminal/image.zig").Image;
+const PixelFormat = @import("../image.zig").Image.Pending.PixelFormat;
 const gl = @import("opengl");
 
 const OpenGL = @import("../OpenGL.zig");
@@ -46,7 +46,7 @@ pub const Error = error{
 ///
 /// This is based on the `format` field for incoming data for glTexImage2D
 /// Documented at https://registry.khronos.org/OpenGL-Refpages/gl4/html/glTexImage2D.xhtml
-pub fn imageTextureFormat(format: Image.Format) ?OpenGL.ImageTextureFormat {
+pub fn mapImageFormat(format: PixelFormat) ?OpenGL.ImageTextureFormat {
     return switch (format) {
         .gray => .gray,
         .rgb => .rgb,

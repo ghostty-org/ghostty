@@ -11,8 +11,7 @@ const Command = command.Command;
 const Response = command.Response;
 const LoadingImage = image.LoadingImage;
 const KittyImage = image.KittyImage;
-const ArcPixels = @import("../image.zig").ArcPixels;
-const Image = @import("../image.zig").Image;
+const ArcPixels = image.ArcPixels;
 const ImageStorage = @import("graphics_storage.zig").ImageStorage;
 
 const log = std.log.scoped(.kitty_gfx);
@@ -187,7 +186,7 @@ fn query(
     };
     defer loading.deinit(alloc);
 
-    const img = loading.complete(alloc) catch |err| {
+    var img = loading.complete(alloc) catch |err| {
         encodeError(&result, err);
         return result;
     };
@@ -615,30 +614,20 @@ fn completeAnimationFrame(
     if (frame_img.format != .rgba) {
         const rgba = pixel.rgbaFromFormat(
             alloc,
-            switch (frame_img.format) {
-                .gray => .gray,
-                .gray_alpha => .gray_alpha,
-                .rgb => .rgb,
-                .rgba => .rgba,
-                .bgr, .bgra => unreachable,
-            },
-            frame_img.pixels.value,
+            frame_img.format,
+            frame_img.data.bytes().?,
         ) catch |err| {
             encodeError(&result, err);
             return result;
         };
-        const converted: Image = .{
-            .width = frame_img.width,
-            .height = frame_img.height,
-            .format = .rgba,
-            .pixels = ArcPixels.init(alloc, rgba) catch |err| {
-                alloc.free(rgba);
-                encodeError(&result, err);
-                return result;
-            },
+        const converted = ArcPixels.init(alloc, rgba) catch |err| {
+            alloc.free(rgba);
+            encodeError(&result, err);
+            return result;
         };
-        frame_img.deinit(alloc);
-        frame_img = converted;
+        frame_img.data.deinit(alloc);
+        frame_img.data = .{ .ready = converted };
+        frame_img.format = .rgba;
     }
     storage.convertImageToRgba(io, alloc, img) catch |err| {
         encodeError(&result, err);
@@ -662,7 +651,7 @@ fn completeAnimationFrame(
     };
     result.frame = number;
 
-    const src = frame_img.pixels.value;
+    const src = frame_img.data.bytes().?;
     if (number == count + 1) {
         // Creating a new frame. The gap defaults to 40ms when omitted
         // and a negative gap creates a gapless (never shown) frame.
@@ -1049,7 +1038,7 @@ fn loadAndAddImage(
     terminal: *Terminal,
     cmd: *const Command,
 ) !struct {
-    image: LoadingImage.Info,
+    image: KittyImage,
     more: bool = false,
     display: ?command.Display = null,
 } {
@@ -1118,8 +1107,7 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    const pixels = try loading.complete(alloc);
-    var img = KittyImage.init(loading.image, pixels);
+    var img = try loading.complete(alloc);
     errdefer img.deinit(alloc);
     try storage.addImage(io, alloc, terminal.screens.active, img);
 
@@ -3864,7 +3852,6 @@ test "kittygfx animation edits preserve previously retained base pixels" {
     try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, storage.imageById(1).?.renderData().bytes().?);
 }
 
-// TODO(review)
 test "kittygfx animation edits retain shared frame pixels and reuse unique pixels" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3905,7 +3892,6 @@ test "kittygfx animation edits retain shared frame pixels and reuse unique pixel
     try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, retained.value);
 }
 
-// TODO(review)
 test "kittygfx animation: same-frame composition preserves retained pixels" {
     const testing = std.testing;
     const alloc = testing.allocator;

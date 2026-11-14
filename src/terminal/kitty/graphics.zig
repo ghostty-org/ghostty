@@ -23,6 +23,7 @@ pub const Animation = animation.Animation;
 pub const Command = command.Command;
 pub const CommandParser = command.Parser;
 pub const KittyImage = image.KittyImage;
+pub const ArcPixels = image.ArcPixels;
 pub const LoadingImage = image.LoadingImage;
 pub const ImageStorage = storage.ImageStorage;
 pub const RenderPlacement = render.Placement;

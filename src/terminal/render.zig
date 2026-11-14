@@ -17,7 +17,7 @@ const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
 const Terminal = @import("Terminal.zig");
-const ArcPixels = @import("image.zig").ArcPixels;
+const ArcPixels = kitty_gfx.ArcPixels;
 const kitty_gfx = @import("kitty.zig").graphics;
 
 const log = std.log.scoped(.render_state);
