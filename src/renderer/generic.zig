@@ -2136,8 +2136,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .pending = .{
                         .width = image_data.width,
                         .height = image_data.height,
-                        .pixel_format = .rgba,
-                        .data = image_data.data.ptr,
+                        .format = .rgba,
+                        .pixels = imagepkg.ArcPixels.init(self.alloc, image_data.data) catch |err| {
+                            self.alloc.free(image_data.data);
+                            return err;
+                        },
                     },
                 };
 
