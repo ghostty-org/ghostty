@@ -2580,3 +2580,53 @@ test "incremental decode failure leaves applied history usable" {
     primary.pages.assertIntegrity();
     primary.assertIntegrity();
 }
+
+test "complete snapshot restore keeps writing into its active page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(testing.io, alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback_bytes = null,
+        .max_scrollback_lines = null,
+    });
+    defer t.deinit(alloc);
+    for (0..40) |_| try t.printString("line\r\n");
+
+    // A fresh terminal has one page with room to spare.
+    const original = t.screens.get(.primary).?;
+    try testing.expectEqual(@as(usize, 1), original.pages.totalPages());
+    const original_last = original.pages.pages.last.?;
+    try testing.expect(original_last.rows() < original_last.capacity().rows);
+
+    // Restore and write several times. Each restore must keep the active
+    // page at its original row capacity, so new output stays in that page
+    // and memory use does not grow (#15192).
+    var current: *Terminal = &t;
+    var restored: [3]Terminal = undefined;
+    var restored_len: usize = 0;
+    defer for (restored[0..restored_len]) |*r| r.deinit(alloc);
+    for (0..restored.len) |_| {
+        var encoded: std.Io.Writer.Allocating = .init(alloc);
+        defer encoded.deinit();
+        try encode(alloc, &encoded.writer, current, test_encode_options);
+
+        var source: std.Io.Reader = .fixed(encoded.written());
+        var decoded = try decode(alloc, testing.io, &source, test_decode_options);
+        defer decoded.deinit(alloc);
+        restored[restored_len] = decoded.toOwned();
+        current = &restored[restored_len];
+        restored_len += 1;
+
+        const primary = current.screens.get(.primary).?;
+        const last = primary.pages.pages.last.?;
+        try testing.expectEqual(@as(usize, 1), primary.pages.totalPages());
+        try testing.expectEqual(original_last.capacity().rows, last.capacity().rows);
+        try testing.expectEqual(original.pages.page_size, primary.pages.page_size);
+
+        try current.printString("more\r\n");
+        try testing.expectEqual(@as(usize, 1), primary.pages.totalPages());
+        try testing.expectEqual(original.pages.page_size, primary.pages.page_size);
+    }
+}

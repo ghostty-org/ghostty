@@ -657,12 +657,15 @@ test {
     );
     try thread.wakeup.notify();
 
-    // Wait for completion
-    try ud.reset.waitTimeout(testing.io, .{ .duration = .{ .clock = .awake, .raw = .fromMilliseconds(100) } });
-
-    // Stop the thread
+    // Wait for completion. Stop the thread before checking the result so
+    // a timeout doesn't free memory the thread is still using.
+    const wait_result = ud.reset.waitTimeout(testing.io, .{ .duration = .{
+        .clock = .awake,
+        .raw = .fromSeconds(5),
+    } });
     try thread.stop.notify();
     os_thread.join();
+    try wait_result; // Weird but we need to get the result before stop.
 
     // 1 total matches
     try testing.expectEqual(1, ud.total);

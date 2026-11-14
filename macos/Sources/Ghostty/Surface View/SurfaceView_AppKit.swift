@@ -206,9 +206,9 @@ extension Ghostty {
         /// Temporary lead surrogate that's waiting for the trail
         private var leadSurrogate: LeadSurrogate?
 
-        // True when we've consumed a left mouse-down only to move focus and
-        // should suppress the matching mouse-up from being reported.
-        private var suppressNextLeftMouseUp: Bool = false
+        // True when this click only activates the split. Don't send the mouse-down
+        // or matching mouse-up to the terminal.
+        private var suppressLeftMouseUntilRelease: Bool = false
 
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
@@ -456,7 +456,7 @@ extension Ghostty {
             // our mouse release event leaving the surface can properly be
             // sent to stop things like mouse selection.
             if !focused {
-                suppressNextLeftMouseUp = false
+                suppressLeftMouseUntilRelease = false
             }
 
             // Notify libghostty
@@ -705,7 +705,7 @@ extension Ghostty {
 
             // We always assume that we're resetting our mouse suppression
             // unless we see the specific scenario below to set it.
-            suppressNextLeftMouseUp = false
+            suppressLeftMouseUntilRelease = false
 
             // A click with the broadcast-group-click-mods modifiers held
             // toggles broadcast group membership, which the core detects
@@ -739,13 +739,8 @@ extension Ghostty {
             }
 
             // If our window/app is already focused, then this click is only
-            // being used to transfer split focus. Consume it so it does not
-            // get forwarded to the terminal as a mouse click.
-            if NSApp.isActive && window.isKeyWindow {
-                window.makeFirstResponder(self)
-                suppressNextLeftMouseUp = true
-                return nil
-            }
+            // being used to transfer split focus.
+            suppressLeftMouseUntilRelease = NSApp.isActive && window.isKeyWindow
 
             // Make ourselves the first responder
             window.makeFirstResponder(self)
@@ -753,6 +748,10 @@ extension Ghostty {
             // We have to keep processing the event so that AppKit can properly
             // focus the window and dispatch events. If you return nil here then
             // nobody gets a windowDidBecomeKey event and so on.
+            // Let AppKit process the click so subsequent mouse events go to this split.
+            // Changing the first responder alone only updates keyboard focus.
+            // When suppressLeftMouseUntilRelease is true, mouseDown/mouseUp receive
+            // the press and release but don't forward them to the terminal.
             return event
         }
 
@@ -950,6 +949,9 @@ extension Ghostty {
         }
 
         override func mouseDown(with event: NSEvent) {
+            // A focus-only click activates the split without sending input to the terminal.
+            // mouseUp suppresses the matching release.
+            if suppressLeftMouseUntilRelease { return }
             guard let surface = self.surface else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
@@ -958,8 +960,8 @@ extension Ghostty {
         override func mouseUp(with event: NSEvent) {
             // If this mouse-up corresponds to a focus-only click transfer,
             // suppress it so we don't emit a release without a press.
-            if suppressNextLeftMouseUp {
-                suppressNextLeftMouseUp = false
+            if suppressLeftMouseUntilRelease {
+                suppressLeftMouseUntilRelease = false
                 return
             }
 

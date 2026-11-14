@@ -1268,6 +1268,31 @@ jobs:
             -Dtarget=${{ matrix.target }} \
             -Demit-xcframework=${{ matrix.xcframework }}
 
+      # Our Apple static archives must not define libc functions. An
+      # app that links one would use our definition in place of
+      # libSystem's for its whole binary, and would fail to link if it
+      # defines the same function itself. See src/quirks_memset.zig.
+      - name: Verify static archive does not define libc symbols
+        run: |
+          archives=(zig-out/lib/libghostty-vt.a)
+          if [ "${{ matrix.xcframework }}" = "true" ]; then
+            xcf_archives=$(find zig-out/lib/ghostty-vt.xcframework -name '*.a')
+            # Fail if no archives were found, so a change to the
+            # xcframework layout can't silently skip this check.
+            test -n "$xcf_archives"
+            while IFS= read -r a; do archives+=("$a"); done <<< "$xcf_archives"
+          fi
+          for a in "${archives[@]}"; do
+            # Save nm's output before grepping it. If nm failed inside
+            # a pipeline, the step would still pass, because this shell
+            # does not set pipefail.
+            syms=$(nm -gU "$a")
+            if grep -E ' [A-Z] _(memset|memcpy|memmove|memcmp|bcmp|strlen)$' <<< "$syms"; then
+              echo "$a defines libc symbols" >&2
+              exit 1
+            fi
+          done
+
       - name: Verify Apple dylib
         run: |
           nix develop -c nu .github/scripts/check-apple-libghostty-vt.nu \

@@ -1223,7 +1223,7 @@ pub fn clone(
             const last = result.pages.last.?;
             const page = last.page();
             const row = &page.rows.ptr(page.memory)[last.rows() - 1];
-            page.clearCells(row, 0, result.cols);
+            page.clearCells(row, 0, page.size.cols, .{});
         }
 
         // Update our total rows to be our row size.
@@ -1231,7 +1231,7 @@ pub fn clone(
     }
 
     // A clone can copy more history than its inherited line limit.
-    result.limits.enforce(&result, .lines);
+    result.limits.enforce(&result, .lines, .reclaim);
 
     result.assertIntegrity();
     return result;
@@ -1263,6 +1263,33 @@ pub const Resize = struct {
     /// rows back and would otherwise get out of sync with us.
     pull_scrollback: bool = true,
 
+    /// Rows to reflow as blank rows, because the caller is about to clear
+    /// them. The main use is a shell prompt that the shell redraws after
+    /// the terminal is resized.
+    ///
+    /// A column reflow normally rewraps text, so a two-row prompt might
+    /// take three rows at a narrower width. That breaks a shell redraw:
+    /// the shell moves the cursor up by the number of rows the prompt took
+    /// at the old width, so it would redraw over the wrong rows. With this
+    /// set, each of these rows becomes exactly one blank row that ends its
+    /// line, and the prompt keeps the row count it had before the resize.
+    /// Each row keeps its semantic prompt mark and its tracked pins.
+    ///
+    /// A resize that doesn't reflow leaves these rows unchanged, so the
+    /// caller must still clear them afterward. `start` is a tracked pin,
+    /// so it follows the row to wherever the resize moves it:
+    ///
+    /// ```zig
+    /// const start = try pages.trackPin(prompt_start);
+    /// defer pages.untrackPin(start);
+    /// try pages.resize(.{
+    ///     .cols = 40,
+    ///     .blank = .{ .start = start, .extent = .to_bottom },
+    /// });
+    /// // Clear the cells from start.* to the bottom of the screen.
+    /// ```
+    blank: ?Blank = null,
+
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
@@ -1270,6 +1297,23 @@ pub const Resize = struct {
         /// When set, this pin preserves right-side blank cells up to the cursor
         /// during reflow.
         pin: ?*Pin = null,
+    };
+
+    /// The rows to reflow as blank. See `blank`.
+    pub const Blank = struct {
+        /// The first row. This must be a tracked pin (see `trackPin`).
+        start: *const Pin,
+
+        /// Which rows, starting at `start`.
+        extent: Extent,
+
+        pub const Extent = enum {
+            /// Only the row of `start`.
+            row,
+
+            /// The row of `start` and every row below it.
+            to_bottom,
+        };
     };
 };
 
@@ -1301,7 +1345,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
         try self.resizeWithoutReflow(opts);
         // Shrinking the active row count turns former active rows into
         // scrollback even without reflow, which can cross the line limit.
-        self.limits.enforce(self, .lines);
+        self.limits.enforce(self, .lines, .reclaim);
         return;
     }
 
@@ -1365,7 +1409,7 @@ pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
     // Column reflow can change the physical history row count, and a row
     // resize can move the active boundary. Both may expose whole old pages
     // that are now eligible for line-limit pruning.
-    self.limits.enforce(self, .lines);
+    self.limits.enforce(self, .lines, .reclaim);
 }
 
 /// Resize the pagelist with reflow by adding or removing columns.
@@ -1507,8 +1551,27 @@ fn resizeCols(
     // Reflow all our rows.
     {
         var reflow_cursor: ReflowCursor = .init(first_rewritten_node);
+
+        // Check each row against `blank.start` before reflowing it,
+        // because reflowing that row moves the pin into the new pages.
+        var blank_start: ?*const Pin = if (opts.blank) |b| b.start else null;
+        var blanking = false;
+
         while (it.next()) |row| {
-            try reflow_cursor.reflowRow(
+            if (blank_start) |p| {
+                if (p.node == row.node and p.y == row.y) {
+                    blanking = true;
+                    blank_start = null;
+                }
+            }
+
+            if (blanking) {
+                try reflow_cursor.reflowBlankRow(self, row);
+                switch (opts.blank.?.extent) {
+                    .row => blanking = false,
+                    .to_bottom => {},
+                }
+            } else try reflow_cursor.reflowRow(
                 self,
                 row,
                 if (preserved_cursor) |c| c.tracked_pin else null,
@@ -1778,7 +1841,25 @@ const ReflowCursor = struct {
             self.new_rows -= 1;
         }
 
-        self.copyRowMetadata(src_row);
+        // A destination row takes the prompt mark of the source row that
+        // starts it. For example, widening from 4 to 8 columns joins a
+        // prompt row with its wrapped continuation, and the joined row is
+        // still the prompt start:
+        //
+        //   "$ ec" (.prompt)
+        //   "ho"   (.prompt_continuation)  ->  "$ echo" (.prompt)
+        //
+        // So a wrap continuation that joins the current destination row
+        // only sets the mark if that row has none. That keeps a prompt
+        // that starts partway through a row findable. With a pending wrap,
+        // the continuation starts the next row instead, and the loop below
+        // marks that row.
+        if (!src_row.wrap_continuation or
+            (!self.pending_wrap and
+                (self.x == 0 or self.page_row.semantic_prompt == .none)))
+        {
+            self.copyRowMetadata(src_row);
+        }
 
         var x: usize = 0;
         while (x < cols_len) {
@@ -1787,6 +1868,17 @@ const ReflowCursor = struct {
                 try self.cursorScrollOrNewPage(list, cap);
                 self.copyRowMetadata(src_row);
                 self.page_row.wrap_continuation = true;
+
+                // This row continues the source row, so it can't be a
+                // prompt start. Narrowing from 8 to 4 columns splits a
+                // prompt row into the same marks that printing it at 4
+                // columns would give:
+                //
+                //   "$ echo" (.prompt)  ->  "$ ec" (.prompt)
+                //                           "ho"   (.prompt_continuation)
+                if (self.page_row.semantic_prompt == .prompt) {
+                    self.page_row.semantic_prompt = .prompt_continuation;
+                }
             }
 
             // Fast path: bulk-copy a run of simple cells directly
@@ -1881,6 +1973,64 @@ const ReflowCursor = struct {
         if (!src_row.wrap) {
             self.new_rows += 1;
         }
+    }
+
+    /// Reflow the provided row in to this cursor as one blank row that
+    /// ends its line (see Resize.blank). The row keeps only its prompt
+    /// mark and its tracked pins. Its text is dropped, so it never wraps
+    /// onto a second row or joins the rows around it.
+    fn reflowBlankRow(
+        self: *ReflowCursor,
+        list: *PageList,
+        row: Pin,
+    ) Allocator.Error!void {
+        const src_page: *Page = row.node.page();
+        const src_row = row.rowAndCell().row;
+
+        // If this row continued a line that isn't blanked, then that line
+        // now ends at the row before this one.
+        if (self.new_rows == 0 and (self.x > 0 or self.pending_wrap)) {
+            self.new_rows = 1;
+        }
+
+        // A blank row with no prompt mark and no pins is deferred like
+        // any other blank row, so blank rows at the end are never
+        // written. A prompt row is kept even though it's blank, the
+        // same as in reflowRow.
+        keep: {
+            if (src_row.semantic_prompt != .none) break :keep;
+            for (list.tracked_pins.keys()) |p| {
+                if (p.node == row.node and p.y == row.y) break :keep;
+            }
+
+            self.new_rows += 1;
+            return;
+        }
+
+        // Write any rows we deferred. See reflowRow for the capacity.
+        const cap: Capacity = if (self.cap_memo) |memo| cap: {
+            if (memo.src_page == src_page) break :cap memo.cap;
+            break :cap self.computeAndMemoizeCap(src_page);
+        } else self.computeAndMemoizeCap(src_page);
+        while (self.new_rows > 0) {
+            try self.cursorScrollOrNewPage(list, cap);
+            self.new_rows -= 1;
+        }
+
+        self.copyRowMetadata(src_row);
+
+        // Pins keep their column, clamped to the new width. This includes
+        // the cursor. Unlike reflowRow, we don't keep the blank cells
+        // before the cursor, because they could wrap this row onto a
+        // second row.
+        for (list.tracked_pins.keys()) |p| {
+            if (p.node != row.node or p.y != row.y) continue;
+            p.node = self.node;
+            p.y = self.y;
+            p.x = @min(p.x, self.page.size.cols - 1);
+        }
+
+        self.new_rows += 1;
     }
 
     /// Compute and memoize the new-page capacity for the given source
@@ -2857,7 +3007,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                         // If the cut splits a wide char, clear its head too.
                         const cells = row.cells.ptr(page.memory);
                         const start = if (cells[cols - 1].wide == .wide) cols - 1 else cols;
-                        page.clearCells(row, start, self.cols);
+                        page.clearCells(row, start, self.cols, .{});
                     }
 
                     page.size.cols = cols;
@@ -3298,7 +3448,7 @@ fn trimTrailingBlankRows(
 
         row_pin.node.page().size.rows -= 1;
         if (row_pin.node.page().size.rows == 0) {
-            self.erasePage(row_pin.node);
+            self.erasePage(row_pin.node, .reclaim);
         } else {
             row_pin.node.page().assertIntegrity();
         }
@@ -4034,7 +4184,7 @@ pub fn setMaxBytes(self: *PageList, max: ?usize) void {
     defer self.assertIntegrity();
 
     self.limits.set(.bytes, max);
-    self.limits.enforce(self, .bytes);
+    self.limits.enforce(self, .bytes, .reclaim);
     if (self.limits.bytes.explicit == 0) self.viewport = .active;
 }
 
@@ -4048,7 +4198,7 @@ pub fn setMaxLines(self: *PageList, max: ?usize) void {
     defer self.assertIntegrity();
 
     self.limits.set(.lines, max);
-    self.limits.enforce(self, .lines);
+    self.limits.enforce(self, .lines, .reclaim);
 }
 
 /// Grow the active area by exactly one row.
@@ -4081,7 +4231,10 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
 
         // Growing inside the last page moves the active boundary without
         // allocating; that alone can make the first page wholly historical.
-        self.limits.enforce(self, .lines);
+        // At a steady line limit this prunes one page for every page of
+        // output, and the next new page takes the pruned item straight
+        // back out of the pool, so keep its memory.
+        self.limits.enforce(self, .lines, .retain);
         return null;
     }
 
@@ -4211,11 +4364,11 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         // pruning would have cut into the active area (see the trimming
         // costs in growCapacity). Reuse swaps one pool item for another,
         // so it can't fix that on its own. Enforce the limit here.
-        self.limits.enforce(self, .bytes);
+        self.limits.enforce(self, .bytes, .reclaim);
 
         // Byte-limit recycling may leave history above the independent line
         // limit, so enforce it after the recycled page becomes the new tail.
-        self.limits.enforce(self, .lines);
+        self.limits.enforce(self, .lines, .reclaim);
         return first;
     }
 
@@ -4237,11 +4390,12 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
     // item, while a heap page is as large as its capacity. If a larger
     // page replaced a smaller one we can be over the byte limit, so
     // remove more history until we are back under it.
-    self.limits.enforce(self, .bytes);
+    self.limits.enforce(self, .bytes, .reclaim);
 
     // Appending a page can cross the line limit and can make the oldest
-    // active-boundary page wholly historical.
-    self.limits.enforce(self, .lines);
+    // active-boundary page wholly historical. As in the fast path above,
+    // the next new page reuses the pruned item, so keep its memory.
+    self.limits.enforce(self, .lines, .retain);
     return next_node;
 }
 
@@ -4921,6 +5075,29 @@ pub fn increaseCapacity(
     return new_node;
 }
 
+/// Returns `cap` with more rows, enough to fill the memory a pooled page
+/// takes up anyway. If a page with `cap` is too large for the pool, this
+/// returns `cap` unchanged.
+///
+/// Every page small enough for the pool gets a full `std_size` buffer,
+/// even when its capacity needs less. The leftover space can hold more
+/// rows at no extra cost. Use this when allocating a page that will keep
+/// receiving rows. A page allocated with only as many rows as it holds is
+/// already full, so the next `grow` has to allocate a whole new page.
+///
+/// Only `rows` changes, and it never gets smaller.
+///
+/// ```zig
+/// // Leave room for new output in a restored active page.
+/// const allocation = try list.allocatePage(PageList.fillPooled(capacity));
+/// ```
+pub fn fillPooled(cap: Capacity) Capacity {
+    if (Page.layout(cap).total_size > std_size) return cap;
+    const filled = cap.fitRows(std_size) orelse return cap;
+    assert(filled.rows >= cap.rows);
+    return filled;
+}
+
 /// Allocate a new page using the PageList's memory pools.
 ///
 /// The page is detached: it doesn't contribute to the memory limits or
@@ -4962,6 +5139,7 @@ pub const PageAllocation = struct {
             &self.destination.pool,
             node,
             null,
+            .reclaim,
         );
         self.node = null;
     }
@@ -5634,13 +5812,29 @@ fn compressPage(self: *PageList, node: *List.Node) bool {
 /// responsible for accounting for the removed rows. This function only
 /// updates `page_size` (byte accounting), not row accounting.
 fn destroyNode(self: *PageList, node: *List.Node) void {
-    destroyNodeExt(&self.pool, node, &self.page_size);
+    destroyNodeExt(&self.pool, node, &self.page_size, .reclaim);
 }
+
+/// What `destroyNodeExt` does with the memory of a pool-owned page
+/// that goes back to the pool's free list.
+const DestroyMode = enum {
+    /// Give the physical memory back to the OS and keep only the
+    /// address range (see `terminal_mem.decommit`). This is right when
+    /// the page list is shrinking and the item may sit unused.
+    reclaim,
+
+    /// Zero the memory and keep it. This is for callers that expect the
+    /// pool to hand the item out again right away. Giving it back to the
+    /// OS only to take it back costs system calls and, on Linux, a page
+    /// fault for every OS page of the item.
+    retain,
+};
 
 fn destroyNodeExt(
     pool: *MemoryPool,
     node: *List.Node,
     total_size: ?*usize,
+    mode: DestroyMode,
 ) void {
     const page = node.restore(.discard);
 
@@ -5661,8 +5855,9 @@ fn destroyNodeExt(
                 @ptrCast(@alignCast(page.memory.ptr));
 
             // A pooled page gets here only when `grow` could not reuse
-            // its item in place: `increaseCapacity` replaced it, or a
-            // heap page took its place at the byte limit. Keep a few
+            // its item in place: `increaseCapacity` replaced it, a heap
+            // page took its place at the byte limit, or the line limit
+            // pruned it (see `DestroyMode.retain`). Keep a few
             // zeroed items for reuse and give the rest back to the OS.
             // A decommitted item is still mapped and, on Darwin, stays
             // resident until the kernel needs the memory, so an
@@ -5677,9 +5872,17 @@ fn destroyNodeExt(
                     }
                 }
 
-                // Reset the memory to zero (and decommit it, where
-                // supported) so it can be reused.
-                _ = terminal_mem.decommit(.zero, item, page.memory.len);
+                // Reset the memory to zero so it can be reused. Unless
+                // the caller wants it kept, also decommit it where
+                // supported.
+                switch (mode) {
+                    .reclaim => _ = terminal_mem.decommit(
+                        .zero,
+                        item,
+                        page.memory.len,
+                    ),
+                    .retain => @memset(page.memory, 0),
+                }
                 pool.pages.destroy(item);
             }
         },
@@ -6147,7 +6350,7 @@ fn eraseRows(
             if (discard) for (self.tracked_pins.keys()) |p| {
                 if (p.node == chunk.node) p.garbage = true;
             };
-            self.erasePage(chunk.node);
+            self.erasePage(chunk.node, .reclaim);
             continue;
         }
 
@@ -6230,7 +6433,7 @@ fn eraseRows(
 /// IMPORTANT: This function does NOT update `total_rows`. The caller is
 /// responsible for accounting for the removed rows before or after calling
 /// this function.
-fn erasePage(self: *PageList, node: *List.Node) void {
+fn erasePage(self: *PageList, node: *List.Node, mode: DestroyMode) void {
     // Must not be the final page.
     assert(node.next != null or node.prev != null);
 
@@ -6252,7 +6455,7 @@ fn erasePage(self: *PageList, node: *List.Node) void {
 
     // Remove the page from the linked list
     self.pages.remove(node);
-    self.destroyNode(node);
+    destroyNodeExt(&self.pool, node, &self.page_size, mode);
 }
 
 /// Returns the pin for the given point. The pin is NOT tracked so it
@@ -7648,6 +7851,7 @@ const Limits = struct {
         self: *const Limits,
         pagelist: *PageList,
         key: Key,
+        mode: DestroyMode,
     ) void {
         if (!self.exceeded(pagelist, key)) return;
 
@@ -7680,7 +7884,7 @@ const Limits = struct {
             // erasePage updates the list, pin targets, and byte accounting.
             // Row accounting belongs to the caller because erasePage is also used
             // by paths that already adjusted total_rows.
-            pagelist.erasePage(first);
+            pagelist.erasePage(first, mode);
             pagelist.total_rows -= first_rows;
             removed += first_rows;
         }
@@ -8208,6 +8412,7 @@ pub const Builder = struct {
             &self.pool,
             node,
             &self.page_size,
+            .reclaim,
         );
         // Free memory pool
         self.pool.deinit();
@@ -15814,6 +16019,35 @@ test "PageList clone less than active" {
     try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
 }
 
+test "PageList clone less than active on a narrower page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // The list has 4 columns, but its page has only 2. When the
+    // clone adds blank rows, it must clear only 2 columns per row.
+    var s: PageList = s: {
+        var builder = try Builder.init(alloc, .{
+            .cols = 4,
+            .rows = 3,
+        });
+        defer builder.deinit();
+
+        const page = try builder.allocatePage(.{
+            .cols = 2,
+            .rows = 3,
+        });
+        page.size.rows = 3;
+        break :s try builder.finish();
+    };
+    defer s.deinit();
+
+    var s2 = try s.clone(alloc, .{
+        .top = .{ .active = .{ .y = 2 } },
+    });
+    defer s2.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
+}
+
 test "PageList clone remap tracked pin" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -18507,9 +18741,118 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
             try testing.expect(rac.row.semantic_prompt == .prompt);
         }
         {
+            // The rest of the split row continues the prompt. It isn't a
+            // second prompt start.
             const p = s.pin(.{ .active = .{ .y = 2 } }).?;
             const rac = p.rowAndCell();
-            try testing.expect(rac.row.semantic_prompt == .prompt);
+            try testing.expect(rac.row.semantic_prompt == .prompt_continuation);
+        }
+    }
+}
+
+test "PageList resize reflow semantic prompt marks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Each case writes `rows` at `cols`, reflows to `new_cols`, and checks
+    // the marks of the rows from the top. A reflowed prompt must have the
+    // marks it would have had if it were printed at the new width. Only
+    // its first row is `.prompt`, and every other row of it is
+    // `.prompt_continuation`.
+    const Source = struct {
+        text: []const u8,
+        mark: Row.SemanticPrompt,
+        wrap: bool = false,
+    };
+    const cases = [_]struct {
+        cols: size.CellCountInt,
+        new_cols: size.CellCountInt,
+        rows: []const Source,
+        marks: []const Row.SemanticPrompt,
+    }{
+        // Splitting a prompt row.
+        .{
+            .cols = 4,
+            .new_cols = 2,
+            .rows = &.{.{ .text = "abcd", .mark = .prompt }},
+            .marks = &.{ .prompt, .prompt_continuation },
+        },
+        // Splitting a wrapped prompt, where the continuation starts a row.
+        .{
+            .cols = 4,
+            .new_cols = 2,
+            .rows = &.{
+                .{ .text = "abcd", .mark = .prompt, .wrap = true },
+                .{ .text = "ef", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .prompt_continuation, .prompt_continuation },
+        },
+        // Joining a prompt with its continuation into one row.
+        .{
+            .cols = 2,
+            .new_cols = 4,
+            .rows = &.{
+                .{ .text = "ab", .mark = .prompt, .wrap = true },
+                .{ .text = "cd", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .none },
+        },
+        // Joining part of a continuation.
+        .{
+            .cols = 3,
+            .new_cols = 4,
+            .rows = &.{
+                .{ .text = "abc", .mark = .prompt, .wrap = true },
+                .{ .text = "def", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .prompt_continuation },
+        },
+        // Joining two prompts in a row, each into its own row.
+        .{
+            .cols = 2,
+            .new_cols = 4,
+            .rows = &.{
+                .{ .text = "ab", .mark = .prompt, .wrap = true },
+                .{ .text = "cd", .mark = .prompt_continuation },
+                .{ .text = "ef", .mark = .prompt, .wrap = true },
+                .{ .text = "gh", .mark = .prompt_continuation },
+            },
+            .marks = &.{ .prompt, .prompt, .none },
+        },
+        // Splitting output doesn't add marks.
+        .{
+            .cols = 4,
+            .new_cols = 2,
+            .rows = &.{
+                .{ .text = "abcd", .mark = .none },
+                .{ .text = "ef", .mark = .prompt },
+            },
+            .marks = &.{ .none, .none, .prompt },
+        },
+    };
+
+    for (cases) |case| {
+        var s = try init(alloc, .{ .cols = case.cols, .rows = 4, .max_size = 0 });
+        defer s.deinit();
+        const page = s.pages.first.?.page();
+        for (case.rows, 0..) |src, y| {
+            const row = page.getRow(y);
+            row.semantic_prompt = src.mark;
+            row.wrap = src.wrap;
+            row.wrap_continuation = y > 0 and case.rows[y - 1].wrap;
+            for (src.text, 0..) |c, x| {
+                page.getRowAndCell(x, y).cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = .{ .data = c } },
+                };
+            }
+        }
+
+        try s.resize(.{ .cols = case.new_cols, .reflow = true });
+
+        for (case.marks, 0..) |mark, y| {
+            const p = s.pin(.{ .screen = .{ .y = @intCast(y) } }).?;
+            try testing.expectEqual(mark, p.rowAndCell().row.semantic_prompt);
         }
     }
 }

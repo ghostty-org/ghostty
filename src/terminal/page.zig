@@ -924,7 +924,7 @@ pub const Page = struct {
 
         // If our destination has styles or graphemes then we need to
         // clear some state. This will free up the managed memory as well.
-        if (dst_row.managedMemory()) self.clearCells(dst_row, x_start, x_end);
+        if (dst_row.managedMemory()) self.clearCells(dst_row, x_start, x_end, .{});
 
         // Copy all the row metadata but keep our cells offset
         dst_row.* = copy: {
@@ -1149,7 +1149,7 @@ pub const Page = struct {
         const dst_cells = dst_row.cells.ptr(self.memory)[dst_left .. dst_left + len];
 
         // Clear our destination now matter what
-        self.clearCells(dst_row, dst_left, dst_left + len);
+        self.clearCells(dst_row, dst_left, dst_left + len, .{});
 
         // The source cells may have content.
         dst_row.blank = false;
@@ -1262,37 +1262,76 @@ pub const Page = struct {
         src.* = old_dst;
     }
 
-    /// Clear the cells in the given row. This will reclaim memory used
-    /// by graphemes and styles. Note that if the style cleared is still
-    /// active, Page cannot know this and it will still be ref counted down.
-    /// The best solution for this is to artificially increment the ref count
-    /// prior to calling this function.
+    /// Clear the cells from `left` to `end` in the given row to `blank`.
+    /// This will reclaim memory used by graphemes, hyperlinks, and styles.
+    /// Note that if the style cleared is still active, Page cannot know this
+    /// and it will still be ref counted down. The best solution for this is
+    /// to artificially increment the ref count prior to calling this function.
+    ///
+    /// This also updates `Row.blank`. A full-row clear with a zero blank cell
+    /// sets it, a colored blank cell clears it, and a partial clear with a
+    /// zero blank cell leaves it unchanged.
+    ///
+    /// Clearing any part of a row marked blank with a zero blank cell does
+    /// nothing, since the cells are already zero and there is no managed
+    /// memory to release. Full-screen programs often erase lines (EL, ECH)
+    /// that are already empty when they redraw.
     pub inline fn clearCells(
         self: *Page,
         row: *Row,
         left: usize,
         end: usize,
+        blank: Cell,
     ) void {
-        defer self.assertIntegrity();
-
+        assert(left <= end and end <= self.size.cols);
+        if (comptime std.debug.runtime_safety) {
+            const rows = self.rows.ptr(self.memory);
+            assert(@intFromPtr(row) >= @intFromPtr(&rows[0]));
+            assert(@intFromPtr(row) <= @intFromPtr(&rows[self.size.rows - 1]));
+        }
+        const blank_zero = blank.isZero();
         const cells = row.cells.ptr(self.memory)[left..end];
+        const full_row = cells.len == self.size.cols;
+        if (cells.len == 0 or (blank_zero and row.blank)) return;
 
-        // If we have managed memory (styles, graphemes, or hyperlinks)
-        // in this row then we go cell by cell and clear them if present.
+        // This whole operation does unsafe things, so we just want to assert
+        // the end state.
+        self.pauseIntegrityChecks(true);
+        defer {
+            self.pauseIntegrityChecks(false);
+            self.assertIntegrity();
+        }
+
+        if (row.managedMemory()) self.releaseCells(row, cells, full_row);
+
+        if (comptime build_options.kitty_graphics) {
+            if (full_row) {
+                row.kitty_virtual_placeholder = false;
+            }
+        }
+
+        @memset(cells, blank);
+
+        // Update Row.blank as described in the doc comment above.
+        if (full_row) {
+            row.blank = blank_zero;
+        } else if (!blank_zero) {
+            row.blank = false;
+        }
+    }
+
+    /// Release the graphemes, hyperlinks, and styles of `cells` and update
+    /// the row's flags. This is out of line so that clearCells stays small
+    /// for rows without managed memory.
+    fn releaseCells(self: *Page, row: *Row, cells: []Cell, full_row: bool) void {
+        // Clearing a grapheme or hyperlink also clears the cell's flag,
+        // so the scans see the cleared cells as empty.
         if (row.grapheme) {
             for (cells) |*cell| {
                 if (cell.hasGrapheme())
                     @call(.always_inline, clearGrapheme, .{ self, cell });
             }
-
-            // If we have no left/right scroll region we can be sure
-            // that we've cleared all the graphemes, so we clear the
-            // flag, otherwise we use the update function to update.
-            if (cells.len == self.size.cols) {
-                row.grapheme = false;
-            } else {
-                self.updateRowGraphemeFlag(row);
-            }
+            if (full_row) row.grapheme = false else self.updateRowGraphemeFlag(row);
         }
 
         if (row.hyperlink) {
@@ -1300,42 +1339,36 @@ pub const Page = struct {
                 if (cell.hyperlink)
                     @call(.always_inline, clearHyperlink, .{ self, cell });
             }
-
-            // If we have no left/right scroll region we can be sure
-            // that we've cleared all the hyperlinks, so we clear the
-            // flag, otherwise we use the update function to update.
-            if (cells.len == self.size.cols) {
-                row.hyperlink = false;
-            } else {
-                self.updateRowHyperlinkFlag(row);
-            }
+            if (full_row) row.hyperlink = false else self.updateRowHyperlinkFlag(row);
         }
 
         if (row.styled) {
-            for (cells) |*cell| {
-                if (cell.hasStyling())
-                    self.styles.release(self.memory, cell.style_id);
+            // Styled cells overwhelmingly come in runs sharing the same
+            // style (e.g. a colored status bar or a highlighted region),
+            // so group them and release each run with a single ref-count
+            // update rather than per cell.
+            const StyleMask = Mask(Cell, &.{"style_id"}, 4);
+            var released = false;
+            var i: usize = 0;
+            while (i < cells.len) {
+                const id = cells[i].style_id;
+                const j = StyleMask.eqlEnd(cells, i + 1, StyleMask.pattern(cells[i]));
+                if (id != stylepkg.default_id) {
+                    self.styles.releaseMultiple(self.memory, id, @intCast(j - i));
+                    released = true;
+                }
+                i = j;
             }
 
-            // If we have no left/right scroll region we can be sure
-            // that we've cleared all the styles, so we clear the
-            // flag, otherwise we use the update function to update.
-            if (cells.len == self.size.cols) {
+            // The cleared cells keep their style IDs until the fill, so a
+            // scan would find any we released and keep the flag set. Skip
+            // it then. A later clear of unstyled cells clears the flag.
+            if (full_row) {
                 row.styled = false;
-            } else {
+            } else if (!released) {
                 self.updateRowStyledFlag(row);
             }
         }
-
-        if (comptime build_options.kitty_graphics) {
-            if (cells.len == self.size.cols) {
-                row.kitty_virtual_placeholder = false;
-            }
-        }
-
-        // Zero the cells as u64s since empirically this seems
-        // to be a bit faster than using @memset(cells, .{})
-        @memset(@as([]u64, @ptrCast(cells)), 0);
     }
 
     /// Reset the given row to the default state: all cells zeroed and
@@ -1346,7 +1379,7 @@ pub const Page = struct {
     /// is recycled. Clearing the cells alone is not enough because row
     /// metadata such as the wrap state and semantic prompt remain.
     pub inline fn resetRow(self: *Page, row: *Row) void {
-        self.clearCells(row, 0, self.size.cols);
+        self.clearCells(row, 0, self.size.cols, .{});
 
         // Same as row.reset() but also marks the now zeroed row blank.
         assert(!row.managedMemory());
@@ -1788,8 +1821,8 @@ pub const Page = struct {
     /// Call after removing styles in a row.
     pub inline fn updateRowStyledFlag(self: *Page, row: *Row) void {
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
-        for (cells) |c| if (c.hasStyling()) return;
-        row.styled = false;
+        const StyleMask = Mask(Cell, &.{"style_id"}, 4);
+        if (StyleMask.eqlEnd(cells, 0, 0) == cells.len) row.styled = false;
     }
 
     /// Returns true if this page is dirty at all.
@@ -2284,7 +2317,7 @@ pub const Row = packed struct(u64) {
     /// This may be false for an empty row, but must never be true for
     /// a row with content. `Page.verifyIntegrity` checks this. It is set
     /// only by code that zeroes the whole row (`Page.resetRow`, or
-    /// `Screen.clearCells` with a zero blank cell) or by copying a row
+    /// `Page.clearCells` with a zero blank cell) or by copying a row
     /// that has it set.
     ///
     /// Any code that writes cells must clear it, usually with
@@ -3569,7 +3602,7 @@ test "Page clearCells full row clears kitty placeholder flag" {
     rac.cell.* = .init(kitty.graphics.unicode.placeholder);
     rac.row.kitty_virtual_placeholder = true;
 
-    page.clearCells(rac.row, 0, page.size.cols);
+    page.clearCells(rac.row, 0, page.size.cols, .{});
     try testing.expect(!rac.row.kitty_virtual_placeholder);
 }
 

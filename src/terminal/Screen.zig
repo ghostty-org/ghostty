@@ -903,9 +903,9 @@ pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     assert(x < self.pages.cols);
     defer self.assertIntegrity();
 
+    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+    self.cursor.page_cell = @ptrCast(cell - self.cursor.x + x);
     self.cursor.page_pin.x = x;
-    const page_rac = self.cursor.page_pin.rowAndCell();
-    self.cursor.page_cell = page_rac.cell;
     self.cursor.x = x;
 }
 
@@ -1109,29 +1109,9 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // page that grow() zeroed. Marking it blank too, in the same
         // write, lets printing into it skip checking its old cells.
         self.cursor.page_row.markCleared();
-
-        // Clear the new row so it gets our bg color. We only do this
-        // if we have a bg color at all.
-        if (self.cursor.style.bg_color.tag != .none) {
-            const page: *Page = self.cursor.page_pin.node.page();
-            self.clearCells(
-                page,
-                self.cursor.page_row,
-                page.getCells(self.cursor.page_row),
-            );
-        }
     }
 
-    if (self.cursor.style_id != style.default_id) {
-        // The newly created line needs to be styled according to
-        // the bg color if it is set.
-        if (self.cursor.style.bgCell()) |blank_cell| {
-            const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-            const cells = cell_current - self.cursor.x;
-            self.cursor.page_row.blank = false;
-            @memset(cells[0..self.pages.cols], blank_cell);
-        }
-    }
+    self.cursorRowFillBackground();
 }
 
 /// This scrolls the active area at and above the cursor.
@@ -1223,16 +1203,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
         }
     }
 
-    if (self.cursor.style_id != style.default_id) {
-        // The newly created line needs to be styled according to
-        // the bg color if it is set.
-        if (self.cursor.style.bgCell()) |blank_cell| {
-            const cell_current: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-            const cells = cell_current - self.cursor.x;
-            self.cursor.page_row.blank = false;
-            @memset(cells[0..self.pages.cols], blank_cell);
-        }
-    }
+    self.cursorRowFillBackground();
 }
 
 fn cursorScrollAboveRotate(
@@ -1484,14 +1455,16 @@ fn cursorScrollRegionUpSlow(self: *Screen, limit: usize) !void {
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 
-    // eraseRowBounded clears the new row with zero cells so if our
-    // blank cell isn't zero (bg color is set) we need to fill it.
+    self.cursorRowFillBackground();
+}
+
+/// Fill the blank cursor row exposed by scrolling with our
+/// background color, if we have one.
+fn cursorRowFillBackground(self: *Screen) void {
     const blank = self.blankCell();
-    if (!blank.isZero()) {
-        const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
-        self.cursor.page_row.blank = false;
-        @memset((cells - self.cursor.x)[0..self.pages.cols], blank);
-    }
+    if (blank.isZero()) return;
+    const page: *Page = self.cursor.page_pin.node.page();
+    page.clearCells(self.cursor.page_row, 0, page.size.cols, blank);
 }
 
 /// Move the cursor down if we're not at the bottom of the screen. Otherwise
@@ -1914,18 +1887,7 @@ pub fn clearRows(
     }
 }
 
-/// Clear the cells with the blank cell.
-///
-/// This takes care to handle cleaning up graphemes and styles.
-///
-/// It also updates `Row.blank`. A full-row clear with a zero blank cell
-/// sets it, a colored blank cell clears it, and a partial clear with a
-/// zero blank cell leaves it unchanged.
-///
-/// Clearing any part of a row marked blank with a zero blank cell does
-/// nothing, since the cells are already zero and there is no managed
-/// memory to release. Full-screen programs often erase lines (EL, ECH)
-/// that are already empty when they redraw.
+/// Clear the cells with the blank cell. See `Page.clearCells`.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1933,105 +1895,14 @@ pub fn clearCells(
     cells: []Cell,
 ) void {
     if (cells.len == 0) return;
-    if (row.blank and self.blankCell().isZero()) return;
+    defer self.assertIntegrity();
 
-    // This whole operation does unsafe things, so we just want to assert
-    // the end state.
-    page.pauseIntegrityChecks(true);
-    defer {
-        page.pauseIntegrityChecks(false);
-        page.assertIntegrity();
-        self.assertIntegrity();
-    }
-
+    const row_cells = page.getCells(row);
     if (comptime std.debug.runtime_safety) {
-        // Our row and cells should be within the page.
-        const page_rows = page.rows.ptr(page.memory.ptr);
-        assert(@intFromPtr(row) >= @intFromPtr(&page_rows[0]));
-        assert(@intFromPtr(row) <= @intFromPtr(&page_rows[page.size.rows - 1]));
-
-        const row_cells = page.getCells(row);
         assert(@intFromPtr(&cells[0]) >= @intFromPtr(&row_cells[0]));
-        assert(@intFromPtr(&cells[cells.len - 1]) <= @intFromPtr(&row_cells[row_cells.len - 1]));
     }
-
-    // If we have managed memory (styles, graphemes, or hyperlinks)
-    // in this row then we go cell by cell and clear them if present.
-    if (row.grapheme) {
-        for (cells) |*cell| {
-            if (cell.hasGrapheme())
-                page.clearGrapheme(cell);
-        }
-
-        // If we have no left/right scroll region we can be sure
-        // that we've cleared all the graphemes, so we clear the
-        // flag, otherwise we ask the page to update the flag.
-        if (cells.len == page.size.cols) {
-            row.grapheme = false;
-        } else {
-            page.updateRowGraphemeFlag(row);
-        }
-    }
-
-    if (row.hyperlink) {
-        for (cells) |*cell| {
-            if (cell.hyperlink)
-                page.clearHyperlink(cell);
-        }
-
-        // If we have no left/right scroll region we can be sure
-        // that we've cleared all the hyperlinks, so we clear the
-        // flag, otherwise we ask the page to update the flag.
-        if (cells.len == page.size.cols) {
-            row.hyperlink = false;
-        } else {
-            page.updateRowHyperlinkFlag(row);
-        }
-    }
-
-    if (row.styled) {
-        // Styled cells overwhelmingly come in runs sharing the same
-        // style (e.g. a colored status bar or a highlighted region),
-        // so group them and release each run with a single ref-count
-        // update rather than per cell.
-        var i: usize = 0;
-        while (i < cells.len) {
-            const id = cells[i].style_id;
-            if (id == style.default_id) {
-                i += 1;
-                continue;
-            }
-            var j = i + 1;
-            while (j < cells.len and cells[j].style_id == id) j += 1;
-            page.styles.releaseMultiple(page.memory, id, @intCast(j - i));
-            i = j;
-        }
-
-        // If we have no left/right scroll region we can be sure
-        // that we've cleared all the styles, so we clear the
-        // flag, otherwise we ask the page to update the flag.
-        if (cells.len == page.size.cols) {
-            row.styled = false;
-        } else {
-            page.updateRowStyledFlag(row);
-        }
-    }
-
-    if (comptime build_options.kitty_graphics) {
-        if (cells.len == page.size.cols) {
-            row.kitty_virtual_placeholder = false;
-        }
-    }
-
-    const blank = self.blankCell();
-    @memset(cells, blank);
-
-    // Update Row.blank as described in the doc comment above.
-    if (cells.len == page.size.cols) {
-        row.blank = blank.isZero();
-    } else if (!blank.isZero()) {
-        row.blank = false;
-    }
+    const left = (@intFromPtr(cells.ptr) - @intFromPtr(row_cells.ptr)) / @sizeOf(Cell);
+    page.clearCells(row, left, left + cells.len, self.blankCell());
 }
 
 /// Clear cells but only if they are not protected.
@@ -2226,6 +2097,7 @@ pub const Resize = struct {
 
 const resize_tw = tripwire.module(enum {
     saved_cursor_pin,
+    prompt_pin,
     pages,
 }, resize);
 
@@ -2251,6 +2123,20 @@ pub inline fn resize(
         break :saved_cursor try self.pages.trackPin(pin);
     };
     defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
+
+    // Find where the prompt that the shell will redraw starts. We have to
+    // find it before the resize, because finding it relies on the rows'
+    // prompt marks, and reflow can split and join those rows. The tracked
+    // pin follows the row through the resize. A column reflow also uses
+    // it to keep the prompt's row count (see PageList.Resize.blank).
+    // Tracking can fail, so do it before changing any state.
+    const prompt_pin: ?*Pin = prompt: {
+        const start = self.promptRedrawStart(opts.prompt_redraw) orelse
+            break :prompt null;
+        try tw.check(.prompt_pin);
+        break :prompt try self.pages.trackPin(start);
+    };
+    defer if (prompt_pin) |p| self.pages.untrackPin(p);
 
     // A cursor style and hyperlink are partly stored in the page containing
     // the cursor. Their IDs only have meaning within that page, and the page
@@ -2319,6 +2205,14 @@ pub inline fn resize(
             .pin = self.cursor.page_pin,
         },
         .pull_scrollback = opts.pull_scrollback,
+        .blank = if (prompt_pin) |p| .{
+            .start = p,
+            .extent = switch (opts.prompt_redraw) {
+                .false => unreachable,
+                .last => .row,
+                .true => .to_bottom,
+            },
+        } else null,
     });
 
     // No more failures are possible after this. Enforced by compiler
@@ -2348,10 +2242,12 @@ pub inline fn resize(
         self.cursorRight(1);
     }
 
-    // Clear any redrawable prompt after the fallible resize but before
-    // restoring the cursor style and hyperlink, so cleared cells retain the
-    // same default styling they had with the previous ordering.
-    self.clearPromptForRedraw(opts.prompt_redraw);
+    // Clear any redrawable prompt. We do this after the fallible resize,
+    // so a failed resize leaves the prompt untouched. We also do it before
+    // restoring the cursor style and hyperlink, so cleared cells get the
+    // default style. A column reflow already wrote these rows blank, so
+    // this matters most when only the row count changed.
+    if (prompt_pin) |p| self.clearPromptForRedraw(p.*, opts.prompt_redraw);
 
     // Restore the cursor style.
     self.cursor.style = cursor_style;
@@ -2444,14 +2340,20 @@ pub inline fn resize(
     }
 }
 
-fn clearPromptForRedraw(
-    self: *Screen,
+/// Returns the first row of the prompt that the shell will redraw after
+/// a resize, or null if the cursor isn't at a prompt. With `.last`, this
+/// is the cursor's row, since the shell only redraws that line. With
+/// `.true`, this is the first row of the whole prompt, so for this
+/// two-line prompt it returns the row of "~/src", not the cursor's row:
+///
+/// ```
+/// ~/src         (.prompt)
+/// > echo hi_    (.prompt_continuation, cursor here)
+/// ```
+fn promptRedrawStart(
+    self: *const Screen,
     redraw: osc.semantic_prompt.Redraw,
-) void {
-    // If our cursor is on a prompt or input line, clear it so the shell can
-    // redraw it. This works with OSC 133 semantic prompts. We do this after
-    // the fallible resize so an error leaves the original prompt untouched.
-    //
+) ?Pin {
     // We check cursor.semantic_content rather than page_row.semantic_prompt
     // because some shells (e.g., Nu) mark input areas with OSC 133 B but don't
     // mark continuation lines with k=s. If the input spans multiple lines and
@@ -2459,47 +2361,48 @@ fn clearPromptForRedraw(
     // would miss them. By checking semantic_content, we assume that if the
     // cursor is on anything other than command output, we're at a prompt/input
     // line and should clear from there.
-    if (redraw != .false and
-        self.cursor.semantic_content != .output)
-    prompt: {
+    if (self.cursor.semantic_content == .output) return null;
+
+    return switch (redraw) {
+        .false => null,
+
+        .last => self.cursor.page_pin.left(self.cursor.x),
+        .true => start: {
+            var it = self.cursor.page_pin.promptIterator(.left_up, null);
+            break :start it.next() orelse {
+                // This should never happen because promptIterator should always
+                // find a prompt if we already verified our row is some kind of
+                // prompt.
+                log.warn("cursor on prompt line but promptIterator found no prompt", .{});
+                break :start null;
+            };
+        },
+    };
+}
+
+/// Clear the prompt that starts at `start`, as returned by
+/// promptRedrawStart, so the shell can redraw it. With `.last`, this
+/// clears only the row of `start`. With `.true`, it clears that row and
+/// every row below it.
+fn clearPromptForRedraw(
+    self: *Screen,
+    start: Pin,
+    redraw: osc.semantic_prompt.Redraw,
+) void {
+    // We replace the cells with spaces, and do not physically erase the
+    // rows (eraseRows), because the shell is going to expect this space to
+    // be available.
+    var it = start.rowIterator(.right_down, null);
+    while (it.next()) |pin| {
+        const page = pin.node.page();
+        const row = pin.rowAndCell().row;
+        const cells = page.getCells(row);
+        self.clearCells(page, row, cells);
+
         switch (redraw) {
             .false => unreachable,
-
-            // For `.last`, only clear the current line where the cursor is.
-            // For `.true`, clear all prompt lines starting from the beginning.
-            .last => {
-                const page = self.cursor.page_pin.node.page();
-                const row = self.cursor.page_row;
-                const cells = page.getCells(row);
-                self.clearCells(page, row, cells);
-            },
-
-            .true => {
-                const start = start: {
-                    var it = self.cursor.page_pin.promptIterator(
-                        .left_up,
-                        null,
-                    );
-                    break :start it.next() orelse {
-                        // This should never happen because promptIterator should always
-                        // find a prompt if we already verified our row is some kind of
-                        // prompt.
-                        log.warn("cursor on prompt line but promptIterator found no prompt", .{});
-                        break :prompt;
-                    };
-                };
-
-                // Clear cells from our start down. We replace it with spaces,
-                // and do not physically erase the rows (eraseRows) because the
-                // shell is going to expect this space to be available.
-                var it = start.rowIterator(.right_down, null);
-                while (it.next()) |pin| {
-                    const page = pin.node.page();
-                    const row = pin.rowAndCell().row;
-                    const cells = page.getCells(row);
-                    self.clearCells(page, row, cells);
-                }
-            },
+            .last => break,
+            .true => {},
         }
     }
 }

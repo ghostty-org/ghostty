@@ -31,7 +31,7 @@ and its own `vt-X.Y.Z` tags. Each release is published to one directory:
 https://release.files.ghostty.org/libghostty-vt/VERSION/
 ```
 
-`VERSION` is the version number with no prefix, such as `1.0.0`. The directory
+`VERSION` is the version number with no prefix, such as `1.0.1`. The directory
 has the following files:
 
 | File                                         | Contents                                  |
@@ -70,7 +70,7 @@ as a `binaryTarget`:
 ```swift
 .binaryTarget(
     name: "GhosttyVt",
-    url: "https://release.files.ghostty.org/libghostty-vt/1.0.0/ghostty-vt-1.0.0.xcframework.zip",
+    url: "https://release.files.ghostty.org/libghostty-vt/1.0.1/ghostty-vt-1.0.1.xcframework.zip",
     checksum: "<sha256 of the zip>"
 ),
 ```
@@ -121,10 +121,10 @@ release, but never run.
 Download and verify the zip, then unzip it:
 
 ```powershell
-curl.exe -LO https://release.files.ghostty.org/libghostty-vt/1.0.0/ghostty-vt-1.0.0-x86_64-windows-gnu.zip
-curl.exe -LO https://release.files.ghostty.org/libghostty-vt/1.0.0/ghostty-vt-1.0.0-x86_64-windows-gnu.zip.minisig
-minisign -V -P RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV -m ghostty-vt-1.0.0-x86_64-windows-gnu.zip
-Expand-Archive ghostty-vt-1.0.0-x86_64-windows-gnu.zip -DestinationPath .
+curl.exe -LO https://release.files.ghostty.org/libghostty-vt/1.0.1/ghostty-vt-1.0.1-x86_64-windows-gnu.zip
+curl.exe -LO https://release.files.ghostty.org/libghostty-vt/1.0.1/ghostty-vt-1.0.1-x86_64-windows-gnu.zip.minisig
+minisign -V -P RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV -m ghostty-vt-1.0.1-x86_64-windows-gnu.zip
+Expand-Archive ghostty-vt-1.0.1-x86_64-windows-gnu.zip -DestinationPath .
 ```
 
 It unpacks to one directory named after the zip. `bin/` has `ghostty-vt.dll`
@@ -140,7 +140,7 @@ target_link_libraries(hello PRIVATE ghostty-vt::ghostty-vt)
 ```
 
 ```powershell
-cmake -B build -DCMAKE_PREFIX_PATH=C:/path/to/ghostty-vt-1.0.0-x86_64-windows-gnu
+cmake -B build -DCMAKE_PREFIX_PATH=C:/path/to/ghostty-vt-1.0.1-x86_64-windows-gnu
 ```
 
 Without CMake, compile with the `include` directory and link
@@ -177,7 +177,7 @@ You still need `zig` on your `PATH`.
 ```cmake
 include(FetchContent)
 FetchContent_Declare(ghostty
-    URL https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
+    URL https://release.files.ghostty.org/libghostty-vt/1.0.1/libghostty-vt-1.0.1.tar.gz
     URL_HASH SHA256=<sha256 of the tarball>
 )
 FetchContent_MakeAvailable(ghostty)
@@ -203,7 +203,7 @@ c-vt-cmake-cross/src/main.c "c-vt-cmake-cross" and the
 Zig programs can use the Zig module directly, which skips the C API:
 
 ```sh
-zig fetch --save=ghostty https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
+zig fetch --save=ghostty https://release.files.ghostty.org/libghostty-vt/1.0.1/libghostty-vt-1.0.1.tar.gz
 ```
 
 Then import the module in your `build.zig`:
@@ -224,7 +224,7 @@ c-vt-stream/src/main.c "c-vt-stream" does.
 Our flake has a `libghostty-vt` package, built with `ReleaseFast`:
 
 ```sh
-nix build 'github:ghostty-org/ghostty/vt-1.0.0#libghostty-vt^*'
+nix build 'github:ghostty-org/ghostty/vt-1.0.1#libghostty-vt^*'
 ```
 
 The `^*` builds every output. The default output has the shared library, and the
@@ -236,9 +236,9 @@ files.
 Download a source tarball and build it:
 
 ```sh
-curl -LO https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
-tar -xzf libghostty-vt-1.0.0.tar.gz
-cd libghostty-vt-1.0.0
+curl -LO https://release.files.ghostty.org/libghostty-vt/1.0.1/libghostty-vt-1.0.1.tar.gz
+tar -xzf libghostty-vt-1.0.1.tar.gz
+cd libghostty-vt-1.0.1
 zig build -Doptimize=ReleaseFast --prefix "$HOME/.local"
 ```
 

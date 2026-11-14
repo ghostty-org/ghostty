@@ -13,7 +13,7 @@ const app_zon_version = @import("build.zig.zon").version;
 ///
 /// CMakeLists.txt and CI read this line with a regular expression, so
 /// keep it on one line in this form.
-const lib_version = "1.1.0-dev";
+const lib_version = "1.0.2-dev";
 
 /// Minimum required zig version.
 const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;
@@ -117,8 +117,10 @@ pub fn build(b: *std.Build) !void {
     // Ghostty resources like terminfo, shell integration, themes, etc.
     // Only the app uses them, so a libghostty-vt build skips them, which
     // also keeps it from downloading the themes package. This is null only
-    // when emit_lib_vt is set, and every use below is in an app-only branch.
-    const resources: ?buildpkg.GhosttyResources = if (config.emit_lib_vt)
+    // when emit_lib_vt is set without emit_exe, and every use below is in
+    // an app-only branch.
+    const resources: ?buildpkg.GhosttyResources = if (config.emit_lib_vt and
+        !config.emit_exe)
         null
     else
         try buildpkg.GhosttyResources.init(b, &config, &deps);

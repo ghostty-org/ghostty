@@ -505,16 +505,10 @@ pub const LoadingImage = struct {
         dir: []const u8,
         path: []const u8,
     ) Allocator.Error!bool {
-        if (isPathInDir("/tmp", path)) return true;
-        if (isPathInDir("/dev/shm", path)) return true;
-        if (isPathInDir(dir, path)) return true;
-
-        // On macOS /tmp is a symlink to /private/tmp, and the path is
-        // canonical (see validatedFilePath), so files in /tmp only
-        // match the canonical directory.
-        if (comptime builtin.target.os.tag.isDarwin()) {
-            if (isPathInDir("/private/tmp", path)) return true;
+        for (builtin_temp_dirs) |builtin_dir| {
+            if (isPathInDir(builtin_dir, path)) return true;
         }
+        if (isPathInDir(dir, path)) return true;
 
         // The temporary dir is sometimes a symlink. On macOS for
         // example /tmp is /private/var/... On Windows the directory a
@@ -944,6 +938,16 @@ fn validSharedMemoryName(name: []const u8, name_max: usize) bool {
     if (std.mem.eql(u8, name, "/")) return false;
     return std.mem.indexOfScalar(u8, name, 0) == null;
 }
+
+/// Directories a temporary file is always accepted from, whatever the
+/// configured temporary directory is. Kitty accepts the same ones, and
+/// clients such as `kitten icat` write to /dev/shm by default.
+///
+/// On macOS /tmp is a symlink to /private/tmp, and the path is canonical
+/// (see validatedFilePath), so files in /tmp only match the canonical
+/// directory.
+const builtin_temp_dirs = [_][]const u8{ "/tmp", "/dev/shm" } ++
+    if (builtin.target.os.tag.isDarwin()) [_][]const u8{"/private/tmp"} else [_][]const u8{};
 
 /// Returns true if `path` is `dir` or is contained within it, requiring a
 /// path-separator boundary so similarly prefixed directories do not match.
@@ -1429,6 +1433,14 @@ test "image load: temporary file outside directory prefix is rejected" {
     const trusted_path = trusted_path_buf[0..try trusted_dir.realPath(io, &trusted_path_buf)];
     var outside_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const outside_path = outside_path_buf[0..try outside_dir.realPathFile(io, filename, &outside_path_buf)];
+
+    // A file in a built-in temporary directory is accepted whatever the
+    // configured directory is. testing.tmpDir is under the working
+    // directory, so when the tests run from under /tmp (as some package
+    // builds do) the "outside" file is not outside at all.
+    for (builtin_temp_dirs) |builtin_dir| {
+        if (isPathInDir(builtin_dir, outside_path)) return error.SkipZigTest;
+    }
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{

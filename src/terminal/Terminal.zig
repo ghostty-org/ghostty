@@ -18711,6 +18711,137 @@ test "Terminal: resize without scrollback pull" {
     }
 }
 
+test "Terminal: resize prompt redraw clears prompts that reflow splits or joins" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+
+    // A two-line prompt as zsh's shell integration writes it. The first
+    // line is exactly as wide as the screen, which powerlevel10k does.
+    const two_line = "out\r\n" ++
+        "\x1b]133;A;cl=line\x07" ++ "LLLLLLLLLLLLLLLLLLLR" ++ "\r\n" ++
+        "\x1b]133;P;k=s\x07" ++ "> " ++ "\x1b]133;B\x07" ++ "ls";
+    const one_line = "out\r\n" ++
+        "\x1b]133;A;cl=line\x07" ++ "user@host ~/d $ " ++ "\x1b]133;B\x07" ++ "echo";
+
+    // Bash redraws only the last line of its prompt (redraw=last).
+    const bash = "out\r\n" ++
+        "\x1b]133;A;redraw=last;cl=line\x07" ++ "first" ++ "\r\n" ++
+        "\x1b]133;P;k=s\x07" ++ "abcdefghij";
+
+    // The same, but the input wrapped, so the cursor's row continues a
+    // row that bash won't redraw.
+    const bash_wrapped = "out\r\n" ++
+        "\x1b]133;A;redraw=last;cl=line\x07" ++ "first" ++ "\r\n" ++
+        "\x1b]133;P;k=s\x07" ++ "abcdefghijklmno";
+
+    // After the resize, only the text the shell won't redraw is left. The
+    // cleared prompt keeps the rows it had at the old width, because the
+    // shell moves up by that many rows to redraw it. So the cursor keeps
+    // its row and only its column is clamped to the new width.
+    const cases = [_]struct {
+        input: []const u8,
+        cols: size.CellCountInt,
+        new_cols: size.CellCountInt,
+        text: []const u8,
+        x: size.CellCountInt,
+        y: size.CellCountInt,
+    }{
+        .{ .input = two_line, .cols = 20, .new_cols = 15, .text = "out", .x = 4, .y = 2 },
+        .{ .input = two_line, .cols = 20, .new_cols = 25, .text = "out", .x = 4, .y = 2 },
+        .{ .input = one_line, .cols = 30, .new_cols = 8, .text = "out", .x = 7, .y = 1 },
+        .{ .input = one_line, .cols = 30, .new_cols = 40, .text = "out", .x = 20, .y = 1 },
+        .{ .input = bash, .cols = 12, .new_cols = 6, .text = "out\nfirst", .x = 5, .y = 2 },
+        .{ .input = bash_wrapped, .cols = 12, .new_cols = 20, .text = "out\nfirst\nabcdefghijkl", .x = 3, .y = 3 },
+
+        // The wrapped line above the cursor now takes one more row. Reflow
+        // keeps the same number of rows below the cursor, so the top row
+        // moves into scrollback.
+        .{ .input = bash_wrapped, .cols = 12, .new_cols = 6, .text = "out\nfirst\nabcdef\nghijkl", .x = 3, .y = 3 },
+    };
+
+    for (cases) |case| {
+        var t = try init(io_impl, alloc, .{ .cols = case.cols, .rows = 6 });
+        defer t.deinit(alloc);
+        {
+            var s = t.vtStream();
+            defer s.deinit();
+            s.nextSlice(case.input);
+        }
+
+        try t.resize(alloc, .{ .cols = case.new_cols, .rows = 6 });
+
+        const str = try t.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings(case.text, str);
+        try testing.expectEqual(case.x, t.screens.active.cursor.x);
+        try testing.expectEqual(case.y, t.screens.active.cursor.y);
+    }
+}
+
+test "Terminal: resize prompt redraw keeps the previous prompt when reflow joins rows" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 10, .rows = 8 });
+    defer t.deinit(alloc);
+
+    // Two prompts with an empty command between them. Each prompt wrapped
+    // onto a second row when it was printed.
+    {
+        var s = t.vtStream();
+        defer s.deinit();
+        s.nextSlice("out\r\n" ++
+            "\x1b]133;A;cl=line\x07" ++ "P1-abcdefghijk$ " ++ "\x1b]133;B\x07" ++ "\r\n" ++
+            "\x1b]133;D;0\x07" ++
+            "\x1b]133;A;cl=line\x07" ++ "P2-abcdefghijk$ " ++ "\x1b]133;B\x07" ++ "ls");
+    }
+
+    // Widening joins each prompt into one row. Both rows must still be
+    // prompt starts. Otherwise the second prompt has no start, and the
+    // redraw clears the first prompt too.
+    try t.resize(alloc, .{ .cols = 30, .rows = 8 });
+
+    const str = try t.plainString(alloc);
+    defer alloc.free(str);
+    try testing.expectEqualStrings("out\nP1-abcdefghijk$ ", str);
+    for ([_]Row.SemanticPrompt{ .none, .prompt, .prompt }, 0..) |mark, y| {
+        const p = t.screens.active.pages.pin(.{ .screen = .{ .y = @intCast(y) } }).?;
+        try testing.expectEqual(mark, p.rowAndCell().row.semantic_prompt);
+    }
+}
+
+test "Terminal: resize prompt redraw doesn't pile up prompts when zsh redraws" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 80, .rows = 10 });
+    defer t.deinit(alloc);
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // This replays what zsh writes after each resize: two carriage
+    // returns, cursor up (CSI A) by the rows the prompt took above the
+    // cursor at the old width, erase below (CSI J), then the prompt
+    // again. The prompt's first line is "LEFT" and "RIGHT" padded to fill
+    // the screen, so it always took exactly one row above the cursor.
+    var buf: [256]u8 = undefined;
+    for ([_]size.CellCountInt{ 80, 60, 80, 60, 80, 100, 80, 40, 80 }, 0..) |cols, i| {
+        if (i > 0) try t.resize(alloc, .{ .cols = cols, .rows = 10 });
+
+        var w: std.Io.Writer = .fixed(&buf);
+        try w.writeAll(if (i == 0) "out\r\n" else "\r\r\x1b[A\x1b[J");
+        try w.writeAll("\x1b]133;A;cl=line\x07LEFT");
+        try w.splatByteAll(' ', cols - "LEFTRIGHT".len);
+        try w.writeAll("RIGHT\r\n\x1b]133;P;k=s\x07> \x1b]133;B\x07ls");
+        s.nextSlice(w.buffered());
+
+        // Exactly one prompt, right below the output.
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqual(1, std.mem.count(u8, str, "out"));
+        try testing.expectEqual(1, std.mem.count(u8, str, "LEFT"));
+        try testing.expectEqual(2, t.screens.active.cursor.y);
+    }
+}
+
 // https://github.com/mitchellh/ghostty/issues/1343
 test "Terminal: resize with wraparound off" {
     const alloc = testing.allocator;

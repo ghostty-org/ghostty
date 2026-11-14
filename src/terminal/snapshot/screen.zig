@@ -321,6 +321,10 @@ pub const Decoded = struct {
 /// temporary allocations are released and no partially restored Screen escapes.
 /// The returned key selects the ScreenSet slot that owns the decoded screen.
 ///
+/// The last PAGE is restored with extra row capacity when it fits in the
+/// page pool, so output written after the restore continues in that page
+/// instead of starting a new one.
+///
 /// `record_header` is the SCREEN record's header, already read from
 /// `source`. A header for any other kind of record returns
 /// `error.UnexpectedRecordTag`. This function reads the headers of the PAGE
@@ -394,12 +398,23 @@ pub fn decode(
         });
         defer builder.deinit();
 
-        // Allocate each PAGE at its declared capacity and decode directly into
-        // builder-owned storage, avoiding an intermediate page representation.
-        for (0..header.page_count) |_| {
+        // Allocate each PAGE and decode directly into builder-owned storage,
+        // avoiding an intermediate page representation.
+        for (0..header.page_count) |i| {
             var decoder: page.Decoder = undefined;
             try decoder.init(source, try record.nextHeader(source));
-            const native_page = try builder.allocatePage(decoder.capacity());
+
+            // A PAGE header advertises only the rows the page held when it
+            // was encoded. The last page is where new output goes, so give
+            // it the rest of its pool item. Otherwise the first write after
+            // a restore starts a new page (#15192).
+            const capacity = decoder.capacity();
+            const native_page = try builder.allocatePage(
+                if (i == header.page_count - 1)
+                    TerminalPageList.fillPooled(capacity)
+                else
+                    capacity,
+            );
             try decoder.decode(native_page, alloc);
         }
 
