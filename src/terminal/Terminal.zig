@@ -19701,3 +19701,36 @@ test "Terminal: eraseDisplay complete at input prompt copied from alt screen scr
 
     try testing.expect(t.screens.active.pages.total_rows > t.screens.active.pages.rows);
 }
+
+test "Terminal: resize grows rows while viewport is scrolled up" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 2, .rows = 1 });
+    defer t.deinit(alloc);
+
+    try t.printString("abcd");
+    try t.printString("e");
+    t.scrollViewport(.{ .delta = -1 });
+    try t.printString("fgh");
+    try testing.expect(t.screens.active.pages.viewport == .pin);
+
+    // Reflow to 4 columns leaves two rows, so growing to four pulls in
+    // every row and the scrolled-up viewport becomes the active area.
+    try t.resize(alloc, .{ .cols = 4, .rows = 4 });
+    try testing.expect(t.screens.active.pages.viewport == .active);
+}
+
+test "Terminal: resize grows rows while viewport is scrolled up, cursor not at bottom" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    try t.printString("1\r\n2\r\n3\r\n4\r\n5\r\n6");
+    t.setCursorPos(1, 1);
+    t.scrollViewport(.{ .delta = -1 });
+    try testing.expect(t.screens.active.pages.viewport == .pin);
+
+    // The cursor isn't at the bottom, so no scrollback is pulled down and
+    // the viewport stays scrolled up.
+    try t.resize(alloc, .{ .cols = 5, .rows = 6 });
+    try testing.expect(t.screens.active.pages.viewport == .pin);
+}
