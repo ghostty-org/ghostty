@@ -1299,15 +1299,14 @@ pub const Page = struct {
     /// and it will still be ref counted down. The best solution for this is
     /// to artificially increment the ref count prior to calling this function.
     ///
-    /// This also updates the row's extent (see `Row.extent`). A full-row
-    /// clear with a zero blank cell makes the row blank, a colored blank
-    /// cell raises the extent to `end`, and a partial clear with a zero
-    /// blank cell leaves it unchanged.
+    /// This also updates the row's extent (see `Row.extent`). A clear with a
+    /// zero blank cell that reaches the extent lowers it to `left`, and a
+    /// colored blank cell raises it to `end`.
     ///
-    /// Clearing any part of a blank row with a zero blank cell does
+    /// Clearing cells at or right of the extent with a zero blank cell does
     /// nothing, since the cells are already zero and there is no managed
     /// memory to release. Full-screen programs often erase lines (EL, ECH)
-    /// that are already empty when they redraw.
+    /// that are already empty, or their empty ends, when they redraw.
     pub inline fn clearCells(
         self: *Page,
         row: *Row,
@@ -1322,9 +1321,11 @@ pub const Page = struct {
             assert(@intFromPtr(row) <= @intFromPtr(&rows[self.size.rows - 1]));
         }
         const blank_zero = blank.isZero();
-        const cells = row.cells.ptr(self.memory)[left..end];
-        const full_row = cells.len == self.size.cols;
-        if (cells.len == 0 or (blank_zero and row.isBlank())) return;
+        const row_cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const range = row_cells[left..end];
+        const extent = @min(row.extent, self.size.cols);
+        const cells = row_cells[left..std.math.clamp(extent, left, end)];
+        if (blank_zero and cells.len == 0) return;
 
         // This whole operation does unsafe things, so we just want to assert
         // the end state.
@@ -1334,28 +1335,39 @@ pub const Page = struct {
             self.assertIntegrity();
         }
 
-        if (row.managedMemory()) self.releaseCells(row, cells, full_row);
+        // Clearing from the start of the row through its extent leaves the
+        // row without managed memory. Blank cells never have any.
+        const reaches_extent = end >= extent;
+        const emptied = left == 0 and reaches_extent;
+        if (cells.len > 0 and row.managedMemory()) self.releaseCells(
+            row,
+            cells,
+            emptied,
+        );
 
         if (comptime build_options.kitty_graphics) {
-            if (full_row) {
+            if (emptied) {
                 row.kitty_virtual_placeholder = false;
             }
         }
 
-        @memset(cells, blank);
-
-        // Update the extent as described in the doc comment above.
-        if (!blank_zero) {
+        // Update the extent before writing the cells. The writes could
+        // alias the row as far as the compiler knows, so updating it
+        // after them would reload the row.
+        if (blank_zero) {
+            if (reaches_extent) row.markZeroFrom(left);
+            Cell.zeroAll(cells);
+        } else {
             row.markWritten(end);
-        } else if (full_row) {
-            row.extent = 0;
+            @memset(range, blank);
         }
     }
 
     /// Release the graphemes, hyperlinks, and styles of `cells` and update
-    /// the row's flags. This is out of line so that clearCells stays small
-    /// for rows without managed memory.
-    fn releaseCells(self: *Page, row: *Row, cells: []Cell, full_row: bool) void {
+    /// the row's flags. If `emptied`, the clear leaves no managed memory in
+    /// the row. This is out of line so that clearCells stays small for rows
+    /// without managed memory.
+    fn releaseCells(self: *Page, row: *Row, cells: []Cell, emptied: bool) void {
         // Clearing a grapheme or hyperlink also clears the cell's flag,
         // so the scans see the cleared cells as empty.
         if (row.grapheme) {
@@ -1363,7 +1375,7 @@ pub const Page = struct {
                 if (cell.hasGrapheme())
                     @call(.always_inline, clearGrapheme, .{ self, cell });
             }
-            if (full_row) row.grapheme = false else self.updateRowGraphemeFlag(row);
+            if (emptied) row.grapheme = false else self.updateRowGraphemeFlag(row);
         }
 
         if (row.hyperlink) {
@@ -1371,7 +1383,7 @@ pub const Page = struct {
                 if (cell.hyperlink)
                     @call(.always_inline, clearHyperlink, .{ self, cell });
             }
-            if (full_row) row.hyperlink = false else self.updateRowHyperlinkFlag(row);
+            if (emptied) row.hyperlink = false else self.updateRowHyperlinkFlag(row);
         }
 
         if (row.styled) {
@@ -1395,7 +1407,7 @@ pub const Page = struct {
             // The cleared cells keep their style IDs until the fill, so a
             // scan would find any we released and keep the flag set. Skip
             // it then. A later clear of unstyled cells clears the flag.
-            if (full_row) {
+            if (emptied) {
                 row.styled = false;
             } else if (!released) {
                 self.updateRowStyledFlag(row);
@@ -1447,7 +1459,7 @@ pub const Page = struct {
     ///
     /// Call after removing hyperlinks in a row.
     pub inline fn updateRowHyperlinkFlag(self: *Page, row: *Row) void {
-        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const cells = row.content(row.cells.ptr(self.memory)[0..self.size.cols]);
         for (cells) |c| if (c.hyperlink) return;
         row.hyperlink = false;
     }
@@ -1828,7 +1840,7 @@ pub const Page = struct {
     ///
     /// Call after removing graphemes in a row.
     pub inline fn updateRowGraphemeFlag(self: *Page, row: *Row) void {
-        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const cells = row.content(row.cells.ptr(self.memory)[0..self.size.cols]);
         for (cells) |c| if (c.hasGrapheme()) return;
         row.grapheme = false;
     }
@@ -1850,7 +1862,7 @@ pub const Page = struct {
     ///
     /// Call after removing styles in a row.
     pub inline fn updateRowStyledFlag(self: *Page, row: *Row) void {
-        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const cells = row.content(row.cells.ptr(self.memory)[0..self.size.cols]);
         const StyleMask = Mask(Cell, &.{"style_id"}, 4);
         if (StyleMask.eqlEnd(cells, 0, 0) == cells.len) row.styled = false;
     }
@@ -2364,9 +2376,9 @@ pub const Row = packed struct(u64) {
     /// `Screen.clearRows` skips blank rows and does not mark them dirty.
     /// Their cells don't change, and the metadata it resets (wrap and
     /// semantic prompt state) doesn't change how the row looks.
-    /// `Screen.clearCells` (and so EL and ECH) also leaves their cells
-    /// alone, and the emptiness scans in `PageList.scrollClear` and
-    /// `PageList.trimTrailingBlankRows` don't read them.
+    /// `Screen.clearCells` (and so EL and ECH) leaves cells at or right of
+    /// the extent alone, and the emptiness scans in `PageList.scrollClear`
+    /// and `PageList.trimTrailingBlankRows` don't read them.
     ///
     /// The default permits content anywhere, so a header literal is
     /// valid until something narrows it.
@@ -2467,6 +2479,11 @@ pub const Row = packed struct(u64) {
     /// managed memory.
     pub inline fn isBlank(self: Row) bool {
         return self.extent == 0;
+    }
+
+    /// The prefix that may contain nonzero cells.
+    pub inline fn content(self: Row, cells: []Cell) []Cell {
+        return cells[0..@min(cells.len, self.extent)];
     }
 
     /// Returns true if this row has any managed memory outside of the
@@ -2674,6 +2691,27 @@ pub const Cell = packed struct(u64) {
 
     pub inline fn isZero(self: Cell) bool {
         return @as(u64, @bitCast(self)) == 0;
+    }
+
+    /// Set every cell to the zero cell. Most clears are short, and a few
+    /// stores are quicker than a call to memset for those.
+    pub inline fn zeroAll(cells: []Cell) void {
+        const words: []u64 = @ptrCast(cells);
+        switch (words.len) {
+            0 => {},
+            1 => words[0] = 0,
+            // Two 16-byte stores, overlapping for 2 or 3 cells.
+            2...4 => {
+                words[0..2].* = @splat(0);
+                words[words.len - 2 ..][0..2].* = @splat(0);
+            },
+            // Two 32-byte stores, overlapping for 5 to 7 cells.
+            5...8 => {
+                words[0..4].* = @splat(0);
+                words[words.len - 4 ..][0..4].* = @splat(0);
+            },
+            else => @memset(words, 0),
+        }
     }
 
     /// Returns true if this cell represents a cell with text to render.
@@ -4842,6 +4880,72 @@ test "Page resetRow marks the row blank" {
     rac.row.reset();
     try testing.expectEqual(5, rac.row.extent);
     try testing.expect(!rac.row.wrap);
+}
+
+test "Page clearCells lowers the extent only when it reaches it" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const row = page.getRow(0);
+    row.markCleared();
+    for (page.getCells(row)[0..6], "ABCDEF") |*cell, c| cell.* = .init(c);
+    row.markWritten(6);
+
+    // A clear that stops short of the extent leaves it.
+    page.clearCells(row, 1, 3, .{});
+    try testing.expectEqual(6, row.extent);
+
+    // A clear that reaches the extent lowers it to the clear's start.
+    page.clearCells(row, 4, 10, .{});
+    try testing.expectEqual(4, row.extent);
+    try testing.expectEqual('A', page.getCells(row)[0].codepoint());
+    try testing.expectEqual('D', page.getCells(row)[3].codepoint());
+    try page.verifyIntegrity(testing.allocator);
+
+    // Clearing only cells past the extent changes nothing.
+    page.clearCells(row, 5, 10, .{});
+    try testing.expectEqual(4, row.extent);
+
+    // A clear from the start of the row makes it blank.
+    page.clearCells(row, 0, 4, .{});
+    try testing.expect(row.isBlank());
+    try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page clearCells of part of a row clears its styled flag" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    const row = page.getRow(0);
+    row.markCleared();
+    for (page.getCells(row)[0..3], "ABC") |*cell, c| {
+        cell.* = .init(c);
+        cell.style_id = id;
+        page.styles.use(page.memory, id);
+    }
+
+    // Each cell holds a reference now, so drop the one from add.
+    page.styles.release(page.memory, id);
+    row.styled = true;
+    row.markWritten(3);
+
+    // The clear covers every styled cell but not the whole row. It still
+    // empties the row, so it must reset the flag even though it released
+    // a style. A blank row with the flag still set would fail the
+    // integrity check.
+    page.clearCells(row, 0, 5, .{});
+    try testing.expect(row.isBlank());
+    try testing.expect(!row.styled);
+    try page.verifyIntegrity(testing.allocator);
 }
 
 test "Page moveCells widens the destination extent" {

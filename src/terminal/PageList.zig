@@ -1749,6 +1749,8 @@ const ReflowCursor = struct {
         // rightmost blanks.
         var cols_len = src_page.size.cols;
         if (!src_row.wrap) {
+            // Cells at or right of the extent are empty.
+            cols_len = @min(cols_len, src_row.extent);
             while (cols_len > 0) {
                 if (!cells[cols_len - 1].isEmpty()) break;
                 cols_len -= 1;
@@ -3425,7 +3427,7 @@ fn trimTrailingBlankRows(
         // has no text, so we don't need to read its cells.
         const rac = row_pin.rowAndCell();
         if (!rac.row.isBlank() and
-            pagepkg.Cell.hasTextAny(row_pin.cells(.all))) return trimmed;
+            pagepkg.Cell.hasTextAny(rac.row.content(row_pin.cells(.all)))) return trimmed;
 
         // If our tracked pins are in this row then we cannot trim it
         // because it implies some sort of importance. If we trimmed this
@@ -3793,7 +3795,7 @@ pub fn scrollClear(self: *PageList) Allocator.Error!void {
                 // usually have mostly blank rows below the content.
                 if (!row.isBlank()) {
                     const cells = row.cells.ptr(current_page.memory)[0..self.cols];
-                    if (!pagepkg.Cell.isEmptyAll(cells)) {
+                    if (!pagepkg.Cell.isEmptyAll(row.content(cells))) {
                         break :non_empty self.rows - n;
                     }
                 }
