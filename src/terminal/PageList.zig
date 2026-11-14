@@ -1214,17 +1214,7 @@ pub fn clone(
     // a pagelist invariant that other code relies on.
     if (total_rows < self.rows) {
         const len = self.rows - total_rows;
-        for (0..len) |_| {
-            _ = try result.grow();
-
-            // Clear the row. This is not very fast but in reality right
-            // now we rarely clone less than the active area and if we do
-            // the area is by definition very small.
-            const last = result.pages.last.?;
-            const page = last.page();
-            const row = &page.rows.ptr(page.memory)[last.rows() - 1];
-            page.clearCells(row, 0, page.size.cols, .{});
-        }
+        for (0..len) |_| try result.growBlank();
 
         // Update our total rows to be our row size.
         result.total_rows = result.rows;
@@ -1513,6 +1503,7 @@ fn resizeCols(
 
         const node = try self.createPage(.{ .cap = cap });
         node.page().size.rows = 1;
+        node.page().getRow(0).markCleared();
         break :node node;
     };
 
@@ -1609,7 +1600,7 @@ fn resizeCols(
         total += node.rows();
         if (total >= self.rows) break;
     } else {
-        for (total..self.rows) |_| _ = try self.grow();
+        for (total..self.rows) |_| try self.growBlank();
     }
 
     // Reflow can unwrap enough rows that a history viewport pin lands in the
@@ -1630,7 +1621,7 @@ fn resizeCols(
     // cursor logic below since that also only exists to avoid a pull.
     if (active_top) |p| {
         if (self.pointFromPin(.active, p.*)) |pt| {
-            for (0..pt.active.y) |_| _ = try self.grow();
+            for (0..pt.active.y) |_| try self.growBlank();
         }
         return;
     }
@@ -1667,7 +1658,7 @@ fn resizeCols(
         req_rows -|= current;
 
         while (req_rows > 0) {
-            _ = try self.grow();
+            try self.growBlank();
             req_rows -= 1;
         }
     }
@@ -2290,6 +2281,7 @@ const ReflowCursor = struct {
             for (dst_cells) |*cell| cell.style_id = dst_style_id;
         }
         if (dst_style_id != stylepkg.default_id) self.page_row.styled = true;
+        self.page_row.markWritten(self.x + n);
 
         // Advance the cursor, matching what repeated cursorForward
         // calls after each cell write would have done.
@@ -2334,6 +2326,8 @@ const ReflowCursor = struct {
             // This must not fail because we want to make sure we atomically
             // setup our page cell to be valid.
             errdefer comptime unreachable;
+
+            self.page_row.markWritten(self.x + 1);
 
             // Copy cell contents.
             switch (cell.content_tag) {
@@ -2879,6 +2873,7 @@ const ReflowCursor = struct {
         // With the increased page size, safely move down a row.
         const rows: [*]pagepkg.Row = @ptrCast(self.page_row);
         const row: *pagepkg.Row = @ptrCast(rows + 1);
+        row.markCleared();
         self.page_row = row;
         self.page_cell = &row.cells.ptr(self.page.memory)[0];
         self.pending_wrap = false;
@@ -2900,6 +2895,7 @@ const ReflowCursor = struct {
         const node = try list.createPage(.{ .cap = cap });
         errdefer comptime unreachable;
         node.page().size.rows = 1;
+        node.page().getRow(0).markCleared();
         list.pages.insertAfter(self.node, node);
 
         self.* = .init(node);
@@ -3102,7 +3098,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                     // scrollback.
                     const delta = rows - self.rows;
                     self.rows = rows;
-                    for (0..delta) |_| _ = try self.grow();
+                    for (0..delta) |_| try self.growBlank();
                     break :gt;
                 }
 
@@ -3130,7 +3126,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
                     if (count >= rows) break;
                 } else {
                     assert(count < rows);
-                    for (count..rows) |_| _ = try self.grow();
+                    for (count..rows) |_| try self.growBlank();
                 }
 
                 // Make sure that the viewport pin isn't below the active
@@ -3428,7 +3424,7 @@ fn trimTrailingBlankRows(
         // If the row has any text then we're done. A row marked blank
         // has no text, so we don't need to read its cells.
         const rac = row_pin.rowAndCell();
-        if (!rac.row.blank and
+        if (!rac.row.isBlank() and
             pagepkg.Cell.hasTextAny(row_pin.cells(.all))) return trimmed;
 
         // If our tracked pins are in this row then we cannot trim it
@@ -3795,7 +3791,7 @@ pub fn scrollClear(self: *PageList) Allocator.Error!void {
                 // empty, so we don't need to read them. Shells that
                 // clear this way (`CSI 22 J`, or `CSI 2 J` at a prompt)
                 // usually have mostly blank rows below the content.
-                if (!row.blank) {
+                if (!row.isBlank()) {
                     const cells = row.cells.ptr(current_page.memory)[0..self.cols];
                     if (!pagepkg.Cell.isEmptyAll(cells)) {
                         break :non_empty self.rows - n;
@@ -3811,7 +3807,7 @@ pub fn scrollClear(self: *PageList) Allocator.Error!void {
     };
 
     // Scroll
-    for (0..non_empty) |_| _ = try self.grow();
+    for (0..non_empty) |_| try self.growBlank();
 }
 
 /// Give a live node a new generation before changing its coordinate layout in
@@ -4210,6 +4206,14 @@ pub fn setMaxLines(self: *PageList, max: ?usize) void {
 
     self.limits.set(.lines, max);
     self.limits.enforce(self, .lines, .reclaim);
+}
+
+/// Like `grow`, but marks the new row blank, since it is zero. Later
+/// clears and scans then skip it.
+fn growBlank(self: *PageList) Allocator.Error!void {
+    _ = try self.grow();
+    const last = self.pages.last.?;
+    last.page().getRow(last.rows() - 1).markCleared();
 }
 
 /// Grow the active area by exactly one row.
@@ -6422,7 +6426,7 @@ fn eraseRows(
     // If we deleted active, we need to regrow because one of our invariants
     // is that we always have full active space.
     if (tl_pt == .active) {
-        for (0..erased) |_| _ = self.grow() catch |err| {
+        for (0..erased) |_| self.growBlank() catch |err| {
             // If this fails its a pretty big issue actually... but I don't
             // want to turn this function into an error-returning function
             // because erasing active is so rare and even if it happens failing
@@ -16035,7 +16039,7 @@ test "PageList clone less than active on a narrower page" {
     const alloc = testing.allocator;
 
     // The list has 4 columns, but its page has only 2. When the
-    // clone adds blank rows, it must clear only 2 columns per row.
+    // clone adds blank rows, it must not touch cells past 2 columns.
     var s: PageList = s: {
         var builder = try Builder.init(alloc, .{
             .cols = 4,
@@ -16392,10 +16396,10 @@ test "PageList scrollClear skips blank rows and stops at a spacer" {
     defer s.deinit();
     try testing.expect(s.pages.first == s.pages.last);
     const page = s.pages.first.?.page();
-    for (0..s.rows) |y| page.getRow(y).blank = false;
+    for (0..s.rows) |y| page.getRow(y).markWritten(s.cols);
 
     // From the top: text, a wide spacer head with no text, a styled
-    // cell with no text, a zero row without the blank bit (the bit is
+    // cell with no text, a zero row that isn't marked blank (blank is
     // only a hint), and two rows marked blank.
     page.getRowAndCell(0, 0).cell.* = .init('A');
     page.getRowAndCell(s.cols - 1, 1).cell.wide = .spacer_head;
@@ -16405,8 +16409,8 @@ test "PageList scrollClear skips blank rows and stops at a spacer" {
         .{ .flags = .{ .bold = true } },
     );
     page.getRow(2).styled = true;
-    page.getRow(4).blank = true;
-    page.getRow(5).blank = true;
+    page.getRow(4).markCleared();
+    page.getRow(5).markCleared();
     try page.verifyIntegrity(alloc);
 
     // Every row below the spacer is empty, so the text and the spacer
