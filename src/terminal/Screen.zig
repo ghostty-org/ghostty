@@ -1179,6 +1179,10 @@ pub fn cursorScrollAbove(self: *Screen) !void {
             const page_rac = self.cursor.page_pin.rowAndCell();
             self.cursor.page_row = page_rac.row;
             self.cursor.page_cell = page_rac.cell;
+
+            // The new row came from unused page capacity, so it is in the
+            // zero state. See cursorDownScroll.
+            self.cursor.page_row.markCleared();
         } else {
             // We didn't grow pages but our cursor isn't on the last page.
             // In this case we need to do more work because we need to copy
@@ -1350,8 +1354,7 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
             // graphemes, hyperlinks) and our blank is zero so this is
             // a straight zero fill. This is the overwhelmingly common
             // case for scroll region usage.
-            const cells = page.getCells(row);
-            @memset(@as([]u64, @ptrCast(cells)), 0);
+            Cell.zeroAll(row.content(page.getCells(row)));
         } else {
             // The generic clear handles managed memory and fills the
             // row with our blank cell, preserving the background color.
@@ -1362,7 +1365,11 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
         // below and must not retain metadata (wrap state, semantic
         // prompt) from the discarded content.
         assert(!row.managedMemory());
-        break :reset .{ .cells = row.cells, .dirty = true };
+        break :reset .{
+            .cells = row.cells,
+            .dirty = true,
+            .extent_inv = if (blank_is_zero) std.math.maxInt(u16) else 0,
+        };
     };
 
     // Rotate the region rows so the now-blank top row moves to the

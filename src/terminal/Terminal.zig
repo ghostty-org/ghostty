@@ -1194,10 +1194,10 @@ fn printSliceFill(
             // several cells at a time manually.
             var simple = k;
             simple: {
-                // A blank row holds only zero cells (see Row.isBlank): each
-                // is simple once it holds a reference to our style, so
-                // there is nothing to scan.
-                if (k == 0 and cursor.page_row.isBlank()) {
+                // Cells at or right of the row's extent are zero cells
+                // (see Row.extent): each is simple once it holds a
+                // reference to our style, so there is nothing to scan.
+                if (k == 0 and cursor.x >= cursor.page_row.extent()) {
                     if (style_id != style.default_id) {
                         page.styles.useMultiple(page.memory, style_id, @intCast(cell_count));
                     }
@@ -4518,7 +4518,7 @@ pub fn eraseDisplay(
                             // Blank rows below the prompt tell us nothing,
                             // keep searching for the last non-empty row.
                             if (row.isBlank()) continue;
-                            if (!Cell.hasTextAny(p.cells(.all))) continue;
+                            if (!Cell.hasTextAny(row.content(p.cells(.all)))) continue;
 
                             // If we have command output, then we're most
                             // certainly not at a prompt.
@@ -16012,6 +16012,10 @@ test "Terminal: printSliceAscii matches printSlice" {
         var t2 = try init(io_impl, alloc, .{ .cols = 10, .rows = 4 });
         defer t2.deinit(alloc);
         inline for (.{ &t1, &t2 }) |t| {
+            // Clear the rows so their extent is known. A new row may
+            // have content anywhere (see Row.extent), so the fill would
+            // never take its shortcut for the zero cells past it.
+            t.eraseDisplay(.complete, false);
             switch (setup) {
                 0 => {},
                 1 => {
