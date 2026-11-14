@@ -3428,7 +3428,7 @@ fn trimTrailingBlankRows(
         // If the row has any text then we're done. A row marked blank
         // has no text, so we don't need to read its cells.
         const rac = row_pin.rowAndCell();
-        if (!rac.row.blank and
+        if (!rac.row.isBlank() and
             pagepkg.Cell.hasTextAny(row_pin.cells(.all))) return trimmed;
 
         // If our tracked pins are in this row then we cannot trim it
@@ -3795,7 +3795,7 @@ pub fn scrollClear(self: *PageList) Allocator.Error!void {
                 // empty, so we don't need to read them. Shells that
                 // clear this way (`CSI 22 J`, or `CSI 2 J` at a prompt)
                 // usually have mostly blank rows below the content.
-                if (!row.blank) {
+                if (!row.isBlank()) {
                     const cells = row.cells.ptr(current_page.memory)[0..self.cols];
                     if (!pagepkg.Cell.isEmptyAll(cells)) {
                         break :non_empty self.rows - n;
@@ -16392,10 +16392,10 @@ test "PageList scrollClear skips blank rows and stops at a spacer" {
     defer s.deinit();
     try testing.expect(s.pages.first == s.pages.last);
     const page = s.pages.first.?.page();
-    for (0..s.rows) |y| page.getRow(y).blank = false;
+    for (0..s.rows) |y| page.getRow(y).markWritten(s.cols);
 
     // From the top: text, a wide spacer head with no text, a styled
-    // cell with no text, a zero row without the blank bit (the bit is
+    // cell with no text, a zero row that isn't marked blank (blank is
     // only a hint), and two rows marked blank.
     page.getRowAndCell(0, 0).cell.* = .init('A');
     page.getRowAndCell(s.cols - 1, 1).cell.wide = .spacer_head;
@@ -16405,8 +16405,8 @@ test "PageList scrollClear skips blank rows and stops at a spacer" {
         .{ .flags = .{ .bold = true } },
     );
     page.getRow(2).styled = true;
-    page.getRow(4).blank = true;
-    page.getRow(5).blank = true;
+    page.getRow(4).markCleared();
+    page.getRow(5).markCleared();
     try page.verifyIntegrity(alloc);
 
     // Every row below the spacer is empty, so the text and the spacer

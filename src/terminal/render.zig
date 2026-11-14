@@ -3025,8 +3025,8 @@ fn testCompareStates(
     // implementation; it is present in the row-iterator implementation
     // as well.
     //
-    // `blank` is left out on purpose. Every change to it comes with a
-    // dirty mark, so checking it here catches a writer that forgets one.
+    // `extent_inv` is left out on purpose. Every change to it comes with
+    // a dirty mark, so checking it here catches a writer that forgets one.
     const StaleOkMask = page.Mask(page.Row, &.{
         "wrap",
         "wrap_continuation",

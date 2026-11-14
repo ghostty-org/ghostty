@@ -1360,7 +1360,7 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
 
         // The row becomes the new blank cursor row after the rotation
         // below and must not retain metadata (wrap state, semantic
-        // prompt) from the discarded content. This is Row.reset.
+        // prompt) from the discarded content.
         assert(!row.managedMemory());
         break :reset .{ .cells = row.cells, .dirty = true };
     };
@@ -1829,7 +1829,7 @@ pub inline fn eraseActive(
 /// screen.clearRows(.{ .active = .{} }, null, false);
 /// ```
 ///
-/// Rows that are already empty (see `Row.blank`) are skipped and not
+/// Rows that are already empty (see `Row.isBlank`) are skipped and not
 /// marked dirty, which makes clearing a mostly empty screen cheap.
 pub fn clearRows(
     self: *Screen,
@@ -1847,18 +1847,16 @@ pub fn clearRows(
     while (it.next()) |chunk| {
         const page = chunk.node.page();
         for (chunk.rows()) |*row| {
-            const cells_offset = row.cells;
-
             // Already empty: only reset metadata. The cells don't
             // change, so the dirty state is kept as is.
-            if (row.blank and blank_zero) {
+            if (row.isBlank() and blank_zero) {
                 // Most rows are empty when shells and `clear` redraw.
                 @branchHint(.likely);
 
                 // A protected clear keeps metadata, so it has nothing to do.
                 if (!protected) row.* = .{
-                    .cells = cells_offset,
-                    .blank = true,
+                    .cells = row.cells,
+                    .extent_inv = std.math.maxInt(u16),
                     .dirty = row.dirty,
                 };
                 continue;
@@ -1871,17 +1869,12 @@ pub fn clearRows(
                 self.clearUnprotectedCells(page, row, cells);
                 // We need to preserve other row attributes since we only
                 // cleared unprotected cells.
-                row.cells = cells_offset;
                 row.dirty = true;
             } else {
                 self.clearCells(page, row, cells);
-                // Reset the metadata but keep the blank flag that
+                // Reset the metadata but keep the extent that
                 // clearCells just set.
-                row.* = .{
-                    .cells = cells_offset,
-                    .blank = row.blank,
-                    .dirty = true,
-                };
+                row.reset();
             }
         }
     }
@@ -3855,7 +3848,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
         }
 
         assert(width == 1 or width == 2);
-        self.cursor.page_row.blank = false;
+        self.cursor.page_row.markWritten(@min(self.cursor.x + width, self.pages.cols));
         switch (width) {
             1 => {
                 self.cursor.page_cell.* = .{
@@ -3895,7 +3888,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     try self.cursorDownOrScroll();
                     self.cursorHorizontalAbsolute(0);
                     self.cursor.page_row.wrap_continuation = true;
-                    self.cursor.page_row.blank = false;
+                    self.cursor.page_row.markWritten(2);
                 }
 
                 // Write our wide char
