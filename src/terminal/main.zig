@@ -16,6 +16,7 @@ pub const device_attributes = @import("device_attributes.zig");
 pub const device_status = @import("device_status.zig");
 pub const focus = @import("focus.zig");
 pub const formatter = @import("formatter.zig");
+pub const hard_wrap = @import("hard_wrap.zig");
 pub const highlight = @import("highlight.zig");
 pub const kitty = @import("kitty.zig");
 pub const modes = @import("modes.zig");
@@ -104,4 +105,5 @@ test {
     _ = @import("mem.zig");
     _ = @import("ref_counted_set.zig");
     _ = @import("size.zig");
+    _ = @import("hard_wrap.zig");
 }

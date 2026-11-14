@@ -1706,10 +1706,7 @@ fn mouseRefreshLinks(
         const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
         switch (link.action) {
             .open => {
-                const str = try self.io.terminal.screens.active.selectionString(alloc, .{
-                    .sel = link.selection,
-                    .trim = false,
-                });
+                const str = try self.linkSelectionString(alloc, link.selection, false);
                 break :link .{
                     .{ .url = str },
                     self.config.link_previews == .true,
@@ -2413,6 +2410,28 @@ fn copySelectionToClipboards(
             contents.appendAssumeCapacity(.{
                 .mime = "text/html",
                 .data = try aw.toOwnedSliceSentinel(0),
+            });
+        },
+
+        .unwrapped => {
+            const screen = self.io.terminal.screens.active;
+            var formatter: ScreenFormatter = .init(screen, opts);
+            formatter.content = .{ .selection = sel };
+            try formatter.format(&aw.writer);
+
+            // Join lines the running program wrapped itself. Rectangle
+            // selections are columns of text, so leave them as they are.
+            const text = if (sel.rectangle) aw.written() else try terminal.hard_wrap.unwrap(
+                alloc,
+                aw.written(),
+                .{
+                    .cols = screen.pages.cols,
+                    .first_col = sel.topLeft(screen).x,
+                },
+            );
+            contents.appendAssumeCapacity(.{
+                .mime = "text/plain",
+                .data = try alloc.dupeSentinel(u8, text, 0),
             });
         },
 
@@ -4511,6 +4530,10 @@ fn linkAtPin(
 ) !?Link {
     if (self.config.links.len == 0) return null;
 
+    // A program may have cut a long URL across lines itself. Look for a
+    // link spanning those lines first; otherwise use the normal search.
+    if (try self.cutLinkAtPin(mouse_pin, mouse_mods)) |link| return link;
+
     const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
     const line = screen.selectLine(.{
         .pin = mouse_pin,
@@ -4549,6 +4572,116 @@ fn linkAtPin(
     return null;
 }
 
+/// Finds a link under the mouse that a program cut across lines with a
+/// hard line break (see `terminal.hard_wrap`). Only returns links that
+/// actually cross such a break, so everything else keeps using the
+/// normal single-line search.
+///
+/// Requires the renderer state mutex is held.
+fn cutLinkAtPin(
+    self: *Surface,
+    mouse_pin: terminal.Pin,
+    mouse_mods: ?input.Mods,
+) !?Link {
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+
+    // Look at a few rows around the mouse. URLs rarely span more.
+    const reach = 6;
+    var top = mouse_pin;
+    for (0..reach) |_| top = top.up(1) orelse break;
+    var bottom = mouse_pin;
+    for (0..reach) |_| bottom = bottom.down(1) orelse break;
+    top.x = 0;
+    bottom.x = @intCast(screen.pages.cols - 1);
+
+    const strmap = try screen.selectionStringMap(self.alloc, .{
+        .sel = .init(top, bottom, false),
+        .trim = false,
+    });
+    defer strmap.deinit(self.alloc);
+
+    var src: std.ArrayList(usize) = .empty;
+    defer src.deinit(self.alloc);
+    const joined = try terminal.hard_wrap.joinCutTokens(
+        self.alloc,
+        strmap.string,
+        .{ .cols = screen.pages.cols },
+        &src,
+    ) orelse return null;
+    defer self.alloc.free(joined);
+
+    // Build a string map for the joined text so matches map back to
+    // the screen cells they came from.
+    var joined_map: terminal.StringMap = .{
+        .string = try self.alloc.dupeSentinel(u8, joined, 0),
+        .map = .empty,
+    };
+    defer joined_map.deinit(self.alloc);
+    for (src.items) |i| {
+        const pin = strmap.map.get(i) orelse return null;
+        try joined_map.map.append(self.alloc, pin, 1);
+    }
+
+    for (self.config.links) |link| {
+        if (mouse_mods) |mods| switch (link.highlight) {
+            .always, .hover => {},
+            .always_mods, .hover_mods => |v| if (!v.equal(mods)) continue,
+        };
+
+        var it = joined_map.searchIterator(link.regex);
+        while (true) {
+            var match = (try it.next()) orelse break;
+            defer match.deinit();
+
+            // Only matches that cross a join are ours.
+            const start: usize = @intCast(match.region.starts()[0]);
+            const end: usize = @intCast(match.region.ends()[0] - 1);
+            const a = match.offset + start;
+            const b = match.offset + end;
+            if (src.items[b] - src.items[a] == b - a) continue;
+
+            const sel = match.selection();
+            if (!sel.contains(screen, mouse_pin)) continue;
+            return .{
+                .action = link.action,
+                .selection = sel,
+            };
+        }
+    }
+
+    return null;
+}
+
+/// Returns the text of a link selection, without the line breaks and
+/// indents of a link that a program cut across lines.
+fn linkSelectionString(
+    self: *Surface,
+    alloc: Allocator,
+    sel: terminal.Selection,
+    trim: bool,
+) ![:0]const u8 {
+    const str = try self.io.terminal.screens.active.selectionString(alloc, .{
+        .sel = sel,
+        .trim = trim,
+    });
+    if (std.mem.indexOfScalar(u8, str, '\n') == null) return str;
+    defer alloc.free(str);
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(alloc);
+    var it = std.mem.splitScalar(u8, str, '\n');
+    var first = true;
+    while (it.next()) |part| {
+        const piece = if (first)
+            std.mem.trimEnd(u8, part, " \t")
+        else
+            std.mem.trim(u8, part, " \t");
+        try out.appendSlice(alloc, piece);
+        first = false;
+    }
+    return try out.toOwnedSliceSentinel(alloc, 0);
+}
+
 /// This returns the mouse mods to consider for link highlighting or
 /// other purposes taking into account when shift is pressed for releasing
 /// the mouse from capture.
@@ -4576,10 +4709,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
     const link = try self.linkAtPos(pos) orelse return false;
     switch (link.action) {
         .open => {
-            const str = try self.io.terminal.screens.active.selectionString(self.alloc, .{
-                .sel = link.selection,
-                .trim = false,
-            });
+            const str = try self.linkSelectionString(self.alloc, link.selection, false);
             defer self.alloc.free(str);
 
             const resolved_path = try self.resolvePathForOpening(str);
@@ -5219,10 +5349,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 const url_text = switch (link_info.action) {
                     .open => url_text: {
                         // For regex links, get the text from selection
-                        break :url_text (self.io.terminal.screens.active.selectionString(self.alloc, .{
-                            .sel = link_info.selection,
-                            .trim = self.config.clipboard_trim_trailing_spaces,
-                        })) catch |err| {
+                        break :url_text self.linkSelectionString(
+                            self.alloc,
+                            link_info.selection,
+                            self.config.clipboard_trim_trailing_spaces,
+                        ) catch |err| {
                             log.err("error reading url string err={}", .{err});
                             return false;
                         };

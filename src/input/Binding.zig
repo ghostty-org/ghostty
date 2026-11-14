@@ -364,6 +364,14 @@ pub const Action = union(enum) {
     ///     Copy the selection as HTML, preserving colors and styles as
     ///     HTML markup.
     ///
+    ///   - `unwrapped`
+    ///
+    ///     Copy the selection as plain text, joining lines that a program
+    ///     broke itself to fit the window (common in coding agents such
+    ///     as Claude Code). Long URLs, commands, and paragraphs come out
+    ///     on one line. This is a best guess from the text, so lines that
+    ///     really were separate can occasionally be joined.
+    ///
     ///   - `mixed` (default)
     ///
     ///     Place multiple representations on the clipboard at once
@@ -1121,6 +1129,9 @@ pub const Action = union(enum) {
         plain,
         vt,
         html,
+
+        /// Plain text with program-made line wraps joined back together.
+        unwrapped,
 
         /// This type will mix multiple distinct types with a set content-type
         /// such as text/html for html, so that the OS/application can choose

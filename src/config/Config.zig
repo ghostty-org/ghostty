@@ -6729,6 +6729,17 @@ pub const Keybinds = struct {
                 .{ .copy_to_clipboard = .mixed },
                 .{ .performable = true },
             );
+
+            // On macOS, cmd+shift+c copies with program-made line wraps
+            // joined. Linux already uses ctrl+shift+c for plain copy.
+            if (builtin.target.os.tag.isDarwin()) {
+                try self.set.putFlags(
+                    alloc,
+                    .{ .key = .{ .unicode = 'c' }, .mods = .{ .super = true, .shift = true } },
+                    .{ .copy_to_clipboard = .unwrapped },
+                    .{ .performable = true },
+                );
+            }
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'v' }, .mods = mods },

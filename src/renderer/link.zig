@@ -98,7 +98,27 @@ pub const Set = struct {
             .map = &map,
         });
 
-        const str = builder.writer.buffered();
+        // Join URLs that a program cut across lines itself so they match
+        // (and highlight) as one link. `src` maps joined bytes back.
+        var src: std.ArrayList(usize) = .empty;
+        defer src.deinit(alloc);
+        const joined = try terminal.hard_wrap.joinCutTokens(
+            alloc,
+            builder.writer.buffered(),
+            .{ .cols = render_state.cols },
+            &src,
+        );
+        defer if (joined) |j| alloc.free(j);
+        if (joined != null) {
+            var remapped: terminal.RenderState.StringMap = .empty;
+            errdefer remapped.deinit(alloc);
+            try remapped.ensureTotalCapacity(alloc, src.items.len);
+            for (src.items) |i| remapped.appendAssumeCapacity(map.items[i]);
+            map.deinit(alloc);
+            map = remapped;
+        }
+
+        const str = joined orelse builder.writer.buffered();
 
         // Go through each link and see if we have any matches.
         for (self.links) |*link| {
@@ -195,6 +215,44 @@ test "renderCellMap" {
     try testing.expect(!result.contains(.{ .x = 3, .y = 0 }));
     try testing.expect(result.contains(.{ .x = 1, .y = 1 }));
     try testing.expect(!result.contains(.{ .x = 1, .y = 2 }));
+}
+
+test "renderCellMap URL cut across lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t: terminal.Terminal = try .init(testing.io, alloc, .{
+        .cols = 12,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    // A program printed a URL longer than the window, breaking it
+    // itself and indenting the rest.
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("https://ab.c\r\n  d/efg");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var set = try Set.fromConfig(alloc, &.{.{
+        .regex = "https://[a-z./]+",
+        .action = .{ .open = {} },
+        .highlight = .{ .always = {} },
+    }});
+    defer set.deinit(alloc);
+
+    var result: terminal.RenderState.CellSet = .empty;
+    defer result.deinit(alloc);
+    try set.renderCellMap(alloc, &result, &state, null, .{});
+
+    for (0..12) |x| try testing.expect(result.contains(.{ .x = @intCast(x), .y = 0 }));
+    try testing.expect(!result.contains(.{ .x = 0, .y = 1 }));
+    try testing.expect(!result.contains(.{ .x = 1, .y = 1 }));
+    for (2..7) |x| try testing.expect(result.contains(.{ .x = @intCast(x), .y = 1 }));
+    try testing.expect(!result.contains(.{ .x = 7, .y = 1 }));
 }
 
 test "renderCellMap hover links" {

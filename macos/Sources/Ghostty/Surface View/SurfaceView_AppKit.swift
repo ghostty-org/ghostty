@@ -1641,6 +1641,10 @@ extension Ghostty {
             // If we have a selection, add copy
             if let text = self.accessibilitySelectedText(), text.count > 0 {
                 menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+                menu.addItem(
+                    withTitle: "Copy Without Line Wraps",
+                    action: #selector(copyUnwrapped(_:)),
+                    keyEquivalent: "")
             }
             menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
 
@@ -1678,6 +1682,16 @@ extension Ghostty {
         @IBAction func copy(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "copy_to_clipboard"
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+                AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
+            }
+        }
+
+        /// Copy with the line breaks a program added to fit the window
+        /// (for example, a coding agent wrapping a long URL) joined back.
+        @IBAction func copyUnwrapped(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "copy_to_clipboard:unwrapped"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
             }

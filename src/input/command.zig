@@ -166,6 +166,10 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .{ .copy_to_clipboard = .html },
             .title = i18n.N_("Copy Selection as HTML to Clipboard"),
             .description = i18n.N_("Copy the selected text as HTML to the clipboard."),
+        }, .{
+            .action = .{ .copy_to_clipboard = .unwrapped },
+            .title = i18n.N_("Copy Selection Without Line Wraps"),
+            .description = i18n.N_("Copy the selected text with lines that were wrapped to fit the window joined back together."),
         } },
 
         .copy_url_to_clipboard => comptime &.{.{
