@@ -1,7 +1,7 @@
 .{
     .name = .translate_c,
     .version = "0.0.1",
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
     .paths = .{
         "build.zig",
         "build.zig.zon",

@@ -4,7 +4,7 @@
     .paths = .{""},
     .fingerprint = 0x64407a2a0b4147e5,
     // Keep in sync with snap/snapcraft.yaml and flatpak/dependencies.yml
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         // Our higher-level C translation helper (this also helps ensure we
         // only need to maintain one external dependency point)

@@ -67,7 +67,8 @@ match: the major and minor versions must be the same, and any patch
 version at least as new is accepted.
 
 For example, at the time of writing this document, Ghostty requires Zig
-0.17.0. Any Zig 0.17.x works, but Zig 0.16 and Zig 0.18 do not.
+0.17.1. Zig 0.17.1 or any later 0.17.x works, but Zig 0.17.0, Zig 0.16 and
+Zig 0.18 do not.
 
 ## Building Ghostty
 

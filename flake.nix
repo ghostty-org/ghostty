@@ -63,7 +63,7 @@
     # cross-compiling C/C++ sources for iOS doesn't instantiate unsupported
     # process spawning code in Zig 0.17's standard library.
     zig_0_17 = system:
-      zig.packages.${system}."0.17.0".overrideAttrs (previousAttrs: {
+      zig.packages.${system}."0.17.1".overrideAttrs (previousAttrs: {
         patches =
           (previousAttrs.patches or [])
           ++ [

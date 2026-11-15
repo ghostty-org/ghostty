@@ -2,7 +2,7 @@
     .name = .c_vt_encode_mouse,
     .version = "0.0.0",
     .fingerprint = 0x4405e3dcd8f8c72e,
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         // Ghostty dependency. In reality, you'd probably use a URL-based
         // dependency like the one showed (and commented out) below this one.

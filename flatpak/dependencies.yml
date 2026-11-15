@@ -15,12 +15,12 @@ modules:
       - chmod a+x /app/zig/zig
     sources:
       - type: archive
-        sha256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
-        url: https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
+        sha256: 3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a
+        url: https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz
         only-arches: [x86_64]
       - type: archive
-        sha256: 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
-        url: https://ziglang.org/download/0.17.0/zig-aarch64-linux-0.17.0.tar.xz
+        sha256: a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795
+        url: https://ziglang.org/download/0.17.1/zig-aarch64-linux-0.17.1.tar.xz
         only-arches: [aarch64]
 
   - name: bzip2-redirect
