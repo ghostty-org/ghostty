@@ -3073,6 +3073,17 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
             // Making rows larger we adjust our row count, and then grow
             // to the row count.
             .gt => gt: {
+                // We set self.rows to the new size before growing (so that
+                // grow() doesn't prune pages the active area needs), which
+                // means that until the last grow() the list holds fewer
+                // rows than the active area claims. A viewport pin in
+                // history can then appear to have too few rows below it,
+                // so the integrity check each grow() runs would fail on a
+                // state that is only temporary. The final state is checked
+                // by our caller once the resize is complete.
+                self.pauseIntegrityChecks(true);
+                defer self.pauseIntegrityChecks(false);
+
                 // If our rows increased and our cursor is NOT at the bottom,
                 // we want to try to preserve the y value of the old cursor.
                 // In other words, we don't want to "pull down" scrollback.
