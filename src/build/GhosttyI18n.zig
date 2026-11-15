@@ -68,6 +68,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "--keyword=_",
         "--keyword=N_",
         "--keyword=C_:1c,2",
+        "--add-comments=Translators",
     });
 
     // Collect to intermediate .pot file
@@ -159,6 +160,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "xgettext",
         "--language=Python",
         "--from-code=UTF-8",
+        "--add-comments=Translators",
     });
 
     // Collect to intermediate .pot file
@@ -172,7 +174,6 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
     // Merge pot files
     const xgettext_merge = b.addSystemCommand(&.{
         "xgettext",
-        "--add-comments=Translators",
         "--package-name=" ++ domain,
         "--msgid-bugs-address=m@mitchellh.com",
         "--copyright-holder=\"Mitchell Hashimoto, Ghostty contributors\"",
