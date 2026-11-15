@@ -20,8 +20,9 @@ pub fn report_encode(
     state: ReportState,
     out_: ?[*]u8,
     out_len: usize,
-    out_written: *usize,
+    out_written_: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    const out_written = out_written_ orelse return .invalid_value;
     const mode_tag: modes.ModeTag = @bitCast(tag);
     const report: modes.Report = .{
         .tag = .{ .value = mode_tag.value, .ansi = mode_tag.ansi },

@@ -1,7 +1,7 @@
 # Example: `ghostty-vt` C Key Encoding
 
-This example demonstrates how to use the `ghostty-vt` C library to encode key
-events into terminal escape sequences.
+Encode key events into terminal escape sequences with the `ghostty-vt` C
+library.
 
 This example specifically shows how to:
 

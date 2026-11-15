@@ -79,6 +79,7 @@ jobs:
               - '!CONTRIBUTING.md'
               - '!HACKING.md'
               - '!PACKAGING.md'
+              - '!PACKAGING-LIBGHOSTTY.md'
               - '!AI_POLICY.md'
               - '!AGENTS.md'
               - '!CLAUDE.md'
@@ -239,7 +240,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -285,7 +286,7 @@ jobs:
         run: |
           rm -rf zig-out/dist
           nix develop -c zig build dist -Demit-lib-vt=true
-          cp zig-out/dist/*.tar.gz libghostty-vt-source.tar.gz
+          cp zig-out/dist/libghostty-vt-*.tar.gz libghostty-vt-source.tar.gz
 
       - name: Sign Tarball
         run: |
@@ -294,7 +295,7 @@ jobs:
           nix develop -c minisign -S -m libghostty-vt-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -365,7 +366,17 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_27.1.app
 
       - name: Build XCFramework
-        run: nix develop -c zig build -Demit-lib-vt -Doptimize=ReleaseFast
+        run: nix develop -c zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast
+
+      # The same build also installs the macOS dylib. Check that its
+      # install name and versions follow lib_version, so a tip with the
+      # wrong metadata never ships.
+      - name: Verify macOS dylib names and versions
+        run: |
+          nix develop -c nu .github/scripts/check-apple-libghostty-vt.nu \
+            zig-out/lib/libghostty-vt.dylib \
+            --expect-platform 1 \
+            --expect-arch "$(uname -m)"
 
       - name: Zip XCFramework
         run: |
@@ -379,7 +390,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-vt.xcframework.zip -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -504,7 +515,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-vt-small.wasm -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -710,7 +721,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -959,7 +970,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -1156,7 +1167,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true

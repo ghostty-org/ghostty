@@ -50,7 +50,7 @@ parts:
       esac
 
       # Keep in sync with minimum_zig_version in build.zig.zon
-      zig_version=0.17.0
+      zig_version=0.17.1
 
       rm -rf $CRAFT_PART_SRC/*
 

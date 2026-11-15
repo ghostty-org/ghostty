@@ -41,8 +41,9 @@ int main(void) {
   result = ghostty_terminal_new(NULL, &source, 215, 2);
   assert(result == GHOSTTY_SUCCESS);
 
-  // Snapshot encoding requires continuation tracking to be enabled before
-  // feeding input. The limit bounds unfinished VT sequence retention.
+  // Snapshot encoding requires continuation tracking if the input can stop
+  // partway through a sequence, and it has to be enabled before feeding
+  // input. The limit bounds unfinished VT sequence retention.
   const size_t continuation_limit = 1024;
   result = ghostty_terminal_set(
       source,
@@ -51,8 +52,9 @@ int main(void) {
   assert(result == GHOSTTY_SUCCESS);
 
   // Keep enough scrollback to demonstrate incremental history restoration.
+  size_t unlimited = SIZE_MAX;
   result = ghostty_terminal_set(
-      source, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, NULL);
+      source, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &unlimited);
   assert(result == GHOSTTY_SUCCESS);
 
   const char *line = "snapshot history line\r\n";

@@ -27,18 +27,25 @@ pub const GraphemeWidth = struct {
     width: u2,
 };
 
-/// Determines if there is a grapheme break between two codepoints. This
+/// Determines if there is a grapheme break between two codepoints, given
+/// their grapheme break properties (`Properties.grapheme_break`), so
+/// that a caller that already looked up a codepoint's properties for
+/// another reason (such as its width) doesn't repeat the lookup. This
 /// must be called sequentially maintaining the state between calls.
 ///
 /// This function does NOT work with control characters. Control characters,
 /// line feeds, and carriage returns are expected to be filtered out before
 /// calling this function. This is because this function is tuned for
 /// Ghostty.
-pub fn graphemeBreak(cp1: u21, cp2: u21, state: *uucode.grapheme.BreakState) bool {
+pub inline fn graphemeBreak(
+    gb1: uucode.types.GraphemeBreakNoControl,
+    gb2: uucode.types.GraphemeBreakNoControl,
+    state: *uucode.grapheme.BreakState,
+) bool {
     const value = Precompute.data[
         (Precompute.Key{
-            .gb1 = table.get(cp1).grapheme_break,
-            .gb2 = table.get(cp2).grapheme_break,
+            .gb1 = gb1,
+            .gb2 = gb2,
             .state = state.*,
         }).index()
     ];
@@ -116,7 +123,11 @@ pub fn graphemeWidth(comptime T: type, cps: []const T) GraphemeWidth {
 
         const cp: u21 = @intCast(cps[len]);
         const state_before = state;
-        if (graphemeBreak(prev, cp, &state)) break;
+        if (graphemeBreak(
+            table.get(prev).grapheme_break,
+            table.get(cp).grapheme_break,
+            &state,
+        )) break;
 
         switch (graphemeWidthEffect(prev, cp)) {
             .ignore => state = state_before,
@@ -219,7 +230,11 @@ pub fn main() !void {
             if (cp2 == '\r' or cp2 == '\n' or
                 uucode.get(.grapheme_break, @intCast(cp1)) == .control) continue;
 
-            const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
+            const gb = graphemeBreak(
+                table.get(@intCast(cp1)).grapheme_break,
+                table.get(@intCast(cp2)).grapheme_break,
+                &state,
+            );
             const uu_gb = uucode.grapheme.isBreak(@intCast(cp1), @intCast(cp2), &uu_state);
             if (gb != uu_gb) {
                 std.log.warn("cp1={x} cp2={x} gb={} state={} uu_gb={} uu_state={}", .{
@@ -245,13 +260,21 @@ test "grapheme break: emoji modifier" {
     // Emoji and modifier
     {
         var state: uucode.grapheme.BreakState = .default;
-        try testing.expect(!graphemeBreak(0x261D, 0x1F3FF, &state));
+        try testing.expect(!graphemeBreak(
+            table.get(0x261D).grapheme_break,
+            table.get(0x1F3FF).grapheme_break,
+            &state,
+        ));
     }
 
     // Non-emoji and emoji modifier
     {
         var state: uucode.grapheme.BreakState = .default;
-        try testing.expect(graphemeBreak(0x22, 0x1F3FF, &state));
+        try testing.expect(graphemeBreak(
+            table.get(0x22).grapheme_break,
+            table.get(0x1F3FF).grapheme_break,
+            &state,
+        ));
     }
 }
 
@@ -262,37 +285,65 @@ test "long emoji zwj sequences" {
     var cp1 = it.next() orelse unreachable;
     var cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x1F469); // 👩
-    try std.testing.expect(!graphemeBreak(cp1, cp2, &state));
+    try std.testing.expect(!graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    ));
 
     cp1 = cp2;
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x200D);
-    try std.testing.expect(!graphemeBreak(cp1, cp2, &state));
+    try std.testing.expect(!graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    ));
 
     cp1 = cp2;
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x1F469); // 👩
-    try std.testing.expect(!graphemeBreak(cp1, cp2, &state));
+    try std.testing.expect(!graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    ));
 
     cp1 = cp2;
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x200D);
-    try std.testing.expect(!graphemeBreak(cp1, cp2, &state));
+    try std.testing.expect(!graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    ));
 
     cp1 = cp2;
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x1F467); // 👧
-    try std.testing.expect(!graphemeBreak(cp1, cp2, &state));
+    try std.testing.expect(!graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    ));
 
     cp1 = cp2;
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x200D);
-    try std.testing.expect(!graphemeBreak(cp1, cp2, &state));
+    try std.testing.expect(!graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    ));
 
     cp1 = cp2;
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x1F466); // 👦
-    try std.testing.expect(graphemeBreak(cp1, cp2, &state)); // break
+    try std.testing.expect(graphemeBreak(
+        table.get(cp1).grapheme_break,
+        table.get(cp2).grapheme_break,
+        &state,
+    )); // break
 }
 
 test "grapheme width: variation selectors" {
@@ -331,7 +382,11 @@ test "grapheme width: spacing marks can widen narrow clusters" {
         if (props.width != 1 or props.width_zero_in_grapheme) continue;
 
         var state: uucode.grapheme.BreakState = .default;
-        if (!graphemeBreak('a', cp, &state)) {
+        if (!graphemeBreak(
+            table.get('a').grapheme_break,
+            table.get(cp).grapheme_break,
+            &state,
+        )) {
             mark = cp;
             break;
         }

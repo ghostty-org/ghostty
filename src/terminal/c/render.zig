@@ -15,6 +15,8 @@ const Result = @import("result.zig").Result;
 const cell_c = @import("cell.zig");
 const row = @import("row.zig");
 const style_c = @import("style.zig");
+const types = @import("types.zig");
+const CursorStyle = types.CursorStyle;
 const PageList = @import("../PageList.zig");
 
 const log = std.log.scoped(.render_state_c);
@@ -128,6 +130,8 @@ pub const RowSelection = extern struct {
     size: usize = @sizeOf(RowSelection),
     start_x: u16 = 0,
     end_x: u16 = 0,
+
+    pub const sized_base = "end_x";
 };
 
 /// C: GhosttyRenderStateOverscan
@@ -161,23 +165,6 @@ pub const RowId = extern struct {
     }
 };
 
-/// C: GhosttyRenderStateCursorVisualStyle
-pub const CursorVisualStyle = enum(c_int) {
-    bar = 0,
-    block = 1,
-    underline = 2,
-    block_hollow = 3,
-
-    pub fn fromCursorStyle(s: cursorpkg.Style) CursorVisualStyle {
-        return switch (s) {
-            .bar => .bar,
-            .block => .block,
-            .underline => .underline,
-            .block_hollow => .block_hollow,
-        };
-    }
-};
-
 /// C: GhosttyRenderStateCursor
 pub const Cursor = extern struct {
     size: usize = @sizeOf(Cursor),
@@ -188,7 +175,9 @@ pub const Cursor = extern struct {
     visible: bool,
     blinking: bool,
     password_input: bool,
-    visual_style: CursorVisualStyle,
+    visual_style: CursorStyle,
+
+    pub const sized_base = "visual_style";
 };
 
 /// C: GhosttyRenderStateData
@@ -218,6 +207,8 @@ pub const Data = enum(c_int) {
     image_iterator = 22,
     image_placements_generation = 23,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: Data) type {
         return switch (self) {
@@ -228,7 +219,7 @@ pub const Data = enum(c_int) {
             .color_background, .color_foreground, .color_cursor => colorpkg.RGB.C,
             .color_cursor_has_value => bool,
             .color_palette => colorpkg.PaletteC,
-            .cursor_visual_style => CursorVisualStyle,
+            .cursor_visual_style => CursorStyle,
             .cursor_visible, .cursor_blinking, .cursor_password_input => bool,
             .cursor_viewport_has_value, .cursor_viewport_wide_tail => bool,
             .cursor_viewport_x, .cursor_viewport_y => size.CellCountInt,
@@ -237,20 +228,25 @@ pub const Data = enum(c_int) {
             .overscan, .overscan_request => Overscan,
             .image_iterator => ImageIterator,
             .image_placements_generation => u64,
+            _ => void,
         };
     }
 };
 
 /// C: GhosttyRenderStateOption
 pub const SetOption = enum(c_int) {
-    dirty = 0,
-    overscan = 1,
+    invalid = 0,
+    dirty = 1,
+    overscan = 2,
+
+    _,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: SetOption) type {
         return switch (self) {
             .dirty => Dirty,
             .overscan => Overscan,
+            .invalid, _ => void,
         };
     }
 };
@@ -263,12 +259,19 @@ pub const Colors = extern struct {
     cursor: colorpkg.RGB.C,
     cursor_has_value: bool,
     palette: colorpkg.PaletteC,
+
+    pub const sized_base = "palette";
 };
 
 pub fn new(
     alloc_: ?*const CAllocator,
-    result: *RenderState,
+    result_: ?*RenderState,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        if (result_) |o| o.* = null;
+        return .unsupported;
+    }
+    const result = result_ orelse return .invalid_value;
     result.* = new_(alloc_) catch |err| {
         result.* = null;
         return switch (err) {
@@ -288,6 +291,7 @@ fn new_(alloc_: ?*const CAllocator) error{OutOfMemory}!*RenderStateWrapper {
 }
 
 pub fn free(state_: RenderState) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const state = state_ orelse return;
     const alloc = state.alloc;
     state.state.deinit(alloc);
@@ -298,6 +302,7 @@ pub fn update(
     state_: RenderState,
     terminal_: terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
 
@@ -310,6 +315,7 @@ pub fn begin_update(
     state_: RenderState,
     terminal_: terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
 
@@ -321,6 +327,7 @@ pub fn begin_update(
 pub fn end_update(
     state_: RenderState,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     state.state.endUpdate();
     return .success;
@@ -329,6 +336,7 @@ pub fn end_update(
 pub fn clean(
     state_: RenderState,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     state.state.clean();
     return .success;
@@ -339,6 +347,7 @@ pub fn get(
     data: Data,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const state = state_ orelse return .invalid_value;
     return getDispatch(state, data, out);
 }
@@ -350,6 +359,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -377,15 +387,9 @@ inline fn getDispatch(
     data: Data,
     out: ?*anyopaque,
 ) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
-            log.warn("render_state_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     const out_ptr = out orelse return .invalid_value;
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             state,
@@ -429,26 +433,26 @@ fn getTyped(
         .color_background => out.* = state.state.colors.background.cval(),
         .color_foreground => out.* = state.state.colors.foreground.cval(),
         .color_cursor => {
-            const cursor = state.state.colors.cursor orelse return .invalid_value;
+            const cursor = state.state.colors.cursor orelse return .no_value;
             out.* = cursor.cval();
         },
         .color_cursor_has_value => out.* = state.state.colors.cursor != null,
         .color_palette => out.* = colorpkg.paletteCval(&state.state.colors.palette),
-        .cursor_visual_style => out.* = CursorVisualStyle.fromCursorStyle(state.state.cursor.visual_style),
+        .cursor_visual_style => out.* = CursorStyle.fromZig(state.state.cursor.visual_style),
         .cursor_visible => out.* = state.state.cursor.visible,
         .cursor_blinking => out.* = state.state.cursor.blinking,
         .cursor_password_input => out.* = state.state.cursor.password_input,
         .cursor_viewport_has_value => out.* = state.state.cursor.viewport != null,
         .cursor_viewport_x => {
-            const vp = state.state.cursor.viewport orelse return .invalid_value;
+            const vp = state.state.cursor.viewport orelse return .no_value;
             out.* = vp.x;
         },
         .cursor_viewport_y => {
-            const vp = state.state.cursor.viewport orelse return .invalid_value;
+            const vp = state.state.cursor.viewport orelse return .no_value;
             out.* = vp.y;
         },
         .cursor_viewport_wide_tail => {
-            const vp = state.state.cursor.viewport orelse return .invalid_value;
+            const vp = state.state.cursor.viewport orelse return .no_value;
             out.* = vp.wide_tail;
         },
         .cursor => return writeCursor(state, out),
@@ -464,6 +468,7 @@ fn getTyped(
             };
         },
         .image_placements_generation => out.* = state.state.imagePlacementsGeneration(),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -474,18 +479,14 @@ pub fn set(
     option: SetOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(SetOption, @backingInt(option)) orelse {
-            log.warn("render_state_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     return switch (option) {
+        .invalid => .invalid_value,
+        _ => .unsupported,
         inline else => |comptime_option| setTyped(
             state_,
             comptime_option,
-            @ptrCast(@alignCast(value orelse return .invalid_value)),
+            @ptrCast(@alignCast(value)),
         ),
     };
 }
@@ -493,17 +494,24 @@ pub fn set(
 fn setTyped(
     state_: RenderState,
     comptime option: SetOption,
-    value: *const option.InType(),
+    value_: ?*const option.InType(),
 ) Result {
     const state = state_ orelse return .invalid_value;
     switch (option) {
-        .dirty => state.state.dirty = value.*,
+        // The dirty state is computed by every update, so there is no
+        // default to restore.
+        .dirty => {
+            const value = value_ orelse return .invalid_value;
+            state.state.dirty = lib.enumFromPtr(Dirty, value) orelse
+                return .invalid_value;
+        },
 
         // Applied by the next update. See the field docs for why.
-        .overscan => state.overscan_request = .{
+        .overscan => state.overscan_request = if (value_) |value| .{
             .above = value.above,
             .below = value.below,
-        },
+        } else .{},
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -511,133 +519,45 @@ fn setTyped(
 
 fn writeCursor(
     state: *RenderStateWrapper,
-    out_cursor: *Cursor,
+    out: *Cursor,
 ) Result {
-    const out_size = out_cursor.size;
-    if (out_size < @sizeOf(usize)) return .invalid_value;
+    if (!lib.sizedCheck(.output, out)) return .invalid_value;
 
     const cursor = &state.state.cursor;
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "viewport_has_value",
-    )) {
-        out_cursor.viewport_has_value = cursor.viewport != null;
-    }
-
+    lib.sizedSet(out, "viewport_has_value", cursor.viewport != null);
     if (cursor.viewport) |viewport| {
-        if (lib.structSizedFieldFits(
-            Cursor,
-            out_size,
-            "viewport_x",
-        )) {
-            out_cursor.viewport_x = viewport.x;
-        }
-
-        if (lib.structSizedFieldFits(
-            Cursor,
-            out_size,
-            "viewport_y",
-        )) {
-            out_cursor.viewport_y = viewport.y;
-        }
-
-        if (lib.structSizedFieldFits(
-            Cursor,
-            out_size,
-            "wide_tail",
-        )) {
-            out_cursor.wide_tail = viewport.wide_tail;
-        }
+        lib.sizedSet(out, "viewport_x", viewport.x);
+        lib.sizedSet(out, "viewport_y", viewport.y);
+        lib.sizedSet(out, "wide_tail", viewport.wide_tail);
     }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "visible",
-    )) {
-        out_cursor.visible = cursor.visible;
-    }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "blinking",
-    )) {
-        out_cursor.blinking = cursor.blinking;
-    }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
-        "password_input",
-    )) {
-        out_cursor.password_input = cursor.password_input;
-    }
-
-    if (lib.structSizedFieldFits(
-        Cursor,
-        out_size,
+    lib.sizedSet(out, "visible", cursor.visible);
+    lib.sizedSet(out, "blinking", cursor.blinking);
+    lib.sizedSet(out, "password_input", cursor.password_input);
+    lib.sizedSet(
+        out,
         "visual_style",
-    )) {
-        out_cursor.visual_style = CursorVisualStyle.fromCursorStyle(cursor.visual_style);
-    }
+        CursorStyle.fromZig(cursor.visual_style),
+    );
 
     return .success;
 }
 
 fn writeColors(
     state: *RenderStateWrapper,
-    out_colors: *Colors,
+    out: *Colors,
 ) Result {
-    const out_size = out_colors.size;
-    if (out_size < @sizeOf(usize)) return .invalid_value;
+    if (!lib.sizedCheck(.output, out)) return .invalid_value;
 
     const colors = &state.state.colors;
-    if (lib.structSizedFieldFits(
-        Colors,
-        out_size,
-        "background",
-    )) {
-        out_colors.background = colors.background.cval();
-    }
+    lib.sizedSet(out, "background", colors.background.cval());
+    lib.sizedSet(out, "foreground", colors.foreground.cval());
+    if (colors.cursor) |cursor| lib.sizedSet(out, "cursor", cursor.cval());
+    lib.sizedSet(out, "cursor_has_value", colors.cursor != null);
 
-    if (lib.structSizedFieldFits(
-        Colors,
-        out_size,
-        "foreground",
-    )) {
-        out_colors.foreground = colors.foreground.cval();
-    }
-
-    if (colors.cursor) |cursor| {
-        if (lib.structSizedFieldFits(
-            Colors,
-            out_size,
-            "cursor",
-        )) {
-            out_colors.cursor = cursor.cval();
-        }
-    }
-
-    if (lib.structSizedFieldFits(
-        Colors,
-        out_size,
-        "cursor_has_value",
-    )) {
-        out_colors.cursor_has_value = colors.cursor != null;
-    }
-
-    {
-        const palette_offset = @offsetOf(Colors, "palette");
-        if (out_size > palette_offset) {
-            const available = out_size - palette_offset;
-            const max_entries = @min(colors.palette.len, available / @sizeOf(colorpkg.RGB.C));
-            colorpkg.paletteCvalSlice(
-                colors.palette[0..max_entries],
-                out_colors.palette[0..max_entries],
-            );
-        }
+    // Convert the palette in place rather than building a 768-byte copy
+    // on the stack for sizedSet.
+    if (lib.sizedFieldFits(Colors, out.size, "palette")) {
+        colorpkg.paletteCvalSlice(&colors.palette, &out.palette);
     }
 
     return .success;
@@ -645,8 +565,13 @@ fn writeColors(
 
 pub fn row_iterator_new(
     alloc_: ?*const CAllocator,
-    result: *RowIterator,
+    result_: ?*RowIterator,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        if (result_) |o| o.* = null;
+        return .unsupported;
+    }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(RowIteratorWrapper) catch {
         result.* = null;
@@ -670,12 +595,14 @@ pub fn row_iterator_new(
 }
 
 pub fn row_iterator_free(iterator_: RowIterator) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const iterator = iterator_ orelse return;
     const alloc = iterator.alloc;
     alloc.destroy(iterator);
 }
 
 pub fn row_iterator_next(iterator_: RowIterator) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const it = iterator_ orelse return false;
     // The none sentinel wraps to zero.
     const next_y = it.y +% 1;
@@ -688,6 +615,7 @@ pub fn row_iterator_next_dirty(
     iterator_: RowIterator,
     out_y: ?*size.CellCountInt,
 ) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const it = iterator_ orelse return false;
     const y_out = out_y orelse return false;
 
@@ -716,8 +644,13 @@ pub fn row_iterator_next_dirty(
 
 pub fn row_cells_new(
     alloc_: ?*const CAllocator,
-    result: *RowCells,
+    result_: ?*RowCells,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        if (result_) |o| o.* = null;
+        return .unsupported;
+    }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(RowCellsWrapper) catch {
         result.* = null;
@@ -737,6 +670,7 @@ pub fn row_cells_new(
 }
 
 pub fn row_cells_next(cells_: RowCells) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const cells = cells_ orelse return false;
     // The none sentinel wraps to zero.
     const next_x = cells.x +% 1;
@@ -746,6 +680,7 @@ pub fn row_cells_next(cells_: RowCells) callconv(lib.calling_conv) bool {
 }
 
 pub fn row_cells_select(cells_: RowCells, x: size.CellCountInt) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const cells = cells_ orelse return .invalid_value;
     if (x >= cells.raws.len) return .invalid_value;
     cells.x = x;
@@ -753,6 +688,7 @@ pub fn row_cells_select(cells_: RowCells, x: size.CellCountInt) callconv(lib.cal
 }
 
 pub fn row_cells_free(cells_: RowCells) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const cells = cells_ orelse return;
     const alloc = cells.alloc;
     alloc.destroy(cells);
@@ -771,6 +707,8 @@ pub const RowCellsData = enum(c_int) {
     has_styling = 8,
     graphemes_utf8 = 9,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowCellsData) type {
         return switch (self) {
@@ -778,10 +716,11 @@ pub const RowCellsData = enum(c_int) {
             .raw => page.Cell.C,
             .style => style_c.Style,
             .graphemes_len => u32,
-            .graphemes_buf => u32,
+            .graphemes_buf => types.CodepointBuffer,
             .bg_color, .fg_color => colorpkg.RGB.C,
             .selected, .has_styling => bool,
             .graphemes_utf8 => lib.Buffer,
+            _ => void,
         };
     }
 };
@@ -791,6 +730,7 @@ pub fn row_cells_get(
     data: RowCellsData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const cells = cells_ orelse return .invalid_value;
     const x = cells.x;
     if (x >= cells.raws.len) return .invalid_value;
@@ -804,6 +744,7 @@ pub fn row_cells_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -837,15 +778,10 @@ inline fn rowCellsGetDispatch(
     data: RowCellsData,
     out: ?*anyopaque,
 ) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowCellsData, @backingInt(data)) orelse {
-            log.warn("render_state_row_cells_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
     if (out == null) return .invalid_value;
 
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| rowCellsGetTypedInner(
             cells,
@@ -880,13 +816,22 @@ fn rowCellsGetTypedInner(
             out.* = @intCast(1 + extra.len);
         },
         .graphemes_buf => {
-            if (!cell.hasText()) return .success;
-            const extra = if (cell.hasGrapheme()) cells.graphemes[x] else &[_]u21{};
-            const buf: [*]u32 = @ptrCast(out);
-            buf[0] = cell.codepoint();
-            for (extra, 1..) |cp, i| {
-                buf[i] = cp;
+            if (!cell.hasText()) {
+                out.len = 0;
+                return .success;
             }
+            const extra = if (cell.hasGrapheme()) cells.graphemes[x] else &[_]u21{};
+            out.len = 1 + extra.len;
+
+            // Write the prefix that fits. A NULL ptr has no capacity
+            // whatever cap says.
+            const ptr = out.ptr orelse return .out_of_space;
+            const n = @min(out.cap, out.len);
+            if (n > 0) {
+                ptr[0] = cell.codepoint();
+                for (ptr[1..n], extra[0 .. n - 1]) |*dst, cp| dst.* = cp;
+            }
+            if (out.len > out.cap) return .out_of_space;
         },
         .bg_color => {
             // Avoid copying the full struct when only partial changes happen.
@@ -904,9 +849,9 @@ fn rowCellsGetTypedInner(
                 .codepoint_grapheme,
                 => {
                     // The default style has no background.
-                    if (!cell.hasStyling()) return .invalid_value;
-                    switch (cells.styles[x].bg_color) {
-                        .none => return .invalid_value,
+                    if (!cell.hasStyling()) return .no_value;
+                    switch (cells.styles[x].bg_color.value()) {
+                        .none => return .no_value,
                         .palette => |idx| out.* = cells.palette[idx].cval(),
                         .rgb => |rgb| out.* = rgb.cval(),
                     }
@@ -914,9 +859,9 @@ fn rowCellsGetTypedInner(
             }
         },
         .fg_color => {
-            if (!cell.hasStyling()) return .invalid_value;
-            switch (cells.styles[x].fg_color) {
-                .none => return .invalid_value,
+            if (!cell.hasStyling()) return .no_value;
+            switch (cells.styles[x].fg_color.value()) {
+                .none => return .no_value,
                 .palette => |idx| out.* = cells.palette[idx].cval(),
                 .rgb => |rgb| out.* = rgb.cval(),
             }
@@ -927,6 +872,7 @@ fn rowCellsGetTypedInner(
             false,
         .has_styling => out.* = cell.hasStyling(),
         .graphemes_utf8 => return rowCellsGetGraphemesUtf8(cell, if (cell.hasGrapheme()) cells.graphemes[x] else &.{}, out),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -996,6 +942,8 @@ pub const RowData = enum(c_int) {
     viewport_y = 6,
     id = 7,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowData) type {
         return switch (self) {
@@ -1007,18 +955,23 @@ pub const RowData = enum(c_int) {
             .cells_raw => cell_c.CellsView,
             .viewport_y => i32,
             .id => RowId,
+            _ => void,
         };
     }
 };
 
 /// C: GhosttyRenderStateRowOption
 pub const RowOption = enum(c_int) {
-    dirty = 0,
+    invalid = 0,
+    dirty = 1,
+
+    _,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: RowOption) type {
         return switch (self) {
             .dirty => bool,
+            .invalid, _ => void,
         };
     }
 };
@@ -1028,6 +981,7 @@ pub fn row_get(
     data: RowData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const it = iterator_ orelse return .invalid_value;
     const y = it.y;
     if (y >= it.raws.len) return .invalid_value;
@@ -1041,6 +995,7 @@ pub fn row_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -1074,20 +1029,14 @@ inline fn rowGetDispatch(
     data: RowData,
     out: ?*anyopaque,
 ) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
-            log.warn("render_state_row_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| rowGetTyped(
             it,
             y,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -1116,12 +1065,10 @@ fn rowGetTyped(
             };
         },
         .selection => {
-            const out_size = out.size;
-            if (out_size < @sizeOf(RowSelection)) return .invalid_value;
+            if (!lib.sizedCheck(.output, out)) return .invalid_value;
 
             const sel = it.selection[y] orelse return .no_value;
-            out.start_x = sel[0];
-            out.end_x = sel[1];
+            lib.sizedWrite(out, .{ .start_x = sel[0], .end_x = sel[1] });
         },
         .cells_raw => {
             const raws: []const page.Cell = it.cells[y].items(.raw);
@@ -1132,6 +1079,7 @@ fn rowGetTyped(
         },
         .viewport_y => out.* = it.viewport_y_base + @as(i32, @intCast(y)),
         .id => out.* = .init(.{ .serial = it.serials[y], .y = it.pins[y].y }),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -1142,14 +1090,10 @@ pub fn row_set(
     option: RowOption,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowOption, @backingInt(option)) orelse {
-            log.warn("render_state_row_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     return switch (option) {
+        .invalid => .invalid_value,
+        _ => .unsupported,
         inline else => |comptime_option| rowSetTyped(
             iterator_,
             comptime_option,
@@ -1168,6 +1112,7 @@ fn rowSetTyped(
     if (y >= it.raws.len) return .invalid_value;
     switch (option) {
         .dirty => it.dirty[y] = value.*,
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -1176,7 +1121,7 @@ fn rowSetTyped(
 /// C: GhosttyImageProtocol
 pub const ImageProtocol = renderpkg.RenderState.ImageProtocol;
 
-/// C: GhosttyRenderStateImageLayer
+/// C: GhosttyImageLayer
 pub const ImageLayer = renderpkg.RenderState.ImageLayer;
 
 /// C: GhosttyRenderStateKittyPlacementKind
@@ -1205,6 +1150,8 @@ pub const ImageData = enum(c_int) {
     kitty_placement_id = 18,
     kitty_kind = 19,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: ImageData) type {
         return switch (self) {
@@ -1227,14 +1174,20 @@ pub const ImageData = enum(c_int) {
             .kitty_placement_id,
             => u32,
             .viewport_col, .viewport_row, .z => i32,
+            _ => void,
         };
     }
 };
 
 pub fn image_iterator_new(
     alloc_: ?*const CAllocator,
-    result: *ImageIterator,
+    result_: ?*ImageIterator,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) {
+        if (result_) |o| o.* = null;
+        return .unsupported;
+    }
+    const result = result_ orelse return .invalid_value;
     const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(ImageIteratorWrapper) catch {
         result.* = null;
@@ -1252,6 +1205,7 @@ pub fn image_iterator_new(
 pub fn image_iterator_free(
     iterator_: ImageIterator,
 ) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.render_state)) return;
     const iterator = iterator_ orelse return;
     const alloc = iterator.alloc;
     alloc.destroy(iterator);
@@ -1260,6 +1214,7 @@ pub fn image_iterator_free(
 pub fn image_iterator_next(
     iterator_: ImageIterator,
 ) callconv(lib.calling_conv) bool {
+    if (comptime !lib.feature(.render_state)) return false;
     const it = iterator_ orelse return false;
     it.current = it.inner.next();
     return it.current != null;
@@ -1270,14 +1225,9 @@ pub fn image_get(
     data: ImageData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(ImageData, @backingInt(data)) orelse {
-            log.warn("render_state_image_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| imageGetTyped(
             iterator_,
@@ -1294,6 +1244,7 @@ pub fn image_get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.render_state)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -1344,6 +1295,7 @@ fn imageGetTyped(
         .kitty_kind => switch (p.protocol) {
             .kitty => |kitty| out.* = kitty.kind,
         },
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -1465,7 +1417,7 @@ test "render: aggregate get invalid value" {
     try testing.expectEqual(Result.invalid_value, get(null, .colors, &colors));
     try testing.expectEqual(Result.invalid_value, get(state, .colors, null));
 
-    colors.size = @sizeOf(usize) - 1;
+    colors.size = lib.sizedBaseEnd(Colors) - 1;
     try testing.expectEqual(Result.invalid_value, get(state, .colors, &colors));
 
     var cursor: Cursor = std.mem.zeroes(Cursor);
@@ -1474,7 +1426,7 @@ test "render: aggregate get invalid value" {
     try testing.expectEqual(Result.invalid_value, get(null, .cursor, &cursor));
     try testing.expectEqual(Result.invalid_value, get(state, .cursor, null));
 
-    cursor.size = @sizeOf(usize) - 1;
+    cursor.size = lib.sizedBaseEnd(Cursor) - 1;
     try testing.expectEqual(Result.invalid_value, get(state, .cursor, &cursor));
 }
 
@@ -1821,6 +1773,28 @@ test "render: row get selection" {
     try testing.expect(row_iterator_next(it));
     sel = .{};
     try testing.expectEqual(Result.no_value, row_get(it, .selection, @ptrCast(&sel)));
+
+    // The size rule, on the selected row.
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+    try testing.expect(row_iterator_next(it));
+    try testing.expect(row_iterator_next(it));
+
+    sel = .{ .size = lib.sizedBaseEnd(RowSelection) - 1, .start_x = 9 };
+    try testing.expectEqual(Result.invalid_value, row_get(it, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(@as(u16, 9), sel.start_x);
+
+    sel = .{ .size = lib.sizedBaseEnd(RowSelection) };
+    try testing.expectEqual(Result.success, row_get(it, .selection, @ptrCast(&sel)));
+    try testing.expectEqual(@as(u16, 2), sel.start_x);
+    try testing.expectEqual(@as(u16, 4), sel.end_x);
+
+    const Larger = extern struct { sel: RowSelection, extra: [8]u8 };
+    var large: Larger = .{ .sel = .{ .size = @sizeOf(Larger) }, .extra = @splat(0xaa) };
+    try testing.expectEqual(Result.success, row_get(it, .selection, @ptrCast(&large.sel)));
+    try testing.expectEqual(@sizeOf(Larger), large.sel.size);
+    try testing.expectEqual(@as(u16, 2), large.sel.start_x);
+    try testing.expectEqual(@as(u16, 4), large.sel.end_x);
+    try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
 }
 
 test "render: row get cells_raw" {
@@ -2147,6 +2121,100 @@ test "render: row cells get graphemes utf8" {
     try testing.expectEqual(@as(usize, 0), text.len);
 }
 
+test "render: row cells get graphemes buf" {
+    const cases = [_]struct {
+        terminal_input: []const u8,
+        expected: []const u32,
+    }{
+        .{
+            .terminal_input = "A",
+            .expected = &.{'A'},
+        },
+        .{
+            .terminal_input = "e\u{301}",
+            .expected = &.{ 'e', 0x301 },
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            .expected = &.{ 0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467 },
+        },
+    };
+
+    for (cases) |case| {
+        var terminal: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &terminal,
+            10,
+            3,
+        ));
+        defer terminal_c.free(terminal);
+
+        terminal_c.vt_write(terminal, case.terminal_input.ptr, case.terminal_input.len);
+
+        var state: RenderState = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &state,
+        ));
+        defer free(state);
+
+        try testing.expectEqual(Result.success, update(state, terminal));
+
+        var it: RowIterator = null;
+        try testing.expectEqual(Result.success, row_iterator_new(
+            &lib.alloc.test_allocator,
+            &it,
+        ));
+        defer row_iterator_free(it);
+
+        var cells: RowCells = null;
+        try testing.expectEqual(Result.success, row_cells_new(
+            &lib.alloc.test_allocator,
+            &cells,
+        ));
+        defer row_cells_free(cells);
+
+        try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+        try testing.expect(row_iterator_next(it));
+        try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+        try testing.expectEqual(Result.success, row_cells_select(cells, 0));
+
+        // Size query.
+        var out: types.CodepointBuffer = .{};
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+
+        // A NULL ptr has no capacity whatever cap says.
+        out = .{ .cap = 8 };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+
+        // cap below the count: the prefix that fits is written, nothing
+        // past cap is touched, and len is the full count.
+        var small: [8]u32 = @splat(0xAAAA);
+        const small_cap = case.expected.len - 1;
+        out = .{ .ptr = &small, .cap = small_cap };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(case.expected.len, out.len);
+        try testing.expectEqualSlices(u32, case.expected[0..small_cap], small[0..small_cap]);
+        for (small[small_cap..]) |v| try testing.expectEqual(@as(u32, 0xAAAA), v);
+
+        // Exact fit.
+        var buf: [8]u32 = undefined;
+        out = .{ .ptr = &buf, .cap = case.expected.len };
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqualSlices(u32, case.expected, buf[0..out.len]);
+
+        // A cell with no text needs no space, even for a size query.
+        try testing.expectEqual(Result.success, row_cells_select(cells, 9));
+        out = .{};
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_buf, @ptrCast(&out)));
+        try testing.expectEqual(@as(usize, 0), out.len);
+    }
+}
+
 test "render: row iterator next" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
@@ -2366,7 +2434,7 @@ test "render: cursor data get matches scalar getters" {
     var visible: bool = undefined;
     var blinking: bool = undefined;
     var password_input: bool = undefined;
-    var visual_style: CursorVisualStyle = undefined;
+    var visual_style: CursorStyle = undefined;
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_has_value, &viewport_has_value));
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_x, &viewport_x));
     try testing.expectEqual(Result.success, get(state, .cursor_viewport_y, &viewport_y));
@@ -2414,10 +2482,10 @@ test "render: cursor data get without viewport" {
     try testing.expect(cursor.visible);
     try testing.expect(cursor.blinking);
     try testing.expect(cursor.password_input);
-    try testing.expectEqual(CursorVisualStyle.underline, cursor.visual_style);
+    try testing.expectEqual(CursorStyle.underline, cursor.visual_style);
 }
 
-test "render: cursor data get supports truncated sized struct" {
+test "render: cursor data get size rule" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -2436,19 +2504,52 @@ test "render: cursor data get supports truncated sized struct" {
 
     try testing.expectEqual(Result.success, update(state, terminal));
     const expected = state.?.state.cursor;
-    const viewport = expected.viewport.?;
 
+    // Below the base layout: rejected and nothing written.
     var cursor: Cursor = std.mem.zeroes(Cursor);
-    cursor.size = @offsetOf(Cursor, "viewport_y") + @sizeOf(u16);
-    cursor.wide_tail = !viewport.wide_tail;
+    cursor.size = lib.sizedBaseEnd(Cursor) - 1;
     cursor.visible = !expected.visible;
-    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
-
-    try testing.expect(cursor.viewport_has_value);
-    try testing.expectEqual(viewport.x, cursor.viewport_x);
-    try testing.expectEqual(viewport.y, cursor.viewport_y);
-    try testing.expectEqual(!viewport.wide_tail, cursor.wide_tail);
+    try testing.expectEqual(Result.invalid_value, get(state, .cursor, &cursor));
     try testing.expectEqual(!expected.visible, cursor.visible);
+
+    // Exactly the base layout.
+    cursor.size = lib.sizedBaseEnd(Cursor);
+    try testing.expectEqual(Result.success, get(state, .cursor, &cursor));
+    try testing.expectEqual(expected.visible, cursor.visible);
+    try testing.expectEqual(
+        CursorStyle.fromZig(expected.visual_style),
+        cursor.visual_style,
+    );
+
+    // A newer caller's tail is left untouched.
+    const Larger = extern struct { cursor: Cursor, extra: [8]u8 };
+    var large: Larger = .{ .cursor = std.mem.zeroes(Cursor), .extra = @splat(0xaa) };
+    large.cursor.size = @sizeOf(Larger);
+    try testing.expectEqual(Result.success, get(state, .cursor, &large.cursor));
+    try testing.expectEqual(@sizeOf(Larger), large.cursor.size);
+    try testing.expectEqual(expected.visible, large.cursor.visible);
+    try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
+}
+
+test "render: absent cursor values return no_value" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(&lib.alloc.test_allocator, &terminal, 80, 24));
+    defer terminal_c.free(terminal);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &state));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var rgb: colorpkg.RGB.C = undefined;
+    try testing.expectEqual(Result.no_value, get(state, .color_cursor, @ptrCast(&rgb)));
+
+    state.?.state.cursor.viewport = null;
+    var pos: size.CellCountInt = undefined;
+    var wide_tail: bool = undefined;
+    try testing.expectEqual(Result.no_value, get(state, .cursor_viewport_x, @ptrCast(&pos)));
+    try testing.expectEqual(Result.no_value, get(state, .cursor_viewport_y, @ptrCast(&pos)));
+    try testing.expectEqual(Result.no_value, get(state, .cursor_viewport_wide_tail, @ptrCast(&wide_tail)));
 }
 
 test "render: row cells bg_color no background" {
@@ -2495,7 +2596,7 @@ test "render: row cells bg_color no background" {
 
     // No background set, should return invalid_value.
     var bg: colorpkg.RGB.C = undefined;
-    try testing.expectEqual(Result.invalid_value, row_cells_get(cells, .bg_color, @ptrCast(&bg)));
+    try testing.expectEqual(Result.no_value, row_cells_get(cells, .bg_color, @ptrCast(&bg)));
 }
 
 test "render: row cells bg_color from style" {
@@ -2642,7 +2743,7 @@ test "render: row cells fg_color no foreground" {
 
     // No foreground set, should return invalid_value.
     var fg: colorpkg.RGB.C = undefined;
-    try testing.expectEqual(Result.invalid_value, row_cells_get(cells, .fg_color, @ptrCast(&fg)));
+    try testing.expectEqual(Result.no_value, row_cells_get(cells, .fg_color, @ptrCast(&fg)));
 }
 
 test "render: row cells fg_color from style" {
@@ -2694,7 +2795,7 @@ test "render: row cells fg_color from style" {
     try testing.expectEqual(@as(u8, 30), fg.b);
 }
 
-test "render: colors data get supports truncated sized struct" {
+test "render: colors data get size rule" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -2712,18 +2813,32 @@ test "render: colors data get supports truncated sized struct" {
     defer free(state);
 
     try testing.expectEqual(Result.success, update(state, terminal));
-
-    var colors: Colors = std.mem.zeroes(Colors);
-    const sentinel: colorpkg.RGB.C = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
-    for (&colors.palette) |*entry| entry.* = sentinel;
-
-    colors.size = @offsetOf(Colors, "palette") + @sizeOf(colorpkg.RGB.C) * 2;
-    try testing.expectEqual(Result.success, get(state, .colors, &colors));
-
     const state_colors = &state.?.state.colors;
+    const sentinel: colorpkg.RGB.C = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
+
+    // Below the base layout: rejected and nothing written, even the
+    // palette entries that would fit.
+    var colors: Colors = std.mem.zeroes(Colors);
+    for (&colors.palette) |*entry| entry.* = sentinel;
+    colors.size = lib.sizedBaseEnd(Colors) - 1;
+    try testing.expectEqual(Result.invalid_value, get(state, .colors, &colors));
+    try testing.expectEqual(sentinel, colors.palette[0]);
+
+    // Exactly the base layout.
+    colors.size = lib.sizedBaseEnd(Colors);
+    try testing.expectEqual(Result.success, get(state, .colors, &colors));
     try testing.expectEqual(state_colors.palette[0].cval(), colors.palette[0]);
-    try testing.expectEqual(state_colors.palette[1].cval(), colors.palette[1]);
-    try testing.expectEqual(sentinel, colors.palette[2]);
+    try testing.expectEqual(state_colors.palette[255].cval(), colors.palette[255]);
+
+    // A newer caller's tail is left untouched.
+    const Larger = extern struct { colors: Colors, extra: [8]u8 };
+    var large: Larger = .{ .colors = std.mem.zeroes(Colors), .extra = @splat(0xaa) };
+    large.colors.size = @sizeOf(Larger);
+    try testing.expectEqual(Result.success, get(state, .colors, &large.colors));
+    try testing.expectEqual(@sizeOf(Larger), large.colors.size);
+    try testing.expectEqual(state_colors.background.cval(), large.colors.background);
+    try testing.expectEqual(state_colors.palette[255].cval(), large.colors.palette[255]);
+    try testing.expectEqual(@as([8]u8, @splat(0xaa)), large.extra);
 }
 
 test "render: get_multi success" {
@@ -2977,6 +3092,11 @@ test "render: overscan option roundtrip" {
     // Nothing is captured before an update.
     try testing.expectEqual(Result.success, get(state, .overscan, @ptrCast(&out)));
     try testing.expectEqual(Overscan{}, out);
+
+    // A NULL value restores the default of no overscan.
+    try testing.expectEqual(Result.success, set(state, .overscan, null));
+    try testing.expectEqual(Result.success, get(state, .overscan_request, @ptrCast(&out)));
+    try testing.expectEqual(Overscan{}, out);
 }
 
 test "render: overscan clamps to existing rows" {
@@ -3215,7 +3335,6 @@ test "render: overscan invalid values" {
     defer free(state);
 
     try testing.expectEqual(Result.invalid_value, get(state, .overscan, null));
-    try testing.expectEqual(Result.invalid_value, set(state, .overscan, null));
 
     const terminal = try testTerminalWithLines(10, 5, 1);
     defer terminal_c.free(terminal);

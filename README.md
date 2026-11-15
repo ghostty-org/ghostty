@@ -165,9 +165,13 @@ for small examples of using `libghostty` in C and Zig or the
 complete example. See [awesome-libghostty](https://github.com/Uzaaft/awesome-libghostty)
 for a list of projects and resources related to `libghostty`.
 
-We haven't tagged libghostty with a version yet and we're still working
-on a better docs experience, but our [Doxygen website](https://libghostty.tip.ghostty.org/)
-is a good resource for the C API.
+`libghostty-vt` is released on its own, separately from Ghostty, with
+`vt-X.Y.Z` tags. To build or package it, see
+[`PACKAGING-LIBGHOSTTY.md`](PACKAGING-LIBGHOSTTY.md). To use it from a
+CMake project, see [`dist/cmake/README.md`](dist/cmake/README.md). We're
+still working on a better docs experience, but our
+[Doxygen website](https://lib.ghostty.org/vt/) is a good resource
+for the C API.
 
 #### Ghostty-only Terminal Control Sequences
 

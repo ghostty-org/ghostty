@@ -68,6 +68,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "--keyword=_",
         "--keyword=N_",
         "--keyword=C_:1c,2",
+        "--add-comments=Translators",
     });
 
     // Collect to intermediate .pot file
@@ -97,7 +98,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         // order. That will minimize code churn as directory walking is not
         // guaranteed to happen in any particular order.
 
-        var gtk_files: std.ArrayListUnmanaged([]const u8) = .empty;
+        var gtk_files: std.ArrayList([]const u8) = .empty;
         defer {
             for (gtk_files.items) |item| b.allocator.free(item);
             gtk_files.deinit(b.allocator);
@@ -159,6 +160,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "xgettext",
         "--language=Python",
         "--from-code=UTF-8",
+        "--add-comments=Translators",
     });
 
     // Collect to intermediate .pot file
@@ -172,7 +174,6 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
     // Merge pot files
     const xgettext_merge = b.addSystemCommand(&.{
         "xgettext",
-        "--add-comments=Translators",
         "--package-name=" ++ domain,
         "--msgid-bugs-address=m@mitchellh.com",
         "--copyright-holder=\"Mitchell Hashimoto, Ghostty contributors\"",

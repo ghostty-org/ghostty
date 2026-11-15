@@ -38,7 +38,7 @@ else
   ARCH="$SNAP_ARCH-linux-gnu"
 fi
 
-export LD_LIBRARY_PATH=${SNAP}/usr/lib/${ARCH}:${SNAP}/usr/lib/${ARCH}/vdpau:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}
+export LD_LIBRARY_PATH="${SNAP}/usr/lib/${ARCH}:${SNAP}/usr/lib/${ARCH}/vdpau${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LIBGL_DRIVERS_PATH=${LIBGL_DRIVERS_PATH:+$LIBGL_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
 export LIBVA_DRIVERS_PATH=${LIBVA_DRIVERS_PATH:+$LIBVA_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
 export __EGL_VENDOR_LIBRARY_DIRS=${__EGL_VENDOR_LIBRARY_DIRS:+$__EGL_VENDOR_LIBRARY_DIRS:}/etc/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d:${SNAP}/usr/share/glvnd/egl_vendor.d

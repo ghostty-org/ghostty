@@ -178,7 +178,7 @@ pub const RepeatableReadableIO = struct {
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        var list = try std.ArrayListUnmanaged(ReadableIO).initCapacity(
+        var list = try std.ArrayList(ReadableIO).initCapacity(
             alloc,
             self.list.items.len,
         );
@@ -195,7 +195,7 @@ pub const RepeatableReadableIO = struct {
         self: *const Self,
         alloc: Allocator,
     ) Allocator.Error!Self {
-        var list = try std.ArrayListUnmanaged(ReadableIO).initCapacity(
+        var list = try std.ArrayList(ReadableIO).initCapacity(
             alloc,
             self.list.items.len,
         );

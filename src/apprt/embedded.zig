@@ -2129,13 +2129,15 @@ pub const CAPI = struct {
     }
 
     /// Set the preedit text for the surface. This is used for IME
-    /// composition. If the length is 0, then the preedit text is cleared.
+    /// composition. If the pointer is null or the length is 0, then the
+    /// preedit text is cleared.
     export fn ghostty_surface_preedit(
         surface: *Surface,
-        ptr: [*]const u8,
+        ptr: ?[*]const u8,
         len: usize,
     ) void {
-        surface.preeditCallback(if (len == 0) null else ptr[0..len]);
+        const text = ptr orelse return surface.preeditCallback(null);
+        surface.preeditCallback(if (len == 0) null else text[0..len]);
     }
 
     /// Returns true if the surface currently has mouse capturing

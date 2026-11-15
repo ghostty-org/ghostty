@@ -1,6 +1,6 @@
 .{
     .name = .fontconfig,
-    .version = "2.14.2",
+    .version = "2.18.3",
     .fingerprint = 0x4a79a5a40c6d6d8,
     .paths = .{""},
     .dependencies = .{

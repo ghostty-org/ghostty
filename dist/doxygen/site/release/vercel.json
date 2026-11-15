@@ -1,0 +1,40 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    { "source": "/", "destination": "/vt/", "permanent": true },
+    { "source": "/vt", "destination": "/vt/", "permanent": true },
+    {
+      "source": "/vt/:version(\\d+\\.\\d+\\.\\d+)",
+      "destination": "/vt/:version/",
+      "permanent": true
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+        }
+      ]
+    },
+    {
+      "source": "/(.*\\.html|.*/)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/vt/:version(\\d+\\.\\d+\\.\\d+)/:path*",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    },
+    {
+      "source": "/vt/:version(\\d+\\.\\d+\\.\\d+)/",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    }
+  ]
+}

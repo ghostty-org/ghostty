@@ -1657,6 +1657,7 @@ test "grid golden encoding and decoding" {
         .rows = 4,
         .styles = 0,
         .hyperlink_bytes = 0,
+        .hyperlink_cells = 0,
         .grapheme_bytes = 64,
         .string_bytes = 0,
     };

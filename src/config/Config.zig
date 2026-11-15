@@ -2189,7 +2189,9 @@ keybind: Keybinds = .{},
 ///   * `light` - Use the light theme regardless of system theme.
 ///   * `dark` - Use the dark theme regardless of system theme.
 ///   * `ghostty` - Use the background and foreground colors specified in the
-///     Ghostty configuration. This is only supported on Linux builds.
+///     Ghostty configuration. If the "theme" configuration has separate light
+///     and dark themes, light or dark mode follows the system theme. This is
+///     only supported on Linux builds.
 ///
 /// On macOS, if `macos-titlebar-style` is `tabs` or `transparent`, the window theme will be
 /// automatically set based on the luminosity of the terminal background color.
@@ -2527,21 +2529,25 @@ keybind: Keybinds = .{},
 ///
 /// * `none` - Do not copy selected text automatically.
 ///
-/// * `primary` - On Linux, copy to the selection clipboard only. This has no
-///   effect on macOS. (Available since: 1.4.0)
+/// * `primary` - Copy to the selection clipboard only. On Linux this is the
+///   primary selection that middle-click pastes. On macOS this is a separate
+///   pasteboard private to Ghostty that the `paste_from_selection` action
+///   (Paste Selection in the Edit menu) reads, so selecting text does not
+///   replace the contents of the system clipboard. (Available since: 1.4.0)
 ///
-/// * `clipboard` - Copy text to the system clipboard only.
+/// * `clipboard` - Copy text to the system clipboard only. Before 1.4.0 this
+///   value copied to the selection clipboard as well; use `both` for that.
 ///
-/// * `both` - Copy to both clipboards on Linux, and only the system clipboard
-///   on macOS. (Available since: 1.4.0)
+/// * `both` - Copy to both the selection clipboard and the system clipboard.
+///   (Available since: 1.4.0)
 ///
-/// For backward compatibility and convenience, a value of `true` is the same as
-/// `primary` on Linux and `clipboard` on macOS, and `false` is an alias for
-/// `none`.
+/// For backward compatibility and convenience, a value of `true` is the same
+/// as `primary` on Linux, FreeBSD, and macOS and `clipboard` elsewhere, and
+/// `false` is an alias for `none`.
 ///
-/// The default value is `primary` on Linux and `none` otherwise.
+/// The default value is `primary` on Linux and macOS and `none` otherwise.
 @"copy-on-select": CopyOnSelect = switch (builtin.target.os.tag) {
-    .linux => .primary,
+    .linux, .macos => .primary,
     else => .none,
 },
 
@@ -5138,8 +5144,11 @@ fn compatCopyOnSelect(
     assert(std.mem.eql(u8, key, "copy-on-select"));
 
     if (std.mem.eql(u8, value orelse "", "true")) {
+        // Before 1.4, `true` copied to the selection clipboard wherever the
+        // platform has one (including the macOS app's private selection
+        // pasteboard) and the system clipboard otherwise.
         self.@"copy-on-select" = switch (builtin.target.os.tag) {
-            .linux, .freebsd => .primary,
+            .linux, .freebsd, .macos => .primary,
             else => .clipboard,
         };
         return true;
@@ -6239,7 +6248,7 @@ pub const RepeatableString = struct {
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         // Copy the list and all the strings in the list.
-        var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
+        var list = try std.ArrayList([:0]const u8).initCapacity(
             alloc,
             self.list.items.len,
         );
@@ -8815,7 +8824,7 @@ pub const RepeatableLink = struct {
         // Note: we don't do any errdefers below since the allocation
         // is expected to be arena allocated.
 
-        var list = try std.ArrayListUnmanaged(inputpkg.Link).initCapacity(
+        var list = try std.ArrayList(inputpkg.Link).initCapacity(
             alloc,
             self.links.items.len,
         );
@@ -8847,19 +8856,20 @@ pub const RepeatableLink = struct {
 
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
-    /// Disables copy on select entirely. This is the default on macOS.
+    /// Disables copy on select entirely.
     none,
 
-    /// Copy on select is enabled, but goes to the selection clipboard.
-    /// This is not supported on platforms such as macOS. This is the default
-    /// on Linux.
+    /// Copy on select is enabled, but goes to the selection clipboard: the
+    /// primary selection on Linux, or Ghostty's private selection pasteboard
+    /// on macOS. Nothing is copied if the runtime has no selection
+    /// clipboard. This is the default on Linux and macOS.
     primary,
 
     /// Copy on select is enabled and goes to the system clipboard.
     clipboard,
 
     /// Copy on select is enabled and goes to both the system clipboard
-    /// and the selection clipboard (for Linux).
+    /// and the selection clipboard.
     both,
 };
 
@@ -8930,8 +8940,8 @@ pub const SplitPreserveZoom = packed struct {
 pub const RepeatableCommand = struct {
     const Self = @This();
 
-    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
-    value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty,
+    value: std.ArrayList(inputpkg.Command) = .empty,
+    value_c: std.ArrayList(inputpkg.Command.C) = .empty,
 
     /// ghostty_config_command_list_s
     pub const C = extern struct {
@@ -9015,7 +9025,7 @@ pub const RepeatableCommand = struct {
         // whose string pointers still reference the source config's
         // memory — the clone must stay valid after the source is
         // freed.
-        var value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty;
+        var value_c: std.ArrayList(inputpkg.Command.C) = .empty;
         try value_c.ensureTotalCapacityPrecise(alloc, value.items.len);
         for (value.items) |item| {
             value_c.appendAssumeCapacity(try item.cval(alloc));
@@ -11278,6 +11288,57 @@ test "compatibility: scrollback-limit renamed to bytes" {
     try testing.expectEqual(
         std.math.maxInt(usize),
         cfg.@"scrollback-limit-bytes".value,
+    );
+}
+
+test "compatibility: copy-on-select true and false" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--copy-on-select=true",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expectEqual(
+            @as(CopyOnSelect, switch (builtin.target.os.tag) {
+                .linux, .freebsd, .macos => .primary,
+                else => .clipboard,
+            }),
+            cfg.@"copy-on-select",
+        );
+    }
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--copy-on-select=false",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expectEqual(CopyOnSelect.none, cfg.@"copy-on-select");
+    }
+}
+
+test "copy-on-select default uses the selection clipboard on Linux and macOS" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    try testing.expectEqual(
+        @as(CopyOnSelect, switch (builtin.target.os.tag) {
+            .linux, .macos => .primary,
+            else => .none,
+        }),
+        cfg.@"copy-on-select",
     );
 }
 

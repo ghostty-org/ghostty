@@ -15,11 +15,28 @@
 extern "C" {
 #endif
 
-/** @defgroup point Point
+/** @addtogroup point
  *
- * Types for referencing x/y positions in the terminal grid under
- * different coordinate systems (active area, viewport, full screen,
- * scrollback history).
+ * A GhosttyPoint names a position in the terminal grid, in one of four
+ * coordinate systems: the active area, the viewport, the full screen, or the
+ * scrollback history.
+ *
+ * You need one to find a cell. The same row has a different number in each
+ * system, so pick the one that matches what you're asking. Resolve a point to
+ * a cell with ghostty_terminal_grid_ref().
+ *
+ * ## Example
+ *
+ * @code{.c}
+ * GhosttyPoint point = {
+ *     .tag = GHOSTTY_POINT_TAG_VIEWPORT,
+ *     .value = { .coordinate = { .x = 4, .y = 0 } },
+ * };
+ * @endcode
+ *
+ * Full program: @ref c-vt-grid-traverse/src/main.c
+ *
+ * The @ref guide-grid "Grid guide" shows how they line up.
  *
  * @{
  */

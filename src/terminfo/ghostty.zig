@@ -18,8 +18,8 @@ pub const ghostty: Source = .{
         // The preferred name
         "ghostty",
 
-        // Our "formal" name
-        "Ghostty",
+        // The description
+        "Ghostty terminal emulator",
     },
 
     // NOTE: These capabilities are super underdocumented and I'm not 100%

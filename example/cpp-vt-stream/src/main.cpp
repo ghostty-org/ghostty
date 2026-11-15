@@ -20,13 +20,16 @@ int main() {
   ghostty_terminal_vt_write(terminal, reinterpret_cast<const uint8_t *>(text), std::strlen(text));
 
   // Get the final terminal state as a plain string
-  GhosttyFormatterTerminalOptions fmt_opts =
-      GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
-  fmt_opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  fmt_opts.trim = true;
-
   GhosttyFormatter formatter;
-  result = ghostty_formatter_terminal_new(nullptr, &formatter, terminal, fmt_opts);
+  result = ghostty_formatter_terminal_new(nullptr, &formatter, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
   assert(result == GHOSTTY_SUCCESS);
 
   uint8_t *buf = nullptr;

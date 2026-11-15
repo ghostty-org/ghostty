@@ -22,13 +22,16 @@ int main() {
   }
 
   // Format the terminal contents as plain text
-  GhosttyFormatterTerminalOptions fmt_opts =
-      GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
-  fmt_opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  fmt_opts.trim = true;
-
   GhosttyFormatter formatter;
-  result = ghostty_formatter_terminal_new(NULL, &formatter, terminal, fmt_opts);
+  result = ghostty_formatter_terminal_new(NULL, &formatter, terminal);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
   assert(result == GHOSTTY_SUCCESS);
 
   uint8_t *buf = NULL;

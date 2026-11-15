@@ -43,8 +43,17 @@ const Initializer = *const fn () callconv(.c) void;
 /// `.CRT$*` sections in alphabetical order, so a marker in `.CRT$XCA` and one
 /// in `.CRT$XCZ` bracket every initializer in the image. This is how the CRT's
 /// own `_initterm` finds them.
-export const ghostty_crt_xc_a: ?Initializer linksection(".CRT$XCA") = null;
-export const ghostty_crt_xc_z: ?Initializer linksection(".CRT$XCZ") = null;
+///
+/// Nothing references these on MinGW, so they are exported to keep them in the
+/// image. Hidden visibility keeps them out of the DLL's export table, which must
+/// list only the public API.
+const ghostty_crt_xc_a: ?Initializer linksection(".CRT$XCA") = null;
+const ghostty_crt_xc_z: ?Initializer linksection(".CRT$XCZ") = null;
+
+comptime {
+    @export(&ghostty_crt_xc_a, .{ .name = "ghostty_crt_xc_a", .visibility = .hidden });
+    @export(&ghostty_crt_xc_z, .{ .name = "ghostty_crt_xc_z", .visibility = .hidden });
+}
 
 /// MinGW collects global constructors into `__CTOR_LIST__` instead: a
 /// sentinel of -1, then the initializers, then a null terminator. This is

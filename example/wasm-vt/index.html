@@ -154,31 +154,6 @@
             }
         }
 
-        // Look up a field's offset and DataView setter from the type layout JSON.
-        function fieldInfo(structName, fieldName) {
-            const field = typeLayout.types[structName].fields[fieldName];
-            return field;
-        }
-
-        // Set a field in a DataView using the type layout JSON metadata.
-        function setField(view, structName, fieldName, value) {
-            const field = fieldInfo(structName, fieldName);
-            switch (field.type) {
-                case 'u8':  case 'bool': view.setUint8(field.offset, value); break;
-                case 'u16': view.setUint16(field.offset, value, true); break;
-                case 'u32': view.setUint32(field.offset, value, true); break;
-                case 'u64': view.setBigUint64(field.offset, BigInt(value), true); break;
-                default: {
-                    const type = typeLayout.types[field.type];
-                    if (type?.kind === 'enum' && type.underlying === 'i32') {
-                        view.setInt32(field.offset, value, true);
-                        break;
-                    }
-                    throw new Error(`Unsupported field type: ${field.type}`);
-                }
-            }
-        }
-
         function getBuffer() {
             return wasmMemory.buffer;
         }
@@ -239,40 +214,37 @@
                 wasmInstance.exports.ghostty_terminal_vt_write(termPtr, dataPtr, vtBytes.length);
                 wasmInstance.exports.ghostty_wasm_free(dataPtr, vtBytes.length);
 
-                // Create a plain-text formatter
-                const FMT_OPTS_SIZE = typeLayout.types.GhosttyFormatterTerminalOptions.size;
-                const fmtOptsPtr = wasmInstance.exports.ghostty_wasm_alloc(FMT_OPTS_SIZE);
-                new Uint8Array(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE).fill(0);
-                const fmtOptsView = new DataView(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'size', FMT_OPTS_SIZE);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'emit', GHOSTTY_FORMATTER_FORMAT_PLAIN);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'unwrap', 0);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'trim', 1);
-
-                // Set the nested sized-struct `size` fields for extra and extra.screen
-                const extraOffset = fieldInfo('GhosttyFormatterTerminalOptions', 'extra').offset;
-                const extraSize = typeLayout.types.GhosttyFormatterTerminalExtra.size;
-                const extraSizeField = fieldInfo('GhosttyFormatterTerminalExtra', 'size');
-                fmtOptsView.setUint32(extraOffset + extraSizeField.offset, extraSize, true);
-
-                const screenOffset = fieldInfo('GhosttyFormatterTerminalExtra', 'screen').offset;
-                const screenSize = typeLayout.types.GhosttyFormatterScreenExtra.size;
-                const screenSizeField = fieldInfo('GhosttyFormatterScreenExtra', 'size');
-                fmtOptsView.setUint32(extraOffset + screenOffset + screenSizeField.offset, screenSize, true);
-
+                // Create a formatter, then set its options one at a time.
+                // Trimming is already on by default, so only the output
+                // format is set here.
                 const fmtPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
                 const fmtResult = wasmInstance.exports.ghostty_formatter_terminal_new(
-                    0, fmtPtrPtr, termPtr, fmtOptsPtr
+                    0, fmtPtrPtr, termPtr
                 );
-                wasmInstance.exports.ghostty_wasm_free(fmtOptsPtr, FMT_OPTS_SIZE);
 
                 if (fmtResult !== GHOSTTY_SUCCESS) {
+                    wasmInstance.exports.ghostty_wasm_free_opaque(fmtPtrPtr);
                     wasmInstance.exports.ghostty_terminal_free(termPtr);
                     throw new Error(`ghostty_formatter_terminal_new failed with result ${fmtResult}`);
                 }
 
                 const fmtPtr = wasmInstance.exports.ghostty_wasm_take_opaque(fmtPtrPtr);
                 wasmInstance.exports.ghostty_wasm_free_opaque(fmtPtrPtr);
+
+                const GHOSTTY_FORMATTER_OPT_EMIT =
+                    typeLayout.types.GhosttyFormatterOption.values.EMIT;
+                const emitPtr = wasmInstance.exports.ghostty_wasm_alloc(4);
+                new DataView(getBuffer()).setInt32(emitPtr, GHOSTTY_FORMATTER_FORMAT_PLAIN, true);
+                const setResult = wasmInstance.exports.ghostty_formatter_set(
+                    fmtPtr, GHOSTTY_FORMATTER_OPT_EMIT, emitPtr
+                );
+                wasmInstance.exports.ghostty_wasm_free(emitPtr, 4);
+
+                if (setResult !== GHOSTTY_SUCCESS) {
+                    wasmInstance.exports.ghostty_formatter_free(fmtPtr);
+                    wasmInstance.exports.ghostty_terminal_free(termPtr);
+                    throw new Error(`ghostty_formatter_set failed with result ${setResult}`);
+                }
 
                 // Format with alloc
                 const outPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();

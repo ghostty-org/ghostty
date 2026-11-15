@@ -336,6 +336,7 @@ test "compressed Page rejects a representation without savings" {
         .grapheme_bytes = 0,
         .string_bytes = 0,
         .hyperlink_bytes = 0,
+        .hyperlink_cells = 0,
     });
     defer resident.deinit();
 

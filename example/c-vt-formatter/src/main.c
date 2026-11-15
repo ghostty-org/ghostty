@@ -48,14 +48,23 @@ int main() {
                               strlen(commands[i]));
   }
 
-  // Create a plain-text formatter for the terminal
-  GhosttyFormatterTerminalOptions fmt_opts = GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
-  fmt_opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
-  fmt_opts.trim = true;
-
+  //! [formatter-new]
+  // Create a formatter for the terminal and ask for plain text with
+  // trailing whitespace trimmed. A new formatter already does both, but
+  // setting them shows how options work and makes the output we want
+  // explicit.
   GhosttyFormatter formatter;
-  result = ghostty_formatter_terminal_new(NULL, &formatter, terminal, fmt_opts);
+  result = ghostty_formatter_terminal_new(NULL, &formatter, terminal);
   assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyFormatterFormat emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit);
+  assert(result == GHOSTTY_SUCCESS);
+
+  bool trim = true;
+  result = ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &trim);
+  assert(result == GHOSTTY_SUCCESS);
+  //! [formatter-new]
 
   // Stream the formatted output directly to stdout. The writer retains the
   // exact byte count and reports destination errors through its return value.

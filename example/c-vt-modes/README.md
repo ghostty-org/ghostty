@@ -1,8 +1,7 @@
 # Example: `ghostty-vt` Mode Utilities
 
-This contains a simple example of how to use the `ghostty-vt` mode
-utilities to pack and unpack terminal mode identifiers and encode
-DECRPM responses.
+Pack and unpack terminal mode identifiers and encode DECRPM responses with
+the `ghostty-vt` mode utilities.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

@@ -15,7 +15,13 @@ pub const parseInt = @import("parse_int.zig").parseInt;
 pub const checkGhosttyHEnum = enumpkg.checkGhosttyHEnum;
 pub const String = types.String;
 pub const Struct = structpkg.Struct;
-pub const structSizedFieldFits = structpkg.sizedFieldFits;
+pub const SizedDirection = structpkg.SizedDirection;
+pub const sizedBaseEnd = structpkg.sizedBaseEnd;
+pub const sizedCheck = structpkg.sizedCheck;
+pub const sizedField = structpkg.sizedField;
+pub const sizedFieldFits = structpkg.sizedFieldFits;
+pub const sizedSet = structpkg.sizedSet;
+pub const sizedWrite = structpkg.sizedWrite;
 pub const Target = @import("target.zig").Target;
 pub const TaggedUnion = unionpkg.TaggedUnion;
 

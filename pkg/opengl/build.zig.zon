@@ -1,7 +1,7 @@
 .{
     .name = .opengl,
     .version = "0.0.1",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.1",
     .paths = .{""},
     .fingerprint = 0x91bbcdeb77b8f007,
     .dependencies = .{

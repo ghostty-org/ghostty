@@ -51,6 +51,8 @@ pub const RowData = enum(c_int) {
     /// Output type: bool *
     dirty = 8,
 
+    _,
+
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowData) type {
         return switch (self) {
@@ -58,6 +60,7 @@ pub const RowData = enum(c_int) {
             .wrap, .wrap_continuation, .grapheme, .styled, .hyperlink => bool,
             .kitty_virtual_placeholder, .dirty => bool,
             .semantic_prompt => SemanticPrompt,
+            _ => void,
         };
     }
 };
@@ -67,18 +70,14 @@ pub fn get(
     data: RowData,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(RowData, @backingInt(data)) orelse {
-            return .invalid_value;
-        };
-    }
-
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             row_,
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -90,6 +89,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.grid_introspection)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -120,6 +120,7 @@ fn getTyped(
         .semantic_prompt => out.* = @fromBackingInt(@backingInt(row.semantic_prompt)),
         .kitty_virtual_placeholder => out.* = row.kitty_virtual_placeholder,
         .dirty => out.* = row.dirty,
+        _ => comptime unreachable,
     }
 
     return .success;

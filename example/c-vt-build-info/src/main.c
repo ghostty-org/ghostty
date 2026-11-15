@@ -46,7 +46,57 @@ void query_build_info() {
 }
 //! [build-info-query]
 
+//! [version-check]
+// Stop the build if the headers are older than this program needs.
+#if !GHOSTTY_VT_VERSION_AT_LEAST(1, 0, 0)
+#error "libghostty-vt 1.0.0 or newer is required"
+#endif
+//! [version-check]
+
+//! [version-library]
+void print_library_version() {
+  // The full version, which is the easiest form to log or display. A
+  // development build has a suffix, such as "1.1.0-dev+abc1234".
+  printf("Library version: %s\n", ghostty_version());
+
+  // The same version as numbers, which is the easiest form to compare.
+  size_t major = 0;
+  size_t minor = 0;
+  size_t patch = 0;
+  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MAJOR, &major);
+  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MINOR, &minor);
+  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_PATCH, &patch);
+  printf("Library version numbers: %zu.%zu.%zu\n", major, minor, patch);
+}
+//! [version-library]
+
+//! [version-compatible]
+// Returns true if the library loaded at runtime can be used with the
+// headers this program was compiled against.
+bool library_is_compatible() {
+  size_t major = 0;
+  size_t minor = 0;
+  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MAJOR, &major);
+  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MINOR, &minor);
+
+  // The major versions must match. The library may be newer
+  // than the headers but not older, because an older library is missing
+  // the functions that newer headers declare.
+  return major == GHOSTTY_VT_VERSION_MAJOR &&
+         minor >= GHOSTTY_VT_VERSION_MINOR;
+}
+//! [version-compatible]
+
 int main() {
   query_build_info();
+
+  printf("Header version: %s\n", GHOSTTY_VT_VERSION);
+  print_library_version();
+  if (!library_is_compatible()) {
+    fprintf(stderr, "This program needs libghostty-vt %d.%d.\n",
+            GHOSTTY_VT_VERSION_MAJOR, GHOSTTY_VT_VERSION_MINOR);
+    return 1;
+  }
+
   return 0;
 }

@@ -83,14 +83,17 @@ pub const Scroll = enum(c_int) {
 
 /// C: GhosttySearchData
 pub const Data = enum(c_int) {
-    status = 0,
-    needle = 1,
-    total_matches = 2,
-    selected_index = 3,
-    selected_match = 4,
-    matches = 5,
-    viewport_matches = 6,
-    select_scroll = 7,
+    invalid = 0,
+    status = 1,
+    needle = 2,
+    total_matches = 3,
+    selected_index = 4,
+    selected_match = 5,
+    matches = 6,
+    viewport_matches = 7,
+    select_scroll = 8,
+
+    _,
 
     pub fn OutType(comptime self: Data) type {
         return switch (self) {
@@ -101,23 +104,27 @@ pub const Data = enum(c_int) {
             .selected_match => selection_c.CSelection,
             .matches, .viewport_matches => selection_c.CSelectionBuffer,
             .select_scroll => Scroll,
+            .invalid, _ => void,
         };
     }
 };
 
 /// C: GhosttySearchOption
 pub const Option = enum(c_int) {
-    needle = 0,
-    select_next = 1,
-    select_prev = 2,
-    select_scroll = 3,
+    invalid = 0,
+    needle = 1,
+    // 2 and 3 were the select_next and select_prev options, which are
+    // now functions. They stay unused so old callers get unsupported.
+    select_scroll = 4,
 
-    pub fn Type(comptime self: Option) type {
+    _,
+
+    /// The type that a `set` value points to.
+    pub fn InType(comptime self: Option) type {
         return switch (self) {
             .needle => lib.String,
-            // The value must be NULL. Reserved for future use.
-            .select_next, .select_prev => void,
             .select_scroll => Scroll,
+            .invalid, _ => void,
         };
     }
 };
@@ -127,6 +134,10 @@ pub fn new(
     out_search: ?*Search,
     terminal: terminal_c.Terminal,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) {
+        if (out_search) |o| o.* = null;
+        return .unsupported;
+    }
     const out = out_search orelse return .invalid_value;
     out.* = null;
 
@@ -154,6 +165,7 @@ pub fn new(
 }
 
 pub fn free(search_: Search) callconv(lib.calling_conv) void {
+    if (comptime !lib.feature(.search)) return;
     const wrapper = search_ orelse return;
     if (wrapper.terminal) |terminal_wrapper| {
         _ = terminal_wrapper.searches.swapRemove(wrapper);
@@ -171,6 +183,7 @@ pub fn tick(
     search_: Search,
     out_status: ?*Status,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const wrapper = search_ orelse return .invalid_value;
     // History ticks read a pin tracked in the terminal's page list.
     _ = wrapper.zigTerminal() orelse return .invalid_value;
@@ -180,6 +193,7 @@ pub fn tick(
 }
 
 pub fn feed(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const wrapper = search_ orelse return .invalid_value;
     const t = wrapper.zigTerminal() orelse return .invalid_value;
     const s = if (wrapper.search) |*s| s else return .success;
@@ -193,6 +207,7 @@ pub fn feed(search_: Search) callconv(lib.calling_conv) Result {
 }
 
 pub fn run(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const wrapper = search_ orelse return .invalid_value;
     const t = wrapper.zigTerminal() orelse return .invalid_value;
     const s = if (wrapper.search) |*s| s else return .success;
@@ -215,14 +230,10 @@ pub fn set(
     option: Option,
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Option, @backingInt(option)) orelse {
-            log.warn("search_set invalid option value={d}", .{@backingInt(option)});
-            return .invalid_value;
-        };
-    }
-
+    if (comptime !lib.feature(.search)) return .unsupported;
     return switch (option) {
+        .invalid => .invalid_value,
+        _ => .unsupported,
         inline else => |comptime_option| setTyped(
             search_,
             comptime_option,
@@ -234,7 +245,7 @@ pub fn set(
 fn setTyped(
     search_: Search,
     comptime option: Option,
-    value: ?*const option.Type(),
+    value: ?*const option.InType(),
 ) Result {
     const wrapper = search_ orelse return .invalid_value;
     switch (option) {
@@ -271,35 +282,44 @@ fn setTyped(
             wrapper.search = replacement;
         },
 
-        .select_next, .select_prev => {
-            // The value is reserved for future use and must be NULL.
-            if (value != null) return .invalid_value;
-
-            const t = wrapper.zigTerminal() orelse return .invalid_value;
-            const s = if (wrapper.search) |*s| s else return .no_value;
-            const selected = s.select(
-                t,
-                switch (option) {
-                    .select_next => .next,
-                    .select_prev => .prev,
-                    else => comptime unreachable,
-                },
-                wrapper.select_scroll,
-            ) catch return .out_of_memory;
-            if (!selected) return .no_value;
-        },
-
         .select_scroll => {
             const v = value orelse {
                 wrapper.select_scroll = .if_needed;
                 return .success;
             };
-            const scroll = std.enums.fromInt(Scroll, @backingInt(v.*)) orelse
+            const scroll = lib.enumFromPtr(Scroll, v) orelse
                 return .invalid_value;
             wrapper.select_scroll = scroll.toZig();
         },
+        .invalid, _ => comptime unreachable,
     }
 
+    return .success;
+}
+
+pub fn select_next(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
+    return selectMatch(search_, .next);
+}
+
+pub fn select_prev(search_: Search) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
+    return selectMatch(search_, .prev);
+}
+
+fn selectMatch(
+    search_: Search,
+    direction: searchpkg.Screen.Select,
+) Result {
+    const wrapper = search_ orelse return .invalid_value;
+    const t = wrapper.zigTerminal() orelse return .invalid_value;
+    const s = if (wrapper.search) |*s| s else return .no_value;
+    const selected = s.select(
+        t,
+        direction,
+        wrapper.select_scroll,
+    ) catch return .out_of_memory;
+    if (!selected) return .no_value;
     return .success;
 }
 
@@ -316,15 +336,11 @@ pub fn get(
     data: Data,
     value: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(Data, @backingInt(data)) orelse {
-            log.warn("search_get invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
+    if (comptime !lib.feature(.search)) return .unsupported;
     const out_ptr = value orelse return .invalid_value;
     return switch (data) {
+        .invalid => .invalid_value,
+        _ => .unsupported,
         inline else => |comptime_data| getTyped(
             search_,
             comptime_data,
@@ -340,6 +356,7 @@ pub fn get_multi(
     values: ?[*]?*anyopaque,
     out_written: ?*usize,
 ) callconv(lib.calling_conv) Result {
+    if (comptime !lib.feature(.search)) return .unsupported;
     const k = keys orelse return .invalid_value;
     const v = values orelse return .invalid_value;
 
@@ -425,6 +442,7 @@ fn getTyped(
         },
 
         .select_scroll => out.* = .fromZig(wrapper.select_scroll),
+        .invalid, _ => comptime unreachable,
     }
 
     return .success;
@@ -601,7 +619,7 @@ test "search select wraps in both directions" {
 
     // Next: newest match first (index 0), then older (1), then wrap
     // back to 0.
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 0), idx);
 
@@ -609,16 +627,16 @@ test "search select wraps in both directions" {
     try testing.expectEqual(Result.success, get(search, .selected_match, &match));
     try testing.expect(match.start.toPin() != null);
 
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 1), idx);
 
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 0), idx);
 
     // Prev: wrap backward to the oldest match.
-    try testing.expectEqual(Result.success, set(search, .select_prev, null));
+    try testing.expectEqual(Result.success, select_prev(search));
     try testing.expectEqual(Result.success, get(search, .selected_index, &idx));
     try testing.expectEqual(@as(usize, 1), idx);
 }
@@ -636,11 +654,11 @@ test "search select with no matches returns no value" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
 
-    try testing.expectEqual(Result.no_value, set(search, .select_next, null));
-    try testing.expectEqual(Result.no_value, set(search, .select_prev, null));
+    try testing.expectEqual(Result.no_value, select_next(search));
+    try testing.expectEqual(Result.no_value, select_prev(search));
 }
 
-test "search select rejects a non-null reserved value" {
+test "search former select option keys are unsupported" {
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -653,9 +671,9 @@ test "search select rejects a non-null reserved value" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
 
-    const bogus: c_int = 0;
-    try testing.expectEqual(Result.invalid_value, set(search, .select_next, &bogus));
-    try testing.expectEqual(Result.invalid_value, set(search, .select_prev, &bogus));
+    // The values that were once select options are unknown keys now.
+    try testing.expectEqual(Result.unsupported, set(search, @fromBackingInt(@intCast(2)), null));
+    try testing.expectEqual(Result.unsupported, set(search, @fromBackingInt(@intCast(3)), null));
 }
 
 test "search select scroll option" {
@@ -705,7 +723,7 @@ test "search selection dropped when reset prunes results" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
     try testing.expectEqual(Result.success, run(search));
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
 
     // A selection survives unrelated writes...
     terminal_c.vt_write(terminal, "\r\nBang", 6);
@@ -805,7 +823,7 @@ test "search get_multi returns first failing index" {
     try testing.expectEqual(@as(usize, 1), total);
 
     // After selecting, the whole batch succeeds.
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
     try testing.expectEqual(Result.success, get_multi(
         search,
         keys.len,
@@ -878,7 +896,7 @@ test "search without a needle is idle" {
     var total: usize = 999;
     try testing.expectEqual(Result.success, get(search, .total_matches, &total));
     try testing.expectEqual(@as(usize, 0), total);
-    try testing.expectEqual(Result.no_value, set(search, .select_next, null));
+    try testing.expectEqual(Result.no_value, select_next(search));
 
     var buf: selection_c.CSelectionBuffer = .{};
     try testing.expectEqual(Result.success, get(search, .matches, &buf));
@@ -906,7 +924,7 @@ test "search needle change and clear" {
     const search: Search = try testNewSearch(terminal, "Fizz");
     defer free(search);
     try testing.expectEqual(Result.success, run(search));
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
 
     var total: usize = 0;
     try testing.expectEqual(Result.success, get(search, .total_matches, &total));
@@ -962,7 +980,7 @@ test "search free after terminal free" {
     // Run and select so the search holds tracked pins within the
     // terminal's page storage.
     try testing.expectEqual(Result.success, run(search));
-    try testing.expectEqual(Result.success, set(search, .select_next, null));
+    try testing.expectEqual(Result.success, select_next(search));
 
     // Free the terminal first. The search detaches: calls that need
     // the terminal fail cleanly instead of touching freed memory.
@@ -970,7 +988,7 @@ test "search free after terminal free" {
     try testing.expectEqual(Result.invalid_value, feed(search));
     try testing.expectEqual(Result.invalid_value, run(search));
     try testing.expectEqual(Result.invalid_value, tick(search, null));
-    try testing.expectEqual(Result.invalid_value, set(search, .select_next, null));
+    try testing.expectEqual(Result.invalid_value, select_next(search));
     const needle_value = testString("Buzz");
     try testing.expectEqual(Result.invalid_value, set(search, .needle, &needle_value));
 

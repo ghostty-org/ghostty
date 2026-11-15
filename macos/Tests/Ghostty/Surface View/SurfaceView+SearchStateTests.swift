@@ -10,26 +10,21 @@ import Testing
     /// A unique pasteboard for each test case prevents flakiness.
     let pasteboard = NSPasteboard.withUniqueName()
 
+    /// libghostty reports a search with no needle as an empty string.
+    var emptyStartSearch: StartSearch {
+        "".withCString { StartSearch(c: .init(needle: $0)) }
+    }
+
     init() {
         pasteboard.setString("pb", forType: .string)
     }
 
-    @Test func init_withNilNeedle_readsPasteboardNeedle() {
+    @Test func init_withEmptyNeedle_readsPasteboardNeedle() {
         let sut = SearchState(
-            from: StartSearch(c: .init(needle: nil)),
+            from: emptyStartSearch,
             pasteboard: pasteboard
         )
         #expect(sut.needle.text == "pb")
-    }
-
-    @Test func init_withEmptyNeedle_readsPasteboardNeedle() {
-        "".withCString { needle in
-            let sut = SearchState(
-                from: StartSearch(c: .init(needle: needle)),
-                pasteboard: pasteboard
-            )
-            #expect(sut.needle.text == "pb")
-        }
     }
 
     @Test func init_withNeedle_setsNeedle() {
@@ -54,7 +49,7 @@ import Testing
 
     @Test func writePasteboardNeedle_writesPasteboard() {
         let sut = SearchState(
-            from: StartSearch(c: .init(needle: nil)),
+            from: emptyStartSearch,
             pasteboard: pasteboard
         )
         sut.setNeedle("sut")
@@ -64,7 +59,7 @@ import Testing
 
     @Test func setNeedle_clearsNeedleSelection() {
         let sut = SearchState(
-            from: StartSearch(c: .init(needle: nil)),
+            from: emptyStartSearch,
             pasteboard: pasteboard
         )
         sut.needle.selection = sut.needle.text.startIndex..<sut.needle.text.endIndex
@@ -77,7 +72,7 @@ import Testing
 
     @Test func readPasteboardNeedle_whenPasteboardNeedleIsNil() {
         let sut = SearchState(
-            from: StartSearch(c: .init(needle: nil)),
+            from: emptyStartSearch,
             pasteboard: pasteboard
         )
         pasteboard.clearContents()
@@ -88,7 +83,7 @@ import Testing
 
     @Test func readPasteboardNeedle_whenPasteboardNeedleIsValid() {
         let sut = SearchState(
-            from: StartSearch(c: .init(needle: nil)),
+            from: emptyStartSearch,
             pasteboard: pasteboard
         )
         sut.setNeedle("sut")
@@ -98,7 +93,7 @@ import Testing
 
     @Test func readPasteboardNeedle_setsNeedleSelectionRange() {
         let sut = SearchState(
-            from: StartSearch(c: .init(needle: nil)),
+            from: emptyStartSearch,
             pasteboard: pasteboard
         )
         sut.setNeedle("sut")

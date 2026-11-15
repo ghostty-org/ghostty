@@ -1,7 +1,7 @@
 # Example: `ghostty-vt` C Mouse Encoding
 
-This example demonstrates how to use the `ghostty-vt` C library to encode mouse
-events into terminal escape sequences.
+Encode mouse events into terminal escape sequences with the `ghostty-vt` C
+library.
 
 This example specifically shows how to:
 

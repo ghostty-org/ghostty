@@ -22,8 +22,8 @@ else
     .{};
 
 comptime {
-    // Force-reference our memset override so its export is emitted.
-    // See quirks_memset.zig for details on why this exists.
+    // Force-reference our memset override so its export is emitted
+    // when its needed. See quirks_memset.zig for lots of details.
     _ = @import("quirks_memset.zig");
 }
 

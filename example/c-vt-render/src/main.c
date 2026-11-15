@@ -43,7 +43,7 @@ int main(void) {
 
   // Select "underlined" on the second row. Render state exposes this
   // later as a row-local selected cell range.
-  GhosttyGridRef selection_start = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef selection_start = {0};
   GhosttyPoint selection_start_pt = {
       .tag = GHOSTTY_POINT_TAG_ACTIVE,
       .value = { .coordinate = { .x = 0, .y = 1 } },
@@ -52,7 +52,7 @@ int main(void) {
       terminal, selection_start_pt, &selection_start);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttyGridRef selection_end = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef selection_end = {0};
   GhosttyPoint selection_end_pt = {
       .tag = GHOSTTY_POINT_TAG_ACTIVE,
       .value = { .coordinate = { .x = 9, .y = 1 } },
@@ -60,7 +60,7 @@ int main(void) {
   result = ghostty_terminal_grid_ref(terminal, selection_end_pt, &selection_end);
   assert(result == GHOSTTY_SUCCESS);
 
-  GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection selection = {0};
   selection.start = selection_start;
   selection.end = selection_end;
   result = ghostty_terminal_set(
@@ -118,16 +118,16 @@ int main(void) {
   if (cursor.visible && cursor.viewport_has_value) {
     const char* style_name = "unknown";
     switch (cursor.visual_style) {
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR:
+      case GHOSTTY_CURSOR_STYLE_BAR:
         style_name = "bar";
         break;
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK:
+      case GHOSTTY_CURSOR_STYLE_BLOCK:
         style_name = "block";
         break;
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE:
+      case GHOSTTY_CURSOR_STYLE_UNDERLINE:
         style_name = "underline";
         break;
-      case GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW:
+      case GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW:
         style_name = "hollow";
         break;
     }
@@ -187,7 +187,7 @@ int main(void) {
 
       // Read the style for this cell. Returns the default style for
       // cells that have no explicit styling.
-      GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
+      GhosttyStyle style;
       ghostty_render_state_row_cells_get(
           cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
 
@@ -197,18 +197,23 @@ int main(void) {
 
       // Emit ANSI true-color escape for the foreground.
       printf("\033[38;2;%u;%u;%um", fg.r, fg.g, fg.b);
-      if (style.bold) printf("\033[1m");
-      if (style.underline) printf("\033[4m");
+      if (style.flags & GHOSTTY_STYLE_FLAG_BOLD) printf("\033[1m");
+      if (GHOSTTY_STYLE_UNDERLINE(style)) printf("\033[4m");
 
-      // Read grapheme codepoints into a buffer and print them.
-      // The buffer must be at least grapheme_len elements.
+      // Read grapheme codepoints into a buffer and print them. If the
+      // cell has more than 16 codepoints, only the first 16 are written
+      // and graphemes.len holds the full count, so print what fits.
       uint32_t codepoints[16];
-      uint32_t len = grapheme_len < 16 ? grapheme_len : 16;
+      GhosttyCodepointBuffer graphemes = {
+          .ptr = codepoints,
+          .cap = sizeof(codepoints) / sizeof(codepoints[0]),
+      };
       ghostty_render_state_row_cells_get(
           cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-          codepoints);
+          &graphemes);
 
-      for (uint32_t i = 0; i < len; i++) {
+      size_t len = graphemes.len < graphemes.cap ? graphemes.len : graphemes.cap;
+      for (size_t i = 0; i < len; i++) {
         // Simple ASCII print; a real renderer would handle UTF-8.
         if (codepoints[i] < 128)
           putchar((char)codepoints[i]);

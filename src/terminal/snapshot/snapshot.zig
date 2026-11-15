@@ -1343,6 +1343,59 @@ test "complete snapshot restores a canonical Stream continuation" {
     );
 }
 
+test "complete snapshot restores semantic prompt state for an input cursor" {
+    const testing = std.testing;
+
+    var source_terminal = try Terminal.init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 10, .rows = 15 },
+    );
+    defer source_terminal.deinit(testing.allocator);
+    for (0..10) |_| {
+        try source_terminal.printString("x");
+        source_terminal.carriageReturn();
+        try source_terminal.linefeed();
+    }
+
+    // The shell started input (OSC 133;B) but no row is marked as a
+    // prompt yet, so only the cursor carries the semantic content.
+    try source_terminal.semanticPrompt(.init(.end_prompt_start_input));
+    try source_terminal.printString("echo hi");
+
+    var encoded: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer encoded.deinit();
+    try encode(
+        testing.allocator,
+        &encoded.writer,
+        &source_terminal,
+        test_encode_options,
+    );
+
+    var encoded_source: std.Io.Reader = .fixed(encoded.written());
+    var decoded = try decode(
+        testing.allocator,
+        testing.io,
+        &encoded_source,
+        test_decode_options,
+    );
+    defer decoded.deinit(testing.allocator);
+    var t = decoded.toOwned();
+    defer t.deinit(testing.allocator);
+    try testing.expect(t.screens.active.semantic_prompt.seen);
+
+    // The linefeed marks the next row as a prompt continuation, so a
+    // full erase must scroll before clearing.
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("more");
+    t.setCursorPos(1, 1);
+    t.eraseDisplay(.complete, false);
+    try testing.expect(
+        t.screens.active.pages.total_rows > t.screens.active.pages.rows,
+    );
+}
+
 test "complete snapshot validates continuation before writing" {
     const testing = std.testing;
     var t = try Terminal.init(
@@ -2526,4 +2579,54 @@ test "incremental decode failure leaves applied history usable" {
     try testing.expectEqual(@as(u21, 'A'), testTopLeftCodepoint(primary));
     primary.pages.assertIntegrity();
     primary.assertIntegrity();
+}
+
+test "complete snapshot restore keeps writing into its active page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(testing.io, alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback_bytes = null,
+        .max_scrollback_lines = null,
+    });
+    defer t.deinit(alloc);
+    for (0..40) |_| try t.printString("line\r\n");
+
+    // A fresh terminal has one page with room to spare.
+    const original = t.screens.get(.primary).?;
+    try testing.expectEqual(@as(usize, 1), original.pages.totalPages());
+    const original_last = original.pages.pages.last.?;
+    try testing.expect(original_last.rows() < original_last.capacity().rows);
+
+    // Restore and write several times. Each restore must keep the active
+    // page at its original row capacity, so new output stays in that page
+    // and memory use does not grow (#15192).
+    var current: *Terminal = &t;
+    var restored: [3]Terminal = undefined;
+    var restored_len: usize = 0;
+    defer for (restored[0..restored_len]) |*r| r.deinit(alloc);
+    for (0..restored.len) |_| {
+        var encoded: std.Io.Writer.Allocating = .init(alloc);
+        defer encoded.deinit();
+        try encode(alloc, &encoded.writer, current, test_encode_options);
+
+        var source: std.Io.Reader = .fixed(encoded.written());
+        var decoded = try decode(alloc, testing.io, &source, test_decode_options);
+        defer decoded.deinit(alloc);
+        restored[restored_len] = decoded.toOwned();
+        current = &restored[restored_len];
+        restored_len += 1;
+
+        const primary = current.screens.get(.primary).?;
+        const last = primary.pages.pages.last.?;
+        try testing.expectEqual(@as(usize, 1), primary.pages.totalPages());
+        try testing.expectEqual(original_last.capacity().rows, last.capacity().rows);
+        try testing.expectEqual(original.pages.page_size, primary.pages.page_size);
+
+        try current.printString("more\r\n");
+        try testing.expectEqual(@as(usize, 1), primary.pages.totalPages());
+        try testing.expectEqual(original.pages.page_size, primary.pages.page_size);
+    }
 }

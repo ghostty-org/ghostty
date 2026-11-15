@@ -132,8 +132,12 @@
 #   GHOSTTY_FREEBSD_VM_TIMEOUT   Seconds start waits for ssh. The default is
 #                                1200.
 #   GHOSTTY_FREEBSD_VM_TEST_TIMEOUT
-#                                Seconds each test binary may run before it
+#                                Seconds each test process may run before it
 #                                is stopped and fails. The default is 1800.
+#   GHOSTTY_FREEBSD_VM_TEST_SHARDS
+#                                Processes each test binary is split across,
+#                                each running a share of the tests. The
+#                                default is the VM's CPU count.
 #   GHOSTTY_FREEBSD_VM_QEMU      A QEMU installation directory, the one holding
 #                                bin/ and share/qemu/. The default is the QEMU
 #                                on PATH, or else the one from the repository's
@@ -467,6 +471,7 @@ run_tests() {
 	rsync -a --delete -e "$rsh" --include '/*-test' --exclude '*' \
 		"$tests/" ghostty@127.0.0.1:tests/
 	guest_ssh "GHOSTTY_FREEBSD_VM_TEST_TIMEOUT=$test_timeout" \
+		"GHOSTTY_FREEBSD_VM_TEST_SHARDS=${GHOSTTY_FREEBSD_VM_TEST_SHARDS:-}" \
 		"sh ghostty/.github/scripts/freebsd-vm/test-freebsd.sh \$HOME/tests \$HOME/ghostty"
 }
 

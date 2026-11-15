@@ -1,0 +1,5921 @@
+{
+  "schema": 1,
+  "abi": {
+    "target": "wasm32",
+    "os": "freestanding",
+    "environment": "none",
+    "pointer_size": 4,
+    "usize_size": 4,
+    "max_alignment": 16,
+    "endian": "little"
+  },
+  "types": {
+    "GhosttyAllocator": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "ctx": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        "vtable": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyAllocatorVtable",
+          "const": true
+        }
+      }
+    },
+    "GhosttyAllocatorVtable": {
+      "kind": "struct",
+      "size": 32,
+      "align": 4,
+      "fields": {
+        "alloc": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyAllocatorAllocFn",
+          "const": true
+        },
+        "resize": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyAllocatorResizeFn",
+          "const": true,
+          "nullable": true
+        },
+        "remap": {
+          "offset": 8,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyAllocatorRemapFn",
+          "const": true,
+          "nullable": true
+        },
+        "free": {
+          "offset": 12,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyAllocatorFreeFn",
+          "const": true
+        },
+        "reserved": {
+          "offset": 16,
+          "size": 16,
+          "type": "array",
+          "elem": {
+            "type": "pointer",
+            "elem": "opaque",
+            "const": false,
+            "nullable": true
+          },
+          "count": 4
+        }
+      }
+    },
+    "GhosttyBuffer": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u8",
+          "const": false,
+          "nullable": true
+        },
+        "cap": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "len": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyCellsView": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyCell",
+          "const": true,
+          "nullable": true
+        },
+        "len": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyClipboardContent": {
+      "kind": "struct",
+      "size": 16,
+      "align": 4,
+      "fields": {
+        "mime": {
+          "offset": 0,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "data": {
+          "offset": 8,
+          "size": 8,
+          "type": "GhosttyString"
+        }
+      }
+    },
+    "GhosttyClipboardRead": {
+      "kind": "struct",
+      "size": 36,
+      "align": 4,
+      "fields": {
+        "location": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyClipboardLocation"
+        },
+        "mimes": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyString",
+          "const": true,
+          "nullable": true
+        },
+        "mimes_len": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        },
+        "list": {
+          "offset": 12,
+          "size": 1,
+          "type": "bool"
+        },
+        "name": {
+          "offset": 16,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "granted": {
+          "offset": 24,
+          "size": 1,
+          "type": "bool"
+        },
+        "can_remember": {
+          "offset": 25,
+          "size": 1,
+          "type": "bool"
+        },
+        "ctx": {
+          "offset": 28,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": true
+        },
+        "reply": {
+          "offset": 32,
+          "size": 4,
+          "type": "pointer",
+          "elem": "function",
+          "const": true
+        }
+      }
+    },
+    "GhosttyClipboardReadReply": {
+      "kind": "struct",
+      "size": 28,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "result": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttyClipboardReadResult"
+        },
+        "contents": {
+          "offset": 8,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyClipboardContent",
+          "const": true,
+          "nullable": true
+        },
+        "contents_len": {
+          "offset": 12,
+          "size": 4,
+          "type": "u32"
+        },
+        "available": {
+          "offset": 16,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyString",
+          "const": true,
+          "nullable": true
+        },
+        "available_len": {
+          "offset": 20,
+          "size": 4,
+          "type": "u32"
+        },
+        "remember": {
+          "offset": 24,
+          "size": 1,
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyClipboardWrite": {
+      "kind": "struct",
+      "size": 32,
+      "align": 4,
+      "fields": {
+        "location": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyClipboardLocation"
+        },
+        "contents": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyClipboardContent",
+          "const": true,
+          "nullable": true
+        },
+        "contents_len": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        },
+        "name": {
+          "offset": 12,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "granted": {
+          "offset": 20,
+          "size": 1,
+          "type": "bool"
+        },
+        "can_remember": {
+          "offset": 21,
+          "size": 1,
+          "type": "bool"
+        },
+        "ctx": {
+          "offset": 24,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": true
+        },
+        "reply": {
+          "offset": 28,
+          "size": 4,
+          "type": "pointer",
+          "elem": "function",
+          "const": true
+        }
+      }
+    },
+    "GhosttyClipboardWriteReply": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "result": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttyClipboardWriteResult"
+        },
+        "remember": {
+          "offset": 8,
+          "size": 1,
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyCodepointBuffer": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u32",
+          "const": false,
+          "nullable": true
+        },
+        "cap": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "len": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyCodepoints": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u32",
+          "const": true,
+          "nullable": true
+        },
+        "len": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyColorPaletteMask": {
+      "kind": "struct",
+      "size": 32,
+      "align": 8,
+      "fields": {
+        "bits": {
+          "offset": 0,
+          "size": 32,
+          "type": "array",
+          "elem": "u64",
+          "count": 4
+        }
+      }
+    },
+    "GhosttyColorRgb": {
+      "kind": "struct",
+      "size": 3,
+      "align": 1,
+      "fields": {
+        "r": {
+          "offset": 0,
+          "size": 1,
+          "type": "u8"
+        },
+        "g": {
+          "offset": 1,
+          "size": 1,
+          "type": "u8"
+        },
+        "b": {
+          "offset": 2,
+          "size": 1,
+          "type": "u8"
+        }
+      }
+    },
+    "GhosttyColorX11Entry": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "name": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u8",
+          "const": true,
+          "nullable": true
+        },
+        "color": {
+          "offset": 4,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        }
+      }
+    },
+    "GhosttyDeviceAttributes": {
+      "kind": "struct",
+      "size": 148,
+      "align": 4,
+      "fields": {
+        "primary": {
+          "offset": 0,
+          "size": 136,
+          "type": "GhosttyDeviceAttributesPrimary"
+        },
+        "secondary": {
+          "offset": 136,
+          "size": 6,
+          "type": "GhosttyDeviceAttributesSecondary"
+        },
+        "tertiary": {
+          "offset": 144,
+          "size": 4,
+          "type": "GhosttyDeviceAttributesTertiary"
+        }
+      }
+    },
+    "GhosttyDeviceAttributesPrimary": {
+      "kind": "struct",
+      "size": 136,
+      "align": 4,
+      "fields": {
+        "conformance_level": {
+          "offset": 0,
+          "size": 2,
+          "type": "u16"
+        },
+        "features": {
+          "offset": 2,
+          "size": 128,
+          "type": "array",
+          "elem": "u16",
+          "count": 64
+        },
+        "num_features": {
+          "offset": 132,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyDeviceAttributesSecondary": {
+      "kind": "struct",
+      "size": 6,
+      "align": 2,
+      "fields": {
+        "device_type": {
+          "offset": 0,
+          "size": 2,
+          "type": "u16"
+        },
+        "firmware_version": {
+          "offset": 2,
+          "size": 2,
+          "type": "u16"
+        },
+        "rom_cartridge": {
+          "offset": 4,
+          "size": 2,
+          "type": "u16"
+        }
+      }
+    },
+    "GhosttyDeviceAttributesTertiary": {
+      "kind": "struct",
+      "size": 4,
+      "align": 4,
+      "fields": {
+        "unit_id": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyGridRef": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "node": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        "x": {
+          "offset": 4,
+          "size": 2,
+          "type": "u16"
+        },
+        "y": {
+          "offset": 6,
+          "size": 2,
+          "type": "u16"
+        }
+      }
+    },
+    "GhosttyKittyGraphicsPlacementRenderInfo": {
+      "kind": "struct",
+      "size": 48,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "pixel_width": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "pixel_height": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        },
+        "grid_cols": {
+          "offset": 12,
+          "size": 4,
+          "type": "u32"
+        },
+        "grid_rows": {
+          "offset": 16,
+          "size": 4,
+          "type": "u32"
+        },
+        "viewport_col": {
+          "offset": 20,
+          "size": 4,
+          "type": "i32"
+        },
+        "viewport_row": {
+          "offset": 24,
+          "size": 4,
+          "type": "i32"
+        },
+        "viewport_visible": {
+          "offset": 28,
+          "size": 1,
+          "type": "bool"
+        },
+        "source_x": {
+          "offset": 32,
+          "size": 4,
+          "type": "u32"
+        },
+        "source_y": {
+          "offset": 36,
+          "size": 4,
+          "type": "u32"
+        },
+        "source_width": {
+          "offset": 40,
+          "size": 4,
+          "type": "u32"
+        },
+        "source_height": {
+          "offset": 44,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyMimeReader": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "read": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "function",
+          "const": true,
+          "nullable": true
+        },
+        "userdata": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      }
+    },
+    "GhosttyMouseEncoderSize": {
+      "kind": "struct",
+      "size": 36,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "screen_width": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "screen_height": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        },
+        "cell_width": {
+          "offset": 12,
+          "size": 4,
+          "type": "u32"
+        },
+        "cell_height": {
+          "offset": 16,
+          "size": 4,
+          "type": "u32"
+        },
+        "padding_top": {
+          "offset": 20,
+          "size": 4,
+          "type": "u32"
+        },
+        "padding_bottom": {
+          "offset": 24,
+          "size": 4,
+          "type": "u32"
+        },
+        "padding_right": {
+          "offset": 28,
+          "size": 4,
+          "type": "u32"
+        },
+        "padding_left": {
+          "offset": 32,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyMousePosition": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "x": {
+          "offset": 0,
+          "size": 4,
+          "type": "f32"
+        },
+        "y": {
+          "offset": 4,
+          "size": 4,
+          "type": "f32"
+        }
+      }
+    },
+    "GhosttyPaste": {
+      "kind": "struct",
+      "size": 32,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "location": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttyClipboardLocation"
+        },
+        "source": {
+          "offset": 8,
+          "size": 4,
+          "type": "GhosttyPasteSource"
+        },
+        "mimes": {
+          "offset": 12,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttyString",
+          "const": true,
+          "nullable": true
+        },
+        "mimes_len": {
+          "offset": 16,
+          "size": 4,
+          "type": "u32"
+        },
+        "reader": {
+          "offset": 20,
+          "size": 8,
+          "type": "GhosttyMimeReader"
+        },
+        "allow_unsafe": {
+          "offset": 28,
+          "size": 1,
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyPoint": {
+      "kind": "struct",
+      "size": 24,
+      "align": 8,
+      "fields": {
+        "tag": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyPointTag"
+        },
+        "value": {
+          "offset": 8,
+          "size": 16,
+          "type": "GhosttyPointValue",
+          "tag": "tag",
+          "arms": {
+            "ACTIVE": "coordinate",
+            "VIEWPORT": "coordinate",
+            "SCREEN": "coordinate",
+            "HISTORY": "coordinate"
+          }
+        }
+      }
+    },
+    "GhosttyPointCoordinate": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "x": {
+          "offset": 0,
+          "size": 2,
+          "type": "u16"
+        },
+        "y": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyPointValue": {
+      "kind": "union",
+      "size": 16,
+      "align": 8,
+      "fields": {
+        "coordinate": {
+          "offset": 0,
+          "size": 8,
+          "type": "GhosttyPointCoordinate"
+        },
+        "_padding": {
+          "offset": 0,
+          "size": 16,
+          "type": "array",
+          "elem": "u64",
+          "count": 2
+        }
+      }
+    },
+    "GhosttyReader": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "read": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "function",
+          "const": true,
+          "nullable": true
+        },
+        "userdata": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      }
+    },
+    "GhosttyRenderStateColors": {
+      "kind": "struct",
+      "size": 784,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "background": {
+          "offset": 4,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        },
+        "foreground": {
+          "offset": 7,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        },
+        "cursor": {
+          "offset": 10,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        },
+        "cursor_has_value": {
+          "offset": 13,
+          "size": 1,
+          "type": "bool"
+        },
+        "palette": {
+          "offset": 14,
+          "size": 768,
+          "type": "array",
+          "elem": "GhosttyColorRgb",
+          "count": 256
+        }
+      }
+    },
+    "GhosttyRenderStateCursor": {
+      "kind": "struct",
+      "size": 20,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "viewport_has_value": {
+          "offset": 4,
+          "size": 1,
+          "type": "bool"
+        },
+        "viewport_x": {
+          "offset": 6,
+          "size": 2,
+          "type": "u16"
+        },
+        "viewport_y": {
+          "offset": 8,
+          "size": 2,
+          "type": "u16"
+        },
+        "wide_tail": {
+          "offset": 10,
+          "size": 1,
+          "type": "bool"
+        },
+        "visible": {
+          "offset": 11,
+          "size": 1,
+          "type": "bool"
+        },
+        "blinking": {
+          "offset": 12,
+          "size": 1,
+          "type": "bool"
+        },
+        "password_input": {
+          "offset": 13,
+          "size": 1,
+          "type": "bool"
+        },
+        "visual_style": {
+          "offset": 16,
+          "size": 4,
+          "type": "GhosttyCursorStyle"
+        }
+      }
+    },
+    "GhosttyRenderStateOverscan": {
+      "kind": "struct",
+      "size": 4,
+      "align": 2,
+      "fields": {
+        "above": {
+          "offset": 0,
+          "size": 2,
+          "type": "u16"
+        },
+        "below": {
+          "offset": 2,
+          "size": 2,
+          "type": "u16"
+        }
+      }
+    },
+    "GhosttyRenderStateRowId": {
+      "kind": "struct",
+      "size": 16,
+      "align": 8,
+      "fields": {
+        "bits": {
+          "offset": 0,
+          "size": 16,
+          "type": "array",
+          "elem": "u64",
+          "count": 2
+        }
+      }
+    },
+    "GhosttyRenderStateRowSelection": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "start_x": {
+          "offset": 4,
+          "size": 2,
+          "type": "u16"
+        },
+        "end_x": {
+          "offset": 6,
+          "size": 2,
+          "type": "u16"
+        }
+      }
+    },
+    "GhosttySelection": {
+      "kind": "struct",
+      "size": 20,
+      "align": 4,
+      "fields": {
+        "start": {
+          "offset": 0,
+          "size": 8,
+          "type": "GhosttyGridRef"
+        },
+        "end": {
+          "offset": 8,
+          "size": 8,
+          "type": "GhosttyGridRef"
+        },
+        "rectangle": {
+          "offset": 16,
+          "size": 1,
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttySelectionBuffer": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "GhosttySelection",
+          "const": false,
+          "nullable": true
+        },
+        "cap": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "len": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttySelectionGestureBehaviors": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "single_click": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttySelectionGestureBehavior"
+        },
+        "double_click": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttySelectionGestureBehavior"
+        },
+        "triple_click": {
+          "offset": 8,
+          "size": 4,
+          "type": "GhosttySelectionGestureBehavior"
+        }
+      }
+    },
+    "GhosttySelectionGestureGeometry": {
+      "kind": "struct",
+      "size": 16,
+      "align": 4,
+      "fields": {
+        "columns": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "cell_width": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "padding_left": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        },
+        "screen_height": {
+          "offset": 12,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttySgrAttribute": {
+      "kind": "struct",
+      "size": 72,
+      "align": 8,
+      "fields": {
+        "tag": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttySgrAttributeTag"
+        },
+        "value": {
+          "offset": 8,
+          "size": 64,
+          "type": "GhosttySgrAttributeValue",
+          "tag": "tag",
+          "arms": {
+            "UNSET": null,
+            "UNKNOWN": "unknown",
+            "BOLD": null,
+            "RESET_BOLD": null,
+            "ITALIC": null,
+            "RESET_ITALIC": null,
+            "FAINT": null,
+            "UNDERLINE": "underline",
+            "UNDERLINE_COLOR": "underline_color",
+            "UNDERLINE_COLOR_256": "underline_color_256",
+            "RESET_UNDERLINE_COLOR": null,
+            "OVERLINE": null,
+            "RESET_OVERLINE": null,
+            "BLINK": null,
+            "RESET_BLINK": null,
+            "INVERSE": null,
+            "RESET_INVERSE": null,
+            "INVISIBLE": null,
+            "RESET_INVISIBLE": null,
+            "STRIKETHROUGH": null,
+            "RESET_STRIKETHROUGH": null,
+            "DIRECT_COLOR_FG": "direct_color_fg",
+            "DIRECT_COLOR_BG": "direct_color_bg",
+            "BG_8": "bg_8",
+            "FG_8": "fg_8",
+            "RESET_FG": null,
+            "RESET_BG": null,
+            "BRIGHT_BG_8": "bright_bg_8",
+            "BRIGHT_FG_8": "bright_fg_8",
+            "BG_256": "bg_256",
+            "FG_256": "fg_256"
+          }
+        }
+      }
+    },
+    "GhosttySgrUnknown": {
+      "kind": "struct",
+      "size": 16,
+      "align": 4,
+      "fields": {
+        "full_ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u16",
+          "const": true
+        },
+        "full_len": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "partial_ptr": {
+          "offset": 8,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u16",
+          "const": true
+        },
+        "partial_len": {
+          "offset": 12,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttySgrAttributeValue": {
+      "kind": "union",
+      "size": 64,
+      "align": 8,
+      "fields": {
+        "unknown": {
+          "offset": 0,
+          "size": 16,
+          "type": "GhosttySgrUnknown"
+        },
+        "underline": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttySgrUnderline"
+        },
+        "underline_color": {
+          "offset": 0,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        },
+        "underline_color_256": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "direct_color_fg": {
+          "offset": 0,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        },
+        "direct_color_bg": {
+          "offset": 0,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        },
+        "bg_8": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "fg_8": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "bright_bg_8": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "bright_fg_8": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "bg_256": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "fg_256": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "_padding": {
+          "offset": 0,
+          "size": 64,
+          "type": "array",
+          "elem": "u64",
+          "count": 8
+        }
+      }
+    },
+    "GhosttySizeReportSize": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "rows": {
+          "offset": 0,
+          "size": 2,
+          "type": "u16"
+        },
+        "columns": {
+          "offset": 2,
+          "size": 2,
+          "type": "u16"
+        },
+        "cell_width": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "cell_height": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyString": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "ptr": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u8",
+          "const": true
+        },
+        "len": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttySurfacePosition": {
+      "kind": "struct",
+      "size": 16,
+      "align": 8,
+      "fields": {
+        "x": {
+          "offset": 0,
+          "size": 8,
+          "type": "f64"
+        },
+        "y": {
+          "offset": 8,
+          "size": 8,
+          "type": "f64"
+        }
+      }
+    },
+    "GhosttyStyle": {
+      "kind": "struct",
+      "size": 16,
+      "align": 2,
+      "fields": {
+        "fg_color": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyStyleColor"
+        },
+        "bg_color": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttyStyleColor"
+        },
+        "underline_color": {
+          "offset": 8,
+          "size": 4,
+          "type": "GhosttyStyleColor"
+        },
+        "flags": {
+          "offset": 12,
+          "size": 2,
+          "type": "GhosttyStyleFlags"
+        },
+        "reserved": {
+          "offset": 14,
+          "size": 2,
+          "type": "u16"
+        }
+      }
+    },
+    "GhosttyStyleColor": {
+      "kind": "struct",
+      "size": 4,
+      "align": 1,
+      "fields": {
+        "tag": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyStyleColorTag"
+        },
+        "value": {
+          "offset": 1,
+          "size": 3,
+          "type": "GhosttyStyleColorValue",
+          "tag": "tag",
+          "arms": {
+            "NONE": null,
+            "PALETTE": "palette",
+            "RGB": "rgb"
+          }
+        }
+      }
+    },
+    "GhosttyStyleColorValue": {
+      "kind": "union",
+      "size": 3,
+      "align": 1,
+      "fields": {
+        "palette": {
+          "offset": 0,
+          "size": 1,
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "rgb": {
+          "offset": 0,
+          "size": 3,
+          "type": "GhosttyColorRgb"
+        }
+      }
+    },
+    "GhosttySysImage": {
+      "kind": "struct",
+      "size": 16,
+      "align": 4,
+      "fields": {
+        "width": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "height": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "data": {
+          "offset": 8,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u8",
+          "const": false,
+          "nullable": true
+        },
+        "data_len": {
+          "offset": 12,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyTerminalDesktopNotification": {
+      "kind": "struct",
+      "size": 16,
+      "align": 4,
+      "fields": {
+        "title": {
+          "offset": 0,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "body": {
+          "offset": 8,
+          "size": 8,
+          "type": "GhosttyString"
+        }
+      }
+    },
+    "GhosttyTerminalMemoryUsage": {
+      "kind": "struct",
+      "size": 104,
+      "align": 8,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "compression_supported": {
+          "offset": 4,
+          "size": 1,
+          "type": "bool"
+        },
+        "primary_pages": {
+          "offset": 8,
+          "size": 8,
+          "type": "u64"
+        },
+        "primary_virtual_bytes": {
+          "offset": 16,
+          "size": 8,
+          "type": "u64"
+        },
+        "primary_resident_bytes": {
+          "offset": 24,
+          "size": 8,
+          "type": "u64"
+        },
+        "primary_compressed_pages": {
+          "offset": 32,
+          "size": 8,
+          "type": "u64"
+        },
+        "primary_compressed_bytes": {
+          "offset": 40,
+          "size": 8,
+          "type": "u64"
+        },
+        "primary_image_bytes": {
+          "offset": 48,
+          "size": 8,
+          "type": "u64"
+        },
+        "alternate_pages": {
+          "offset": 56,
+          "size": 8,
+          "type": "u64"
+        },
+        "alternate_virtual_bytes": {
+          "offset": 64,
+          "size": 8,
+          "type": "u64"
+        },
+        "alternate_resident_bytes": {
+          "offset": 72,
+          "size": 8,
+          "type": "u64"
+        },
+        "alternate_compressed_pages": {
+          "offset": 80,
+          "size": 8,
+          "type": "u64"
+        },
+        "alternate_compressed_bytes": {
+          "offset": 88,
+          "size": 8,
+          "type": "u64"
+        },
+        "alternate_image_bytes": {
+          "offset": 96,
+          "size": 8,
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttyTerminalModeConfig": {
+      "kind": "struct",
+      "size": 4,
+      "align": 2,
+      "fields": {
+        "mode": {
+          "offset": 0,
+          "size": 2,
+          "type": "GhosttyMode"
+        },
+        "value": {
+          "offset": 2,
+          "size": 1,
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyTerminalProgramStatus": {
+      "kind": "struct",
+      "size": 44,
+      "align": 4,
+      "fields": {
+        "state": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyProgramStatusState"
+        },
+        "kind": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttyProgramStatusKind"
+        },
+        "progress": {
+          "offset": 8,
+          "size": 1,
+          "type": "i8"
+        },
+        "id": {
+          "offset": 12,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "app": {
+          "offset": 20,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "title": {
+          "offset": 28,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "message": {
+          "offset": 36,
+          "size": 8,
+          "type": "GhosttyString"
+        }
+      }
+    },
+    "GhosttyTerminalProgressReport": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "state": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyTerminalProgressState"
+        },
+        "progress": {
+          "offset": 4,
+          "size": 1,
+          "type": "i8"
+        }
+      }
+    },
+    "GhosttyTerminalResizeWindow": {
+      "kind": "struct",
+      "size": 24,
+      "align": 8,
+      "fields": {
+        "tag": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyTerminalResizeWindowTag"
+        },
+        "value": {
+          "offset": 8,
+          "size": 16,
+          "type": "GhosttyTerminalResizeWindowValue",
+          "tag": "tag",
+          "arms": {
+            "GRID": "grid"
+          }
+        }
+      }
+    },
+    "GhosttyTerminalResizeWindowGrid": {
+      "kind": "struct",
+      "size": 4,
+      "align": 2,
+      "fields": {
+        "rows": {
+          "offset": 0,
+          "size": 2,
+          "type": "u16"
+        },
+        "columns": {
+          "offset": 2,
+          "size": 2,
+          "type": "u16"
+        }
+      }
+    },
+    "GhosttyTerminalResizeWindowValue": {
+      "kind": "union",
+      "size": 16,
+      "align": 8,
+      "fields": {
+        "grid": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyTerminalResizeWindowGrid"
+        },
+        "_padding": {
+          "offset": 0,
+          "size": 16,
+          "type": "array",
+          "elem": "u64",
+          "count": 2
+        }
+      }
+    },
+    "GhosttyTerminalScrollbar": {
+      "kind": "struct",
+      "size": 24,
+      "align": 8,
+      "fields": {
+        "total": {
+          "offset": 0,
+          "size": 8,
+          "type": "u64"
+        },
+        "offset": {
+          "offset": 8,
+          "size": 8,
+          "type": "u64"
+        },
+        "len": {
+          "offset": 16,
+          "size": 8,
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttyTerminalSemanticPrompt": {
+      "kind": "struct",
+      "size": 32,
+      "align": 4,
+      "fields": {
+        "kind": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttySemanticPromptKind"
+        },
+        "prompt_kind": {
+          "offset": 4,
+          "size": 4,
+          "type": "GhosttySemanticPromptPromptKind"
+        },
+        "has_exit_code": {
+          "offset": 8,
+          "size": 1,
+          "type": "bool"
+        },
+        "exit_code": {
+          "offset": 12,
+          "size": 4,
+          "type": "i32"
+        },
+        "command": {
+          "offset": 16,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "error": {
+          "offset": 24,
+          "size": 8,
+          "type": "GhosttyString"
+        }
+      }
+    },
+    "GhosttyTerminalScrollViewport": {
+      "kind": "struct",
+      "size": 24,
+      "align": 8,
+      "fields": {
+        "tag": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyTerminalScrollViewportTag"
+        },
+        "value": {
+          "offset": 8,
+          "size": 16,
+          "type": "GhosttyTerminalScrollViewportValue",
+          "tag": "tag",
+          "arms": {
+            "TOP": null,
+            "BOTTOM": null,
+            "DELTA": "delta",
+            "ROW": "row",
+            "DELTA_PROMPT": "delta_prompt"
+          }
+        }
+      }
+    },
+    "GhosttyTerminalScrollViewportValue": {
+      "kind": "union",
+      "size": 16,
+      "align": 8,
+      "fields": {
+        "delta": {
+          "offset": 0,
+          "size": 4,
+          "type": "i32"
+        },
+        "row": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "delta_prompt": {
+          "offset": 0,
+          "size": 4,
+          "type": "i32"
+        },
+        "_padding": {
+          "offset": 0,
+          "size": 16,
+          "type": "array",
+          "elem": "u64",
+          "count": 2
+        }
+      }
+    },
+    "GhosttyTerminalSelectLineOptions": {
+      "kind": "struct",
+      "size": 24,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "ref": {
+          "offset": 4,
+          "size": 8,
+          "type": "GhosttyGridRef"
+        },
+        "whitespace": {
+          "offset": 12,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u32",
+          "const": true,
+          "nullable": true
+        },
+        "whitespace_len": {
+          "offset": 16,
+          "size": 4,
+          "type": "u32"
+        },
+        "semantic_prompt_boundary": {
+          "offset": 20,
+          "size": 1,
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyTerminalSelectWordBetweenOptions": {
+      "kind": "struct",
+      "size": 28,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "start": {
+          "offset": 4,
+          "size": 8,
+          "type": "GhosttyGridRef"
+        },
+        "end": {
+          "offset": 12,
+          "size": 8,
+          "type": "GhosttyGridRef"
+        },
+        "boundary_codepoints": {
+          "offset": 20,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u32",
+          "const": true,
+          "nullable": true
+        },
+        "boundary_codepoints_len": {
+          "offset": 24,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyTerminalSelectWordOptions": {
+      "kind": "struct",
+      "size": 20,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "ref": {
+          "offset": 4,
+          "size": 8,
+          "type": "GhosttyGridRef"
+        },
+        "boundary_codepoints": {
+          "offset": 12,
+          "size": 4,
+          "type": "pointer",
+          "elem": "u32",
+          "const": true,
+          "nullable": true
+        },
+        "boundary_codepoints_len": {
+          "offset": 16,
+          "size": 4,
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyTerminalUnknownSequence": {
+      "kind": "struct",
+      "size": 136,
+      "align": 8,
+      "fields": {
+        "tag": {
+          "offset": 0,
+          "size": 4,
+          "type": "GhosttyTerminalUnknownSequenceTag"
+        },
+        "value": {
+          "offset": 8,
+          "size": 128,
+          "type": "GhosttyTerminalUnknownSequenceValue",
+          "tag": "tag",
+          "arms": {
+            "APC": "apc",
+            "OSC": "osc"
+          }
+        }
+      }
+    },
+    "GhosttyTerminalUnknownOscSequence": {
+      "kind": "struct",
+      "size": 16,
+      "align": 4,
+      "fields": {
+        "truncated": {
+          "offset": 0,
+          "size": 1,
+          "type": "bool"
+        },
+        "content": {
+          "offset": 4,
+          "size": 8,
+          "type": "GhosttyString"
+        },
+        "terminator": {
+          "offset": 12,
+          "size": 4,
+          "type": "GhosttyOscTerminator"
+        }
+      }
+    },
+    "GhosttyTerminalUnknownStringSequence": {
+      "kind": "struct",
+      "size": 12,
+      "align": 4,
+      "fields": {
+        "truncated": {
+          "offset": 0,
+          "size": 1,
+          "type": "bool"
+        },
+        "content": {
+          "offset": 4,
+          "size": 8,
+          "type": "GhosttyString"
+        }
+      }
+    },
+    "GhosttyTerminalWriteStop": {
+      "kind": "struct",
+      "size": 28,
+      "align": 4,
+      "fields": {
+        "size": {
+          "offset": 0,
+          "size": 4,
+          "type": "u32"
+        },
+        "consumed": {
+          "offset": 4,
+          "size": 4,
+          "type": "u32"
+        },
+        "reached": {
+          "offset": 8,
+          "size": 4,
+          "type": "u32"
+        },
+        "kind": {
+          "offset": 12,
+          "size": 4,
+          "type": "GhosttyTerminalStringKind"
+        },
+        "introducer": {
+          "offset": 16,
+          "size": 4,
+          "type": "GhosttyTerminalStringIntroducer"
+        },
+        "end": {
+          "offset": 20,
+          "size": 4,
+          "type": "GhosttyTerminalStringEnd"
+        },
+        "byte": {
+          "offset": 24,
+          "size": 1,
+          "type": "u8"
+        }
+      }
+    },
+    "GhosttyTerminalUnknownSequenceValue": {
+      "kind": "union",
+      "size": 128,
+      "align": 8,
+      "fields": {
+        "apc": {
+          "offset": 0,
+          "size": 12,
+          "type": "GhosttyTerminalUnknownStringSequence"
+        },
+        "osc": {
+          "offset": 0,
+          "size": 16,
+          "type": "GhosttyTerminalUnknownOscSequence"
+        },
+        "_padding": {
+          "offset": 0,
+          "size": 128,
+          "type": "array",
+          "elem": "u64",
+          "count": 16
+        }
+      }
+    },
+    "GhosttyWriter": {
+      "kind": "struct",
+      "size": 8,
+      "align": 4,
+      "fields": {
+        "write": {
+          "offset": 0,
+          "size": 4,
+          "type": "pointer",
+          "elem": "function",
+          "const": true,
+          "nullable": true
+        },
+        "userdata": {
+          "offset": 4,
+          "size": 4,
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      }
+    },
+    "GhosttyResult": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_",
+      "values": {
+        "SUCCESS": 0,
+        "OUT_OF_MEMORY": -1,
+        "INVALID_VALUE": -2,
+        "OUT_OF_SPACE": -3,
+        "NO_VALUE": -4,
+        "IO_ERROR": -5,
+        "LIMIT_EXCEEDED": -6,
+        "REJECTED": -7,
+        "UNSUPPORTED": -8,
+        "RESULT_MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyBuildInfo": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_BUILD_INFO_",
+      "values": {
+        "INVALID": 0,
+        "SIMD": 1,
+        "KITTY_GRAPHICS": 2,
+        "TMUX_CONTROL_MODE": 3,
+        "OPTIMIZE": 4,
+        "VERSION_STRING": 5,
+        "VERSION_MAJOR": 6,
+        "VERSION_MINOR": 7,
+        "VERSION_PATCH": 8,
+        "VERSION_PRE": 9,
+        "VERSION_BUILD": 10,
+        "FEATURE_SNAPSHOT": 11,
+        "FEATURE_FORMATTER": 12,
+        "FEATURE_SELECTION": 13,
+        "FEATURE_SEARCH": 14,
+        "FEATURE_RENDER_STATE": 15,
+        "FEATURE_INPUT_ENCODE": 16,
+        "FEATURE_COLOR": 17,
+        "FEATURE_GRID_INTROSPECTION": 18,
+        "FEATURE_GLYPH_PROTOCOL": 19,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "SIMD": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "KITTY_GRAPHICS": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "TMUX_CONTROL_MODE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "OPTIMIZE": {
+          "direction": "out",
+          "type": "GhosttyOptimizeMode"
+        },
+        "VERSION_STRING": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "VERSION_MAJOR": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "VERSION_MINOR": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "VERSION_PATCH": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "VERSION_PRE": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "VERSION_BUILD": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "FEATURE_SNAPSHOT": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_FORMATTER": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_SELECTION": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_SEARCH": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_RENDER_STATE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_INPUT_ENCODE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_COLOR": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_GRID_INTROSPECTION": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "FEATURE_GLYPH_PROTOCOL": {
+          "direction": "out",
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyOptimizeMode": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_OPTIMIZE_",
+      "values": {
+        "DEBUG": 0,
+        "RELEASE_SAFE": 1,
+        "RELEASE_SMALL": 2,
+        "RELEASE_FAST": 3,
+        "MODE_MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyCellContentTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CELL_CONTENT_",
+      "values": {
+        "CODEPOINT": 0,
+        "CODEPOINT_GRAPHEME": 1,
+        "BG_COLOR_PALETTE": 2,
+        "BG_COLOR_RGB": 3,
+        "TAG_MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyCellData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CELL_DATA_",
+      "values": {
+        "INVALID": 0,
+        "CODEPOINT": 1,
+        "CONTENT_TAG": 2,
+        "WIDE": 3,
+        "HAS_TEXT": 4,
+        "HAS_STYLING": 5,
+        "STYLE_ID": 6,
+        "HAS_HYPERLINK": 7,
+        "PROTECTED": 8,
+        "SEMANTIC_CONTENT": 9,
+        "COLOR_PALETTE": 10,
+        "COLOR_RGB": 11,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "CODEPOINT": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "CONTENT_TAG": {
+          "direction": "out",
+          "type": "GhosttyCellContentTag"
+        },
+        "WIDE": {
+          "direction": "out",
+          "type": "GhosttyCellWide"
+        },
+        "HAS_TEXT": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "HAS_STYLING": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "STYLE_ID": {
+          "direction": "out",
+          "type": "GhosttyStyleId"
+        },
+        "HAS_HYPERLINK": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "PROTECTED": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "SEMANTIC_CONTENT": {
+          "direction": "out",
+          "type": "GhosttyCellSemanticContent"
+        },
+        "COLOR_PALETTE": {
+          "direction": "out",
+          "type": "GhosttyColorPaletteIndex"
+        },
+        "COLOR_RGB": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        }
+      }
+    },
+    "GhosttyCellSemanticContent": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CELL_SEMANTIC_",
+      "values": {
+        "OUTPUT": 0,
+        "INPUT": 1,
+        "PROMPT": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyCellWide": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CELL_WIDE_",
+      "values": {
+        "NARROW": 0,
+        "WIDE": 1,
+        "SPACER_TAIL": 2,
+        "SPACER_HEAD": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyClipboardLocation": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CLIPBOARD_LOCATION_",
+      "values": {
+        "STANDARD": 0,
+        "SELECTION": 1,
+        "PRIMARY": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyClipboardReadResult": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CLIPBOARD_READ_RESULT_",
+      "values": {
+        "SUCCESS": 0,
+        "DENIED": 1,
+        "UNSUPPORTED": 2,
+        "BUSY": 3,
+        "IO_ERROR": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyClipboardWriteResult": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CLIPBOARD_WRITE_RESULT_",
+      "values": {
+        "SUCCESS": 0,
+        "DENIED": 1,
+        "UNSUPPORTED": 2,
+        "BUSY": 3,
+        "INVALID_DATA": 4,
+        "IO_ERROR": 5,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyCursorStyle": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_CURSOR_STYLE_",
+      "values": {
+        "BAR": 0,
+        "BLOCK": 1,
+        "UNDERLINE": 2,
+        "BLOCK_HOLLOW": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyColorScheme": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_COLOR_SCHEME_",
+      "values": {
+        "LIGHT": 0,
+        "DARK": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyFocusEvent": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_FOCUS_",
+      "values": {
+        "GAINED": 0,
+        "LOST": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyFormatterFormat": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_FORMATTER_FORMAT_",
+      "values": {
+        "PLAIN": 0,
+        "VT": 1,
+        "HTML": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyFormatterOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_FORMATTER_OPT_",
+      "values": {
+        "INVALID": 0,
+        "EMIT": 1,
+        "UNWRAP": 2,
+        "TRIM": 3,
+        "SELECTION": 4,
+        "EXTRAS": 5,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "EMIT": {
+          "direction": "in",
+          "type": "GhosttyFormatterFormat"
+        },
+        "UNWRAP": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "TRIM": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "SELECTION": {
+          "direction": "in",
+          "type": "GhosttySelection"
+        },
+        "EXTRAS": {
+          "direction": "in",
+          "type": "GhosttyFormatterExtras"
+        }
+      }
+    },
+    "GhosttyImageLayer": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_IMAGE_LAYER_",
+      "values": {
+        "BELOW_BACKGROUND": 0,
+        "BELOW_TEXT": 1,
+        "ABOVE_TEXT": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyImageProtocol": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_IMAGE_PROTOCOL_",
+      "values": {
+        "KITTY": 0,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyKey": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KEY_",
+      "values": {
+        "UNIDENTIFIED": 0,
+        "BACKQUOTE": 1,
+        "BACKSLASH": 2,
+        "BRACKET_LEFT": 3,
+        "BRACKET_RIGHT": 4,
+        "COMMA": 5,
+        "DIGIT_0": 6,
+        "DIGIT_1": 7,
+        "DIGIT_2": 8,
+        "DIGIT_3": 9,
+        "DIGIT_4": 10,
+        "DIGIT_5": 11,
+        "DIGIT_6": 12,
+        "DIGIT_7": 13,
+        "DIGIT_8": 14,
+        "DIGIT_9": 15,
+        "EQUAL": 16,
+        "INTL_BACKSLASH": 17,
+        "INTL_RO": 18,
+        "INTL_YEN": 19,
+        "A": 20,
+        "B": 21,
+        "C": 22,
+        "D": 23,
+        "E": 24,
+        "F": 25,
+        "G": 26,
+        "H": 27,
+        "I": 28,
+        "J": 29,
+        "K": 30,
+        "L": 31,
+        "M": 32,
+        "N": 33,
+        "O": 34,
+        "P": 35,
+        "Q": 36,
+        "R": 37,
+        "S": 38,
+        "T": 39,
+        "U": 40,
+        "V": 41,
+        "W": 42,
+        "X": 43,
+        "Y": 44,
+        "Z": 45,
+        "MINUS": 46,
+        "PERIOD": 47,
+        "QUOTE": 48,
+        "SEMICOLON": 49,
+        "SLASH": 50,
+        "ALT_LEFT": 51,
+        "ALT_RIGHT": 52,
+        "BACKSPACE": 53,
+        "CAPS_LOCK": 54,
+        "CONTEXT_MENU": 55,
+        "CONTROL_LEFT": 56,
+        "CONTROL_RIGHT": 57,
+        "ENTER": 58,
+        "META_LEFT": 59,
+        "META_RIGHT": 60,
+        "SHIFT_LEFT": 61,
+        "SHIFT_RIGHT": 62,
+        "SPACE": 63,
+        "TAB": 64,
+        "CONVERT": 65,
+        "KANA_MODE": 66,
+        "NON_CONVERT": 67,
+        "DELETE": 68,
+        "END": 69,
+        "HELP": 70,
+        "HOME": 71,
+        "INSERT": 72,
+        "PAGE_DOWN": 73,
+        "PAGE_UP": 74,
+        "ARROW_DOWN": 75,
+        "ARROW_LEFT": 76,
+        "ARROW_RIGHT": 77,
+        "ARROW_UP": 78,
+        "NUM_LOCK": 79,
+        "NUMPAD_0": 80,
+        "NUMPAD_1": 81,
+        "NUMPAD_2": 82,
+        "NUMPAD_3": 83,
+        "NUMPAD_4": 84,
+        "NUMPAD_5": 85,
+        "NUMPAD_6": 86,
+        "NUMPAD_7": 87,
+        "NUMPAD_8": 88,
+        "NUMPAD_9": 89,
+        "NUMPAD_ADD": 90,
+        "NUMPAD_BACKSPACE": 91,
+        "NUMPAD_CLEAR": 92,
+        "NUMPAD_CLEAR_ENTRY": 93,
+        "NUMPAD_COMMA": 94,
+        "NUMPAD_DECIMAL": 95,
+        "NUMPAD_DIVIDE": 96,
+        "NUMPAD_ENTER": 97,
+        "NUMPAD_EQUAL": 98,
+        "NUMPAD_MEMORY_ADD": 99,
+        "NUMPAD_MEMORY_CLEAR": 100,
+        "NUMPAD_MEMORY_RECALL": 101,
+        "NUMPAD_MEMORY_STORE": 102,
+        "NUMPAD_MEMORY_SUBTRACT": 103,
+        "NUMPAD_MULTIPLY": 104,
+        "NUMPAD_PAREN_LEFT": 105,
+        "NUMPAD_PAREN_RIGHT": 106,
+        "NUMPAD_SUBTRACT": 107,
+        "NUMPAD_SEPARATOR": 108,
+        "NUMPAD_UP": 109,
+        "NUMPAD_DOWN": 110,
+        "NUMPAD_RIGHT": 111,
+        "NUMPAD_LEFT": 112,
+        "NUMPAD_BEGIN": 113,
+        "NUMPAD_HOME": 114,
+        "NUMPAD_END": 115,
+        "NUMPAD_INSERT": 116,
+        "NUMPAD_DELETE": 117,
+        "NUMPAD_PAGE_UP": 118,
+        "NUMPAD_PAGE_DOWN": 119,
+        "ESCAPE": 120,
+        "F1": 121,
+        "F2": 122,
+        "F3": 123,
+        "F4": 124,
+        "F5": 125,
+        "F6": 126,
+        "F7": 127,
+        "F8": 128,
+        "F9": 129,
+        "F10": 130,
+        "F11": 131,
+        "F12": 132,
+        "F13": 133,
+        "F14": 134,
+        "F15": 135,
+        "F16": 136,
+        "F17": 137,
+        "F18": 138,
+        "F19": 139,
+        "F20": 140,
+        "F21": 141,
+        "F22": 142,
+        "F23": 143,
+        "F24": 144,
+        "F25": 145,
+        "FN": 146,
+        "FN_LOCK": 147,
+        "PRINT_SCREEN": 148,
+        "SCROLL_LOCK": 149,
+        "PAUSE": 150,
+        "BROWSER_BACK": 151,
+        "BROWSER_FAVORITES": 152,
+        "BROWSER_FORWARD": 153,
+        "BROWSER_HOME": 154,
+        "BROWSER_REFRESH": 155,
+        "BROWSER_SEARCH": 156,
+        "BROWSER_STOP": 157,
+        "EJECT": 158,
+        "LAUNCH_APP_1": 159,
+        "LAUNCH_APP_2": 160,
+        "LAUNCH_MAIL": 161,
+        "MEDIA_PLAY_PAUSE": 162,
+        "MEDIA_SELECT": 163,
+        "MEDIA_STOP": 164,
+        "MEDIA_TRACK_NEXT": 165,
+        "MEDIA_TRACK_PREVIOUS": 166,
+        "POWER": 167,
+        "SLEEP": 168,
+        "AUDIO_VOLUME_DOWN": 169,
+        "AUDIO_VOLUME_MUTE": 170,
+        "AUDIO_VOLUME_UP": 171,
+        "WAKE_UP": 172,
+        "COPY": 173,
+        "CUT": 174,
+        "PASTE": 175,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyKeyAction": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KEY_ACTION_",
+      "values": {
+        "RELEASE": 0,
+        "PRESS": 1,
+        "REPEAT": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyKeyEncoderOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KEY_ENCODER_OPT_",
+      "values": {
+        "INVALID": 0,
+        "CURSOR_KEY_APPLICATION": 1,
+        "KEYPAD_KEY_APPLICATION": 2,
+        "IGNORE_KEYPAD_WITH_NUMLOCK": 3,
+        "ALT_ESC_PREFIX": 4,
+        "MODIFY_OTHER_KEYS_STATE_2": 5,
+        "KITTY_FLAGS": 6,
+        "MACOS_OPTION_AS_ALT": 7,
+        "BACKARROW_KEY_MODE": 8,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "CURSOR_KEY_APPLICATION": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "KEYPAD_KEY_APPLICATION": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "IGNORE_KEYPAD_WITH_NUMLOCK": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "ALT_ESC_PREFIX": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "MODIFY_OTHER_KEYS_STATE_2": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "KITTY_FLAGS": {
+          "direction": "in",
+          "type": "GhosttyKittyKeyFlags"
+        },
+        "MACOS_OPTION_AS_ALT": {
+          "direction": "in",
+          "type": "GhosttyOptionAsAlt"
+        },
+        "BACKARROW_KEY_MODE": {
+          "direction": "in",
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyKittyGraphicsData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KITTY_GRAPHICS_DATA_",
+      "values": {
+        "INVALID": 0,
+        "PLACEMENT_ITERATOR": 1,
+        "GENERATION": 2,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "PLACEMENT_ITERATOR": {
+          "direction": "out",
+          "type": "GhosttyKittyGraphicsPlacementIterator"
+        },
+        "GENERATION": {
+          "direction": "out",
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttyKittyGraphicsImageData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_",
+      "values": {
+        "INVALID": 0,
+        "ID": 1,
+        "NUMBER": 2,
+        "WIDTH": 3,
+        "HEIGHT": 4,
+        "FORMAT": 5,
+        "COMPRESSION": 6,
+        "PIXELS": 7,
+        "EXPECTED_LEN": 8,
+        "GENERATION": 9,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "NUMBER": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "WIDTH": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "HEIGHT": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "FORMAT": {
+          "direction": "out",
+          "type": "GhosttyKittyImageFormat"
+        },
+        "COMPRESSION": {
+          "direction": "out",
+          "type": "GhosttyKittyImageCompression"
+        },
+        "PIXELS": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "EXPECTED_LEN": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "GENERATION": {
+          "direction": "out",
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttyKittyGraphicsPlacementData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_",
+      "values": {
+        "INVALID": 0,
+        "IMAGE_ID": 1,
+        "PLACEMENT_ID": 2,
+        "IS_VIRTUAL": 3,
+        "X_OFFSET": 4,
+        "Y_OFFSET": 5,
+        "SOURCE_X": 6,
+        "SOURCE_Y": 7,
+        "SOURCE_WIDTH": 8,
+        "SOURCE_HEIGHT": 9,
+        "COLUMNS": 10,
+        "ROWS": 11,
+        "Z": 12,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "IMAGE_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PLACEMENT_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "IS_VIRTUAL": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "X_OFFSET": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "Y_OFFSET": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_X": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_Y": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_WIDTH": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_HEIGHT": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "COLUMNS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "ROWS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "Z": {
+          "direction": "out",
+          "type": "i32"
+        }
+      }
+    },
+    "GhosttyKittyGraphicsPlacementIteratorOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_",
+      "values": {
+        "INVALID": 0,
+        "LAYER": 1,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "LAYER": {
+          "direction": "in",
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyKittyImageCompression": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KITTY_IMAGE_COMPRESSION_",
+      "values": {
+        "NONE": 0,
+        "ZLIB_DEFLATE": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyKittyImageFormat": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_KITTY_IMAGE_FORMAT_",
+      "values": {
+        "RGB": 0,
+        "RGBA": 1,
+        "PNG": 2,
+        "GRAY_ALPHA": 3,
+        "GRAY": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyModeReportState": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MODE_REPORT_",
+      "values": {
+        "NOT_RECOGNIZED": 0,
+        "SET": 1,
+        "RESET": 2,
+        "PERMANENTLY_SET": 3,
+        "PERMANENTLY_RESET": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyMouseAction": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MOUSE_ACTION_",
+      "values": {
+        "PRESS": 0,
+        "RELEASE": 1,
+        "MOTION": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyMouseButton": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MOUSE_BUTTON_",
+      "values": {
+        "UNKNOWN": 0,
+        "LEFT": 1,
+        "RIGHT": 2,
+        "MIDDLE": 3,
+        "FOUR": 4,
+        "FIVE": 5,
+        "SIX": 6,
+        "SEVEN": 7,
+        "EIGHT": 8,
+        "NINE": 9,
+        "TEN": 10,
+        "ELEVEN": 11,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyMouseEncoderOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MOUSE_ENCODER_OPT_",
+      "values": {
+        "INVALID": 0,
+        "EVENT": 1,
+        "FORMAT": 2,
+        "SIZE": 3,
+        "ANY_BUTTON_PRESSED": 4,
+        "TRACK_LAST_CELL": 5,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "EVENT": {
+          "direction": "in",
+          "type": "GhosttyMouseTrackingMode"
+        },
+        "FORMAT": {
+          "direction": "in",
+          "type": "GhosttyMouseFormat"
+        },
+        "SIZE": {
+          "direction": "in",
+          "type": "GhosttyMouseEncoderSize"
+        },
+        "ANY_BUTTON_PRESSED": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "TRACK_LAST_CELL": {
+          "direction": "in",
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyMouseFormat": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MOUSE_FORMAT_",
+      "values": {
+        "X10": 0,
+        "UTF8": 1,
+        "SGR": 2,
+        "URXVT": 3,
+        "SGR_PIXELS": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyMouseShape": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MOUSE_SHAPE_",
+      "values": {
+        "DEFAULT": 0,
+        "CONTEXT_MENU": 1,
+        "HELP": 2,
+        "POINTER": 3,
+        "PROGRESS": 4,
+        "WAIT": 5,
+        "CELL": 6,
+        "CROSSHAIR": 7,
+        "TEXT": 8,
+        "VERTICAL_TEXT": 9,
+        "ALIAS": 10,
+        "COPY": 11,
+        "MOVE": 12,
+        "NO_DROP": 13,
+        "NOT_ALLOWED": 14,
+        "GRAB": 15,
+        "GRABBING": 16,
+        "ALL_SCROLL": 17,
+        "COL_RESIZE": 18,
+        "ROW_RESIZE": 19,
+        "N_RESIZE": 20,
+        "E_RESIZE": 21,
+        "S_RESIZE": 22,
+        "W_RESIZE": 23,
+        "NE_RESIZE": 24,
+        "NW_RESIZE": 25,
+        "SE_RESIZE": 26,
+        "SW_RESIZE": 27,
+        "EW_RESIZE": 28,
+        "NS_RESIZE": 29,
+        "NESW_RESIZE": 30,
+        "NWSE_RESIZE": 31,
+        "ZOOM_IN": 32,
+        "ZOOM_OUT": 33,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyMouseTrackingMode": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_MOUSE_TRACKING_",
+      "values": {
+        "NONE": 0,
+        "X10": 1,
+        "NORMAL": 2,
+        "BUTTON": 3,
+        "ANY": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyOptionAsAlt": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_OPTION_AS_ALT_",
+      "values": {
+        "FALSE": 0,
+        "TRUE": 1,
+        "LEFT": 2,
+        "RIGHT": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyOscCommandData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_OSC_DATA_",
+      "values": {
+        "INVALID": 0,
+        "CHANGE_WINDOW_TITLE_STR": 1,
+        "UNKNOWN_CONTENT": 2,
+        "UNKNOWN_TRUNCATED": 3,
+        "UNKNOWN_TERMINATOR": 4,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "CHANGE_WINDOW_TITLE_STR": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "UNKNOWN_CONTENT": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "UNKNOWN_TRUNCATED": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "UNKNOWN_TERMINATOR": {
+          "direction": "out",
+          "type": "GhosttyOscTerminator"
+        }
+      }
+    },
+    "GhosttyOscOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_OSC_OPT_",
+      "values": {
+        "INVALID": 0,
+        "UNKNOWN_MAX_BYTES": 1,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "UNKNOWN_MAX_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        }
+      }
+    },
+    "GhosttyOscTerminator": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_OSC_TERMINATOR_",
+      "values": {
+        "ST": 0,
+        "BEL": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyOscCommandType": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_OSC_COMMAND_",
+      "values": {
+        "INVALID": 0,
+        "CHANGE_WINDOW_TITLE": 1,
+        "CHANGE_WINDOW_ICON": 2,
+        "SEMANTIC_PROMPT": 3,
+        "CLIPBOARD_CONTENTS": 4,
+        "REPORT_PWD": 5,
+        "MOUSE_SHAPE": 6,
+        "COLOR_OPERATION": 7,
+        "KITTY_COLOR_PROTOCOL": 8,
+        "SHOW_DESKTOP_NOTIFICATION": 9,
+        "HYPERLINK_START": 10,
+        "HYPERLINK_END": 11,
+        "CONEMU_SLEEP": 12,
+        "CONEMU_SHOW_MESSAGE_BOX": 13,
+        "CONEMU_CHANGE_TAB_TITLE": 14,
+        "CONEMU_PROGRESS_REPORT": 15,
+        "CONEMU_WAIT_INPUT": 16,
+        "CONEMU_GUIMACRO": 17,
+        "CONEMU_RUN_PROCESS": 18,
+        "CONEMU_OUTPUT_ENVIRONMENT_VARIABLE": 19,
+        "CONEMU_XTERM_EMULATION": 20,
+        "CONEMU_COMMENT": 21,
+        "KITTY_TEXT_SIZING": 22,
+        "KITTY_CLIPBOARD_PROTOCOL": 23,
+        "KITTY_DND_PROTOCOL": 24,
+        "HIERARCHICAL_CONTEXT": 25,
+        "KITTY_DESKTOP_NOTIFICATION": 26,
+        "UNKNOWN": 27,
+        "PROGRAM_STATUS": 28,
+        "TYPE_MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyPasteSource": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_PASTE_SOURCE_",
+      "values": {
+        "CLIPBOARD": 0,
+        "TEXT": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyPointTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_POINT_TAG_",
+      "values": {
+        "ACTIVE": 0,
+        "VIEWPORT": 1,
+        "SCREEN": 2,
+        "HISTORY": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyProgramStatusKind": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_PROGRAM_STATUS_KIND_",
+      "values": {
+        "NONE": 0,
+        "PERMISSION": 1,
+        "QUESTION": 2,
+        "AUTH": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyProgramStatusState": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_PROGRAM_STATUS_STATE_",
+      "values": {
+        "IDLE": 0,
+        "WORKING": 1,
+        "DONE": 2,
+        "BLOCKED": 3,
+        "ERROR": 4,
+        "CLEAR": 5,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyRenderStateData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_DATA_",
+      "values": {
+        "INVALID": 0,
+        "COLS": 1,
+        "ROWS": 2,
+        "DIRTY": 3,
+        "ROW_ITERATOR": 4,
+        "COLOR_BACKGROUND": 5,
+        "COLOR_FOREGROUND": 6,
+        "COLOR_CURSOR": 7,
+        "COLOR_CURSOR_HAS_VALUE": 8,
+        "COLOR_PALETTE": 9,
+        "CURSOR_VISUAL_STYLE": 10,
+        "CURSOR_VISIBLE": 11,
+        "CURSOR_BLINKING": 12,
+        "CURSOR_PASSWORD_INPUT": 13,
+        "CURSOR_VIEWPORT_HAS_VALUE": 14,
+        "CURSOR_VIEWPORT_X": 15,
+        "CURSOR_VIEWPORT_Y": 16,
+        "CURSOR_VIEWPORT_WIDE_TAIL": 17,
+        "CURSOR": 18,
+        "COLORS": 19,
+        "OVERSCAN": 20,
+        "OVERSCAN_REQUEST": 21,
+        "IMAGE_ITERATOR": 22,
+        "IMAGE_PLACEMENTS_GENERATION": 23,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "COLS": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "ROWS": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "DIRTY": {
+          "direction": "out",
+          "type": "GhosttyRenderStateDirty"
+        },
+        "ROW_ITERATOR": {
+          "direction": "out",
+          "type": "GhosttyRenderStateRowIterator"
+        },
+        "COLOR_BACKGROUND": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_FOREGROUND": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_CURSOR": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_CURSOR_HAS_VALUE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "COLOR_PALETTE": {
+          "direction": "out",
+          "type": "array",
+          "elem": "GhosttyColorRgb",
+          "count": 256
+        },
+        "CURSOR_VISUAL_STYLE": {
+          "direction": "out",
+          "type": "GhosttyCursorStyle"
+        },
+        "CURSOR_VISIBLE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CURSOR_BLINKING": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CURSOR_PASSWORD_INPUT": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CURSOR_VIEWPORT_HAS_VALUE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CURSOR_VIEWPORT_X": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "CURSOR_VIEWPORT_Y": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "CURSOR_VIEWPORT_WIDE_TAIL": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CURSOR": {
+          "direction": "out",
+          "type": "GhosttyRenderStateCursor"
+        },
+        "COLORS": {
+          "direction": "out",
+          "type": "GhosttyRenderStateColors"
+        },
+        "OVERSCAN": {
+          "direction": "out",
+          "type": "GhosttyRenderStateOverscan"
+        },
+        "OVERSCAN_REQUEST": {
+          "direction": "out",
+          "type": "GhosttyRenderStateOverscan"
+        },
+        "IMAGE_ITERATOR": {
+          "direction": "out",
+          "type": "GhosttyRenderStateImageIterator"
+        },
+        "IMAGE_PLACEMENTS_GENERATION": {
+          "direction": "out",
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttyRenderStateDirty": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_DIRTY_",
+      "values": {
+        "FALSE": 0,
+        "PARTIAL": 1,
+        "FULL": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyRenderStateImageData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_IMAGE_DATA_",
+      "values": {
+        "INVALID": 0,
+        "PROTOCOL": 1,
+        "IMAGE_ID": 2,
+        "IMAGE_GENERATION": 3,
+        "LAYER": 4,
+        "Z": 5,
+        "VIEWPORT_COL": 6,
+        "VIEWPORT_ROW": 7,
+        "GRID_COLS": 8,
+        "GRID_ROWS": 9,
+        "CELL_OFFSET_X": 10,
+        "CELL_OFFSET_Y": 11,
+        "PIXEL_WIDTH": 12,
+        "PIXEL_HEIGHT": 13,
+        "SOURCE_X": 14,
+        "SOURCE_Y": 15,
+        "SOURCE_WIDTH": 16,
+        "SOURCE_HEIGHT": 17,
+        "KITTY_PLACEMENT_ID": 18,
+        "KITTY_KIND": 19,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "PROTOCOL": {
+          "direction": "out",
+          "type": "GhosttyImageProtocol"
+        },
+        "IMAGE_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "IMAGE_GENERATION": {
+          "direction": "out",
+          "type": "u64"
+        },
+        "LAYER": {
+          "direction": "out",
+          "type": "GhosttyImageLayer"
+        },
+        "Z": {
+          "direction": "out",
+          "type": "i32"
+        },
+        "VIEWPORT_COL": {
+          "direction": "out",
+          "type": "i32"
+        },
+        "VIEWPORT_ROW": {
+          "direction": "out",
+          "type": "i32"
+        },
+        "GRID_COLS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "GRID_ROWS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "CELL_OFFSET_X": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "CELL_OFFSET_Y": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PIXEL_WIDTH": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PIXEL_HEIGHT": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_X": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_Y": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_WIDTH": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_HEIGHT": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "KITTY_PLACEMENT_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "KITTY_KIND": {
+          "direction": "out",
+          "type": "GhosttyRenderStateKittyPlacementKind"
+        }
+      }
+    },
+    "GhosttyRenderStateKittyPlacementKind": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_",
+      "values": {
+        "VIRTUAL": 0,
+        "RELATIVE": 1,
+        "FIXED": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyRenderStateOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_OPT_",
+      "values": {
+        "INVALID": 0,
+        "DIRTY": 1,
+        "OVERSCAN": 2,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "DIRTY": {
+          "direction": "in",
+          "type": "GhosttyRenderStateDirty"
+        },
+        "OVERSCAN": {
+          "direction": "in",
+          "type": "GhosttyRenderStateOverscan"
+        }
+      }
+    },
+    "GhosttyRenderStateRowCellsData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_",
+      "values": {
+        "INVALID": 0,
+        "RAW": 1,
+        "STYLE": 2,
+        "GRAPHEMES_LEN": 3,
+        "GRAPHEMES_BUF": 4,
+        "BG_COLOR": 5,
+        "FG_COLOR": 6,
+        "SELECTED": 7,
+        "HAS_STYLING": 8,
+        "GRAPHEMES_UTF8": 9,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "RAW": {
+          "direction": "out",
+          "type": "GhosttyCell"
+        },
+        "STYLE": {
+          "direction": "out",
+          "type": "GhosttyStyle"
+        },
+        "GRAPHEMES_LEN": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "GRAPHEMES_BUF": {
+          "direction": "out",
+          "type": "GhosttyCodepointBuffer"
+        },
+        "BG_COLOR": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "FG_COLOR": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "SELECTED": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "HAS_STYLING": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "GRAPHEMES_UTF8": {
+          "direction": "out",
+          "type": "GhosttyBuffer"
+        }
+      }
+    },
+    "GhosttyRenderStateRowData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_ROW_DATA_",
+      "values": {
+        "INVALID": 0,
+        "DIRTY": 1,
+        "RAW": 2,
+        "CELLS": 3,
+        "SELECTION": 4,
+        "CELLS_RAW": 5,
+        "VIEWPORT_Y": 6,
+        "ID": 7,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "DIRTY": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "RAW": {
+          "direction": "out",
+          "type": "GhosttyRow"
+        },
+        "CELLS": {
+          "direction": "out",
+          "type": "GhosttyRenderStateRowCells"
+        },
+        "SELECTION": {
+          "direction": "out",
+          "type": "GhosttyRenderStateRowSelection"
+        },
+        "CELLS_RAW": {
+          "direction": "out",
+          "type": "GhosttyCellsView"
+        },
+        "VIEWPORT_Y": {
+          "direction": "out",
+          "type": "i32"
+        },
+        "ID": {
+          "direction": "out",
+          "type": "GhosttyRenderStateRowId"
+        }
+      }
+    },
+    "GhosttyRenderStateRowOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_RENDER_STATE_ROW_OPT_",
+      "values": {
+        "INVALID": 0,
+        "DIRTY": 1,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "DIRTY": {
+          "direction": "in",
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyRowData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_ROW_DATA_",
+      "values": {
+        "INVALID": 0,
+        "WRAP": 1,
+        "WRAP_CONTINUATION": 2,
+        "GRAPHEME": 3,
+        "STYLED": 4,
+        "HYPERLINK": 5,
+        "SEMANTIC_PROMPT": 6,
+        "KITTY_VIRTUAL_PLACEHOLDER": 7,
+        "DIRTY": 8,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "WRAP": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "WRAP_CONTINUATION": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "GRAPHEME": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "STYLED": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "HYPERLINK": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "SEMANTIC_PROMPT": {
+          "direction": "out",
+          "type": "GhosttyRowSemanticPrompt"
+        },
+        "KITTY_VIRTUAL_PLACEHOLDER": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "DIRTY": {
+          "direction": "out",
+          "type": "bool"
+        }
+      }
+    },
+    "GhosttyRowSemanticPrompt": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_ROW_SEMANTIC_",
+      "values": {
+        "NONE": 0,
+        "PROMPT": 1,
+        "PROMPT_CONTINUATION": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySearchData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SEARCH_DATA_",
+      "values": {
+        "INVALID": 0,
+        "STATUS": 1,
+        "NEEDLE": 2,
+        "TOTAL_MATCHES": 3,
+        "SELECTED_INDEX": 4,
+        "SELECTED_MATCH": 5,
+        "MATCHES": 6,
+        "VIEWPORT_MATCHES": 7,
+        "SELECT_SCROLL": 8,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "STATUS": {
+          "direction": "out",
+          "type": "GhosttySearchStatus"
+        },
+        "NEEDLE": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "TOTAL_MATCHES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SELECTED_INDEX": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SELECTED_MATCH": {
+          "direction": "out",
+          "type": "GhosttySelection"
+        },
+        "MATCHES": {
+          "direction": "out",
+          "type": "GhosttySelectionBuffer"
+        },
+        "VIEWPORT_MATCHES": {
+          "direction": "out",
+          "type": "GhosttySelectionBuffer"
+        },
+        "SELECT_SCROLL": {
+          "direction": "out",
+          "type": "GhosttySearchScroll"
+        }
+      }
+    },
+    "GhosttySearchOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SEARCH_OPT_",
+      "values": {
+        "INVALID": 0,
+        "NEEDLE": 1,
+        "SELECT_SCROLL": 4,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "NEEDLE": {
+          "direction": "in",
+          "type": "GhosttyString"
+        },
+        "SELECT_SCROLL": {
+          "direction": "in",
+          "type": "GhosttySearchScroll"
+        }
+      }
+    },
+    "GhosttySearchScroll": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SEARCH_SCROLL_",
+      "values": {
+        "IF_NEEDED": 0,
+        "NONE": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySearchStatus": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SEARCH_STATUS_",
+      "values": {
+        "RUNNING": 0,
+        "FEED_REQUIRED": 1,
+        "COMPLETE": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySelectionAdjust": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_ADJUST_",
+      "values": {
+        "LEFT": 0,
+        "RIGHT": 1,
+        "UP": 2,
+        "DOWN": 3,
+        "HOME": 4,
+        "END": 5,
+        "PAGE_UP": 6,
+        "PAGE_DOWN": 7,
+        "BEGINNING_OF_LINE": 8,
+        "END_OF_LINE": 9,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySelectionGestureAutoscroll": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_",
+      "values": {
+        "NONE": 0,
+        "UP": 1,
+        "DOWN": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySelectionGestureBehavior": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_GESTURE_BEHAVIOR_",
+      "values": {
+        "CELL": 0,
+        "WORD": 1,
+        "LINE": 2,
+        "OUTPUT": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySelectionGestureData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_GESTURE_DATA_",
+      "values": {
+        "INVALID": 0,
+        "CLICK_COUNT": 1,
+        "DRAGGED": 2,
+        "AUTOSCROLL": 3,
+        "BEHAVIOR": 4,
+        "ANCHOR": 5,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "CLICK_COUNT": {
+          "direction": "out",
+          "type": "u8"
+        },
+        "DRAGGED": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "AUTOSCROLL": {
+          "direction": "out",
+          "type": "GhosttySelectionGestureAutoscroll"
+        },
+        "BEHAVIOR": {
+          "direction": "out",
+          "type": "GhosttySelectionGestureBehavior"
+        },
+        "ANCHOR": {
+          "direction": "out",
+          "type": "GhosttyGridRef"
+        }
+      }
+    },
+    "GhosttySelectionGestureEventOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_GESTURE_EVENT_OPT_",
+      "values": {
+        "INVALID": 0,
+        "REF": 1,
+        "POSITION": 2,
+        "REPEAT_DISTANCE": 3,
+        "TIME_NS": 4,
+        "REPEAT_INTERVAL_NS": 5,
+        "WORD_BOUNDARY_CODEPOINTS": 6,
+        "BEHAVIORS": 7,
+        "RECTANGLE": 8,
+        "GEOMETRY": 9,
+        "VIEWPORT": 10,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "REF": {
+          "direction": "in",
+          "type": "GhosttyGridRef"
+        },
+        "POSITION": {
+          "direction": "in",
+          "type": "GhosttySurfacePosition"
+        },
+        "REPEAT_DISTANCE": {
+          "direction": "in",
+          "type": "f64"
+        },
+        "TIME_NS": {
+          "direction": "in",
+          "type": "u64"
+        },
+        "REPEAT_INTERVAL_NS": {
+          "direction": "in",
+          "type": "u64"
+        },
+        "WORD_BOUNDARY_CODEPOINTS": {
+          "direction": "in",
+          "type": "GhosttyCodepoints"
+        },
+        "BEHAVIORS": {
+          "direction": "in",
+          "type": "GhosttySelectionGestureBehaviors"
+        },
+        "RECTANGLE": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "GEOMETRY": {
+          "direction": "in",
+          "type": "GhosttySelectionGestureGeometry"
+        },
+        "VIEWPORT": {
+          "direction": "in",
+          "type": "GhosttyPointCoordinate"
+        }
+      }
+    },
+    "GhosttySelectionGestureEventType": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_",
+      "values": {
+        "PRESS": 0,
+        "RELEASE": 1,
+        "DRAG": 2,
+        "AUTOSCROLL_TICK": 3,
+        "DEEP_PRESS": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySelectionOrder": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SELECTION_ORDER_",
+      "values": {
+        "FORWARD": 0,
+        "REVERSE": 1,
+        "MIRRORED_FORWARD": 2,
+        "MIRRORED_REVERSE": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySemanticPromptKind": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SEMANTIC_PROMPT_",
+      "values": {
+        "INVALID": 0,
+        "PROMPT_START": 1,
+        "INPUT_START": 2,
+        "OUTPUT_START": 3,
+        "COMMAND_END": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySemanticPromptPromptKind": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SEMANTIC_PROMPT_PROMPT_",
+      "values": {
+        "PRIMARY": 0,
+        "RIGHT": 1,
+        "CONTINUATION": 2,
+        "SECONDARY": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySgrAttributeTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SGR_ATTR_",
+      "values": {
+        "UNSET": 0,
+        "UNKNOWN": 1,
+        "BOLD": 2,
+        "RESET_BOLD": 3,
+        "ITALIC": 4,
+        "RESET_ITALIC": 5,
+        "FAINT": 6,
+        "UNDERLINE": 7,
+        "UNDERLINE_COLOR": 8,
+        "UNDERLINE_COLOR_256": 9,
+        "RESET_UNDERLINE_COLOR": 10,
+        "OVERLINE": 11,
+        "RESET_OVERLINE": 12,
+        "BLINK": 13,
+        "RESET_BLINK": 14,
+        "INVERSE": 15,
+        "RESET_INVERSE": 16,
+        "INVISIBLE": 17,
+        "RESET_INVISIBLE": 18,
+        "STRIKETHROUGH": 19,
+        "RESET_STRIKETHROUGH": 20,
+        "DIRECT_COLOR_FG": 21,
+        "DIRECT_COLOR_BG": 22,
+        "BG_8": 23,
+        "FG_8": 24,
+        "RESET_FG": 25,
+        "RESET_BG": 26,
+        "BRIGHT_BG_8": 27,
+        "BRIGHT_FG_8": 28,
+        "BG_256": 29,
+        "FG_256": 30,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySgrUnderline": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SGR_UNDERLINE_",
+      "values": {
+        "NONE": 0,
+        "SINGLE": 1,
+        "DOUBLE": 2,
+        "CURLY": 3,
+        "DOTTED": 4,
+        "DASHED": 5,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySizeReportStyle": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SIZE_REPORT_",
+      "values": {
+        "MODE_2048": 0,
+        "CSI_14_T": 1,
+        "CSI_16_T": 2,
+        "CSI_18_T": 3,
+        "CSI_19_T": 4,
+        "STYLE_MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySnapshotDecoderData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SNAPSHOT_DECODER_DATA_",
+      "values": {
+        "INVALID": 0,
+        "MAX_CONTINUATION_BYTES": 1,
+        "SOURCE_OFFSET": 2,
+        "HISTORY_ROWS_PRIMARY": 3,
+        "HISTORY_ROWS_ALTERNATE": 4,
+        "PROGRESS_SCREEN": 5,
+        "PROGRESS_ROWS": 6,
+        "PROGRESS_REMAINING": 7,
+        "RETAIN_CONTINUATION": 8,
+        "COMPRESS_HISTORY": 9,
+        "KITTY_IMAGE_STORAGE_LIMIT": 10,
+        "PROGRESS_KIND": 11,
+        "PROGRESS_IMAGE_ID": 12,
+        "PROGRESS_IMAGE_FRAME": 13,
+        "PROGRESS_IMAGE_BYTES": 14,
+        "KITTY_IMAGES_PRIMARY": 15,
+        "KITTY_IMAGES_ALTERNATE": 16,
+        "KITTY_PENDING_BYTES_PRIMARY": 17,
+        "KITTY_PENDING_BYTES_ALTERNATE": 18,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "MAX_CONTINUATION_BYTES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SOURCE_OFFSET": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "HISTORY_ROWS_PRIMARY": {
+          "direction": "out",
+          "type": "u64"
+        },
+        "HISTORY_ROWS_ALTERNATE": {
+          "direction": "out",
+          "type": "u64"
+        },
+        "PROGRESS_SCREEN": {
+          "direction": "out",
+          "type": "GhosttyTerminalScreen"
+        },
+        "PROGRESS_ROWS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PROGRESS_REMAINING": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "RETAIN_CONTINUATION": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "COMPRESS_HISTORY": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "KITTY_IMAGE_STORAGE_LIMIT": {
+          "direction": "out",
+          "type": "u64"
+        },
+        "PROGRESS_KIND": {
+          "direction": "out",
+          "type": "GhosttySnapshotDecoderProgressKind"
+        },
+        "PROGRESS_IMAGE_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PROGRESS_IMAGE_FRAME": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PROGRESS_IMAGE_BYTES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "KITTY_IMAGES_PRIMARY": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "KITTY_IMAGES_ALTERNATE": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "KITTY_PENDING_BYTES_PRIMARY": {
+          "direction": "out",
+          "type": "u64"
+        },
+        "KITTY_PENDING_BYTES_ALTERNATE": {
+          "direction": "out",
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttySnapshotDecoderOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SNAPSHOT_DECODER_OPT_",
+      "values": {
+        "INVALID": 0,
+        "MAX_CONTINUATION_BYTES": 1,
+        "RETAIN_CONTINUATION": 2,
+        "COMPRESS_HISTORY": 3,
+        "KITTY_IMAGE_STORAGE_LIMIT": 4,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "MAX_CONTINUATION_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "RETAIN_CONTINUATION": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "COMPRESS_HISTORY": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "KITTY_IMAGE_STORAGE_LIMIT": {
+          "direction": "in",
+          "type": "u64"
+        }
+      }
+    },
+    "GhosttySnapshotDecoderProgressKind": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_",
+      "values": {
+        "PAGE": 0,
+        "IMAGE": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyStyleColorTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_STYLE_COLOR_",
+      "values": {
+        "NONE": 0,
+        "PALETTE": 1,
+        "RGB": 2,
+        "TAG_MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySysLogLevel": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SYS_LOG_LEVEL_",
+      "values": {
+        "ERROR": 0,
+        "WARNING": 1,
+        "INFO": 2,
+        "DEBUG": 3,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttySysOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_SYS_OPT_",
+      "values": {
+        "INVALID": 0,
+        "USERDATA": 1,
+        "DECODE_PNG": 2,
+        "LOG": 3,
+        "RANDOM_SECURE": 4,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "USERDATA": {
+          "direction": "in",
+          "type": "opaque"
+        },
+        "DECODE_PNG": {
+          "direction": "in",
+          "type": "GhosttySysDecodePngFn"
+        },
+        "LOG": {
+          "direction": "in",
+          "type": "GhosttySysLogFn"
+        },
+        "RANDOM_SECURE": {
+          "direction": "in",
+          "type": "GhosttySysRandomSecureFn"
+        }
+      }
+    },
+    "GhosttyTerminalBoundary": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_BOUNDARY_",
+      "values": {
+        "GROUND": 1,
+        "APC_START": 2,
+        "APC_END": 4,
+        "DCS_START": 8,
+        "DCS_END": 16,
+        "OSC_START": 32,
+        "OSC_END": 64,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalCompressionMode": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_COMPRESSION_MODE_",
+      "values": {
+        "INCREMENTAL": 0,
+        "FULL": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalCompressionResult": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_COMPRESSION_RESULT_",
+      "values": {
+        "UNSUPPORTED": 0,
+        "PENDING": 1,
+        "COMPLETE": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalData": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_DATA_",
+      "values": {
+        "INVALID": 0,
+        "COLS": 1,
+        "ROWS": 2,
+        "CURSOR_X": 3,
+        "CURSOR_Y": 4,
+        "CURSOR_PENDING_WRAP": 5,
+        "ACTIVE_SCREEN": 6,
+        "CURSOR_VISIBLE": 7,
+        "KITTY_KEYBOARD_FLAGS": 8,
+        "SCROLLBAR": 9,
+        "CURSOR_SGR_STYLE": 10,
+        "MOUSE_TRACKING": 11,
+        "TITLE": 12,
+        "PWD": 13,
+        "TOTAL_ROWS": 14,
+        "SCROLLBACK_ROWS": 15,
+        "WIDTH_PX": 16,
+        "HEIGHT_PX": 17,
+        "COLOR_FOREGROUND": 18,
+        "COLOR_BACKGROUND": 19,
+        "COLOR_CURSOR": 20,
+        "COLOR_PALETTE": 21,
+        "COLOR_FOREGROUND_DEFAULT": 22,
+        "COLOR_BACKGROUND_DEFAULT": 23,
+        "COLOR_CURSOR_DEFAULT": 24,
+        "COLOR_PALETTE_DEFAULT": 25,
+        "KITTY_IMAGE_STORAGE_LIMIT": 26,
+        "KITTY_IMAGE_MEDIUM_FILE": 27,
+        "KITTY_IMAGE_MEDIUM_TEMP_FILE": 28,
+        "KITTY_IMAGE_MEDIUM_SHARED_MEM": 29,
+        "KITTY_GRAPHICS": 30,
+        "SELECTION": 31,
+        "VIEWPORT_ACTIVE": 32,
+        "VT_PROCESSING_ERROR": 33,
+        "SCROLLBACK_MAX_BYTES": 34,
+        "SCROLLBACK_MAX_LINES": 35,
+        "CONTINUATION_MAX_BYTES": 36,
+        "MODE": 37,
+        "VT_GROUND": 38,
+        "CURSOR_AT_PROMPT": 39,
+        "CLIPBOARD_WRITE_MAX_BYTES": 40,
+        "MOUSE_SHAPE": 41,
+        "MEMORY_USAGE": 42,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "COLS": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "ROWS": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "CURSOR_X": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "CURSOR_Y": {
+          "direction": "out",
+          "type": "u16"
+        },
+        "CURSOR_PENDING_WRAP": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "ACTIVE_SCREEN": {
+          "direction": "out",
+          "type": "GhosttyTerminalScreen"
+        },
+        "CURSOR_VISIBLE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "KITTY_KEYBOARD_FLAGS": {
+          "direction": "out",
+          "type": "GhosttyKittyKeyFlags"
+        },
+        "SCROLLBAR": {
+          "direction": "out",
+          "type": "GhosttyTerminalScrollbar"
+        },
+        "CURSOR_SGR_STYLE": {
+          "direction": "out",
+          "type": "GhosttyStyle"
+        },
+        "MOUSE_TRACKING": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "TITLE": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "PWD": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "TOTAL_ROWS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SCROLLBACK_ROWS": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "WIDTH_PX": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "HEIGHT_PX": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "COLOR_FOREGROUND": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_BACKGROUND": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_CURSOR": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_PALETTE": {
+          "direction": "out",
+          "type": "array",
+          "elem": "GhosttyColorRgb",
+          "count": 256
+        },
+        "COLOR_FOREGROUND_DEFAULT": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_BACKGROUND_DEFAULT": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_CURSOR_DEFAULT": {
+          "direction": "out",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_PALETTE_DEFAULT": {
+          "direction": "out",
+          "type": "array",
+          "elem": "GhosttyColorRgb",
+          "count": 256
+        },
+        "KITTY_IMAGE_STORAGE_LIMIT": {
+          "direction": "out",
+          "type": "u64"
+        },
+        "KITTY_IMAGE_MEDIUM_FILE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "KITTY_IMAGE_MEDIUM_TEMP_FILE": {
+          "direction": "out",
+          "type": "GhosttyString"
+        },
+        "KITTY_IMAGE_MEDIUM_SHARED_MEM": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "KITTY_GRAPHICS": {
+          "direction": "out",
+          "type": "GhosttyKittyGraphics"
+        },
+        "SELECTION": {
+          "direction": "out",
+          "type": "GhosttySelection"
+        },
+        "VIEWPORT_ACTIVE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "VT_PROCESSING_ERROR": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "SCROLLBACK_MAX_BYTES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "SCROLLBACK_MAX_LINES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "CONTINUATION_MAX_BYTES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "MODE": {
+          "direction": "out",
+          "type": "GhosttyTerminalModeConfig"
+        },
+        "VT_GROUND": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CURSOR_AT_PROMPT": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "CLIPBOARD_WRITE_MAX_BYTES": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "MOUSE_SHAPE": {
+          "direction": "out",
+          "type": "GhosttyMouseShape"
+        },
+        "MEMORY_USAGE": {
+          "direction": "out",
+          "type": "GhosttyTerminalMemoryUsage"
+        }
+      }
+    },
+    "GhosttyTerminalOption": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_OPT_",
+      "values": {
+        "INVALID": 0,
+        "USERDATA": 1,
+        "WRITE_PTY": 2,
+        "BELL": 3,
+        "ENQUIRY": 4,
+        "XTVERSION": 5,
+        "TITLE_CHANGED": 6,
+        "SIZE": 7,
+        "COLOR_SCHEME": 8,
+        "DEVICE_ATTRIBUTES": 9,
+        "TITLE": 10,
+        "PWD": 11,
+        "COLOR_FOREGROUND": 12,
+        "COLOR_BACKGROUND": 13,
+        "COLOR_CURSOR": 14,
+        "COLOR_PALETTE": 15,
+        "KITTY_IMAGE_STORAGE_LIMIT": 16,
+        "KITTY_IMAGE_MEDIUM_FILE": 17,
+        "KITTY_IMAGE_MEDIUM_TEMP_FILE": 18,
+        "KITTY_IMAGE_MEDIUM_SHARED_MEM": 19,
+        "APC_MAX_BYTES": 20,
+        "APC_MAX_BYTES_KITTY": 21,
+        "SELECTION": 22,
+        "DEFAULT_CURSOR_STYLE": 23,
+        "DEFAULT_CURSOR_BLINK": 24,
+        "GLYPH_PROTOCOL": 25,
+        "PWD_CHANGED": 26,
+        "CLIPBOARD_WRITE": 27,
+        "SCROLLBACK_MAX_BYTES": 28,
+        "SCROLLBACK_MAX_LINES": 29,
+        "DESKTOP_NOTIFICATION": 30,
+        "PROGRESS_REPORT": 31,
+        "CONTINUATION_MAX_BYTES": 32,
+        "TITLE_REPORT": 33,
+        "MODE_DEFAULT": 34,
+        "MODE": 35,
+        "UNKNOWN_SEQUENCE": 36,
+        "UNKNOWN_MAX_BYTES": 37,
+        "TERMINFO_NAME": 38,
+        "CLIPBOARD_READ": 39,
+        "CLIPBOARD_WRITE_MAX_BYTES": 40,
+        "RESIZE_PULL_SCROLLBACK": 41,
+        "RENDER_HOLD": 42,
+        "SEMANTIC_PROMPT": 43,
+        "RESET": 44,
+        "XT_CHECKSUM_REPORT": 45,
+        "XT_CHECKSUM_EXTENSION": 46,
+        "PROGRAM_STATUS": 47,
+        "RESIZE_WINDOW": 48,
+        "MAX_VALUE": 2147483647
+      },
+      "keys": {
+        "USERDATA": {
+          "direction": "in",
+          "type": "opaque"
+        },
+        "WRITE_PTY": {
+          "direction": "in",
+          "type": "GhosttyTerminalWritePtyFn"
+        },
+        "BELL": {
+          "direction": "in",
+          "type": "GhosttyTerminalBellFn"
+        },
+        "ENQUIRY": {
+          "direction": "in",
+          "type": "GhosttyTerminalEnquiryFn"
+        },
+        "XTVERSION": {
+          "direction": "in",
+          "type": "GhosttyTerminalXtversionFn"
+        },
+        "TITLE_CHANGED": {
+          "direction": "in",
+          "type": "GhosttyTerminalTitleChangedFn"
+        },
+        "SIZE": {
+          "direction": "in",
+          "type": "GhosttyTerminalSizeFn"
+        },
+        "COLOR_SCHEME": {
+          "direction": "in",
+          "type": "GhosttyTerminalColorSchemeFn"
+        },
+        "DEVICE_ATTRIBUTES": {
+          "direction": "in",
+          "type": "GhosttyTerminalDeviceAttributesFn"
+        },
+        "TITLE": {
+          "direction": "in",
+          "type": "GhosttyString"
+        },
+        "PWD": {
+          "direction": "in",
+          "type": "GhosttyString"
+        },
+        "COLOR_FOREGROUND": {
+          "direction": "in",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_BACKGROUND": {
+          "direction": "in",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_CURSOR": {
+          "direction": "in",
+          "type": "GhosttyColorRgb"
+        },
+        "COLOR_PALETTE": {
+          "direction": "in",
+          "type": "array",
+          "elem": "GhosttyColorRgb",
+          "count": 256
+        },
+        "KITTY_IMAGE_STORAGE_LIMIT": {
+          "direction": "in",
+          "type": "u64"
+        },
+        "KITTY_IMAGE_MEDIUM_FILE": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "KITTY_IMAGE_MEDIUM_TEMP_FILE": {
+          "direction": "in",
+          "type": "GhosttyString"
+        },
+        "KITTY_IMAGE_MEDIUM_SHARED_MEM": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "APC_MAX_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "APC_MAX_BYTES_KITTY": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "SELECTION": {
+          "direction": "in",
+          "type": "GhosttySelection"
+        },
+        "DEFAULT_CURSOR_STYLE": {
+          "direction": "in",
+          "type": "GhosttyCursorStyle"
+        },
+        "DEFAULT_CURSOR_BLINK": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "GLYPH_PROTOCOL": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "PWD_CHANGED": {
+          "direction": "in",
+          "type": "GhosttyTerminalPwdChangedFn"
+        },
+        "CLIPBOARD_WRITE": {
+          "direction": "in",
+          "type": "GhosttyTerminalClipboardWriteFn"
+        },
+        "SCROLLBACK_MAX_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "SCROLLBACK_MAX_LINES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "DESKTOP_NOTIFICATION": {
+          "direction": "in",
+          "type": "GhosttyTerminalDesktopNotificationFn"
+        },
+        "PROGRESS_REPORT": {
+          "direction": "in",
+          "type": "GhosttyTerminalProgressReportFn"
+        },
+        "CONTINUATION_MAX_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "TITLE_REPORT": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "MODE_DEFAULT": {
+          "direction": "in",
+          "type": "GhosttyTerminalModeConfig"
+        },
+        "MODE": {
+          "direction": "in",
+          "type": "GhosttyTerminalModeConfig"
+        },
+        "UNKNOWN_SEQUENCE": {
+          "direction": "in",
+          "type": "GhosttyTerminalUnknownSequenceFn"
+        },
+        "UNKNOWN_MAX_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "TERMINFO_NAME": {
+          "direction": "in",
+          "type": "GhosttyString"
+        },
+        "CLIPBOARD_READ": {
+          "direction": "in",
+          "type": "GhosttyTerminalClipboardReadFn"
+        },
+        "CLIPBOARD_WRITE_MAX_BYTES": {
+          "direction": "in",
+          "type": "u32"
+        },
+        "RESIZE_PULL_SCROLLBACK": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "RENDER_HOLD": {
+          "direction": "in",
+          "type": "GhosttyTerminalRenderHoldFn"
+        },
+        "SEMANTIC_PROMPT": {
+          "direction": "in",
+          "type": "GhosttyTerminalSemanticPromptFn"
+        },
+        "RESET": {
+          "direction": "in",
+          "type": "GhosttyTerminalResetFn"
+        },
+        "XT_CHECKSUM_REPORT": {
+          "direction": "in",
+          "type": "bool"
+        },
+        "XT_CHECKSUM_EXTENSION": {
+          "direction": "in",
+          "type": "u8"
+        },
+        "PROGRAM_STATUS": {
+          "direction": "in",
+          "type": "GhosttyTerminalProgramStatusFn"
+        },
+        "RESIZE_WINDOW": {
+          "direction": "in",
+          "type": "GhosttyTerminalResizeWindowFn"
+        }
+      }
+    },
+    "GhosttyTerminalProgressState": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_PROGRESS_STATE_",
+      "values": {
+        "REMOVE": 0,
+        "SET": 1,
+        "ERROR": 2,
+        "INDETERMINATE": 3,
+        "PAUSE": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalScreen": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_SCREEN_",
+      "values": {
+        "PRIMARY": 0,
+        "ALTERNATE": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalResizeWindowTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_RESIZE_WINDOW_",
+      "values": {
+        "GRID": 0,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalScrollViewportTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_SCROLL_VIEWPORT_",
+      "values": {
+        "TOP": 0,
+        "BOTTOM": 1,
+        "DELTA": 2,
+        "ROW": 3,
+        "DELTA_PROMPT": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalStringEnd": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_STRING_END_",
+      "values": {
+        "ST_ESC": 0,
+        "ST_C1": 1,
+        "CANCELLED": 2,
+        "ABORTED": 3,
+        "BEL": 4,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalStringIntroducer": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_STRING_INTRODUCER_",
+      "values": {
+        "ESC": 0,
+        "C1": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalStringKind": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_STRING_KIND_",
+      "values": {
+        "APC": 0,
+        "DCS": 1,
+        "OSC": 2,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyTerminalUnknownSequenceTag": {
+      "kind": "enum",
+      "size": 4,
+      "align": 4,
+      "underlying": "i32",
+      "prefix": "GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_",
+      "values": {
+        "APC": 0,
+        "OSC": 1,
+        "MAX_VALUE": 2147483647
+      }
+    },
+    "GhosttyCell": {
+      "kind": "packed",
+      "size": 8,
+      "align": 8,
+      "underlying": "u64",
+      "bits": {
+        "content_tag": {
+          "lsb": 0,
+          "width": 2,
+          "type": "GhosttyCellContentTag"
+        },
+        "content": {
+          "lsb": 2,
+          "width": 24,
+          "kind": "union",
+          "tag": "content_tag",
+          "arms": {
+            "CODEPOINT": {
+              "kind": "packed",
+              "width": 24,
+              "bits": {
+                "codepoint": {
+                  "lsb": 0,
+                  "width": 21,
+                  "type": "u21"
+                }
+              }
+            },
+            "CODEPOINT_GRAPHEME": {
+              "kind": "packed",
+              "width": 24,
+              "bits": {
+                "codepoint": {
+                  "lsb": 0,
+                  "width": 21,
+                  "type": "u21"
+                }
+              }
+            },
+            "BG_COLOR_PALETTE": {
+              "kind": "packed",
+              "width": 24,
+              "bits": {
+                "index": {
+                  "lsb": 0,
+                  "width": 8,
+                  "type": "GhosttyColorPaletteIndex"
+                }
+              }
+            },
+            "BG_COLOR_RGB": {
+              "kind": "packed",
+              "width": 24,
+              "bits": {
+                "r": {
+                  "lsb": 0,
+                  "width": 8,
+                  "type": "u8"
+                },
+                "g": {
+                  "lsb": 8,
+                  "width": 8,
+                  "type": "u8"
+                },
+                "b": {
+                  "lsb": 16,
+                  "width": 8,
+                  "type": "u8"
+                }
+              }
+            }
+          }
+        },
+        "style_id": {
+          "lsb": 26,
+          "width": 16,
+          "type": "GhosttyStyleId"
+        },
+        "wide": {
+          "lsb": 42,
+          "width": 2,
+          "type": "GhosttyCellWide"
+        },
+        "protected": {
+          "lsb": 44,
+          "width": 1,
+          "type": "bool"
+        },
+        "hyperlink": {
+          "lsb": 45,
+          "width": 1,
+          "type": "bool"
+        },
+        "semantic_content": {
+          "lsb": 46,
+          "width": 2,
+          "type": "GhosttyCellSemanticContent"
+        }
+      }
+    },
+    "GhosttyStyleFlags": {
+      "kind": "packed",
+      "size": 2,
+      "align": 2,
+      "underlying": "u16",
+      "bits": {
+        "bold": {
+          "lsb": 0,
+          "width": 1,
+          "type": "bool"
+        },
+        "italic": {
+          "lsb": 1,
+          "width": 1,
+          "type": "bool"
+        },
+        "faint": {
+          "lsb": 2,
+          "width": 1,
+          "type": "bool"
+        },
+        "blink": {
+          "lsb": 3,
+          "width": 1,
+          "type": "bool"
+        },
+        "inverse": {
+          "lsb": 4,
+          "width": 1,
+          "type": "bool"
+        },
+        "invisible": {
+          "lsb": 5,
+          "width": 1,
+          "type": "bool"
+        },
+        "strikethrough": {
+          "lsb": 6,
+          "width": 1,
+          "type": "bool"
+        },
+        "overline": {
+          "lsb": 7,
+          "width": 1,
+          "type": "bool"
+        },
+        "underline": {
+          "lsb": 8,
+          "width": 3,
+          "type": "GhosttySgrUnderline"
+        }
+      }
+    },
+    "GhosttyColorPaletteIndex": {
+      "kind": "alias",
+      "size": 1,
+      "align": 1,
+      "type": "u8"
+    },
+    "GhosttyFormatterExtras": {
+      "kind": "alias",
+      "size": 4,
+      "align": 4,
+      "type": "u32"
+    },
+    "GhosttyKittyKeyFlags": {
+      "kind": "alias",
+      "size": 1,
+      "align": 1,
+      "type": "u8"
+    },
+    "GhosttyMode": {
+      "kind": "alias",
+      "size": 2,
+      "align": 2,
+      "type": "u16"
+    },
+    "GhosttyMods": {
+      "kind": "alias",
+      "size": 2,
+      "align": 2,
+      "type": "u16"
+    },
+    "GhosttyRow": {
+      "kind": "alias",
+      "size": 8,
+      "align": 8,
+      "type": "u64"
+    },
+    "GhosttyStyleId": {
+      "kind": "alias",
+      "size": 2,
+      "align": 2,
+      "type": "u16"
+    },
+    "GhosttyFormatter": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyKeyEncoder": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyKeyEvent": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyKittyGraphics": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyKittyGraphicsImage": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyKittyGraphicsPlacementIterator": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyMouseEncoder": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyMouseEvent": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyOscCommand": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyOscParser": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyRenderState": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyRenderStateImageIterator": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyRenderStateRowCells": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyRenderStateRowIterator": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttySearch": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttySelectionGesture": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttySelectionGestureEvent": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttySgrParser": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttySnapshotDecoder": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyTerminal": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyTrackedGridRef": {
+      "kind": "opaque",
+      "size": 4,
+      "align": 4
+    },
+    "GhosttyAllocatorAllocFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "pointer",
+        "elem": "opaque",
+        "const": false,
+        "nullable": true
+      }
+    },
+    "GhosttyAllocatorFreeFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyAllocatorRemapFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "pointer",
+        "elem": "opaque",
+        "const": false,
+        "nullable": true
+      }
+    },
+    "GhosttyAllocatorResizeFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "u8"
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttyClipboardReadReplyFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "GhosttyClipboardRead",
+          "const": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyClipboardReadReply",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyClipboardWriteReplyFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "GhosttyClipboardWrite",
+          "const": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyClipboardWriteReply",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyMimeReaderFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "GhosttyString"
+        },
+        {
+          "type": "GhosttyWriter"
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttyReaderFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": false
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "pointer",
+          "elem": "u32",
+          "const": false
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttySysDecodePngFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyAllocator",
+          "const": true
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": true
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttySysImage",
+          "const": false
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttySysLogFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "GhosttySysLogLevel"
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": true
+        },
+        {
+          "type": "u32"
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": true
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttySysRandomSecureFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": false
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttyTerminalBellFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalClipboardReadFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyClipboardRead",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalClipboardWriteFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyClipboardWrite",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalColorSchemeFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyColorScheme",
+          "const": false
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttyTerminalDesktopNotificationFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyTerminalDesktopNotification",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalDeviceAttributesFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyDeviceAttributes",
+          "const": false
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttyTerminalEnquiryFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      ],
+      "return": {
+        "type": "GhosttyString"
+      }
+    },
+    "GhosttyTerminalProgramStatusFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyTerminalProgramStatus",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalProgressReportFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyTerminalProgressReport",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalPwdChangedFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalRenderHoldFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "bool"
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalResetFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalResizeWindowFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyTerminalResizeWindow",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalSemanticPromptFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyTerminalSemanticPrompt",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalSizeFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttySizeReportSize",
+          "const": false
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    },
+    "GhosttyTerminalTitleChangedFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalUnknownSequenceFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "GhosttyTerminalUnknownSequence",
+          "const": true
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalWritePtyFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": true
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "void"
+      }
+    },
+    "GhosttyTerminalXtversionFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "GhosttyTerminal"
+        },
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        }
+      ],
+      "return": {
+        "type": "GhosttyString"
+      }
+    },
+    "GhosttyWriterFn": {
+      "kind": "callback",
+      "size": 4,
+      "align": 4,
+      "params": [
+        {
+          "type": "pointer",
+          "elem": "opaque",
+          "const": false,
+          "nullable": true
+        },
+        {
+          "type": "pointer",
+          "elem": "u8",
+          "const": true
+        },
+        {
+          "type": "u32"
+        }
+      ],
+      "return": {
+        "type": "bool"
+      }
+    }
+  }
+}

@@ -22,7 +22,7 @@
 #   --fuzzer    Restrict to a single fuzzer target (e.g. "stream").
 
 def main [
-    afl_out: string = "afl-out"  # Path to the AFL++ output directory
+    afl_out: string = "afl-out"   # Path to the AFL++ output directory
     --list (-l)                   # List crash files without replaying
     --json (-j)                   # Output as JSON (implies --list)
     --fuzzer (-f): string         # Only process this fuzzer (e.g. "stream" or "parser")
@@ -32,7 +32,7 @@ def main [
 
     # All known fuzzer targets. Each one has a corresponding binary
     # named fuzz-<name> and AFL++ output under afl-out/<name>/.
-    let all_fuzzers = [parser stream]
+    let all_fuzzers = [parser stream osc]
 
     # If --fuzzer is given, restrict to just that target; otherwise run all.
     let fuzzers = if $fuzzer != null { [$fuzzer] } else { $all_fuzzers }
@@ -93,8 +93,8 @@ def main [
         # reproduces (e.g. SIGABRT / signal 6).
         for crash_file in $crash_files {
             print $"==> ($crash_file)"
-            let result = do -i { open --raw $crash_file | run-external $binary }
-            if $result != null {
+            let ok = try { open --raw $crash_file | run-external $binary; true } catch { false }
+            if not $ok {
                 $failures += 1
             }
         }

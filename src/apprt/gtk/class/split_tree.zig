@@ -1296,6 +1296,12 @@ const SplitTreeSplit = extern struct {
             break :max gobject.ext.Value.get(&val, c_int);
         };
 
+        // Sync only if size allocation has already computed a value for
+        // max-position. Otherwise the calculations below will overflow
+        // and panic in builds with safety checks because gtk.Paned
+        // initializes max-position with G_MAXINT.
+        if (max == std.math.maxInt(c_int)) return;
+
         // The size of the split as pixels, which ratios are relative to.
         // Since gtk.Paned doesn't shrink the end child below its minimum
         // size, max is reduced by that minimum size, so add it back.
@@ -1310,7 +1316,7 @@ const SplitTreeSplit = extern struct {
                 null,
                 null,
             );
-            break :size max + end_min;
+            break :size std.math.add(c_int, max, end_min) catch return;
         };
 
         // If our size is zero then we can't do any math. I don't know

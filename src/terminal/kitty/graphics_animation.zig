@@ -35,7 +35,7 @@ pub const Animation = struct {
     /// The frames following the root frame: `frames.items[i]` is
     /// protocol frame number `i + 2`. The root frame (frame 1) is the
     /// image's base data and is not stored here.
-    frames: std.ArrayListUnmanaged(Frame) = .empty,
+    frames: std.ArrayList(Frame) = .empty,
 
     /// The gap of the root frame in milliseconds. Zero means gapless:
     /// the frame is skipped during playback. Kitty creates the root

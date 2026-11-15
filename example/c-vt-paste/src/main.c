@@ -134,14 +134,14 @@ static void paste_clipboard(GhosttyTerminal terminal, const char* text) {
       .allow_unsafe = false,
   };
 
-  bool written = false;
-  GhosttyResult result = ghostty_terminal_paste(terminal, &paste, &written);
+  bool pasted = false;
+  GhosttyResult result = ghostty_terminal_paste(terminal, &paste, &pasted);
   if (result == GHOSTTY_REJECTED) {
     // The text could inject commands (e.g. a newline outside of a
     // bracketed paste). Nothing was written; ask, then retry.
     if (!confirm_with_user()) return;
     paste.allow_unsafe = true;
-    result = ghostty_terminal_paste(terminal, &paste, &written);
+    result = ghostty_terminal_paste(terminal, &paste, &pasted);
   }
   if (result != GHOSTTY_SUCCESS) {
     fprintf(stderr, "paste failed: %d\n", (int)result);
@@ -151,7 +151,7 @@ static void paste_clipboard(GhosttyTerminal terminal, const char* text) {
   // Whether the pty got the text or a paste event depends on the
   // terminal's modes; either way it went through write_pty above, in
   // chunks as the text was read.
-  printf("  %s\n", written ? "written" : "nothing to paste");
+  printf("  %s\n", pasted ? "written" : "nothing to paste");
 }
 //! [terminal-paste]
 
@@ -174,7 +174,7 @@ void safety_example() {
 void encode_example() {
   // The input buffer is modified in place (unsafe bytes are stripped).
   char data[] = "hello\nworld";
-  char buf[64];
+  uint8_t buf[64];
   size_t written = 0;
 
   GhosttyResult result = ghostty_paste_encode(
@@ -182,7 +182,7 @@ void encode_example() {
 
   if (result == GHOSTTY_SUCCESS) {
     printf("Encoded %zu bytes: ", written);
-    print_escaped((const uint8_t*)buf, written);
+    print_escaped(buf, written);
     printf("\n");
   }
 }
@@ -252,9 +252,9 @@ int main() {
         .reader = {.read = read_clipboard, .userdata = &clipboard},
         .allow_unsafe = true,
     };
-    bool written = false;
-    if (ghostty_terminal_paste(terminal, &paste, &written) == GHOSTTY_SUCCESS &&
-        written) {
+    bool pasted = false;
+    if (ghostty_terminal_paste(terminal, &paste, &pasted) == GHOSTTY_SUCCESS &&
+        pasted) {
       printf("  written\n");
     }
   }

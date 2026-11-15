@@ -313,19 +313,42 @@ pub const Fontconfig = struct {
             self.* = undefined;
         }
 
+        /// True if the pattern names something `DeferredFace` can load:
+        /// a file and an index within it.
+        fn loadable(pat: *fontconfig.Pattern) bool {
+            const file = pat.get(.file, 0) catch return false;
+            if (file != .string) return false;
+            const index = pat.get(.index, 0) catch return false;
+            return index == .integer;
+        }
+
         pub fn next(self: *DiscoverIterator) fontconfig.Error!?DeferredFace {
-            if (self.i >= self.fonts.len) return null;
+            const font_pattern = while (self.i < self.fonts.len) {
+                // Get the copied pattern from our fontset that has the
+                // attributes configured for rendering.
+                const font_pattern = try self.config.fontRenderPrepare(
+                    self.pattern,
+                    self.fonts[self.i],
+                );
 
-            // Get the copied pattern from our fontset that has the
-            // attributes configured for rendering.
-            const font_pattern = try self.config.fontRenderPrepare(
-                self.pattern,
-                self.fonts[self.i],
-            );
+                // Increment whether we return this font or skip it.
+                self.i += 1;
+
+                // A font we cannot open is no use to us however well it
+                // matches. Fontconfig has been seen to return entries
+                // from a user's cache that carry a charset and a lang
+                // but no file, family or index; accepting one wins the
+                // codepoint for a face that can never load, so skip it
+                // and let the next candidate have it.
+                if (loadable(font_pattern)) break font_pattern;
+
+                log.warn(
+                    "skipping fontconfig match with no file or index",
+                    .{},
+                );
+                font_pattern.destroy();
+            } else return null;
             errdefer font_pattern.destroy();
-
-            // Increment after we return
-            defer self.i += 1;
 
             return DeferredFace{
                 .fc = .{

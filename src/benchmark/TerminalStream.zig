@@ -37,6 +37,23 @@ pub const Options = struct {
     @"terminal-rows": u16 = 80,
     @"terminal-cols": u16 = 120,
 
+    /// How the terminal computes the width of multi-codepoint graphemes.
+    /// `unicode` enables mode 2027 (grapheme clustering) as the default
+    /// mode, matching the app's `grapheme-width-method = unicode` default.
+    /// `legacy` leaves it off, which is the library default.
+    @"grapheme-width": GraphemeWidth = .legacy,
+
+    /// The maximum scrollback size in bytes. Zero disables scrollback.
+    ///
+    /// The default of 10,000 bytes matches `Terminal.Options`, not the
+    /// app's 50 MB. This can change results by 2x. Without scrollback,
+    /// pages stay in use for the whole run, so costs that grow over a
+    /// page's life show up much more. Say which value you used when
+    /// sharing results.
+    ///
+    ///   ghostty-bench +terminal-stream --data=input.vt --scrollback-max-bytes=0
+    @"scrollback-max-bytes": usize = 10_000,
+
     /// Enable opt-in continuation tracking on the stream.
     @"continuation-enabled": bool = false,
 
@@ -58,6 +75,8 @@ pub const Options = struct {
     data: ?[]const u8 = null,
 };
 
+pub const GraphemeWidth = enum { legacy, unicode };
+
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
     alloc: Allocator,
@@ -71,6 +90,12 @@ pub fn create(
         .terminal = try .init(global.io(), alloc, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
+            // A default mode so that the fullReset in setup keeps it,
+            // like the app's Termio does.
+            .default_modes = .{
+                .grapheme_cluster = opts.@"grapheme-width" == .unicode,
+            },
+            .max_scrollback_bytes = opts.@"scrollback-max-bytes",
         }),
         .stream = undefined,
     };
@@ -140,7 +165,15 @@ fn teardown(ptr: *anyopaque) void {
     }
 }
 
-fn step(ptr: *anyopaque) Benchmark.Error!void {
+// The whole stream parser is inlined into this function, and on Apple
+// Silicon its speed depends on where the function starts: CSI-heavy
+// input runs 3-5% faster at some start addresses than others. Without a
+// fixed alignment, any unrelated change that adds or removes code before
+// this function moves it, and that shows up as a speedup or slowdown in
+// comparisons between branches. Pinning the start makes those
+// comparisons measure the code under test instead of where the linker
+// placed this loop.
+fn step(ptr: *anyopaque) align(64) Benchmark.Error!void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
 
     // Get our buffered reader so we're not predominantly
@@ -187,4 +220,13 @@ test TerminalStream {
 
     const tracked_bench = tracked.benchmark();
     _ = try tracked_bench.run(.once);
+
+    const unicode: *TerminalStream = try .create(alloc, .{
+        .@"grapheme-width" = .unicode,
+    });
+    defer unicode.destroy(alloc);
+
+    const unicode_bench = unicode.benchmark();
+    _ = try unicode_bench.run(.once);
+    try testing.expect(unicode.terminal.modes.get(.grapheme_cluster));
 }

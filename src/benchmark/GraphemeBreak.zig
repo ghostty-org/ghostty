@@ -134,7 +134,11 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp2| {
-                std.mem.doNotOptimizeAway(unicode.graphemeBreak(cp1, @intCast(cp2), &state));
+                std.mem.doNotOptimizeAway(unicode.graphemeBreak(
+                    unicode.table.get(cp1).grapheme_break,
+                    unicode.table.get(@intCast(cp2)).grapheme_break,
+                    &state,
+                ));
                 cp1 = cp2;
             }
         }

@@ -1,8 +1,8 @@
 # Example: `ghostty-vt` Selection Gestures
 
-This contains a simple example of how to use the `ghostty-vt` selection
-gesture API from C. It creates synthetic press, drag, release, and deep-press
-events and formats the resulting selection snapshots.
+Turn synthetic press, drag, release, and deep-press events into selections
+with the `ghostty-vt` selection gesture API, then format the resulting
+selection snapshots.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

@@ -884,9 +884,11 @@ fn dragSelectionLine(
     click_pin: Pin,
     drag_pin: Pin,
 ) ?Selection {
-    // Get the line selection under our current drag point. If there isn't a
-    // line, do nothing.
-    const line = screen.selectLine(.{ .pin = drag_pin }) orelse return null;
+    // Get the line selection under our current drag point. If the line is
+    // blank, we fall back to selecting it so the selection doesn't disappear.
+    const line = screen.selectLine(.{ .pin = drag_pin }) orelse
+        screen.selectLine(.{ .pin = drag_pin, .whitespace = null }) orelse
+        return null;
 
     // Get the selection under our click point. We first try to trim
     // whitespace if we've selected a word. But if no word exists then
@@ -1942,6 +1944,28 @@ test "SelectionGesture triple-click drag selects by line backwards" {
     try testing.expectEqualDeep(Selection.init(
         testPin(&t, 0, 0),
         testPin(&t, 9, 2),
+        false,
+    ), sel);
+}
+
+test "SelectionGesture triple-click drag extends selection through blank line" {
+    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 20, .rows = 5 });
+    defer t.deinit(testing.allocator);
+    try t.printString("alpha beta");
+
+    var gesture: SelectionGesture = .init;
+    defer gesture.deinit(&t);
+
+    const time = std.Io.Timestamp.now(testing.io, .awake);
+    _ = try gesture.press(&t, testPress(&t, 1, 0, time));
+    _ = try gesture.press(&t, testPress(&t, 1, 0, time));
+    _ = try gesture.press(&t, testPress(&t, 1, 0, time));
+
+    const sel = gesture.drag(&t, testDrag(&t, 2, 1, 20, 50)).?;
+
+    try testing.expectEqualDeep(Selection.init(
+        testPin(&t, 0, 0),
+        testPin(&t, 19, 1),
         false,
     ), sel);
 }
