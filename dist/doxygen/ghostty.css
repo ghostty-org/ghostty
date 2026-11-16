@@ -156,7 +156,8 @@ span.lineno a {
 
 /* Desktop: ensure page-nav maintains default width */
 @media screen and (min-width: 768px) {
-  #page-nav-toggle {
+  #page-nav-toggle,
+  #page-nav-backdrop {
     display: none !important;
   }
 
@@ -172,8 +173,10 @@ span.lineno a {
 
 /* Mobile-friendly responsive styles */
 @media screen and (max-width: 767px) {
-  body {
-    font-size: 14px !important;
+  /* Stop iOS from inflating text when the phone is rotated */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   /* Make navigation tree collapsible on mobile */
@@ -181,55 +184,70 @@ span.lineno a {
     display: none;
   }
 
+  /* navtree.js writes an inline grid-template-columns that reserves a column
+     for the page-nav. On mobile the page-nav is an overlay, so that column
+     would just be dead space stealing width from the content. */
+  #container {
+    display: block !important;
+  }
+
   #doc-content {
     margin-left: 0 !important;
     margin-right: 0 !important;
   }
 
-  /* Make right sidebar (page-nav) overlay on mobile */
+  /* Make right sidebar (page-nav) overlay on mobile. Anchoring to both top
+     and bottom avoids 100vh, which is taller than the visible area on iOS. */
   #page-nav {
     position: fixed !important;
     top: 0 !important;
-    right: -280px !important;
-    width: 280px !important;
-    height: 100vh !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: min(280px, 85vw) !important;
+    height: auto !important;
+    box-sizing: border-box !important;
     z-index: 10000 !important;
     background: #101826 !important;
     box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5) !important;
-    transition: right 0.3s ease !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
+    transform: translateX(100%);
+    visibility: hidden;
+    transition:
+      transform 0.3s ease,
+      visibility 0s linear 0.3s;
   }
 
   #page-nav.mobile-open {
-    right: 0 !important;
+    transform: none;
+    visibility: visible;
+    transition: transform 0.3s ease;
   }
 
-  /* Hamburger menu button for page nav */
+  #page-nav-resize-handle {
+    display: none !important;
+  }
+
+  /* Leave room for the toggle button, which stays above the open drawer */
+  #page-nav-contents {
+    top: 48px !important;
+    height: calc(100% - 48px) !important;
+  }
+
+  /* Toggle button for page nav. It's labeled rather than a hamburger so it
+     can't be confused with the main menu hamburger right below it. */
   #page-nav-toggle {
     display: block !important;
     position: fixed !important;
-    top: 10px !important;
-    right: 15px !important;
+    top: 8px !important;
+    right: 10px !important;
     z-index: 10001 !important;
-    width: 40px !important;
-    height: 40px !important;
-    background: rgba(53, 81, 243, 0.9) !important;
+    height: 32px !important;
+    padding: 0 12px !important;
+    background: #3551f3 !important;
+    color: #fff !important;
+    font-size: 13px !important;
     border: none !important;
     border-radius: 5px !important;
     cursor: pointer !important;
-    padding: 8px !important;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3) !important;
-  }
-
-  #page-nav-toggle span {
-    display: block !important;
-    width: 24px !important;
-    height: 3px !important;
-    background: #fff !important;
-    margin: 4px 0 !important;
-    border-radius: 2px !important;
-    transition: 0.3s !important;
   }
 
   /* Mobile overlay backdrop */
@@ -248,13 +266,32 @@ span.lineno a {
     display: block !important;
   }
 
-  /* Improve header and navigation */
+  /* Improve header and navigation. The header and footer are always on screen
+     because only #doc-content scrolls, so keep them as short as possible. */
   #top {
     height: auto !important;
   }
 
   #titlearea {
-    padding: 10px !important;
+    padding: 6px 10px !important;
+  }
+
+  #projectrow {
+    height: auto !important;
+  }
+
+  #projectlogo {
+    vertical-align: middle !important;
+  }
+
+  #projectlogo img {
+    display: block !important;
+    width: auto !important;
+    height: 32px !important;
+  }
+
+  #projectalign {
+    padding-left: 8px !important;
   }
 
   #projectname {
@@ -264,6 +301,15 @@ span.lineno a {
   #projectbrief,
   #projectnumber {
     font-size: 12px !important;
+  }
+
+  /* Keep just the breadcrumbs in the footer, if there are any */
+  #nav-path li.footer {
+    display: none !important;
+  }
+
+  #nav-path:not(:has(li.navelem)) {
+    display: none !important;
   }
 
   /* Make tabs stack better on mobile */
@@ -280,53 +326,206 @@ span.lineno a {
     display: inline-block !important;
   }
 
-  /* Content adjustments */
-  .contents {
-    padding: 10px !important;
-    width: 100% !important;
+  /* Content adjustments. Long identifiers have no natural break points, so
+     let them break rather than push the page sideways. */
+  div.contents {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding: 10px 12px !important;
     box-sizing: border-box !important;
+    overflow-wrap: break-word !important;
+  }
+
+  span.tt {
+    white-space: pre-wrap !important;
   }
 
   .header {
     padding: 5px !important;
   }
 
-  /* Code blocks */
+  /* Code blocks scroll sideways. Doxygen breaks lines at any character, which
+     splits words in half at phone widths. */
   .fragment {
     font-size: 12px !important;
+    margin-right: 0 !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
   div.line {
     font-size: 12px !important;
+    text-indent: 0 !important;
+    padding-left: 0 !important;
+    white-space: pre !important;
+    text-wrap: nowrap !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
   }
 
-  /* Tables */
-  table {
+  /* Tables. These are scoped rather than applied to every table because
+     doxygen also uses tables for layout, like the title area. Columns are too
+     narrow to read at this width, so each row stacks into a card. */
+  table.markdownTable,
+  table.markdownTable tbody,
+  table.markdownTable tr,
+  table.markdownTable td,
+  table.fieldtable,
+  table.fieldtable tbody,
+  table.fieldtable tr,
+  table.fieldtable th,
+  table.fieldtable td {
     display: block !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    width: 100% !important;
+    box-sizing: border-box !important;
+    width: auto !important;
+    white-space: normal !important;
   }
 
-  .memberdecls table,
-  .fieldtable {
-    font-size: 12px !important;
+  table.markdownTable tr.markdownTableHead {
+    display: none !important;
+  }
+
+  table.markdownTable {
+    border: 1px solid #233250 !important;
+    border-bottom: none !important;
+    border-radius: 4px;
+  }
+
+  table.markdownTable tr {
+    padding: 8px 10px !important;
+    border-bottom: 1px solid #233250 !important;
+  }
+
+  table.markdownTable td {
+    padding: 2px 0 !important;
+    border: none !important;
+    text-align: left !important;
+  }
+
+  table.markdownTable td:first-child {
+    font-weight: 600;
+  }
+
+  /* Set by mobile-nav.js since a stacked cell loses its column header */
+  table.markdownTable td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: #9db0d4;
+    font-size: 12px;
+  }
+
+  table.fieldtable td.fieldname,
+  table.fieldtable td.fieldtype,
+  table.fieldtable td.fieldinit {
+    border-right: none !important;
+    border-bottom: none !important;
+  }
+
+  /* Member summaries: flow the type and name together as a line of text */
+  table.memberdecls,
+  table.memberdecls > tbody,
+  table.memberdecls > tbody > tr,
+  table.memberdecls > tbody > tr > td {
+    display: block !important;
+    box-sizing: border-box !important;
+    width: auto !important;
+  }
+
+  table.memberdecls > tbody > tr[class^="memitem"] {
+    padding: 4px 10px !important;
+    margin-bottom: -1px !important;
+    background-color: #0b101a !important;
+    border: 1px solid #233250 !important;
+  }
+
+  table.memberdecls > tbody > tr[class^="memitem"]:has(+ tr[class^="memdesc"]) {
+    margin-bottom: 0 !important;
+    border-bottom-width: 0 !important;
+  }
+
+  table.memberdecls > tbody > tr[class^="memdesc"] {
+    background-color: #0b101a !important;
+    border: 1px solid #233250 !important;
+    border-top-width: 0 !important;
+  }
+
+  table.memberdecls > tbody > tr > td.memItemLeft,
+  table.memberdecls > tbody > tr > td.memItemRight {
+    display: inline !important;
+    padding: 0 !important;
+    background: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    text-align: left !important;
+    white-space: normal !important;
+  }
+
+  table.memberdecls > tbody > tr > td.mdescLeft {
+    display: none !important;
+  }
+
+  table.memberdecls > tbody > tr > td.mdescRight {
+    padding: 0 10px 4px !important;
+    background: none !important;
+    border: none !important;
   }
 
   .memtitle {
+    display: block !important;
+    float: none !important;
+    box-sizing: border-box !important;
+    margin: 0 0 -1px !important;
     font-size: 14px !important;
     padding: 8px !important;
   }
 
+  .memtitle:after {
+    display: none !important;
+  }
+
   .memname {
     font-size: 13px !important;
-    word-break: break-word !important;
+    margin-left: 0 !important;
+  }
+
+  .memproto {
+    padding: 6px 8px !important;
+    border-radius: 0 !important;
+  }
+
+  /* Function prototypes: flow the table as text so that it wraps instead of
+     forcing the width of the whole signature on to the page. */
+  table.memname,
+  table.memname > tbody,
+  table.memname > tbody > tr {
+    display: block !important;
+  }
+
+  table.memname td {
+    display: inline !important;
+    padding: 0 !important;
+    white-space: normal !important;
+  }
+
+  table.memname td.paramtype {
+    padding-left: 16px !important;
   }
 
   .memitem {
-    margin: 5px 0 !important;
+    display: block !important;
+    margin: 0 0 10px !important;
+  }
+
+  /* Parameter lists: stack the name above the description */
+  table.params,
+  table.params > tbody,
+  table.params > tbody > tr,
+  table.params > tbody > tr > td {
+    display: block !important;
+  }
+
+  table.params .paramname {
+    white-space: normal !important;
   }
 
   /* Search box */
@@ -366,6 +565,11 @@ span.lineno a {
 
   .directory .arrow {
     margin-right: 5px !important;
+  }
+
+  .directory td.entry {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
   }
 
   /* Treeview adjustments */

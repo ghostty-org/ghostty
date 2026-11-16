@@ -2,7 +2,7 @@
     .name = .esctest_libghostty,
     .version = "0.0.0",
     .fingerprint = 0x5c1ec643a905b43b,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         .ghostty = .{ .path = "../../" },
         // The esctest2 commit of 2026-09-13.

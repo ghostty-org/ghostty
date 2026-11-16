@@ -212,7 +212,7 @@ fn encodeColorBuf(
     encoded: *[4]u8,
     value: terminal_style.Style.Color,
 ) void {
-    switch (value) {
+    switch (value.value()) {
         .none => encoded[0] = @backingInt(ColorKind.none),
         .palette => |index| {
             encoded[0] = @backingInt(ColorKind.palette);
@@ -241,14 +241,14 @@ fn parseColor(
         else
             error.InvalidColor,
         .palette => if (encoded[2] == 0 and encoded[3] == 0)
-            .{ .palette = encoded[1] }
+            .palette(encoded[1])
         else
             error.InvalidColor,
-        .rgb => .{ .rgb = .{
+        .rgb => .rgb(.{
             .r = encoded[1],
             .g = encoded[2],
             .b = encoded[3],
-        } },
+        }),
     };
 }
 
@@ -257,12 +257,12 @@ const test_golden_fixture = test_fixture.parse(@embedFile("testdata/style-v1.hex
 test "golden encoding and decoding" {
     const value: terminal_style.Style = .{
         .fg_color = .none,
-        .bg_color = .{ .palette = 0x7f },
-        .underline_color = .{ .rgb = .{
+        .bg_color = .palette(0x7f),
+        .underline_color = .rgb(.{
             .r = 0x12,
             .g = 0x34,
             .b = 0x56,
-        } },
+        }),
         .flags = .{
             .bold = true,
             .italic = true,

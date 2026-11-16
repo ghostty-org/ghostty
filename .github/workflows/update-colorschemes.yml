@@ -29,7 +29,7 @@ jobs:
             /zig
 
       - name: Setup Nix
-        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -79,7 +79,7 @@ jobs:
         run: nix build .#ghostty
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           title: Update iTerm2 colorschemes
           base: main
@@ -87,9 +87,11 @@ jobs:
           commit-message: "deps: Update iTerm2 color schemes"
           add-paths: |
             build.zig.zon
-            build.zig.zon.nix
-            build.zig.zon.txt
-            build.zig.zon.json
+            deps/packages.nix
+            deps/packages.txt
+            deps/packages.json
+            deps/libghostty-vt.txt
+            deps/libghostty-vt-third-party.json
             flatpak/zig-packages.json
           body: |
             Upstream release: https://github.com/mbadolato/iTerm2-Color-Schemes/releases/tag/${{ steps.download.outputs.tag_name }}

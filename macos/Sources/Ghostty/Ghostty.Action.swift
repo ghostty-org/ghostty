@@ -70,13 +70,8 @@ extension Ghostty.Action {
 
         init(c: ghostty_action_open_url_s) {
             self.kind = Kind(c.kind)
-
-            if let urlCString = c.url {
-                let data = Data(bytes: urlCString, count: Int(c.len))
-                self.url = String(data: data, encoding: .utf8) ?? ""
-            } else {
-                self.url = ""
-            }
+            let data = Data(bytes: c.url, count: Int(c.len))
+            self.url = String(data: data, encoding: .utf8) ?? ""
         }
     }
 
@@ -123,14 +118,10 @@ extension Ghostty.Action {
     }
 
     struct StartSearch {
-        let needle: String?
+        let needle: String
 
         init(c: ghostty_action_start_search_s) {
-            if let needleCString = c.needle {
-                self.needle = String(cString: needleCString)
-            } else {
-                self.needle = nil
-            }
+            self.needle = String(cString: c.needle)
         }
     }
 

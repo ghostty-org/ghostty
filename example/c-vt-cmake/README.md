@@ -1,8 +1,8 @@
 # c-vt-cmake
 
-Demonstrates consuming libghostty-vt from a CMake project using
-`FetchContent`. Creates a terminal, writes VT sequences into it, and
-formats the screen contents as plain text.
+Builds and links libghostty-vt from a CMake project with `FetchContent`.
+It creates a terminal, writes VT sequences into it, and formats the screen
+contents as plain text.
 
 ## Building
 

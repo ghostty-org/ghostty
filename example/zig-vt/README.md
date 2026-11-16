@@ -1,7 +1,8 @@
 # Example: `ghostty-vt` Zig Module
 
-This contains a simple example of how to use the `ghostty-vt` Zig module
-exported by Ghostty to have access to a production grade terminal emulator.
+The `ghostty-vt` Zig module gives you a production grade terminal emulator.
+This program creates a terminal, writes text that wraps at 6 columns, and
+prints the screen as plain text.
 
 Requires the Zig version stated in the `build.zig.zon` file.
 

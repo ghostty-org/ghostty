@@ -27,7 +27,7 @@ int main() {
     printf("Row %u: ", row);
     for (uint16_t col = 0; col < cols; col++) {
       // Resolve the point to a grid reference
-      GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+      GhosttyGridRef ref = {0};
       GhosttyPoint pt = {
         .tag = GHOSTTY_POINT_TAG_ACTIVE,
         .value = { .coordinate = { .x = col, .y = row } },
@@ -54,7 +54,7 @@ int main() {
     }
 
     // Also inspect the row for wrap state
-    GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+    GhosttyGridRef ref = {0};
     GhosttyPoint pt = {
       .tag = GHOSTTY_POINT_TAG_ACTIVE,
       .value = { .coordinate = { .x = 0, .y = row } },
@@ -69,9 +69,10 @@ int main() {
     printf(" (wrap=%s", wrap ? "true" : "false");
 
     // Check the style of the first cell with text
-    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
+    GhosttyStyle style;
     ghostty_grid_ref_style(&ref, &style);
-    printf(", bold=%s)\n", style.bold ? "true" : "false");
+    printf(", bold=%s)\n",
+           (style.flags & GHOSTTY_STYLE_FLAG_BOLD) ? "true" : "false");
   }
 
   ghostty_terminal_free(terminal);

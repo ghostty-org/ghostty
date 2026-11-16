@@ -7,22 +7,22 @@
 #ifndef GHOSTTY_VT_SIZE_REPORT_H
 #define GHOSTTY_VT_SIZE_REPORT_H
 
-/** @defgroup size_report Size Report Encoding
+/** @addtogroup size_report
  *
- * Utilities for encoding terminal size reports into escape sequences,
- * supporting in-band size reports (mode 2048) and XTWINOPS responses
- * (CSI 14 t, CSI 16 t, CSI 18 t, CSI 19 t).
+ * A size report tells a program how big your terminal is, in cells and pixels.
  *
- * ## Basic Usage
- *
- * Use ghostty_size_report_encode() to encode a size report into a
- * caller-provided buffer. If the buffer is too small, the function
- * returns GHOSTTY_OUT_OF_SPACE and sets the required size in the
- * output parameter.
+ * These answer in-band size reports (mode 2048) and XTWINOPS queries
+ * (CSI 14 t, CSI 16 t, CSI 18 t, CSI 19 t). A terminal answers those for you
+ * through a GhosttyTerminalSizeFn, so you only need this without one. Fill in a
+ * GhosttySizeReportSize and pass it to ghostty_size_report_encode().
  *
  * ## Example
  *
  * @snippet c-vt-size-report/src/main.c size-report-encode
+ *
+ * Full program: @ref c-vt-size-report/src/main.c
+ *
+ * See the @ref guide-effects "Effects guide" for the terminal's callback.
  *
  * @{
  */
@@ -77,23 +77,26 @@ typedef struct {
  * Encodes a size report in the format specified by @p style into the
  * provided buffer.
  *
- * If the buffer is too small, the function returns GHOSTTY_OUT_OF_SPACE
- * and writes the required buffer size to @p out_written. The caller can
- * then retry with a sufficiently sized buffer.
+ * If @p buf is too small, this returns GHOSTTY_OUT_OF_SPACE and sets
+ * @p out_written to the size needed. The buffer may then hold part of the
+ * sequence, which you should discard. To get the size without encoding
+ * anything, pass NULL for @p buf and 0 for @p buf_len.
  *
  * @param style The size report format to encode
  * @param size Terminal size information
- * @param buf Output buffer to write the encoded sequence into (may be NULL)
- * @param buf_len Size of the output buffer in bytes
- * @param[out] out_written On success, the number of bytes written. On
- *             GHOSTTY_OUT_OF_SPACE, the required buffer size.
+ * @param buf Buffer to write the sequence into. May be NULL if @p buf_len
+ *            is 0.
+ * @param buf_len Size of @p buf in bytes
+ * @param[out] out_written The number of bytes written, or the size needed
+ *             if the result is GHOSTTY_OUT_OF_SPACE
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if the buffer
- *         is too small
+ *         is too small, or GHOSTTY_INVALID_VALUE if @p size or
+ *         @p out_written is NULL
  */
 GHOSTTY_API GhosttyResult ghostty_size_report_encode(
     GhosttySizeReportStyle style,
-    GhosttySizeReportSize size,
-    char* buf,
+    const GhosttySizeReportSize* size,
+    uint8_t* buf,
     size_t buf_len,
     size_t* out_written);
 

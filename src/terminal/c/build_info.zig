@@ -27,35 +27,65 @@ pub const BuildInfo = enum(c_int) {
     version_patch = 8,
     version_pre = 9,
     version_build = 10,
+    feature_snapshot = 11,
+    feature_formatter = 12,
+    feature_selection = 13,
+    feature_search = 14,
+    feature_render_state = 15,
+    feature_input_encode = 16,
+    feature_color = 17,
+    feature_grid_introspection = 18,
+    feature_glyph_protocol = 19,
+
+    _,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: BuildInfo) type {
         return switch (self) {
             .invalid => void,
-            .simd, .kitty_graphics, .tmux_control_mode => bool,
+            .simd,
+            .kitty_graphics,
+            .tmux_control_mode,
+            .feature_snapshot,
+            .feature_formatter,
+            .feature_selection,
+            .feature_search,
+            .feature_render_state,
+            .feature_input_encode,
+            .feature_color,
+            .feature_grid_introspection,
+            .feature_glyph_protocol,
+            => bool,
             .optimize => OptimizeMode,
             .version_string, .version_pre, .version_build => lib.String,
             .version_major, .version_minor, .version_patch => usize,
+            _ => void,
         };
     }
 };
+
+/// The library version as a null-terminated string, for ghostty_version.
+/// It has the same text as the version_string build info.
+const version_z: [:0]const u8 = std.fmt.comptimePrint(
+    "{s}",
+    .{build_options.version_string},
+);
+
+/// C: ghostty_version
+pub fn version() callconv(lib.calling_conv) [*:0]const u8 {
+    return version_z.ptr;
+}
 
 pub fn get(
     data: BuildInfo,
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
-    if (comptime std.debug.runtime_safety) {
-        _ = std.enums.fromInt(BuildInfo, @backingInt(data)) orelse {
-            log.warn("build_info invalid data value={d}", .{@backingInt(data)});
-            return .invalid_value;
-        };
-    }
-
     return switch (data) {
+        _ => .unsupported,
         .invalid => .invalid_value,
         inline else => |comptime_data| getTyped(
             comptime_data,
-            @ptrCast(@alignCast(out)),
+            @ptrCast(@alignCast(out orelse return .invalid_value)),
         ),
     };
 }
@@ -93,6 +123,16 @@ fn getTyped(
                 out.* = .{ .ptr = "", .len = 0 };
             }
         },
+        .feature_snapshot => out.* = lib.feature(.snapshot),
+        .feature_formatter => out.* = lib.feature(.formatter),
+        .feature_selection => out.* = lib.feature(.selection),
+        .feature_search => out.* = lib.feature(.search),
+        .feature_render_state => out.* = lib.feature(.render_state),
+        .feature_input_encode => out.* = lib.feature(.input_encode),
+        .feature_color => out.* = lib.feature(.color),
+        .feature_grid_introspection => out.* = lib.feature(.grid_introspection),
+        .feature_glyph_protocol => out.* = lib.feature(.glyph_protocol),
+        _ => comptime unreachable,
     }
 
     return .success;
@@ -110,6 +150,26 @@ test "get kitty_graphics" {
     var value: bool = undefined;
     try testing.expectEqual(Result.success, get(.kitty_graphics, @ptrCast(&value)));
     try testing.expectEqual(build_options.kitty_graphics, value);
+}
+
+test "get feature keys" {
+    const testing = std.testing;
+    inline for (.{
+        .{ BuildInfo.feature_snapshot, build_options.snapshot },
+        .{ BuildInfo.feature_formatter, build_options.formatter },
+        .{ BuildInfo.feature_selection, build_options.selection },
+        .{ BuildInfo.feature_search, build_options.search },
+        .{ BuildInfo.feature_render_state, build_options.render_state },
+        .{ BuildInfo.feature_input_encode, build_options.input_encode },
+        .{ BuildInfo.feature_color, build_options.color },
+        .{ BuildInfo.feature_grid_introspection, build_options.grid_introspection },
+        .{ BuildInfo.feature_glyph_protocol, build_options.glyph_protocol },
+        .{ BuildInfo.kitty_graphics, build_options.kitty_graphics },
+    }) |case| {
+        var value: bool = !case[1];
+        try testing.expectEqual(Result.success, get(case[0], @ptrCast(&value)));
+        try testing.expectEqual(case[1], value);
+    }
 }
 
 test "get tmux_control_mode" {
@@ -169,6 +229,16 @@ test "get version_build" {
     const testing = std.testing;
     var value: lib.String = undefined;
     try testing.expectEqual(Result.success, get(.version_build, @ptrCast(&value)));
+}
+
+test "version" {
+    const testing = std.testing;
+    const value = std.mem.span(version());
+    try testing.expectEqualStrings(build_options.version_string, value);
+
+    var string: lib.String = undefined;
+    try testing.expectEqual(Result.success, get(.version_string, @ptrCast(&string)));
+    try testing.expectEqualStrings(string.ptr[0..string.len], value);
 }
 
 test "get invalid" {

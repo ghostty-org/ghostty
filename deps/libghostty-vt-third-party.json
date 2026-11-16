@@ -1,0 +1,65 @@
+{
+  "generator": "nix/build-support/gen-lib-vt-deps.sh",
+  "third_party": [
+    {
+      "name": "aro",
+      "kind": "zig-package",
+      "version": "0.0.0",
+      "commit": "d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b",
+      "url": "https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz",
+      "hash": "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa",
+      "license": "MIT AND Unicode-3.0",
+      "use": "build"
+    },
+    {
+      "name": "highway",
+      "kind": "zig-package",
+      "version": "1.2.0",
+      "commit": "66486a10623fa0d72fe91260f96c892e41aceb06",
+      "url": "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz",
+      "hash": "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
+      "license": "Apache-2.0 OR BSD-3-Clause",
+      "use": "linked"
+    },
+    {
+      "name": "simdutf",
+      "kind": "vendored",
+      "version": "9.0.0",
+      "commit": null,
+      "url": "https://github.com/simdutf/simdutf",
+      "path": "pkg/simdutf/vendor",
+      "license": "Apache-2.0 OR MIT",
+      "use": "linked"
+    },
+    {
+      "name": "translate_c",
+      "kind": "zig-package",
+      "version": "2.0.0",
+      "commit": "02ff0c523fb92a38939b04d0145c4a9602a74d56",
+      "url": "https://deps.files.ghostty.org/translate_c-02ff0c523fb92a38939b04d0145c4a9602a74d56.tar.gz",
+      "hash": "translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5",
+      "license": "MIT",
+      "use": "linked"
+    },
+    {
+      "name": "uucode",
+      "kind": "zig-package",
+      "version": "0.2.0",
+      "commit": "1fb73433bba5d93366c57f23ff2e9d7939746500",
+      "url": "https://deps.files.ghostty.org/uucode-1fb73433bba5d93366c57f23ff2e9d7939746500.tar.gz",
+      "hash": "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
+      "license": "MIT AND Unicode-3.0",
+      "use": "linked"
+    },
+    {
+      "name": "wuffs",
+      "kind": "zig-package",
+      "version": "0.4.0-alpha.10",
+      "commit": "7411f488fe2e2c205c3d3b3d28638b7356522930",
+      "url": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+      "hash": "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+      "license": "Apache-2.0 OR MIT",
+      "use": "linked"
+    }
+  ]
+}

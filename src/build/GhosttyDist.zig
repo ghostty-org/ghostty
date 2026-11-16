@@ -17,14 +17,34 @@ archive_step: *std.Build.Step,
 /// The step to depend on for checking the dist
 check_step: *std.Build.Step,
 
+/// The step to build and install the libghostty-vt dependency tarball,
+/// such as `zig-out/dist/libghostty-vt-0.1.0-deps.tar.gz`. This is null for
+/// app builds, since only libghostty-vt has a dependency tarball.
+deps_install_step: ?*std.Build.Step,
+
+/// Creates the steps that build and check the app source tarball, or with
+/// `-Demit-lib-vt` the libghostty-vt one, such as
+/// `libghostty-vt-0.1.0.tar.gz`. The tarball records its version in a
+/// VERSION or LIB_VERSION file (see `Config.Versions`).
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
-    // The name prefix used for all paths in the archive.
-    const name = if (cfg.emit_lib_vt) "libghostty-vt" else "ghostty";
+    const name: []const u8, const version_file: []const u8, const version = if (cfg.emit_lib_vt)
+        .{ "libghostty-vt", "LIB_VERSION", cfg.lib_version }
+    else
+        .{ "ghostty", "VERSION", cfg.version };
+
+    // The directory everything in the archive goes under, which also names
+    // the archive. A lib-vt dev build drops the commit hash here, giving
+    // libghostty-vt-0.1.0-dev, but keeps it in LIB_VERSION.
+    const prefix = prefix: {
+        var archive_version = version;
+        if (cfg.emit_lib_vt) archive_version.build = null;
+        break :prefix b.fmt("{s}-{f}", .{ name, archive_version });
+    };
 
     // Get the resources we're going to inject into the source tarball.
     // lib-vt doesn't need GTK resources or frame data.
     const alloc = b.allocator;
-    var resources: std.ArrayListUnmanaged(Resource) = .empty;
+    var resources: std.ArrayList(Resource) = .empty;
     if (!cfg.emit_lib_vt) {
         {
             const gtk = SharedDeps.gtkDistResources(b);
@@ -47,15 +67,13 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         "--format=tgz",
     });
 
-    // embed the Ghostty version in the tarball
+    // Add the version file at the top of the tarball.
     {
-        const version = b.addWriteFiles().add("VERSION", b.fmt("{f}", .{cfg.version}));
+        const file = b.addWriteFiles().add(version_file, b.fmt("{f}", .{version}));
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
-        git_archive.addArg(b.fmt("--prefix={s}-{f}/", .{
-            name, cfg.version,
-        }));
-        git_archive.addPrefixedFileArg("--add-file=", version);
+        git_archive.addArg(b.fmt("--prefix={s}/", .{prefix}));
+        git_archive.addPrefixedFileArg("--add-file=", file);
     }
 
     // Add all of our resources into the tarball.
@@ -71,8 +89,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
 
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
-        git_archive.addArg(b.fmt("--prefix={s}-{f}/{s}/", .{
-            name,                                 cfg.version,
+        git_archive.addArg(b.fmt("--prefix={s}/{s}/", .{
+            prefix,
             std.fs.path.dirname(resource.dist).?,
         }));
         git_archive.addPrefixedFileArg("--add-file=", copied);
@@ -83,13 +101,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         // This is important. Standard source tarballs extract into
         // a directory named `project-version`. This is expected by
         // standard tooling such as debhelper and rpmbuild.
-        b.fmt("--prefix={s}-{f}/", .{ name, cfg.version }),
+        b.fmt("--prefix={s}/", .{prefix}),
         "-o",
     });
-    const output = git_archive.addOutputFileArg(b.fmt(
-        "{s}-{f}.tar.gz",
-        .{ name, cfg.version },
-    ));
+    const output = git_archive.addOutputFileArg(b.fmt("{s}.tar.gz", .{prefix}));
     git_archive.addArg("HEAD");
 
     // When building for lib-vt only, exclude large directories that
@@ -104,7 +119,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // The install step to put the dist into the build directory.
     const install = b.addInstallFile(
         output,
-        b.fmt("dist/{s}-{f}.tar.gz", .{ name, cfg.version }),
+        b.fmt("dist/{s}.tar.gz", .{prefix}),
     );
 
     // The check step to ensure the archive works.
@@ -116,7 +131,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // i.e. this is way `build.zig` is.
     const extract_dir = check
         .addOutputDirectoryArg(name)
-        .path(b, b.fmt("{s}-{f}", .{ name, cfg.version }));
+        .path(b, prefix);
 
     // Check that tests pass within the extracted directory. This isn't
     // a fully hermetic test because we're sharing the Zig cache. In
@@ -125,8 +140,9 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // CI catches any issues.
     const check_test = step: {
         // For lib-vt, we run the lib-vt tests instead of the full test suite.
+        // No -Demit-lib-vt, to check that the tarball defaults it on.
         const check_cmd = if (cfg.emit_lib_vt)
-            &[_][]const u8{ "zig", "build", "test-lib-vt", "-Demit-lib-vt=true" }
+            &[_][]const u8{ "zig", "build", "test-lib-vt" }
         else
             &[_][]const u8{ "zig", "build", "test" };
         const step = b.addSystemCommand(check_cmd);
@@ -175,7 +191,48 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         .install_step = &install.step,
         .archive_step = &git_archive.step,
         .check_step = &check_test.step,
+        .deps_install_step = if (cfg.emit_lib_vt) initDeps(b, prefix) else null,
     };
+}
+
+/// Creates the step that builds the libghostty-vt dependency tarball. It is
+/// named after the source tarball, so `libghostty-vt-0.1.0` gives
+/// `libghostty-vt-0.1.0-deps.tar.gz`, and the two always go together.
+///
+/// The tarball contains the Zig packages that deps/libghostty-vt.txt lists,
+/// already unpacked. With it, the library builds with no network access:
+///
+///   zig build --system ../libghostty-vt-0.1.0-deps
+///
+/// See src/build/dist_deps.zig for the layout and how it is made.
+fn initDeps(b: *std.Build, prefix: []const u8) *std.Build.Step {
+    const tool = b.addExecutable(.{
+        .name = "dist_deps",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/build/dist_deps.zig"),
+            .target = b.graph.host,
+        }),
+    });
+
+    const deps_prefix = b.fmt("{s}-deps", .{prefix});
+    const run = b.addRunArtifact(tool);
+    run.addArg(b.graph.zig_exe);
+    run.addFileArg(b.path("nix/build-support/fetch-zig-cache.sh"));
+    run.addFileArg(b.path("deps/libghostty-vt.txt"));
+    run.addFileArg(b.path("deps/packages.json"));
+    run.addArg(deps_prefix);
+    _ = run.addOutputDirectoryArg("cache");
+    const output = run.addOutputFileArg(b.fmt("{s}.tar.gz", .{deps_prefix}));
+
+    // The step downloads packages, which Zig can't track as inputs. Always
+    // run it, so the tarball is never a stale copy from the build cache.
+    run.has_side_effects = true;
+
+    const install = b.addInstallFile(
+        output,
+        b.fmt("dist/{s}.tar.gz", .{deps_prefix}),
+    );
+    return &install.step;
 }
 
 /// Paths to exclude from the dist archive when building for lib-vt only.
@@ -193,6 +250,10 @@ const lib_vt_excludes = &[_][]const u8{
     "snap",
     "po",
     "example",
+
+    // The app's packaging guide. Library packagers read
+    // PACKAGING-LIBGHOSTTY.md instead.
+    "PACKAGING.md",
 
     // Test corpus (lib-vt tests use embedded testdata within src/terminal/)
     "test",

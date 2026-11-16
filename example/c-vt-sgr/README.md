@@ -1,11 +1,11 @@
 # Example: `ghostty-vt` SGR Parser
 
-This contains a simple example of how to use the `ghostty-vt` SGR parser
-to parse terminal styling sequences and extract text attributes.
+Parse terminal styling sequences and extract text attributes with the
+`ghostty-vt` SGR parser.
 
-This example demonstrates parsing a complex SGR sequence from Kakoune that
-includes curly underline, RGB foreground/background colors, and RGB underline
-color with mixed semicolon and colon separators.
+The sequence comes from Kakoune. It includes curly underline, RGB
+foreground/background colors, and RGB underline color with mixed semicolon
+and colon separators.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

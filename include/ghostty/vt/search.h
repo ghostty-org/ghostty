@@ -16,101 +16,23 @@
 extern "C" {
 #endif
 
-/** @defgroup search Search
+/** @addtogroup search
  *
- * Search a terminal for a string, covering the active area and
- * scrollback of both the primary and alternate screens.
+ * Search a terminal for a string, covering the active area and scrollback of
+ * both the primary and alternate screens.
  *
- * A GhosttySearch searches the terminal it was created with for a
- * needle set with GHOSTTY_SEARCH_OPT_NEEDLE. It handles the hard
- * parts of terminal search internally: results stay in sync with the
- * live screens, survive primary/alternate screen switches (entering
- * and leaving a fullscreen app such as vim does not restart a
- * scrollback search), and recover from resize, reflow, resets, and
- * scrollback pruning.
- *
- * A search starts idle. Setting the needle starts the search,
- * changing it restarts the search from scratch, and clearing it
- * returns the search to idle. Matching is byte-exact except ASCII
- * letters, which compare case-insensitively.
- *
- * ## Driving a search
- *
- * Searching a large scrollback takes time, so the work is split into
- * small steps the caller drives so that the caller can control
- * performance more directly:
- *
- * - ghostty_search_tick() makes a bounded amount of progress on data
- *   the search has already copied. It never touches the terminal, 
- *   meaning it can be safely called from a thread.
- * - ghostty_search_feed() reads the terminal to copy in more data and
- *   pick up terminal changes. Feeding is the only way the search
- *   learns that the terminal changed, so keep feeding periodically
- *   while the search is in use. This requires exclusive terminal access.
- * - ghostty_search_run() is a blocking convenience that feeds and
- *   ticks until the search is caught up.
- *
- * GHOSTTY_SEARCH_STATUS_COMPLETE means the search is caught up with
- * the terminal as of the last feed. It never means finished forever,
- * since later terminal writes require another feed to be seen.
- *
- * ## Matches are selections
- *
- * Every match is returned as a GhosttySelection snapshot with
- * rectangle set to false, so the existing selection APIs all work on
- * matches: ghostty_terminal_selection_format_buf() to copy the
- * matched text, ghostty_terminal_point_from_grid_ref() with
- * GHOSTTY_POINT_TAG_VIEWPORT to position highlight rectangles,
- * ghostty_terminal_selection_contains() for hit testing, and
- * ghostty_terminal_set() with GHOSTTY_TERMINAL_OPT_SELECTION to make
- * a match the terminal's selection.
- *
- * Returned matches follow the usual snapshot lifetime rules: they are
- * only valid until the next operation that modifies the terminal,
- * including ghostty_terminal_vt_write(), resize, reset, and free.
- * Read matches after a feed, use them before the terminal changes
- * again, and re-read them rather than caching them. The selected
- * match is kept accurate internally across terminal changes, so the
- * safe way to follow a match is to re-read
- * GHOSTTY_SEARCH_DATA_SELECTED_MATCH after each feed.
- *
- * ## Lifetime
- *
- * The search borrows the terminal it was created with and never frees
- * it. Any number of searches, alongside other terminal readers such
- * as formatters and render states, may share one terminal.
- *
- * The search and its terminal can be freed in either order. Freeing
- * the search first releases tracked state it holds within the
- * terminal. If the terminal is freed first, the search detects this:
- * calls that need the terminal, and ghostty_search_tick(), return
- * GHOSTTY_INVALID_VALUE, reads
- * return whatever the search last saw, and ghostty_search_free()
- * releases only search-owned memory. A search cannot be rebound, so
- * searching another terminal means creating a new search.
- *
- * ## Threading
- *
- * The library creates no threads. Calls on one GhosttySearch are not
- * safe to make concurrently with each other, so the caller must
- * serialize them.
- *
- * Functions that touch the terminal (ghostty_search_new(),
- * ghostty_search_feed(), ghostty_search_run(), ghostty_search_set()
- * with the needle and select options, and ghostty_search_free()) must
- * also be serialized with all other access to the same terminal.
- *
- * Everything else (ghostty_search_tick(), ghostty_search_get(), and
- * ghostty_search_get_multi()) only touches memory owned by the search
- * and is safe to call while another thread modifies the terminal.
- * This split is how Ghostty runs search on a background thread: tick
- * freely, and take the terminal lock only to feed. Reading returned
- * match values is always safe, but passing them to APIs that take the
- * terminal follows the terminal serialization rule above.
+ * You need a terminal to search. For a one-shot search, ghostty_search_run()
+ * does all of the work. For a find bar over a lot of scrollback, you decide when
+ * the work happens.
  *
  * ## Example
  *
  * @snippet c-vt-search/src/main.c search-main
+ *
+ * Full program: @ref c-vt-search/src/main.c
+ *
+ * The @ref guide-search "Search guide" covers driving a search, reading
+ * matches, lifetime, and threads.
  *
  * @{
  */
@@ -146,7 +68,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
 /**
  * Scroll policy applied when a match becomes selected via
- * GHOSTTY_SEARCH_OPT_SELECT_NEXT or GHOSTTY_SEARCH_OPT_SELECT_PREV.
+ * ghostty_search_select_next() or ghostty_search_select_prev().
  *
  * @ingroup search
  */
@@ -174,8 +96,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * @ingroup search
  */
 typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Not a real data type. ghostty_search_get() returns GHOSTTY_INVALID_VALUE
+   * for it. Its value is 0, so a zeroed or uninitialized variable is never
+   * mistaken for a real data type.
+   */
+  GHOSTTY_SEARCH_DATA_INVALID = 0,
+
   /** Current search status: GhosttySearchStatus*. */
-  GHOSTTY_SEARCH_DATA_STATUS = 0,
+  GHOSTTY_SEARCH_DATA_STATUS = 1,
 
   /**
    * The needle this search is looking for: GhosttyString*. The bytes
@@ -183,13 +112,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * changed or the search is freed. Returns GHOSTTY_NO_VALUE when no
    * needle is set.
    */
-  GHOSTTY_SEARCH_DATA_NEEDLE = 1,
+  GHOSTTY_SEARCH_DATA_NEEDLE = 2,
 
   /**
    * Total matches found so far on the active screen: size_t*. Zero
    * until the first feed.
    */
-  GHOSTTY_SEARCH_DATA_TOTAL_MATCHES = 2,
+  GHOSTTY_SEARCH_DATA_TOTAL_MATCHES = 3,
 
   /**
    * Index of the selected match: size_t*. This indexes the newest to
@@ -198,14 +127,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * GHOSTTY_SEARCH_DATA_TOTAL_MATCHES. Returns GHOSTTY_NO_VALUE when
    * nothing is selected.
    */
-  GHOSTTY_SEARCH_DATA_SELECTED_INDEX = 3,
+  GHOSTTY_SEARCH_DATA_SELECTED_INDEX = 4,
 
   /**
    * The selected match: GhosttySelection*. This is an untracked
    * snapshot with standard GhosttySelection lifetime rules. Returns
    * GHOSTTY_NO_VALUE when nothing is selected.
    */
-  GHOSTTY_SEARCH_DATA_SELECTED_MATCH = 4,
+  GHOSTTY_SEARCH_DATA_SELECTED_MATCH = 5,
 
   /**
    * All matches on the active screen, ordered newest to oldest, from
@@ -214,7 +143,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * required capacity. An undersized buffer returns
    * GHOSTTY_OUT_OF_SPACE with the required capacity in len.
    */
-  GHOSTTY_SEARCH_DATA_MATCHES = 5,
+  GHOSTTY_SEARCH_DATA_MATCHES = 6,
 
   /**
    * Matches on the pages covering the viewport, for drawing highlight
@@ -230,10 +159,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * matches that fail the conversion or whose row is beyond the
    * visible row count.
    */
-  GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES = 6,
+  GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES = 7,
 
   /** Current scroll policy: GhosttySearchScroll*. */
-  GHOSTTY_SEARCH_DATA_SELECT_SCROLL = 7,
+  GHOSTTY_SEARCH_DATA_SELECT_SCROLL = 8,
 
   GHOSTTY_SEARCH_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySearchData;
@@ -246,8 +175,15 @@ typedef enum GHOSTTY_ENUM_TYPED {
  */
 typedef enum GHOSTTY_ENUM_TYPED {
   /**
+   * Not a real option. ghostty_search_set() returns GHOSTTY_INVALID_VALUE for
+   * it. Its value is 0, so a zeroed or uninitialized variable is never
+   * mistaken for a real option.
+   */
+  GHOSTTY_SEARCH_OPT_INVALID = 0,
+
+  /**
    * Set the needle to search for: const GhosttyString*. The bytes are
-   * copied, so the caller's memory does not need to outlive the call.
+   * copied, so your memory does not need to outlive the call.
    * Matching is byte-exact except ASCII letters, which compare
    * case-insensitively.
    *
@@ -258,43 +194,20 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * the needle and returns the search to idle.
    *
    * Replacing or clearing a needle releases tracked state held
-   * within the terminal, so the caller must serialize this with all
+   * within the terminal, so you must serialize this with all
    * other access to the same terminal. Returns GHOSTTY_INVALID_VALUE
    * after the terminal was freed.
    */
-  GHOSTTY_SEARCH_OPT_NEEDLE = 0,
+  GHOSTTY_SEARCH_OPT_NEEDLE = 1,
 
   /**
-   * Select the next match, moving toward older content: from the
-   * bottom of the screen upward into history, the direction a search
-   * from the prompt usually wants. Wraps around past the oldest
-   * match.
-   *
-   * The value must be NULL. It is reserved for future use.
-   *
-   * This catches up with the terminal first, so it is safe to call at
-   * any time relative to feeds. The viewport scrolls to the newly
-   * selected match according to GHOSTTY_SEARCH_OPT_SELECT_SCROLL.
-   * This reads the terminal, so the caller must serialize it with all
-   * other access to the same terminal. Returns GHOSTTY_NO_VALUE when
-   * there are no matches.
+   * Set the scroll policy applied by ghostty_search_select_next() and
+   * ghostty_search_select_prev(): const GhosttySearchScroll*. The
+   * policy persists until changed. A NULL value resets it to
+   * GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only modifies search-owned
+   * state and never reads the terminal.
    */
-  GHOSTTY_SEARCH_OPT_SELECT_NEXT = 1,
-
-  /**
-   * Select the previous match, moving toward newer content, wrapping
-   * around past the newest match. Otherwise identical to
-   * GHOSTTY_SEARCH_OPT_SELECT_NEXT.
-   */
-  GHOSTTY_SEARCH_OPT_SELECT_PREV = 2,
-
-  /**
-   * Set the scroll policy applied by the select options: const
-   * GhosttySearchScroll*. The policy persists until changed. A NULL
-   * value resets it to GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only
-   * modifies search-owned state and never reads the terminal.
-   */
-  GHOSTTY_SEARCH_OPT_SELECT_SCROLL = 3,
+  GHOSTTY_SEARCH_OPT_SELECT_SCROLL = 4,
 
   GHOSTTY_SEARCH_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySearchOption;
@@ -311,7 +224,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
  *
  * Creation is cheap and does not read terminal contents, but it
  * registers the search with the terminal so the two can be freed in
- * any order. The caller must serialize this call with all other
+ * any order. You must serialize this call with all other
  * access to the same terminal.
  *
  * @param allocator Allocator, or NULL for the default allocator
@@ -332,7 +245,7 @@ GHOSTTY_API GhosttyResult ghostty_search_new(
  * Free a search.
  *
  * If the bound terminal is still alive, this releases tracked state
- * the search holds within it, so the caller must serialize this call
+ * the search holds within it, so you must serialize this call
  * with all other access to the same terminal. If the terminal was
  * already freed, the search has been detached and this releases only
  * search-owned memory. Passing NULL is allowed and is a no-op.
@@ -375,7 +288,7 @@ GHOSTTY_API GhosttyResult ghostty_search_tick(
  * learns about terminal changes, so keep feeding periodically while
  * the search is in use, even after it reports complete.
  *
- * This reads the terminal, so the caller must serialize it with all
+ * This reads the terminal, so you must serialize it with all
  * other access to the same terminal. Each call does a bounded amount
  * of work so that any caller-held terminal lock is held only briefly.
  *
@@ -397,7 +310,7 @@ GHOSTTY_API GhosttyResult ghostty_search_feed(GhosttySearch search);
  * scrollback can take a while, so interactive embedders should drive
  * ghostty_search_tick() and ghostty_search_feed() themselves.
  *
- * This reads the terminal for the entire call, so the caller must
+ * This reads the terminal for the entire call, so you must
  * serialize it with all other access to the same terminal.
  *
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
@@ -409,23 +322,78 @@ GHOSTTY_API GhosttyResult ghostty_search_feed(GhosttySearch search);
 GHOSTTY_API GhosttyResult ghostty_search_run(GhosttySearch search);
 
 /**
+ * Select the next match, moving toward older content.
+ *
+ * "Next" goes from the bottom of the screen upward into history, the
+ * direction a search from the prompt usually wants. After the oldest
+ * match, selection wraps around to the newest one.
+ *
+ * You can call this at any time, even if the terminal changed since the
+ * last feed, because it first brings the search up to date with the
+ * terminal. The viewport then scrolls to the selected match as set by
+ * GHOSTTY_SEARCH_OPT_SELECT_SCROLL. This reads the terminal, so
+ * you must serialize it with all other access to the same terminal.
+ *
+ * A find bar typically calls this when the user presses Enter, then reads
+ * the selected match to highlight it:
+ *
+ * @code{.c}
+ * if (ghostty_search_select_next(search) == GHOSTTY_SUCCESS) {
+ *   GhosttySelection match = {0};
+ *   ghostty_search_get(search, GHOSTTY_SEARCH_DATA_SELECTED_MATCH, &match);
+ *   // Highlight `match` and show its position in the find bar.
+ * }
+ * @endcode
+ *
+ * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS if a match is now selected, GHOSTTY_NO_VALUE if
+ *         there are no matches, GHOSTTY_OUT_OF_MEMORY if allocation fails,
+ *         or GHOSTTY_INVALID_VALUE if `search` is NULL or the terminal was
+ *         freed
+ *
+ * @ingroup search
+ */
+GHOSTTY_API GhosttyResult ghostty_search_select_next(GhosttySearch search);
+
+/**
+ * Select the previous match, moving toward newer content.
+ *
+ * This is the opposite direction of ghostty_search_select_next(). After
+ * the newest match, selection wraps around to the oldest one. Everything
+ * else, including scrolling and thread safety, works the same as
+ * ghostty_search_select_next().
+ *
+ * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS if a match is now selected, GHOSTTY_NO_VALUE if
+ *         there are no matches, GHOSTTY_OUT_OF_MEMORY if allocation fails,
+ *         or GHOSTTY_INVALID_VALUE if `search` is NULL or the terminal was
+ *         freed
+ *
+ * @ingroup search
+ */
+GHOSTTY_API GhosttyResult ghostty_search_select_prev(GhosttySearch search);
+
+/**
  * Write an option to a search.
  *
  * The value type, and what a NULL value means, depends on the option
- * and is documented by GhosttySearchOption. The needle and select
- * options touch the terminal, so the caller must serialize those
- * calls with all other access to the same terminal.
- * GHOSTTY_SEARCH_OPT_SELECT_SCROLL only modifies search-owned state.
+ * and is documented by GhosttySearchOption. GHOSTTY_SEARCH_OPT_NEEDLE
+ * touches the terminal, so you must serialize it with all other
+ * access to the same terminal. GHOSTTY_SEARCH_OPT_SELECT_SCROLL only
+ * modifies search-owned state.
+ *
+ * To move between matches, use ghostty_search_select_next() and
+ * ghostty_search_select_prev().
  *
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param option Option to write
  * @param value Pointer to the input value for the option. The meaning
  *              of NULL is documented per option.
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a select
- *         option found no matches, GHOSTTY_OUT_OF_MEMORY if
- *         allocation fails, or GHOSTTY_INVALID_VALUE if search,
- *         option, or value is invalid or the option needs a terminal
- *         that was already freed
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY if allocation
+ *         fails, GHOSTTY_INVALID_VALUE if `search` or `value` is invalid or the
+ *         option needs a terminal that was already freed, or
+ *         GHOSTTY_UNSUPPORTED if `option` is not known to this version of the
+ *         library
  *
  * @ingroup search
  */
@@ -446,12 +414,13 @@ GHOSTTY_API GhosttyResult ghostty_search_set(
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param data Data field to read
  * @param value Output pointer whose type depends on data
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the
- *         requested data has no value, GHOSTTY_OUT_OF_SPACE if a
- *         provided GhosttySelectionBuffer is too small (required
- *         capacity in its len), GHOSTTY_OUT_OF_MEMORY if collecting
- *         viewport matches fails, or GHOSTTY_INVALID_VALUE if search,
- *         data, or value is invalid
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the requested data
+ *         has no value, GHOSTTY_OUT_OF_SPACE if a provided
+ *         GhosttySelectionBuffer is too small (required capacity in its len),
+ *         GHOSTTY_OUT_OF_MEMORY if collecting viewport matches fails,
+ *         GHOSTTY_INVALID_VALUE if `search` or `value` is invalid, or
+ *         GHOSTTY_UNSUPPORTED if `data` is not known to this version of the
+ *         library
  *
  * @ingroup search
  */
@@ -463,8 +432,13 @@ GHOSTTY_API GhosttyResult ghostty_search_get(
 /**
  * Read multiple data fields from a search in a single call.
  *
- * This is an optimization over calling ghostty_search_get() multiple
- * times. Each entry in values must point to storage of the type
+ * Use this when each call into the library is expensive, for example from
+ * WebAssembly or from another language through its foreign function
+ * interface. It reads every key in one call. From C in the same process it
+ * costs the same as calling ghostty_search_get() once per key, so use
+ * whichever reads better.
+ *
+ * Each entry in values must point to storage of the type
  * documented by the corresponding GhosttySearchData key.
  *
  * If any individual read fails, the function returns that error and
@@ -477,12 +451,13 @@ GHOSTTY_API GhosttyResult ghostty_search_get(
  *
  * @param search Search handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param count Number of data fields to read
- * @param keys Data fields to read (must not be NULL)
- * @param values Output pointers corresponding to keys (must not be NULL)
+ * @param keys Data fields to read (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param values Output pointers corresponding to keys (NULL returns GHOSTTY_INVALID_VALUE)
  * @param out_written Optional number of fields read, or failing index
  *                    on error
- * @return GHOSTTY_SUCCESS on success, or the first failing read's
- *         result
+ * @return GHOSTTY_SUCCESS if every key succeeds. Otherwise the result of the
+ *         first key that failed, for example GHOSTTY_UNSUPPORTED for a key
+ *         that is not known to this version of the library.
  *
  * @ingroup search
  */

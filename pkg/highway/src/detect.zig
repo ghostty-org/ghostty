@@ -20,7 +20,11 @@ const loongarch = @import("detect/loongarch.zig");
 /// This version uses only inline assembly (CPUID on x86, MRS on AArch64)
 /// and lightweight syscalls (sysctlbyname on Darwin, getauxval on Linux),
 /// so it adds no data tables and no std.Target dependency.
-pub export fn ghostty_hwy_detect_targets() callconv(.c) i64 {
+///
+/// This is exported as `ghostty_hwy_detect_targets` for our patched
+/// targets.cpp to call. The symbol is hidden so that shared libraries that
+/// include this don't export it.
+fn detectTargets() callconv(.c) i64 {
     return switch (builtin.target.cpu.arch) {
         .x86_64, .x86 => x86.detect(),
         .aarch64, .aarch64_be => detectAarch64(),
@@ -30,6 +34,13 @@ pub export fn ghostty_hwy_detect_targets() callconv(.c) i64 {
         .loongarch32, .loongarch64 => loongarch.detect(),
         else => 0,
     };
+}
+
+comptime {
+    @export(&detectTargets, .{
+        .name = "ghostty_hwy_detect_targets",
+        .visibility = .hidden,
+    });
 }
 
 fn detectAarch64() i64 {

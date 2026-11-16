@@ -1,9 +1,8 @@
 # Example: VT Stream Processing in C++
 
-This contains a simple example of how to use `ghostty_terminal_vt_write`
-to parse and process VT sequences in C++. This is a simplified C++ port
-of the `c-vt-stream` example that verifies libghostty compiles in C++
-mode.
+Parse and process VT sequences in C++ with `ghostty_terminal_vt_write`. This
+is a simplified C++ port of the `c-vt-stream` example that verifies
+libghostty compiles in C++ mode.
 
 > [!IMPORTANT]
 >

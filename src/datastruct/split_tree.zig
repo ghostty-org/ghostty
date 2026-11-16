@@ -261,6 +261,9 @@ pub fn SplitTree(comptime V: type) type {
         /// Goto a view from a certain point in the split tree. Returns null
         /// if the direction results in no visitable view.
         ///
+        /// `from` must be a valid handle in this tree, so the tree must
+        /// not be empty.
+        ///
         /// Allocator is only used for temporary state for spatial navigation.
         pub fn goto(
             self: *const Self,
@@ -268,6 +271,8 @@ pub fn SplitTree(comptime V: type) type {
             from: Node.Handle,
             to: Goto,
         ) Allocator.Error!?Node.Handle {
+            assert(from.idx() < self.nodes.len);
+
             return switch (to) {
                 .previous => self.previous(from),
                 .next => self.next(from),

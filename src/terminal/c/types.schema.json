@@ -130,12 +130,113 @@
               "const": "array"
             },
             "elem": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/typeReference"
+                },
+                {
+                  "$ref": "#/$defs/pointerElement"
+                }
+              ]
+            },
+            "count": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "pointerElement": {
+      "description": "An array element that is a pointer, such as the reserved slots of GhosttyAllocatorVtable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "elem", "const"],
+      "properties": {
+        "type": {
+          "const": "pointer"
+        },
+        "elem": {
+          "$ref": "#/$defs/typeReference"
+        },
+        "const": {
+          "type": "boolean"
+        },
+        "nullable": {
+          "const": true
+        }
+      }
+    },
+    "valueType": {
+      "description": "The type of a key's value or of a callback parameter. It uses the same type reference forms as a struct field, without offset and size.",
+      "oneOf": [
+        {
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/typeReference"
+            }
+          }
+        },
+        {
+          "required": ["type", "elem", "count"],
+          "properties": {
+            "type": {
+              "const": "array"
+            },
+            "elem": {
               "$ref": "#/$defs/typeReference"
             },
             "count": {
               "$ref": "#/$defs/nonNegativeInteger"
             }
           }
+        },
+        {
+          "required": ["type", "elem", "const"],
+          "properties": {
+            "type": {
+              "const": "pointer"
+            },
+            "elem": {
+              "$ref": "#/$defs/typeReference"
+            },
+            "const": {
+              "type": "boolean"
+            },
+            "nullable": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "key": {
+      "description": "One key of a key enum. direction is \"out\" for a key the library writes and \"in\" for a key the library reads. The key's void * value points at a value of the given type. A key whose type names a callback takes the function pointer itself instead.",
+      "allOf": [
+        {
+          "type": "object",
+          "required": ["direction"],
+          "properties": {
+            "direction": {
+              "enum": ["in", "out"]
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/valueType"
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "callbackParam": {
+      "description": "A callback parameter or return type.",
+      "allOf": [
+        {
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/valueType"
         }
       ],
       "unevaluatedProperties": false
@@ -417,6 +518,17 @@
               "additionalProperties": {
                 "type": "integer"
               }
+            },
+            "keys": {
+              "description": "Present on key enums, the enums that a _get, _set or _get_multi function takes to pick a value. Each entry is named like its entry in values. INVALID and the sentinel are left out.",
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/key"
+              }
             }
           }
         }
@@ -480,6 +592,32 @@
       ],
       "unevaluatedProperties": false
     },
+    "callbackDescriptor": {
+      "description": "A function pointer typedef, such as GhosttyTerminalBellFn. size and align are those of the function pointer. params lists the parameter types in order, and return is the return type, which is \"void\" when there is none.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/descriptorBase"
+        },
+        {
+          "required": ["params", "return"],
+          "properties": {
+            "kind": {
+              "const": "callback"
+            },
+            "params": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/callbackParam"
+              }
+            },
+            "return": {
+              "$ref": "#/$defs/callbackParam"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
     "typeDescriptor": {
       "oneOf": [
         {
@@ -499,6 +637,9 @@
         },
         {
           "$ref": "#/$defs/opaqueDescriptor"
+        },
+        {
+          "$ref": "#/$defs/callbackDescriptor"
         }
       ]
     }

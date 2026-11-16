@@ -24,14 +24,14 @@ extension Array {
 
 extension Array where Element == String {
     /// Executes a closure with an array of C string pointers.
-    func withCStrings<T>(_ body: ([UnsafePointer<Int8>?]) throws -> T) rethrows -> T {
+    func withCStrings<T>(_ body: ([UnsafePointer<Int8>]) throws -> T) rethrows -> T {
         // Handle empty array
         if isEmpty {
             return try body([])
         }
 
         // Recursive helper to process strings
-        func helper(index: Int, accumulated: [UnsafePointer<Int8>?], body: ([UnsafePointer<Int8>?]) throws -> T) rethrows -> T {
+        func helper(index: Int, accumulated: [UnsafePointer<Int8>], body: ([UnsafePointer<Int8>]) throws -> T) rethrows -> T {
             if index == count {
                 return try body(accumulated)
             }

@@ -139,6 +139,10 @@ pub const Options = struct {
 ///      are cached (see `ghostty +ssh-cache`), so later connections to the
 ///      same host skip this step.
 ///
+/// SSH authentication messages remain visible during setup, including
+/// keyboard-interactive prompts and instructions. Remote installer stderr
+/// stays quiet unless `--verbose` is enabled.
+///
 /// When either flag is enabled, `+ssh` also sets `TERM` for the remote
 /// session:
 ///
@@ -548,18 +552,16 @@ fn installRemoteTerminfo(
         .{control_path},
     );
 
-    // Under --verbose, let remote stderr through (the `tic` step is
-    // the most common failure source) and inherit ssh's stderr so it
-    // reaches the user's terminal. Other steps stay quiet either way.
+    // Keep SSH authentication messages visible, including keyboard-interactive
+    // instructions while stdin carries terminfo. Only remote installer stderr
+    // is suppressed unless --verbose.
+    //
+    // The remote login shell may not be POSIX (e.g. tcsh, nushell, elvish),
+    // so run under sh. Use a single line to avoid quoting+newline issues.
     const remote_script = if (opts.verbose)
-        \\command -v tic >/dev/null 2>&1 || exit 1
-        \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - && exit 0
-        \\exit 1
+        "sh -c 'tic -x -o ~/.terminfo - && infocmp -x xterm-ghostty >/dev/null'"
     else
-        \\command -v tic >/dev/null 2>&1 || exit 1
-        \\mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
-        \\exit 1
-    ;
+        "sh -c 'tic -x -o ~/.terminfo - 2>/dev/null && infocmp -x xterm-ghostty >/dev/null 2>&1'";
 
     // Set up an SSH ControlMaster scoped to this single install:
     //   - ControlMaster=yes makes our client also act as the master.
@@ -581,7 +583,7 @@ fn installRemoteTerminfo(
         .argv = argv,
         .stdin = .pipe,
         .stdout = .ignore,
-        .stderr = if (opts.verbose) .inherit else .ignore,
+        .stderr = .inherit,
     }) catch |err| {
         log.warn("terminfo install spawn failed: {}", .{err});
         return error.InstallFailed;

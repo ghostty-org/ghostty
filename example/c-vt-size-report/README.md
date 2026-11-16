@@ -1,7 +1,7 @@
 # Example: `ghostty-vt` Size Report Encoding
 
-This contains a simple example of how to use the `ghostty-vt` size report
-encoding API to encode terminal size reports into escape sequences.
+Encode terminal size reports into escape sequences with the `ghostty-vt`
+size report encoding API.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

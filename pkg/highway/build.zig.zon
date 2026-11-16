@@ -14,4 +14,9 @@
         .android_ndk = .{ .path = "../android-ndk" },
         .apple_sdk = .{ .path = "../apple-sdk" },
     },
+    // The license and version of the third-party code above, for
+    // packagers. Zig ignores this field. See src/build/LibVtPackages.zig.
+    .third_party = .{
+        .{ .name = "highway", .license = "Apache-2.0 OR BSD-3-Clause", .version = "1.2.0" },
+    },
 }
