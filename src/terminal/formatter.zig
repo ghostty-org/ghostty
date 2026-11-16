@@ -736,13 +736,15 @@ pub const ScreenFormatter = struct {
                 // Emit our pagelist contents according to our selection.
                 var list_formatter: PageListFormatter = .init(&self.screen.pages, self.opts);
                 list_formatter.pin_map = self.pin_map;
-                list_formatter.save_cursor = self.saveCursorPin();
-                list_formatter.cursor_saved = cursor_saved;
                 if (selection_) |sel| {
                     list_formatter.top_left = sel.topLeft(self.screen);
                     list_formatter.bottom_right = sel.bottomRight(self.screen);
                     list_formatter.rectangle = sel.rectangle;
                 }
+                list_formatter.save_cursor = self.saveCursorPin(
+                    list_formatter.top_left orelse self.screen.pages.getTopLeft(.screen),
+                );
+                list_formatter.cursor_saved = cursor_saved;
                 try list_formatter.format(writer);
             },
         }
@@ -950,7 +952,13 @@ pub const ScreenFormatter = struct {
     /// This replaces the saved cursor, which the formatter does not emit.
     /// The contents only leave a wrap pending at the last column, so a wrap
     /// pending at a right margin is restored by printing the cell again.
-    fn saveCursorPin(self: ScreenFormatter) ?Pin {
+    ///
+    /// The saved cursor stays on the screen row it was saved on while later
+    /// rows scroll the screen, so it is only saved if that is the cursor's
+    /// row. The contents start at the top-left (`top_left`) and each row
+    /// takes one screen row, so this is when they don't scroll before the
+    /// cursor's row, or reach it on the bottom row, where nothing follows.
+    fn saveCursorPin(self: ScreenFormatter, top_left: Pin) ?Pin {
         if (self.opts.emit != .vt) return null;
         if (self.cursor_saved == null and !self.extra.cursor) return null;
 
@@ -959,6 +967,12 @@ pub const ScreenFormatter = struct {
         const last_column = self.screen.pages.cols - 1;
         if (cursor.x != last_column) return null;
         if ((self.wrap_column orelse last_column) != last_column) return null;
+
+        const pages = &self.screen.pages;
+        const top_y = (pages.pointFromPin(.screen, top_left) orelse return null).screen.y;
+        const cursor_y = (pages.pointFromPin(.screen, cursor.page_pin.*) orelse return null).screen.y;
+        if (cursor_y < top_y) return null;
+        if (@min(cursor_y - top_y, pages.rows - 1) != cursor.y) return null;
         return cursor.page_pin.*;
     }
 };
@@ -6004,6 +6018,117 @@ test "Terminal vt cursor preserves pending wrap in a hyperlink" {
     );
     defer alloc.free(target_contents);
     try testing.expectEqualStrings(source_contents, target_contents);
+}
+test "Terminal vt cursor restores pending wrap in a hyperlink above scrolled rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer source.deinit(alloc);
+
+    // A row of scrollback, then a hyperlink without an explicit id fills
+    // the first row of the screen, leaving a pending wrap on its last
+    // cell, with text on the rows below.
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("1\r\n2\r\n3\r\nend\x1b[2;1Hbelow\x1b[1;1H" ++
+        "\x1b]8;;https://example.com\x1b\\abcdef\x1b]8;;\x1b\\");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, source.screens.active.cursor.x);
+    try testing.expectEqual(0, source.screens.active.cursor.y);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    try formatter.format(&builder.writer);
+
+    // The rows after the cursor's scroll the screen, which would leave a
+    // cursor saved on its row one row too low, so the cell is printed
+    // again instead.
+    try testing.expect(std.mem.indexOf(u8, builder.writer.buffered(), "\x1b7") == null);
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expect(target.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, target.screens.active.cursor.x);
+    try testing.expectEqual(0, target.screens.active.cursor.y);
+}
+
+test "Terminal vt cursor preserves pending wrap in a hyperlink on the bottom row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer source.deinit(alloc);
+
+    // A row of scrollback, then a hyperlink without an explicit id fills
+    // the bottom row, leaving a pending wrap on its last cell.
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("1\r\n2\r\n3\r\n" ++
+        "\x1b]8;;https://example.com\x1b\\abcdef\x1b]8;;\x1b\\");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, source.screens.active.cursor.x);
+    try testing.expectEqual(2, source.screens.active.cursor.y);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    try formatter.format(&builder.writer);
+
+    // The contents scroll before they reach the bottom row and nothing
+    // follows it, so the cursor saved there stays on its row.
+    try testing.expectEqualStrings(
+        "1\r\n2\r\n3\r\n\x1b]8;;https://example.com\x1b\\abcdef\x1b7" ++
+            "\x1b]8;;\x1b\\\x1b8",
+        builder.writer.buffered(),
+    );
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expect(target.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, target.screens.active.cursor.x);
+    try testing.expectEqual(2, target.screens.active.cursor.y);
+
+    // The whole row is still one hyperlink.
+    const pages = &target.screens.active.pages;
+    const first = pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
+    const last = pages.getCell(.{ .active = .{ .x = 5, .y = 2 } }).?;
+    try testing.expect(last.cell.hyperlink);
+    try testing.expectEqual(
+        first.node.page().lookupHyperlink(first.cell).?,
+        last.node.page().lookupHyperlink(last.cell).?,
+    );
 }
 
 test "Terminal vt cursor preserves pending wrap after a wide character" {
