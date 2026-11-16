@@ -94,6 +94,7 @@ clemg
 clinta
 cmwetherell
 complexsplit
+craig-b
 crayxt
 craziestowl
 -creativision meatproxying
