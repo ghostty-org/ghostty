@@ -113,6 +113,7 @@ dariogriffo
 database64128
 dave92082
 davey-hughes
+davidbrochart
 davidhodge
 -davidpmclaughlin Refusing to follow AI policy and exhibit good faith behavior
 davidsanchez222
