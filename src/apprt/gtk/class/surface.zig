@@ -1303,7 +1303,12 @@ pub const Surface = extern struct {
             // were composing because different input methods call the callbacks
             // in different orders. For example, ibus calls commit THEN preedit
             // end but simple calls preedit end THEN commit.
-            priv.in_keyevent = if (priv.im_composing) .composing else .not_composing;
+            priv.in_keyevent = if (action == .release)
+                .release
+            else if (priv.im_composing)
+                .composing
+            else
+                .not_composing;
             defer priv.in_keyevent = .false;
 
             // Pass the event through the input method which returns true if handled.
@@ -3366,6 +3371,12 @@ pub const Surface = extern struct {
             // and we don't want to encode it alongside the keypress.
             .composing => {},
 
+            // An IME can commit on modifier release (for example, fcitx
+            // switching to English with Shift), even without client preedit.
+            // Send this text independently of the key: release events don't
+            // encode text and would otherwise discard the commit.
+            .release => {},
+
             // If we're not composing then this commit is just a normal
             // key encoding and we want our key event to handle it so
             // that Ghostty can be aware of the key event alongside
@@ -3385,8 +3396,8 @@ pub const Surface = extern struct {
             },
         }
 
-        // If we reach this point from above it means we're composing OR
-        // not in a keypress. In either case, we want to commit the text
+        // If we reach this point from above it means we're composing, handling
+        // a key release, or not in a key event. We want to commit the text
         // given to us because that's what GTK is asking us to do. If we're
         // not in a keypress it means that this commit came via a non-keyboard
         // event (i.e. on-screen keyboard, tablet of some kind, etc.).
@@ -4083,10 +4094,14 @@ fn logWarnOnce(comptime format: []const u8, args: anytype) void {
 }
 
 /// The state of the key event while we're doing IM composition.
-/// See gtkKeyPressed for detailed descriptions.
+/// See Surface.keyEvent for detailed descriptions.
 pub const IMKeyEvent = enum {
     /// Not in a key event.
     false,
+
+    /// In a key release. Commits must be sent as independent text even if
+    /// client preedit is disabled and we never entered the composing state.
+    release,
 
     /// In a key event but im_composing was either true or false
     /// prior to the calling IME processing. This is important to
