@@ -1195,10 +1195,11 @@ extension Ghostty {
             // `NSInputContext.handleEvent(_:)` may dispatch it.
             self.lastPerformKeyEvent = nil
 
+            // If we're composing, we pass the original event to IME
+            let handled = inputContext?.handleEvent(markedTextBefore ? event : translationEvent) ?? false
+
             // I haven't seen a case where handleEvent returns false, but we still use it here so
             // we can identify some unknown issues in the future.
-            let handled = inputContext?.handleEvent(translationEvent) ?? false
-
             let input = KeyDownTextInput(
                 handledByIME: handled,
                 insertedTexts: keyTextAccumulator ?? [],
