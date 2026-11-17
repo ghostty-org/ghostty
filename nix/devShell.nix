@@ -12,6 +12,7 @@
   #, glxinfo # unused
   ncurses,
   nodejs,
+  emscripten,
   prettier,
   oniguruma,
   parallel,
@@ -169,6 +170,9 @@ in
         # My nix shell environment installs the non-interactive version
         # by default so we have to include this.
         bashInteractive
+
+        # Test libghostty-vt embedded in a host-managed Wasm heap.
+        emscripten
 
         # Used for testing SIMD codegen. This is Linux only because the macOS
         # build only has the qemu-system files.

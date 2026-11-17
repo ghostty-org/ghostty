@@ -443,6 +443,35 @@ zip but isn't run, so it stays Tier 2.
 
 ## WebAssembly
 
+### Emscripten
+
+To embed libghostty-vt in an Emscripten application, build a static archive:
+
+```sh
+zig build -Demit-lib-vt -Dtarget=wasm32-emscripten -Dcpu=baseline \
+  -Dsimd=false -Doptimize=fast
+emcc app.c -Izig-out/include zig-out/lib/libghostty-vt.a -o app.js
+```
+
+This installs `lib/libghostty-vt.a` and the C headers rather than a standalone
+Wasm module. Link the archive with `emcc`, either into the application or an
+Emscripten side module. Allocations use the host's libc heap by default;
+terminal pages also honor a caller-provided `GhosttyAllocator`. Page memory
+is cleared before initialization because host allocations may contain old data.
+The embedding application manages threading. When linking a Debug archive,
+pass `-sUSE_OFFSET_CONVERTER=1` to `emcc` to support the return addresses
+used by Zig's allocator diagnostics, and allow enough stack space (for example,
+`-sSTACK_SIZE=1048576`).
+
+On Linux, with Emscripten and Node.js installed, run the static and dynamic linking
+regression tests with:
+
+```sh
+bash .github/scripts/check-emscripten-libghostty-vt.sh zig-out
+```
+
+### Standalone WebAssembly
+
 libghostty-vt can be built for WebAssembly for use in browsers and other
 wasm runtimes:
 

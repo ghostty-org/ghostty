@@ -181,14 +181,16 @@ pub fn build(b: *std.Build) !void {
     const install_lib_vt = config.emit_lib_vt or config.is_dep;
     const native_freestanding = config.target.result.os.tag == .freestanding and
         !config.target.result.cpu.arch.isWasm();
+    // Emscripten embeds the static archive into a host-managed Wasm module.
+    const static_only = native_freestanding or config.target.result.os.tag == .emscripten;
     const libghostty_vt_shared: ?buildpkg.GhosttyLibVt = shared: {
+        if (static_only) break :shared null;
         if (config.target.result.cpu.arch.isWasm()) {
             break :shared try buildpkg.GhosttyLibVt.initWasm(
                 b,
                 &mod,
             );
         }
-        if (native_freestanding) break :shared null;
 
         break :shared try buildpkg.GhosttyLibVt.initShared(
             b,
@@ -207,7 +209,7 @@ pub fn build(b: *std.Build) !void {
 
         shared.addAbiCheck(b, config.target.result, test_lib_vt_abi_step, update_lib_vt_abi_step);
     } else {
-        _ = b.addFail("cannot execute the ABI manifest for a native freestanding target");
+        _ = b.addFail("cannot execute the ABI manifest for a static-only target");
     }
 
     // The packages libghostty-vt uses, for gen-lib-vt-deps.sh. Defined
@@ -237,7 +239,7 @@ pub fn build(b: *std.Build) !void {
             static_lib_name,
         ).step);
 
-        if (native_freestanding) {
+        if (static_only) {
             b.getInstallStep().dependOn(&b.addInstallDirectory(.{
                 .source_dir = b.path("include/ghostty"),
                 .install_dir = .header,
