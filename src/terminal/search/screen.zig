@@ -398,8 +398,25 @@ pub const ScreenSearch = struct {
     }
 
     fn pruneHistory(self: *ScreenSearch) void {
-        if (self.history_results.items.len == 0) return;
         const alloc = self.allocator();
+
+        // Only a whole-list reset advances the epoch. Results are newest to
+        // oldest, so once one predates that reset the entire remaining suffix
+        // does too. Drop it before doing any work for the rest.
+        const epoch = self.screen.pages.page_serial_epoch;
+        for (self.history_results.items, 0..) |*hl, i| {
+            if (hl.chunks.slice().items(.serial)[0] >= epoch) continue;
+            if (self.selected) |*m| {
+                if (m.idx >= self.active_results.items.len + i) {
+                    m.deinit(self.screen);
+                    self.selected = null;
+                }
+            }
+            for (self.history_results.items[i..]) |*prune_hl| prune_hl.deinit(alloc);
+            self.history_results.shrinkAndFree(alloc, i);
+            break;
+        }
+        if (self.history_results.items.len == 0) return;
 
         // Collect the live pages once so validating every result is linear
         // in pages plus results. If that allocation fails, each result falls
@@ -407,41 +424,20 @@ pub const ScreenSearch = struct {
         var live: LivePages = .empty;
         defer live.deinit(alloc);
         const live_ptr: ?*const LivePages = live: {
-            const pages = self.screen.pages.totalPages();
-            live.ensureTotalCapacity(alloc, @intCast(pages)) catch break :live null;
+            const pages = std.math.cast(u32, self.screen.pages.totalPages()) orelse
+                break :live null;
+            live.ensureTotalCapacity(alloc, pages) catch break :live null;
             var it = self.screen.pages.pages.first;
             while (it) |node| : (it = node.next) live.putAssumeCapacity(node, node.serial);
             break :live &live;
         };
 
-        // Go through our history results in order (newest to oldest) to find
-        // any result that contains an invalid serial.
+        // Ordinary pruning, layout changes, and replacements do not advance
+        // the epoch. Validate each remaining result's pointer-plus-generation
+        // pairs against the live list.
         var i: usize = 0;
         while (i < self.history_results.items.len) {
             const hl = &self.history_results.items[i];
-            const chunks = hl.chunks.slice();
-            const serials = chunks.items(.serial);
-            const first_serial = serials[0];
-            if (first_serial < self.screen.pages.page_serial_epoch) {
-                // Only a whole-list reset advances the epoch. Results are
-                // newest to oldest, so this result and the entire remaining
-                // suffix predate that reset. Drop them without scanning the
-                // live page list for every captured chunk.
-                if (self.selected) |*m| {
-                    const first_pruned = self.active_results.items.len + i;
-                    if (m.idx >= first_pruned) {
-                        m.deinit(self.screen);
-                        self.selected = null;
-                    }
-                }
-                for (self.history_results.items[i..]) |*prune_hl| prune_hl.deinit(alloc);
-                self.history_results.shrinkAndFree(alloc, i);
-                return;
-            }
-
-            // Ordinary pruning, layout changes, and replacements do not
-            // advance the epoch. Validate their pointer-plus-generation pairs
-            // against the live list.
             if (self.historyResultIsValid(hl, live_ptr)) {
                 i += 1;
                 continue;
@@ -460,7 +456,7 @@ pub const ScreenSearch = struct {
             }
 
             var removed = self.history_results.orderedRemove(i);
-            removed.deinit(self.allocator());
+            removed.deinit(alloc);
         }
     }
 
