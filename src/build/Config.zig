@@ -34,6 +34,7 @@ sentry: bool = true,
 simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
+emscripten_threads: bool = false,
 
 /// Ghostty exe properties
 exe_entrypoint: ExeEntrypoint = .ghostty,
@@ -118,6 +119,11 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
     ) orelse (is_dep or
         // A libghostty-vt source tarball has LIB_VERSION but no VERSION.
         (versions.lib_file != null and versions.app_file == null));
+    const emscripten_threads = b.option(
+        bool,
+        "emscripten-threads",
+        "Build Emscripten archives for pthread hosts. Default: false.",
+    ) orelse false;
     const target = target: {
         var result = b.standardTargetOptions(.{});
 
@@ -158,6 +164,23 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
                 query.cpu_features_add.addFeature(
                     @backingInt(std.Target.wasm.Feature.simd128),
                 );
+            }
+            result = b.resolveTargetQuery(query);
+        }
+
+        if (emscripten_threads) {
+            if (result.result.os.tag != .emscripten) {
+                std.log.err("-Demscripten-threads requires an Emscripten target", .{});
+                return error.UnsupportedTarget;
+            }
+            var query = result.query;
+            for ([_]std.Target.wasm.Feature{ .atomics, .bulk_memory }) |feature| {
+                const index = @backingInt(feature);
+                if (query.cpu_features_sub.isEnabled(index)) {
+                    std.log.err("-Demscripten-threads requires the Wasm {s} feature", .{@tagName(feature)});
+                    return error.UnsupportedTarget;
+                }
+                query.cpu_features_add.addFeature(index);
             }
             result = b.resolveTargetQuery(query);
         }
@@ -207,6 +230,7 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
         .optimize = optimize,
         .target = target,
         .wasm_target = wasm_target,
+        .emscripten_threads = emscripten_threads,
         .is_dep = is_dep,
         .env = env,
     };

@@ -3,7 +3,9 @@
 Embed libghostty-vt in an Emscripten application, both statically linked and
 loaded with `dlopen`. The example exercises the default allocator and a custom
 allocator that returns dirty memory, then checks scrolling, resizing, and
-allocation cleanup.
+allocation cleanup. It also installs `ghostty_sys_log_stderr`, feeds an invalid
+terminal command, and checks the warning captured from stderr. Threaded runs
+verify logging from the main function and both pthreads.
 
 ## Usage
 
@@ -27,6 +29,20 @@ loading it dynamically. Temporary build products are removed on exit.
 Checks remain active when `NDEBUG` is defined; the script builds with
 `-DNDEBUG` to exercise this configuration.
 
-The Emscripten CI job runs this example with both optimized and Debug library
-builds. The script enables legacy return-address support when required by the SDK
-and a 1 MiB stack for Debug allocator diagnostics.
+For a pthread-enabled host, build and test with:
+
+```sh
+zig build -Demit-lib-vt -Dtarget=wasm32-emscripten -Demscripten-threads=true -Doptimize=fast
+bash example/c-vt-emscripten/run.sh zig-out --threads
+```
+
+This enables Wasm atomics and bulk memory and compiles the host with `-pthread`.
+Two pthreads exercise separate terminal instances with default and per-thread
+custom allocators. Emscripten currently marks dynamic linking with pthreads as
+experimental; the runner preserves that warning without treating it as an error.
+Global callbacks must be configured before starting threads;
+sharing a terminal between threads still requires caller synchronization.
+
+The Emscripten CI job runs threaded and single-threaded versions with both
+optimized and Debug library builds. The script enables legacy return-address
+support when required by the SDK and a 1 MiB stack for Debug allocator diagnostics.

@@ -165,9 +165,9 @@ fn initVt(
         // don't need libcpp. System-provided simdutf headers still
         // use C++ stdlib headers, so we need libcpp in that case.
         // Emscripten owns the shared linear-memory heap. Use its libc
-        // allocator and let the host manage threading.
+        // allocator and match the host's threading configuration.
         .link_libc = if (cfg.simd or cfg.target.result.os.tag == .emscripten) true else null,
-        .single_threaded = if (cfg.target.result.os.tag == .emscripten) true else null,
+        .single_threaded = if (cfg.target.result.os.tag == .emscripten) !cfg.emscripten_threads else null,
         .link_libcpp = if (cfg.simd and
             b.systemIntegrationOption("simdutf", .{}) and
             cfg.target.result.abi != .msvc) true else null,

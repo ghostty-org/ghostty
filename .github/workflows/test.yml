@@ -963,10 +963,15 @@ jobs:
       - name: Test Emscripten embedding
         run: |
           for optimize in fast Debug; do
-            nix develop .#emscripten -c zig build -Demit-lib-vt \
-              -Dtarget=wasm32-emscripten \
-              -Doptimize="$optimize" --prefix zig-out/emscripten
-            nix develop .#emscripten -c bash example/c-vt-emscripten/run.sh zig-out/emscripten
+            for threads in false true; do
+              flags=()
+              if [[ "$threads" == true ]]; then flags+=(--threads); fi
+              nix develop .#emscripten -c zig build -Demit-lib-vt \
+                -Dtarget=wasm32-emscripten -Demscripten-threads="$threads" \
+                -Doptimize="$optimize" --prefix zig-out/emscripten
+              nix develop .#emscripten -c bash example/c-vt-emscripten/run.sh \
+                zig-out/emscripten "${flags[@]}"
+            done
           done
 
       - name: Build fast WASM

@@ -414,15 +414,36 @@ comptime {
     }
 }
 
+/// Keep std's internal allocations in the host heap as well. Its default
+/// Wasm page allocator grows linear memory directly and does not support
+/// threaded builds; neither behavior is suitable for Emscripten embedding.
+pub const os = if (builtin.target.os.tag == .emscripten) struct {
+    pub const heap = struct {
+        pub const page_allocator = std.heap.c_allocator;
+    };
+} else struct {};
+
+/// Use a thread-safe allocator for diagnostics instead of std's global arena.
+pub const debug = if (builtin.target.os.tag == .emscripten) struct {
+    pub fn getDebugInfoAllocator() std.mem.Allocator {
+        return std.heap.c_allocator;
+    }
+} else struct {};
+
 pub const std_options: std.Options = opts: {
     var options: std.Options = .{};
 
-    if (native_freestanding) {
-        // Freestanding targets don't have an OS page size. We still need an
-        // alignment for terminal page allocations, and 16 covers everything
-        // stored in a page without requiring 4 KiB-aligned embedded heaps.
+    if (native_freestanding or builtin.target.os.tag == .emscripten) {
+        // These targets allocate terminal pages from an embedded or host heap,
+        // not OS mappings. Aligning to 16 bytes covers everything stored in a
+        // page without requiring OS-page-aligned allocations or rounding each
+        // backing buffer to an OS page. Emscripten's 64 KiB Wasm memory growth
+        // granularity does not constrain allocations within its libc heap.
         options.page_size_min = 16;
         options.page_size_max = 16;
+    }
+
+    if (native_freestanding) {
         options.allow_stack_tracing = false;
     }
 

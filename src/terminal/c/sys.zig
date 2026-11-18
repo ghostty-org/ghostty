@@ -246,8 +246,8 @@ pub fn logFn(
 /// concurrent log lines from interleaving. We intentionally avoid
 /// `std.debug.lockStderr` because it routes through `std.Options.debug_io`
 /// and would keep the entire `std.Io.Threaded` vtable alive in the binary
-/// (see `os/stderr.zig`). On freestanding/wasm targets this is a no-op
-/// (no stderr available).
+/// (see `os/stderr.zig`). This remains a no-op on Wasm targets other
+/// than Emscripten, which provides stderr through its host libc.
 pub fn logStderr(
     _: ?*anyopaque,
     level: LogLevel,
@@ -256,7 +256,8 @@ pub fn logStderr(
     message_ptr: [*]const u8,
     message_len: usize,
 ) callconv(lib.calling_conv) void {
-    if (comptime builtin.target.cpu.arch.isWasm()) return;
+    if (comptime builtin.target.cpu.arch.isWasm() and
+        builtin.target.os.tag != .emscripten) return;
 
     const scope = scope_ptr[0..scope_len];
     const message = message_ptr[0..message_len];
