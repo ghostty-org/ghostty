@@ -477,7 +477,8 @@ terminal require caller synchronization. Initialize global system callbacks
 before starting threads, and make shared allocators and callbacks thread-safe.
 Emscripten currently marks dynamic linking with pthreads as experimental.
 
-When linking a Debug archive, allow enough stack space (for example, `-sSTACK_SIZE=1048576`). Emscripten
+When linking a Debug archive, allow enough stack space
+(for example, `-sSTACK_SIZE=1048576`). Emscripten
 versions older than 4.0.14 also require `-sUSE_OFFSET_CONVERTER=1` for Zig's
 allocator diagnostics. Newer versions handle return addresses automatically
 and no longer accept that setting.

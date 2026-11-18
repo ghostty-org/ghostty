@@ -8,7 +8,7 @@ trap 'rm -rf "$work"' EXIT
 source_file="$root/example/c-vt-emscripten/src/main.c"
 archive="$prefix/lib/libghostty-vt.a"
 flags=(
-    -O2 -Wall -Wextra -Werror -DNDEBUG -I"$prefix/include"
+    -O2 -Wall -Wextra -Werror -Wno-error=version-check -DNDEBUG -I"$prefix/include"
     -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1
     -sSTACK_SIZE=1048576
 )
