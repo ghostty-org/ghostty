@@ -369,7 +369,7 @@ pub const ScreenSearch = struct {
         const serials = chunks.items(.serial);
         for (nodes, serials) |node, serial| {
             const valid = if (live) |l|
-                l.get(node) == serial
+                if (l.get(node)) |s| s == serial else false
             else
                 self.screen.pages.nodeIsValid(node, serial);
             if (!valid) return false;
@@ -398,6 +398,7 @@ pub const ScreenSearch = struct {
     }
 
     fn pruneHistory(self: *ScreenSearch) void {
+        if (self.history_results.items.len == 0) return;
         const alloc = self.allocator();
 
         // Collect the live pages once so validating every result is linear
@@ -406,10 +407,10 @@ pub const ScreenSearch = struct {
         var live: LivePages = .empty;
         defer live.deinit(alloc);
         const live_ptr: ?*const LivePages = live: {
+            const pages = self.screen.pages.totalPages();
+            live.ensureTotalCapacity(alloc, @intCast(pages)) catch break :live null;
             var it = self.screen.pages.pages.first;
-            while (it) |node| : (it = node.next) {
-                live.put(alloc, node, node.serial) catch break :live null;
-            }
+            while (it) |node| : (it = node.next) live.putAssumeCapacity(node, node.serial);
             break :live &live;
         };
 
