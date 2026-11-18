@@ -10,7 +10,6 @@ const Page = pagepkg.Page;
 const RefCountedSet = @import("ref_counted_set.zig").RefCountedSet;
 const Wyhash = std.hash.Wyhash;
 const autoHash = std.hash.autoHash;
-const autoHashStrat = std.hash.autoHashStrat;
 
 /// The unique identifier for a hyperlink. This is at most the number of cells
 /// that can fit in a single terminal page, since each cell can only contain
@@ -145,18 +144,15 @@ pub const PageEntry = struct {
         autoHash(&hasher, std.meta.activeTag(self.id));
         switch (self.id) {
             .implicit => |v| autoHash(&hasher, v),
-            .explicit => |slice| autoHashStrat(
-                &hasher,
-                slice.slice(base),
-                .Deep,
-            ),
+            .explicit => |slice| hashBytes(&hasher, slice.slice(base)),
         }
-        autoHashStrat(
-            &hasher,
-            self.uri.slice(base),
-            .Deep,
-        );
+        hashBytes(&hasher, self.uri.slice(base));
         return hasher.final();
+    }
+
+    fn hashBytes(hasher: *Wyhash, bytes: []const u8) void {
+        hasher.update(bytes);
+        autoHash(hasher, bytes.len);
     }
 
     pub fn eql(
