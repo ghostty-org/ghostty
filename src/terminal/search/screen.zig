@@ -389,6 +389,12 @@ pub const ScreenSearch = struct {
     }
 
     fn pruneHistory(self: *ScreenSearch) void {
+        // Consecutive results usually share a page, so remember the last
+        // page checked rather than walking the page list for each result.
+        var last_node: ?*PageList.List.Node = null;
+        var last_serial: u64 = 0;
+        var last_valid = false;
+
         // Go through our history results in order (newest to oldest) to find
         // any result that contains an invalid serial.
         var i: usize = 0;
@@ -418,7 +424,15 @@ pub const ScreenSearch = struct {
             // Ordinary pruning, layout changes, and replacements do not
             // advance the epoch. Validate their pointer-plus-generation pairs
             // against the live list.
-            if (self.historyResultIsValid(hl)) {
+            const valid = for (chunks.items(.node), serials) |node, serial| {
+                if (node != last_node or serial != last_serial) {
+                    last_node = node;
+                    last_serial = serial;
+                    last_valid = self.screen.pages.nodeIsValid(node, serial);
+                }
+                if (!last_valid) break false;
+            } else true;
+            if (valid) {
                 i += 1;
                 continue;
             }
@@ -1827,6 +1841,87 @@ test "select after history page split ignores moved results" {
 
     try testing.expect(!try search.select(.next));
     try testing.expect(search.selected == null);
+}
+
+test "feed after complete prunes results on an erased page" {
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback_bytes = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    // Two matches on the first page, one soft-wrapped across the page
+    // boundary, and two on the second page, all of it in history.
+    const first = list.pages.first.?;
+    stream.nextSlice("error\r\nerror\r\n");
+    for (0..first.capacity().rows - 3) |_| stream.nextSlice("\r\n");
+    stream.nextSlice("xxxxxxxerror\r\nerror\r\nerror\r\n");
+    while (list.totalPages() < 3) stream.nextSlice("\r\n");
+    for (0..list.rows) |_| stream.nextSlice("\r\n");
+    const second = first.next.?;
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(5, search.history_results.items.len);
+
+    list.eraseHistory(.{ .history = .{ .y = first.rows() - 1 } });
+    try testing.expectEqual(second, list.pages.first.?);
+
+    try search.feed();
+    try testing.expectEqual(2, search.history_results.items.len);
+    for (search.history_results.items) |hl| {
+        const nodes = hl.chunks.items(.node);
+        try testing.expectEqualSlices(*PageList.List.Node, &.{second}, nodes);
+    }
+}
+
+test "feed after complete prunes results on a reused page" {
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback_bytes = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    const first = list.pages.first.?;
+    stream.nextSlice("error");
+    while (list.totalPages() < 2) stream.nextSlice("\r\n");
+    for (0..list.rows) |_| stream.nextSlice("\r\n");
+    const second = list.pages.last.?;
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(1, search.history_results.items.len);
+
+    // Erase the first page, then wrap a newer match onto the next page,
+    // which reuses the first page's node with a new serial.
+    list.eraseHistory(.{ .history = .{ .y = first.rows() - 1 } });
+    while (second.rows() < second.capacity().rows) stream.nextSlice("\r\n");
+    stream.nextSlice("xxxxxxxerror");
+    try testing.expectEqual(first, list.pages.last.?);
+    for (0..list.rows) |_| stream.nextSlice("\r\n");
+    try search.reloadActive();
+    try testing.expectEqual(2, search.history_results.items.len);
+
+    try search.feed();
+    try testing.expectEqual(1, search.history_results.items.len);
+    const nodes = search.history_results.items[0].chunks.items(.node);
+    try testing.expectEqualSlices(*PageList.List.Node, &.{ second, first }, nodes);
 }
 
 test "screen search no scrollback has no history" {
