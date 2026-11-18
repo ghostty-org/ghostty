@@ -142,22 +142,23 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
             result = b.resolveTargetQuery(query);
         }
 
-        // On wasm, default to enabling the simd128 feature. Every
-        // browser engine has supported it since 2023 or earlier
-        // (Chrome 91, Firefox 89, Safari 16.4) and it is a large
-        // performance win for the terminal hot paths (50%+ on
-        // print-heavy VT streams). Only apply when no explicit CPU
-        // was requested; targets for exotic non-browser runtimes
-        // can opt out with `-Dcpu=generic`.
+        // Standalone Wasm defaults to simd128 for terminal hot paths.
+        // Emscripten defaults to baseline so its archive can be linked by
+        // emcc without requiring matching SIMD flags in the host application.
+        // Respect an explicitly requested CPU or feature set on both targets.
         if (result.result.cpu.arch.isWasm() and
             result.query.cpu_model == .determined_by_arch_os and
             result.query.cpu_features_add.isEmpty() and
             result.query.cpu_features_sub.isEmpty())
         {
             var query = result.query;
-            query.cpu_features_add.addFeature(
-                @backingInt(std.Target.wasm.Feature.simd128),
-            );
+            if (result.result.os.tag == .emscripten) {
+                query.cpu_model = .baseline;
+            } else {
+                query.cpu_features_add.addFeature(
+                    @backingInt(std.Target.wasm.Feature.simd128),
+                );
+            }
             result = b.resolveTargetQuery(query);
         }
 
@@ -279,6 +280,11 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
 
         break :simd true;
     };
+
+    if (target.result.os.tag == .emscripten and config.simd) {
+        std.log.err("-Dsimd=true is not supported for Emscripten targets", .{});
+        return error.UnsupportedTarget;
+    }
 
     config.wayland = b.option(
         bool,

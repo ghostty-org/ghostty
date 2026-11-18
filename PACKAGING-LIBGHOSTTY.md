@@ -445,13 +445,16 @@ zip but isn't run, so it stays Tier 2.
 
 ### Emscripten
 
-To embed libghostty-vt in an Emscripten application, build a static archive:
+To embed libghostty-vt in an Emscripten application, build a static archive.
+On Linux, `nix develop .#emscripten` provides the necessary build and test tools:
 
 ```sh
-zig build -Demit-lib-vt -Dtarget=wasm32-emscripten -Dcpu=baseline \
-  -Dsimd=false -Doptimize=fast
+zig build -Demit-lib-vt -Dtarget=wasm32-emscripten -Doptimize=fast
 emcc app.c -Izig-out/include zig-out/lib/libghostty-vt.a -o app.js
 ```
+
+Emscripten defaults to the baseline CPU and disables the SIMD dependencies.
+Explicit `-Dsimd=true` is rejected.
 
 This installs `lib/libghostty-vt.a` and the C headers rather than a standalone
 Wasm module. Link the archive with `emcc`, either into the application or an
@@ -459,15 +462,16 @@ Emscripten side module. Allocations use the host's libc heap by default;
 terminal pages also honor a caller-provided `GhosttyAllocator`. Page memory
 is cleared before initialization because host allocations may contain old data.
 The embedding application manages threading. When linking a Debug archive,
-pass `-sUSE_OFFSET_CONVERTER=1` to `emcc` to support the return addresses
-used by Zig's allocator diagnostics, and allow enough stack space (for example,
-`-sSTACK_SIZE=1048576`).
+allow enough stack space (for example, `-sSTACK_SIZE=1048576`). Emscripten
+versions older than 4.0.14 also require `-sUSE_OFFSET_CONVERTER=1` for Zig's
+allocator diagnostics. Newer versions handle return addresses automatically
+and no longer accept that setting.
 
 On Linux, with Emscripten and Node.js installed, run the static and dynamic linking
 regression tests with:
 
 ```sh
-bash .github/scripts/check-emscripten-libghostty-vt.sh zig-out
+bash example/c-vt-emscripten/run.sh zig-out
 ```
 
 ### Standalone WebAssembly
