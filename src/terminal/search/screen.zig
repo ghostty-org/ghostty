@@ -355,15 +355,24 @@ pub const ScreenSearch = struct {
         }
     }
 
+    /// The serial of every live page, so checking a node is a lookup
+    /// instead of a walk of the page list.
+    const LivePages = std.AutoHashMapUnmanaged(*PageList.List.Node, u64);
+
     fn historyResultIsValid(
         self: *const ScreenSearch,
         hl: *const FlattenedHighlight,
+        live: ?*const LivePages,
     ) bool {
         const chunks = hl.chunks.slice();
         const nodes = chunks.items(.node);
         const serials = chunks.items(.serial);
         for (nodes, serials) |node, serial| {
-            if (!self.screen.pages.nodeIsValid(node, serial)) return false;
+            const valid = if (live) |l|
+                l.get(node) == serial
+            else
+                self.screen.pages.nodeIsValid(node, serial);
+            if (!valid) return false;
         }
 
         return true;
@@ -379,7 +388,7 @@ pub const ScreenSearch = struct {
 
         const history_idx = m.idx - active_len;
         if (history_idx < self.history_results.items.len and
-            self.historyResultIsValid(&self.history_results.items[history_idx]))
+            self.historyResultIsValid(&self.history_results.items[history_idx], null))
         {
             return;
         }
@@ -389,11 +398,20 @@ pub const ScreenSearch = struct {
     }
 
     fn pruneHistory(self: *ScreenSearch) void {
-        // Consecutive results usually share a page, so remember the last
-        // page checked rather than walking the page list for each result.
-        var last_node: ?*PageList.List.Node = null;
-        var last_serial: u64 = 0;
-        var last_valid = false;
+        const alloc = self.allocator();
+
+        // Collect the live pages once so validating every result is linear
+        // in pages plus results. If that allocation fails, each result falls
+        // back to walking the page list.
+        var live: LivePages = .empty;
+        defer live.deinit(alloc);
+        const live_ptr: ?*const LivePages = live: {
+            var it = self.screen.pages.pages.first;
+            while (it) |node| : (it = node.next) {
+                live.put(alloc, node, node.serial) catch break :live null;
+            }
+            break :live &live;
+        };
 
         // Go through our history results in order (newest to oldest) to find
         // any result that contains an invalid serial.
@@ -408,7 +426,6 @@ pub const ScreenSearch = struct {
                 // newest to oldest, so this result and the entire remaining
                 // suffix predate that reset. Drop them without scanning the
                 // live page list for every captured chunk.
-                const alloc = self.allocator();
                 if (self.selected) |*m| {
                     const first_pruned = self.active_results.items.len + i;
                     if (m.idx >= first_pruned) {
@@ -424,15 +441,7 @@ pub const ScreenSearch = struct {
             // Ordinary pruning, layout changes, and replacements do not
             // advance the epoch. Validate their pointer-plus-generation pairs
             // against the live list.
-            const valid = for (chunks.items(.node), serials) |node, serial| {
-                if (node != last_node or serial != last_serial) {
-                    last_node = node;
-                    last_serial = serial;
-                    last_valid = self.screen.pages.nodeIsValid(node, serial);
-                }
-                if (!last_valid) break false;
-            } else true;
-            if (valid) {
+            if (self.historyResultIsValid(hl, live_ptr)) {
                 i += 1;
                 continue;
             }
