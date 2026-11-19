@@ -100,10 +100,20 @@ class BaseTerminalController: NSWindowController,
     /// Cancellable for clipboard confirmation requests from surfaces in this controller.
     private var clipboardConfirmationCancellable: AnyCancellable?
 
+    /// Cancellables for keeping Spotlight in sync with terminal state.
+    private var spotlightIndexCancellables: Set<AnyCancellable> = []
+
     /// An override title for the tab/window set by the user via prompt_tab_title.
     /// When set, this takes precedence over the computed title from the terminal.
     var titleOverride: String? {
-        didSet { applyTitleToWindow() }
+        didSet {
+            applyTitleToWindow()
+            if #available(macOS 15.0, *) {
+                Task { @MainActor in
+                    TerminalEntity.updateSpotlightIndex()
+                }
+            }
+        }
     }
 
     /// The last computed title from the focused surface (without the override).
@@ -156,6 +166,11 @@ class BaseTerminalController: NSWindowController,
         // Setup our bell state for the window
         setupBellNotificationPublisher()
         setupClipboardConfirmationPublisher()
+        if #available(macOS 15.0, *) {
+            Task { @MainActor in
+                setupSpotlightIndexPublisher()
+            }
+        }
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -340,7 +355,7 @@ class BaseTerminalController: NSWindowController,
 
         if #available(macOS 15.0, *) {
             Task { @MainActor in
-                TerminalEntity.updateSpotlightIndex()
+                setupSpotlightIndexPublisher()
             }
         }
 
@@ -941,6 +956,36 @@ class BaseTerminalController: NSWindowController,
         } else {
             window.representedURL = nil
         }
+    }
+
+    @MainActor
+    private func setupSpotlightIndexPublisher() {
+        guard #available(macOS 15.0, *) else { return }
+
+        spotlightIndexCancellables = []
+        for surface in surfaceTree {
+            surface.$title
+                .dropFirst()
+                .sink { [weak self] _ in
+                    guard self != nil else { return }
+                    Task { @MainActor in
+                        TerminalEntity.updateSpotlightIndex()
+                    }
+                }
+                .store(in: &spotlightIndexCancellables)
+
+            surface.$pwd
+                .dropFirst()
+                .sink { [weak self] _ in
+                    guard self != nil else { return }
+                    Task { @MainActor in
+                        TerminalEntity.updateSpotlightIndex()
+                    }
+                }
+                .store(in: &spotlightIndexCancellables)
+        }
+
+        TerminalEntity.updateSpotlightIndex()
     }
 
     func cellSizeDidChange(to: NSSize) {

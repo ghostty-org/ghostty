@@ -61,7 +61,7 @@ struct TerminalEntity: AppEntity {
     @MainActor
     init(_ view: Ghostty.SurfaceView) {
         self.id = view.id
-        self.title = view.title
+        self.title = Self.effectiveTitle(view)
         self.workingDirectory = view.pwd
         self.pid = view.surfaceModel?.foregroundPID
         self.tty = view.surfaceModel?.ttyName
@@ -117,7 +117,7 @@ struct TerminalEntity: AppEntity {
         async let title = titleValues.first(where: { _ in true })
         async let pwd = pwdValues.first(where: { _ in true })
 
-        self.title = await title ?? ""
+        self.title = Self.effectiveTitle(view, title: await title ?? "")
         self.workingDirectory = await pwd ?? ""
 
         // Wait for the title and pwd then get latest pid and screenshots.
@@ -133,6 +133,23 @@ struct TerminalEntity: AppEntity {
         if let nsImage = ImageRenderer(content: view.screenshot()).nsImage {
             self.screenshot = nsImage
         }
+    }
+
+    @MainActor
+    private static func effectiveTitle(
+        _ view: Ghostty.SurfaceView,
+        title: String? = nil
+    ) -> String {
+        if let title = view.titleOverride {
+            return title
+        }
+
+        if let controller = view.window?.windowController as? BaseTerminalController,
+           let title = controller.titleOverride {
+            return title
+        }
+
+        return title ?? view.title
     }
 }
 
