@@ -68,6 +68,10 @@ pub const ScreenSearch = struct {
     rows: size.CellCountInt,
     cols: size.CellCountInt,
 
+    /// The page serial and page count as of the last prune. If neither
+    /// changed, no page was created, reused, relaid out or removed.
+    pruned: ?struct { serial: u64, pages: usize } = null,
+
     pub const SelectedMatch = struct {
         /// Index from the end of the match list (0 = most recent match)
         idx: usize,
@@ -399,65 +403,79 @@ pub const ScreenSearch = struct {
 
     fn pruneHistory(self: *ScreenSearch) void {
         const alloc = self.allocator();
+        const list = &self.screen.pages;
+        const pages = list.totalPages();
+        if (self.pruned) |p| {
+            if (p.serial == list.page_serial and p.pages == pages) return;
+        }
 
         // Only a whole-list reset advances the epoch. Results are newest to
         // oldest, so once one predates that reset the entire remaining suffix
         // does too. Drop it before doing any work for the rest.
-        const epoch = self.screen.pages.page_serial_epoch;
-        for (self.history_results.items, 0..) |*hl, i| {
-            if (hl.chunks.slice().items(.serial)[0] >= epoch) continue;
+        const epoch = list.page_serial_epoch;
+        var lo: usize = 0;
+        var hi: usize = self.history_results.items.len;
+        while (lo < hi) {
+            const mid = lo + (hi - lo) / 2;
+            const hl = &self.history_results.items[mid];
+            if (hl.chunks.slice().items(.serial)[0] < epoch) hi = mid else lo = mid + 1;
+        }
+        if (lo < self.history_results.items.len) {
             if (self.selected) |*m| {
-                if (m.idx >= self.active_results.items.len + i) {
+                if (m.idx >= self.active_results.items.len + lo) {
                     m.deinit(self.screen);
                     self.selected = null;
                 }
             }
-            for (self.history_results.items[i..]) |*prune_hl| prune_hl.deinit(alloc);
-            self.history_results.shrinkAndFree(alloc, i);
-            break;
+            for (self.history_results.items[lo..]) |*prune_hl| prune_hl.deinit(alloc);
+            self.history_results.shrinkAndFree(alloc, lo);
         }
-        if (self.history_results.items.len == 0) return;
 
-        // Collect the live pages once so validating every result is linear
-        // in pages plus results. If that allocation fails, each result falls
-        // back to walking the page list.
+        // With fewer results than pages, walking the list per result is
+        // cheaper than building the map. If the allocation fails, each
+        // result falls back to walking the list.
         var live: LivePages = .empty;
         defer live.deinit(alloc);
         const live_ptr: ?*const LivePages = live: {
-            const pages = std.math.cast(u32, self.screen.pages.totalPages()) orelse
-                break :live null;
-            live.ensureTotalCapacity(alloc, pages) catch break :live null;
-            var it = self.screen.pages.pages.first;
+            if (self.history_results.items.len <= pages) break :live null;
+            const count = std.math.cast(u32, pages) orelse break :live null;
+            live.ensureTotalCapacity(alloc, count) catch break :live null;
+            var it = list.pages.first;
             while (it) |node| : (it = node.next) live.putAssumeCapacity(node, node.serial);
             break :live &live;
         };
 
         // Ordinary pruning, layout changes, and replacements do not advance
-        // the epoch. Validate each remaining result's pointer-plus-generation
-        // pairs against the live list.
-        var i: usize = 0;
-        while (i < self.history_results.items.len) {
-            const hl = &self.history_results.items[i];
-            if (self.historyResultIsValid(hl, live_ptr)) {
-                i += 1;
-                continue;
-            }
+        // the epoch, so check the rest against the live list.
+        const items = self.history_results.items;
+        var kept: usize = 0;
+        while (kept < items.len and self.historyResultIsValid(&items[kept], live_ptr)) kept += 1;
 
-            // Only this result is known to be invalid. Older results may live
-            // on unrelated pages and remain usable, so remove it individually.
-            const result_idx = self.active_results.items.len + i;
+        const active_len = self.active_results.items.len;
+        for (items[kept..], kept..) |*hl, i| {
+            const valid = self.historyResultIsValid(hl, live_ptr);
             if (self.selected) |*m| {
-                if (m.idx == result_idx) {
-                    m.deinit(self.screen);
-                    self.selected = null;
-                } else if (m.idx > result_idx) {
-                    m.idx -= 1;
+                if (m.idx == active_len + i) {
+                    if (valid) {
+                        m.idx = active_len + kept;
+                    } else {
+                        m.deinit(self.screen);
+                        self.selected = null;
+                    }
                 }
             }
 
-            var removed = self.history_results.orderedRemove(i);
-            removed.deinit(alloc);
+            if (!valid) {
+                hl.deinit(alloc);
+                continue;
+            }
+
+            items[kept] = hl.*;
+            kept += 1;
         }
+        self.history_results.shrinkRetainingCapacity(kept);
+
+        self.pruned = .{ .serial = list.page_serial, .pages = pages };
     }
 
     fn tickActive(self: *ScreenSearch) Allocator.Error!void {
@@ -1887,6 +1905,47 @@ test "feed after complete prunes results on an erased page" {
         const nodes = hl.chunks.items(.node);
         try testing.expectEqualSlices(*PageList.List.Node, &.{second}, nodes);
     }
+}
+
+test "feed after complete keeps a selection whose result survives" {
+    const alloc = testing.allocator;
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback_bytes = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    // One match on each of the first two pages, both in history.
+    const first = list.pages.first.?;
+    stream.nextSlice("error\r\n");
+    for (0..first.capacity().rows - 1) |_| stream.nextSlice("\r\n");
+    stream.nextSlice("error\r\n");
+    while (list.totalPages() < 3) stream.nextSlice("\r\n");
+    for (0..list.rows) |_| stream.nextSlice("\r\n");
+    const second = first.next.?;
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(2, search.history_results.items.len);
+
+    // Select the older match, then invalidate the newer one's page.
+    try testing.expect(try search.select(.next));
+    try testing.expect(try search.select(.next));
+    try testing.expectEqual(1, search.selected.?.idx);
+    list.invalidateNodeLayout(second);
+
+    try search.feed();
+    try testing.expectEqual(1, search.history_results.items.len);
+    try testing.expectEqual(0, search.selected.?.idx);
+    const nodes = search.selectedMatch().?.chunks.items(.node);
+    try testing.expectEqualSlices(*PageList.List.Node, &.{first}, nodes);
 }
 
 test "feed after complete prunes results on a reused page" {
