@@ -1545,8 +1545,11 @@ fn resizeCols(
 
     // Set our new page as the only page. This orphans the existing pages
     // in the list, but that's fine since we're gonna delete them anyway.
-    self.pages.first = first_rewritten_node;
-    self.pages.last = first_rewritten_node;
+    self.pages = .{
+        .first = first_rewritten_node,
+        .last = first_rewritten_node,
+        .len = 1,
+    };
 
     // Reflow all our rows.
     {
@@ -7612,17 +7615,9 @@ fn totalRows(self: *const PageList) usize {
     return rows;
 }
 
-/// The total number of pages in this list. This should only be used
-/// for tests since it is O(N) over the list of pages.
+/// The total number of pages in this list.
 pub fn totalPages(self: *const PageList) usize {
-    var pages: usize = 0;
-    var node_ = self.pages.first;
-    while (node_) |node| {
-        pages += 1;
-        node_ = node.next;
-    }
-
-    return pages;
+    return self.pages.len;
 }
 
 /// Snapshot of the storage used by page nodes in this list.

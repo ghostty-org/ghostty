@@ -412,14 +412,16 @@ pub const ScreenSearch = struct {
         // Only a whole-list reset advances the epoch. Results are newest to
         // oldest, so once one predates that reset the entire remaining suffix
         // does too. Drop it before doing any work for the rest.
-        const epoch = list.page_serial_epoch;
-        var lo: usize = 0;
-        var hi: usize = self.history_results.items.len;
-        while (lo < hi) {
-            const mid = lo + (hi - lo) / 2;
-            const hl = &self.history_results.items[mid];
-            if (hl.chunks.slice().items(.serial)[0] < epoch) hi = mid else lo = mid + 1;
-        }
+        const lo = std.sort.partitionPoint(
+            FlattenedHighlight,
+            self.history_results.items,
+            list.page_serial_epoch,
+            struct {
+                fn current(epoch: u64, hl: FlattenedHighlight) bool {
+                    return hl.chunks.items(.serial)[0] >= epoch;
+                }
+            }.current,
+        );
         if (lo < self.history_results.items.len) {
             if (self.selected) |*m| {
                 if (m.idx >= self.active_results.items.len + lo) {
@@ -431,13 +433,12 @@ pub const ScreenSearch = struct {
             self.history_results.shrinkAndFree(alloc, lo);
         }
 
-        // With fewer results than pages, walking the list per result is
-        // cheaper than building the map. If the allocation fails, each
-        // result falls back to walking the list.
+        // A single result is cheaper to check by walking the list. If the
+        // allocation fails, each result falls back to walking the list.
         var live: LivePages = .empty;
         defer live.deinit(alloc);
         const live_ptr: ?*const LivePages = live: {
-            if (self.history_results.items.len <= pages) break :live null;
+            if (self.history_results.items.len < 2) break :live null;
             const count = std.math.cast(u32, pages) orelse break :live null;
             live.ensureTotalCapacity(alloc, count) catch break :live null;
             var it = list.pages.first;
@@ -473,7 +474,7 @@ pub const ScreenSearch = struct {
             items[kept] = hl.*;
             kept += 1;
         }
-        self.history_results.shrinkRetainingCapacity(kept);
+        self.history_results.shrinkAndFree(alloc, kept);
 
         self.pruned = .{ .serial = list.page_serial, .pages = pages };
     }
@@ -516,6 +517,7 @@ pub const ScreenSearch = struct {
             var hl_cloned = try hl.clone(alloc);
             errdefer hl_cloned.deinit(alloc);
             try self.history_results.append(alloc, hl_cloned);
+            self.pruned = null;
 
             // Since history only appends to our results in reverse order,
             // we don't need to update any selected match state. The index
