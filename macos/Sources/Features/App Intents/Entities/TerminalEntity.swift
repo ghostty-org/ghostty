@@ -1,6 +1,7 @@
 import AppKit
 import AppIntents
 import Combine
+import CoreSpotlight
 import SwiftUI
 import os
 
@@ -194,3 +195,45 @@ struct TerminalQuery: EntityStringQuery, EnumerableEntityQuery {
 }
 
 private struct EntityTimeoutError: Error {}
+
+@available(macOS 15.0, *)
+extension TerminalEntity: IndexedEntity {
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = CSSearchableItemAttributeSet()
+        attributes.contentDescription = [
+            workingDirectory,
+            tty,
+            pid.map(String.init)
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        attributes.keywords = [title, workingDirectory, tty].compactMap { $0 }
+        return attributes
+    }
+}
+
+@available(macOS 15.0, *)
+extension TerminalEntity {
+    @MainActor
+    static func updateSpotlightIndex() {
+        indexUpdateTask?.cancel()
+        indexUpdateTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(1))
+                try Task.checkCancellation()
+
+                let entities = try await Self.defaultQuery.allEntities()
+                let index = CSSearchableIndex(name: "com.mitchellh.ghostty.terminals")
+                try await index.deleteAllSearchableItems()
+                try await index.indexAppEntities(entities)
+            } catch is CancellationError {
+                return
+            } catch {
+                logger.error("failed to update terminal Spotlight index: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    @MainActor
+    private static var indexUpdateTask: Task<Void, Never>?
+}

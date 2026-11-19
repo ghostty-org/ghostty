@@ -338,6 +338,12 @@ class BaseTerminalController: NSWindowController,
             cancelPendingClipboardConfirmation(for: surfaceView)
         }
 
+        if #available(macOS 15.0, *) {
+            Task { @MainActor in
+                TerminalEntity.updateSpotlightIndex()
+            }
+        }
+
         // If our surface tree becomes empty then we have no focused surface.
         if to.isEmpty {
             focusedSurface = nil
