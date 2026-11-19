@@ -829,6 +829,7 @@ pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
 
 const IntegrityError = error{
     MaxLinesExceeded,
+    PageCountMismatch,
     PageSerialInvalid,
     TotalRowsMismatch,
     TrackedPinInvalid,
@@ -845,12 +846,14 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
     // Our viewport pin should never be garbage
     assert(!self.viewport_pin.garbage);
 
-    // Grab our total rows
+    // Grab our total rows and page count
     var actual_total: usize = 0;
+    var actual_pages: usize = 0;
     {
         var node_ = self.pages.first;
         while (node_) |node| {
             actual_total += node.rows();
+            actual_pages += 1;
             node_ = node.next;
 
             // Every live node must belong to the current validity epoch.
@@ -871,6 +874,15 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
             .{ self.total_rows, actual_total },
         );
         return IntegrityError.TotalRowsMismatch;
+    }
+
+    // Verify that the list's cached length matches the actual page count
+    if (actual_pages != self.pages.len) {
+        log.warn(
+            "PageList integrity violation: page count mismatch cached={} actual={}",
+            .{ self.pages.len, actual_pages },
+        );
+        return IntegrityError.PageCountMismatch;
     }
 
     // A line limit may only be exceeded when the oldest page also contains
@@ -1549,6 +1561,7 @@ fn resizeCols(
         .first = first_rewritten_node,
         .last = first_rewritten_node,
         .len = 1,
+        .version = self.pages.version + 1,
     };
 
     // Reflow all our rows.

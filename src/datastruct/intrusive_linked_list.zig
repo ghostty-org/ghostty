@@ -21,6 +21,10 @@ pub fn DoublyLinkedList(comptime T: type) type {
         /// The number of nodes in the list.
         len: usize = 0,
 
+        /// Incremented on every insert and remove, so a caller can cheaply
+        /// tell whether the list changed since it last looked.
+        version: u64 = 0,
+
         /// Insert a new node after an existing one.
         ///
         /// Arguments:
@@ -39,6 +43,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
             }
             node.next = new_node;
             list.len += 1;
+            list.version += 1;
         }
 
         /// Insert a new node before an existing one.
@@ -59,6 +64,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
             }
             node.prev = new_node;
             list.len += 1;
+            list.version += 1;
         }
 
         /// Insert a new node at the end of the list.
@@ -90,6 +96,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
                 new_node.prev = null;
                 new_node.next = null;
                 list.len = 1;
+                list.version += 1;
             }
         }
 
@@ -115,6 +122,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
             }
 
             list.len -= 1;
+            list.version += 1;
         }
 
         /// Remove and return the last node in the list.

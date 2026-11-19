@@ -68,9 +68,9 @@ pub const ScreenSearch = struct {
     rows: size.CellCountInt,
     cols: size.CellCountInt,
 
-    /// The page serial and page count as of the last prune. If neither
-    /// changed, no page was created, reused, relaid out or removed.
-    pruned: ?struct { serial: u64, pages: usize } = null,
+    /// The page serial and list version as of the last prune. If neither
+    /// changed, no page was inserted, removed, reused or relaid out.
+    pruned: ?struct { serial: u64, version: u64 } = null,
 
     pub const SelectedMatch = struct {
         /// Index from the end of the match list (0 = most recent match)
@@ -404,9 +404,8 @@ pub const ScreenSearch = struct {
     fn pruneHistory(self: *ScreenSearch) void {
         const alloc = self.allocator();
         const list = &self.screen.pages;
-        const pages = list.totalPages();
         if (self.pruned) |p| {
-            if (p.serial == list.page_serial and p.pages == pages) return;
+            if (p.serial == list.page_serial and p.version == list.pages.version) return;
         }
 
         // Only a whole-list reset advances the epoch. Results are newest to
@@ -439,7 +438,7 @@ pub const ScreenSearch = struct {
         defer live.deinit(alloc);
         const live_ptr: ?*const LivePages = live: {
             if (self.history_results.items.len < 2) break :live null;
-            const count = std.math.cast(u32, pages) orelse break :live null;
+            const count = std.math.cast(u32, list.totalPages()) orelse break :live null;
             live.ensureTotalCapacity(alloc, count) catch break :live null;
             var it = list.pages.first;
             while (it) |node| : (it = node.next) live.putAssumeCapacity(node, node.serial);
@@ -474,9 +473,11 @@ pub const ScreenSearch = struct {
             items[kept] = hl.*;
             kept += 1;
         }
-        self.history_results.shrinkAndFree(alloc, kept);
+        if (kept < self.history_results.items.len) {
+            self.history_results.shrinkAndFree(alloc, kept);
+        }
 
-        self.pruned = .{ .serial = list.page_serial, .pages = pages };
+        self.pruned = .{ .serial = list.page_serial, .version = list.pages.version };
     }
 
     fn tickActive(self: *ScreenSearch) Allocator.Error!void {
