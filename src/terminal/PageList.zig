@@ -1052,12 +1052,15 @@ pub fn reset(self: *PageList) void {
 
     // Initialize our pages. This should not be able to fail since
     // we retained the capacity for the minimum number of pages we need.
+    // The list version carries over so it never goes backwards.
+    const version = self.pages.version;
     self.pages, self.page_size = initPages(
         &self.pool,
         &self.page_serial,
         self.cols,
         self.rows,
     ) catch @panic("initPages failed");
+    self.pages.version += version;
 
     // Our total rows always goes back to the default
     self.total_rows = self.rows;
@@ -1557,12 +1560,8 @@ fn resizeCols(
 
     // Set our new page as the only page. This orphans the existing pages
     // in the list, but that's fine since we're gonna delete them anyway.
-    self.pages = .{
-        .first = first_rewritten_node,
-        .last = first_rewritten_node,
-        .len = 1,
-        .version = self.pages.version + 1,
-    };
+    self.pages = .{ .version = self.pages.version };
+    self.pages.append(first_rewritten_node);
 
     // Reflow all our rows.
     {

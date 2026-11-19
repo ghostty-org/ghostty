@@ -373,7 +373,7 @@ pub const ScreenSearch = struct {
         const serials = chunks.items(.serial);
         for (nodes, serials) |node, serial| {
             const valid = if (live) |l|
-                if (l.get(node)) |s| s == serial else false
+                l.get(node) == serial
             else
                 self.screen.pages.nodeIsValid(node, serial);
             if (!valid) return false;
@@ -404,6 +404,7 @@ pub const ScreenSearch = struct {
     fn pruneHistory(self: *ScreenSearch) void {
         const alloc = self.allocator();
         const list = &self.screen.pages;
+        const active_len = self.active_results.items.len;
         if (self.pruned) |p| {
             if (p.serial == list.page_serial and p.version == list.pages.version) return;
         }
@@ -423,7 +424,7 @@ pub const ScreenSearch = struct {
         );
         if (lo < self.history_results.items.len) {
             if (self.selected) |*m| {
-                if (m.idx >= self.active_results.items.len + lo) {
+                if (m.idx >= active_len + lo) {
                     m.deinit(self.screen);
                     self.selected = null;
                 }
@@ -449,10 +450,7 @@ pub const ScreenSearch = struct {
         // the epoch, so check the rest against the live list.
         const items = self.history_results.items;
         var kept: usize = 0;
-        while (kept < items.len and self.historyResultIsValid(&items[kept], live_ptr)) kept += 1;
-
-        const active_len = self.active_results.items.len;
-        for (items[kept..], kept..) |*hl, i| {
+        for (items, 0..) |*hl, i| {
             const valid = self.historyResultIsValid(hl, live_ptr);
             if (self.selected) |*m| {
                 if (m.idx == active_len + i) {
@@ -470,7 +468,7 @@ pub const ScreenSearch = struct {
                 continue;
             }
 
-            items[kept] = hl.*;
+            if (i != kept) items[kept] = hl.*;
             kept += 1;
         }
         if (kept < self.history_results.items.len) {
@@ -674,6 +672,7 @@ pub const ScreenSearch = struct {
             try results.appendSlice(alloc, self.history_results.items);
             self.history_results.deinit(alloc);
             self.history_results = results;
+            self.pruned = null;
 
             // If our prior selection was in the history area, update
             // the offset.

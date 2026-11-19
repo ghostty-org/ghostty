@@ -95,7 +95,7 @@ pub fn DoublyLinkedList(comptime T: type) type {
                 list.last = new_node;
                 new_node.prev = null;
                 new_node.next = null;
-                list.len = 1;
+                list.len += 1;
                 list.version += 1;
             }
         }
@@ -168,6 +168,7 @@ test "basic DoublyLinkedList test" {
     list.insertBefore(&five, &four); // {1, 2, 4, 5}
     list.insertAfter(&two, &three); // {1, 2, 3, 4, 5}
     try testing.expectEqual(5, list.len);
+    try testing.expectEqual(5, list.version);
 
     // Traverse forwards.
     {
@@ -200,5 +201,6 @@ test "basic DoublyLinkedList test" {
     list.remove(&two); // {4}
     list.remove(&four); // {}
     try testing.expectEqual(0, list.len);
+    try testing.expectEqual(10, list.version);
     try testing.expect(list.first == null);
 }
