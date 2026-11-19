@@ -2642,16 +2642,20 @@ pub const Cell = packed struct(u64) {
     /// Returns true if the cell has no text or styling.
     pub fn isEmpty(self: Cell) bool {
         return switch (self.content_tag) {
-            // Textual cells are empty if they have no text and are narrow.
-            // The "narrow" requirement is because wide spacers are meaningful.
             .codepoint,
             .codepoint_grapheme,
-            => !self.hasText() and self.wide == .narrow,
+            => self.isBlank(),
 
             .bg_color_palette,
             .bg_color_rgb,
             => false,
         };
+    }
+
+    /// Like isEmpty, but a cell with only a background color is blank.
+    /// Wide spacers are meaningful, so they are never blank.
+    pub fn isBlank(self: Cell) bool {
+        return !self.hasText() and self.wide == .narrow;
     }
 
     pub inline fn hasGrapheme(self: Cell) bool {

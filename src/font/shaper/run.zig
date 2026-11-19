@@ -44,8 +44,19 @@ pub const RunIterator = struct {
     opts: shape.RunOptions,
     i: usize = 0,
 
-    /// The end of the cells to shape, computed on the first call to next.
-    max: ?usize = null,
+    /// The end of the cells to shape. Trailing blank cells are skipped even
+    /// with a background color, since the renderer draws backgrounds itself.
+    max: usize,
+
+    pub fn init(
+        hooks: font.Shaper.RunIteratorHook,
+        opts: shape.RunOptions,
+    ) RunIterator {
+        const cells = opts.cells.items(.raw);
+        var max = cells.len;
+        while (max > 0 and cells[max - 1].isBlank()) max -= 1;
+        return .{ .hooks = hooks, .opts = opts, .max = max };
+    }
 
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
@@ -53,19 +64,7 @@ pub const RunIterator = struct {
         const graphemes: []const []const u21 = slice.items(.grapheme);
         const styles: []const terminal.Style = slice.items(.style);
 
-        // Trim the right side of a row that has no text. Not Cell.isEmpty:
-        // a cell with only a background color is empty for shaping, since
-        // the renderer draws backgrounds itself.
-        const max: usize = self.max orelse max: {
-            var len = cells.len;
-            while (len > 0) : (len -= 1) {
-                const cell = cells[len - 1];
-                if (cell.hasText() or cell.wide != .narrow) break;
-            }
-
-            self.max = len;
-            break :max len;
-        };
+        const max = self.max;
 
         // Invisible cells don't have any glyphs rendered,
         // so we explicitly skip them in the shaping process.
@@ -400,4 +399,28 @@ fn comparableStyle(style: terminal.Style) terminal.Style {
     s.bg_color = .none;
 
     return s;
+}
+
+test "run iterator: row erased with background" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[48;2;255;0;0m\x1b[2K");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // The hooks and grid are only used once there is something to shape.
+    const it: RunIterator = .init(undefined, .{
+        .grid = undefined,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    try testing.expectEqual(0, it.max);
 }
