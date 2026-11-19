@@ -409,9 +409,11 @@ pub const ScreenSearch = struct {
             if (p.serial == list.page_serial and p.version == list.pages.version) return;
         }
 
-        // Only a whole-list reset advances the epoch. Results are newest to
-        // oldest, so once one predates that reset the entire remaining suffix
-        // does too. Drop it before doing any work for the rest.
+        // Only a whole-list reset advances the epoch, and a reset garbages the
+        // history searcher's pin so it stops appending. Results found after a
+        // reset only enter at the front through reloadActive, so every result
+        // at or above the epoch comes before every one below it. Drop that
+        // stale suffix before doing any work for the rest.
         const lo = std.sort.partitionPoint(
             FlattenedHighlight,
             self.history_results.items,
@@ -422,6 +424,11 @@ pub const ScreenSearch = struct {
                 }
             }.current,
         );
+        if (comptime std.debug.runtime_safety) {
+            for (self.history_results.items, 0..) |hl, i| {
+                assert((hl.chunks.items(.serial)[0] >= list.page_serial_epoch) == (i < lo));
+            }
+        }
         if (lo < self.history_results.items.len) {
             if (self.selected) |*m| {
                 if (m.idx >= active_len + lo) {
