@@ -1,16 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
-const locales = @import("i18n_locales.zig");
 
 const log = std.log.scoped(.i18n);
-
-/// Set for faster membership lookup of locales.
-pub const locales_map = map: {
-    var kvs: [locales.len]struct { []const u8 } = undefined;
-    for (locales, 0..) |locale, i| kvs[i] = .{locale};
-    break :map std.StaticStringMap(void).initComptime(kvs);
-};
 
 pub const InitError = error{
     InvalidResourcesDir,
@@ -154,20 +146,6 @@ fn fixZhLocale(locale: []const u8) ?[:0]const u8 {
     }
 
     return null;
-}
-
-/// This can be called at any point a compile-time-known locale is
-/// available. This will use comptime to verify the locale is supported.
-pub fn staticLocale(comptime v: [*:0]const u8) [*:0]const u8 {
-    comptime {
-        for (locales) |locale| {
-            if (std.mem.eql(u8, locale, v)) {
-                return locale;
-            }
-        }
-
-        @compileError("unsupported locale");
-    }
 }
 
 // Manually include function definitions for the gettext functions
