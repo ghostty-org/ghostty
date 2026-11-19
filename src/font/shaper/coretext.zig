@@ -991,10 +991,37 @@ test "run iterator: empty cells with background set" {
         {
             const run = (try it.next(alloc)).?;
             const cells = try shaper.shape(run);
-            try testing.expectEqual(@as(usize, 3), cells.len);
+            try testing.expectEqual(@as(usize, 1), cells.len);
         }
         try testing.expect(try it.next(alloc) == null);
     }
+}
+
+test "run iterator: row erased with background" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    // A row erased with a background color has no runs
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[48;2;255;0;0m\x1b[2K");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    try testing.expect(try it.next(alloc) == null);
 }
 
 test "shape" {

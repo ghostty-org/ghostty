@@ -44,20 +44,27 @@ pub const RunIterator = struct {
     opts: shape.RunOptions,
     i: usize = 0,
 
+    /// The end of the cells to shape, computed on the first call to next.
+    max: ?usize = null,
+
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
         const cells: []const terminal.page.Cell = slice.items(.raw);
         const graphemes: []const []const u21 = slice.items(.grapheme);
         const styles: []const terminal.Style = slice.items(.style);
 
-        // Trim the right side of a row that might be empty
-        const max: usize = max: {
-            for (0..cells.len) |i| {
-                const rev_i = cells.len - i - 1;
-                if (!cells[rev_i].isEmpty()) break :max rev_i + 1;
+        // Trim the right side of a row that has no text. Not Cell.isEmpty:
+        // a cell with only a background color is empty for shaping, since
+        // the renderer draws backgrounds itself.
+        const max: usize = self.max orelse max: {
+            var len = cells.len;
+            while (len > 0) : (len -= 1) {
+                const cell = cells[len - 1];
+                if (cell.hasText() or cell.wide != .narrow) break;
             }
 
-            break :max 0;
+            self.max = len;
+            break :max len;
         };
 
         // Invisible cells don't have any glyphs rendered,
