@@ -1,7 +1,26 @@
-import SwiftUI
-import UserNotifications
+import AppIntents
 import GhosttyKit
 import System
+import SwiftUI
+import UserNotifications
+
+private struct TerminalEntityContextModifier: ViewModifier {
+    let id: UUID
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 15.4, *) {
+            content.appEntityIdentifier(
+                EntityIdentifier(
+                    for: TerminalEntity.self,
+                    identifier: id
+                )
+            )
+        } else {
+            content
+        }
+    }
+}
 
 extension Ghostty {
     struct SurfaceWrapper: View {
@@ -168,6 +187,7 @@ extension Ghostty {
                     dragHandle: ghostty.config.dragHandle,
                 )
             }
+            .modifier(TerminalEntityContextModifier(id: surfaceView.id))
         }
     }
 

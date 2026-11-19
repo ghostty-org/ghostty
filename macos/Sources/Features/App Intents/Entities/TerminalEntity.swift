@@ -241,7 +241,7 @@ extension TerminalEntity {
 
                 let entities = try await Self.defaultQuery.allEntities()
                 let index = CSSearchableIndex(name: "com.mitchellh.ghostty.terminals")
-                try await index.deleteAllSearchableItems()
+                try await index.deleteAppEntities(ofType: TerminalEntity.self)
                 try await index.indexAppEntities(entities)
             } catch is CancellationError {
                 return
