@@ -261,6 +261,12 @@ const Mouse = struct {
     /// only process link hover events when the mouse actually moves cells.
     link_point: ?terminal.point.Coordinate = null,
 
+    /// Returns true if the given mods match our mods. Only binding
+    /// modifiers are compared because those are all that we store.
+    fn modsEqual(self: *const Mouse, mods: input.Mods) bool {
+        return self.mods.equal(mods.binding());
+    }
+
     /// Return the left-click pin only if it still belongs to the active screen.
     fn activeLeftClickPin(self: *const Mouse, screens: *const terminal.ScreenSet) ?*terminal.Pin {
         return self.selection_gesture.validatedLeftClickPin(screens);
@@ -1608,7 +1614,7 @@ fn searchCallback_(
 /// The renderer state mutex MUST NOT be held.
 fn modsChanged(self: *Surface, mods: input.Mods) void {
     // The only place we keep track of mods currently is on the mouse.
-    if (!self.mouse.mods.equal(mods)) {
+    if (!self.mouse.modsEqual(mods)) {
         // The mouse mods only contain binding modifiers since we don't
         // want caps/num lock or sided modifiers to affect the mouse.
         self.mouse.mods = mods.binding();
@@ -2858,7 +2864,7 @@ pub fn keyCallback(
 
     // If our mouse modifiers change we may need to change our
     // link highlight state.
-    if (!self.mouse.mods.equal(event.mods)) mouse_mods: {
+    if (!self.mouse.modsEqual(event.mods)) mouse_mods: {
         // Update our modifiers, this will update mouse mods too
         self.modsChanged(event.mods);
 
@@ -6702,6 +6708,20 @@ test "Mouse.click_state holds every button" {
     for (mouse.click_state) |state| {
         try std.testing.expectEqual(.press, state);
     }
+}
+
+test "Mouse.modsEqual ignores lock and sided mods" {
+    const testing = std.testing;
+    const mouse: Mouse = .{ .mods = .{ .shift = true } };
+    try testing.expect(mouse.modsEqual(.{ .shift = true }));
+    try testing.expect(mouse.modsEqual(.{ .shift = true, .num_lock = true }));
+    try testing.expect(mouse.modsEqual(.{ .shift = true, .caps_lock = true }));
+    try testing.expect(mouse.modsEqual(.{
+        .shift = true,
+        .sides = .{ .shift = .right },
+    }));
+    try testing.expect(!mouse.modsEqual(.{}));
+    try testing.expect(!mouse.modsEqual(.{ .shift = true, .ctrl = true }));
 }
 
 test "promptClickRelativeRow" {
