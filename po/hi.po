@@ -43,7 +43,7 @@ msgstr "इस विभाजन के लिए चयन याद रखे
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
-msgstr "यह संदेश फिर से दिखाने के लिए विन्यास दोबारा डालें"
+msgstr "यह सन्देश फिर से दिखाने के लिए विन्यास दोबारा डालें"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
@@ -218,7 +218,7 @@ msgstr "विन्यास"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
-msgstr "विन्यास प्रचालन तन्त्र के संपादक में खोलें"
+msgstr "विन्यास प्रचालन तन्त्र के सम्पादक में खोलें"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
@@ -226,7 +226,7 @@ msgstr "विन्यास नई विंडो में खोलें"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
-msgstr "डिफ़ॉल्ट शीर्षक वापस लाने के लिए खाली छोड़ें।"
+msgstr "पूर्वनिर्धारित शीर्षक वापस लाने के लिए खाली छोड़ें।"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:9
 msgid "OK"
@@ -266,15 +266,15 @@ msgstr "निर्देश क्रियान्वित करें…"
 
 #: src/apprt/gtk/class/application.zig:1767
 msgid "The keybind was revoked by the system."
-msgstr "प्रचालन तन्त्र ने कुंजी संयोजन वापस ले लिया।"
+msgstr "प्रचालन तन्त्र ने कुञ्जी संयोजन वापस ले लिया।"
 
 #: src/apprt/gtk/class/application.zig:1769
 msgid "The keybind was denied by the system."
-msgstr "प्रचालन तन्त्र ने कुंजी संयोजन को अस्वीकार कर दिया।"
+msgstr "प्रचालन तन्त्र ने कुञ्जी संयोजन को अस्वीकार कर दिया।"
 
 #: src/apprt/gtk/class/application.zig:1780
 msgid "Global keybind unavailable"
-msgstr "सभी अनुप्रयोगों में काम करने वाला कुंजी संयोजन उपलब्ध नहीं है"
+msgstr "सभी अनुप्रयोगों में काम करने वाला कुञ्जी संयोजन उपलब्ध नहीं है"
 
 #: src/apprt/gtk/class/application.zig:2259
 msgid "Export Terminal IO Events"
@@ -437,7 +437,7 @@ msgstr "URL की क्लिपबोर्ड पर प्रति बन�
 
 #: src/input/command.zig:174
 msgid "Copy the URL under the cursor to the clipboard."
-msgstr "संकेतक के नीचे के URL की क्लिपबोर्ड पर प्रति बनाएँ।"
+msgstr "सङ्केतक के नीचे के URL की क्लिपबोर्ड पर प्रति बनाएँ।"
 
 #: src/input/command.zig:179
 msgid "Copy Terminal Title to Clipboard"
@@ -469,11 +469,11 @@ msgstr "चयन क्लिपबोर्ड की सामग्री �
 
 #: src/input/command.zig:197
 msgid "Start Search"
-msgstr "खोज प्रारंभ"
+msgstr "खोज प्रारम्भ"
 
 #: src/input/command.zig:198
 msgid "Start a search if one isn't already active."
-msgstr "यदि कोई खोज पहले से सक्रिय नहीं है तो खोज प्रारंभ करें।"
+msgstr "यदि कोई खोज पहले से सक्रिय नहीं है तो खोज प्रारम्भ करें।"
 
 #: src/input/command.zig:203
 msgid "Search Selection"
@@ -481,11 +481,11 @@ msgstr "खोज चयन"
 
 #: src/input/command.zig:204
 msgid "Start a search for the current text selection."
-msgstr "वर्तमान में चुने हुए पाठ की खोज प्रारंभ करें।"
+msgstr "वर्तमान में चुने हुए पाठ की खोज प्रारम्भ करें।"
 
 #: src/input/command.zig:209
 msgid "End Search"
-msgstr "खोज अंत"
+msgstr "खोज अन्त"
 
 #: src/input/command.zig:210
 msgid "End the current search if any and hide any GUI elements."
@@ -531,7 +531,7 @@ msgstr "फ़ॉन्ट का आकार रीसेट करें"
 
 #: src/input/command.zig:238
 msgid "Reset the font size to the default."
-msgstr "फ़ॉन्ट का आकार डिफ़ॉल्ट पर वापस लाएँ।"
+msgstr "फ़ॉन्ट का पूर्वनिर्धारित आकार पुनः स्थापित करें।"
 
 #: src/input/command.zig:243
 msgid "Clear Screen"
@@ -976,7 +976,7 @@ msgstr "विंडो का आकार रीसेट करें"
 
 #: src/input/command.zig:564
 msgid "Reset the window size to the default."
-msgstr "विंडो का आकार डिफ़ॉल्ट पर वापस लाएँ।"
+msgstr "विंडो का पूर्वनिर्धारित आकार पुनः स्थापित करें।"
 
 #: src/input/command.zig:569
 msgid "Toggle Inspector"
@@ -996,19 +996,19 @@ msgstr "GTK निरीक्षक दिखाएँ।"
 
 #: src/input/command.zig:581
 msgid "Show On-Screen Keyboard"
-msgstr "पटल पर कुंजीपटल दिखाएँ"
+msgstr "पटल पर कुञ्जीपटल दिखाएँ"
 
 #: src/input/command.zig:582
 msgid "Show the on-screen keyboard if present."
-msgstr "यदि उपलब्ध हो तो पटल पर कुंजीपटल दिखाएँ।"
+msgstr "यदि उपलब्ध हो तो पटल पर कुञ्जीपटल दिखाएँ।"
 
 #: src/input/command.zig:588
 msgid "Open Config Using OS editor"
-msgstr "विन्यास प्रचालन तन्त्र के संपादक में खोलें"
+msgstr "विन्यास प्रचालन तन्त्र के सम्पादक में खोलें"
 
 #: src/input/command.zig:589
 msgid "Open the config file with the OS's default editor."
-msgstr "विन्यास सञ्चिका प्रचालन तन्त्र के डिफ़ॉल्ट संपादक में खोलें।"
+msgstr "विन्यास सञ्चिका प्रचालन तन्त्र के पूर्वनिर्धारित सम्पादक में खोलें।"
 
 #: src/input/command.zig:593
 msgid "Open Config in New Terminal Window"
