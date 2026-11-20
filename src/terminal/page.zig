@@ -1154,11 +1154,17 @@ pub const Page = struct {
         // The source cells may have content.
         dst_row.blank = false;
 
-        // If src has no managed memory, this is very fast.
-        if (!src_row.managedMemory()) {
+        // Styles are keyed by ID, so copying a cell keeps its style and
+        // ref count exact. Graphemes and hyperlinks are keyed by cell
+        // offset and have to be moved one cell at a time, and placeholders
+        // have to be found to flag the destination row.
+        if (!src_row.grapheme and
+            !src_row.hyperlink and
+            !src_row.kitty_virtual_placeholder)
+        {
             fastmem.copy(Cell, dst_cells, src_cells);
         } else {
-            // Source has graphemes or hyperlinks...
+            // Source has graphemes, hyperlinks or placeholders...
             for (src_cells, dst_cells) |*src, *dst| {
                 dst.* = src.*;
                 if (src.hasGrapheme()) {
@@ -4403,6 +4409,81 @@ test "Page moveCells text-only" {
             rac.cell.content.codepoint.data,
         );
     }
+}
+
+test "Page moveCells styled" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const id = try page.styles.add(page.memory, .{ .flags = .{
+        .bold = true,
+    } });
+
+    // Write
+    for (0..page.size.cols) |x| {
+        const rac = page.getRowAndCell(x, 0);
+        rac.row.styled = true;
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
+            .style_id = id,
+        };
+        page.styles.use(page.memory, id);
+    }
+
+    // The original style add would have incremented the
+    // ref count too, so release it to balance that out.
+    page.styles.release(page.memory, id);
+    const original_refs = page.styles.refCount(page.memory, id);
+
+    // Move the middle of the row, like a scroll within left and
+    // right margins does.
+    const src = page.getRow(0);
+    const dst = page.getRow(1);
+    page.moveCells(src, 2, dst, 2, 6);
+
+    // The moved cells keep their style and the references move with them.
+    try testing.expect(dst.styled);
+    try testing.expect(src.styled);
+    try testing.expectEqual(original_refs, page.styles.refCount(page.memory, id));
+    for (0..page.size.cols) |x| {
+        const moved = x >= 2 and x < 8;
+        const src_cell = page.getRowAndCell(x, 0).cell;
+        const dst_cell = page.getRowAndCell(x, 1).cell;
+        const keep = if (moved) dst_cell else src_cell;
+        const empty = if (moved) src_cell else dst_cell;
+        try testing.expectEqual(@as(u21, @intCast(x + 1)), keep.content.codepoint.data);
+        try testing.expectEqual(id, keep.style_id);
+        try testing.expectEqual(@as(u21, 0), empty.content.codepoint.data);
+        try testing.expectEqual(stylepkg.default_id, empty.style_id);
+    }
+    try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page moveCells kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(3, 0);
+    rac.cell.* = .init(kitty.graphics.unicode.placeholder);
+    rac.row.kitty_virtual_placeholder = true;
+
+    const src = page.getRow(0);
+    const dst = page.getRow(1);
+    page.moveCells(src, 0, dst, 0, page.size.cols);
+
+    try testing.expect(dst.kitty_virtual_placeholder);
+    try testing.expect(!src.kitty_virtual_placeholder);
 }
 
 test "Page moveCells graphemes" {
