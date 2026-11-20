@@ -17,7 +17,6 @@ const a11y = @import("../../../a11y/main.zig");
 const global = @import("../../../global.zig");
 const terminal = @import("../../../terminal/main.zig");
 const unicode = @import("../../../unicode/main.zig");
-const gtk_version = @import("../gtk_version.zig");
 const scale_util = @import("../scale.zig");
 const Application = @import("application.zig").Application;
 const Surface = @import("surface.zig").Surface;
@@ -136,19 +135,12 @@ fn checkFrame(ud: ?*anyopaque) callconv(.c) c_int {
 /// Slots left alone keep GTK's `default_init` implementations, which
 /// decline gracefully (no selection, no attributes).
 pub fn initAccessibleTextInterface(iface: *gtk.AccessibleTextInterface) callconv(.c) void {
-    // Present since 4.14, which is the oldest GTK we run against.
+    // All of these exist in GTK 4.18, the oldest Ghostty runs against.
     iface.f_get_contents = &getContents;
     iface.f_get_contents_at = &getContentsAt;
     iface.f_get_caret_position = &getCaretPosition;
-
-    // `get_extents` and `get_offset` are 4.16 additions.
-    // While they are accessible with current bindings, we need to make sure
-    // we do not access invalid memory when running with older GTK versions
-    // by writing to fields that don't yet exist.
-    if (gtk_version.runtimeAtLeast(4, 16, 0)) {
-        iface.f_get_extents = &getExtents;
-        iface.f_get_offset = &getOffset;
-    }
+    iface.f_get_extents = &getExtents;
+    iface.f_get_offset = &getOffset;
 }
 
 /// Return the extents of a text range, in widget coordinates (see
