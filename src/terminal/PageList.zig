@@ -330,7 +330,9 @@ const std_size = Page.layout(std_capacity).total_size;
 ///
 /// Test builds use the native pool even on wasm so that pool memory goes
 /// through the testing allocator and participates in leak detection.
-const wasm_page_pool = builtin.target.cpu.arch.isWasm() and !builtin.is_test;
+/// Emscripten allocations must stay within the embedder-managed heap.
+const wasm_page_pool = builtin.target.cpu.arch.isWasm() and
+    builtin.target.os.tag != .emscripten and !builtin.is_test;
 
 /// The memory pool we use for page memory buffers. We use a separate pool
 /// so we can allocate these with a page allocator. We have to use a page
@@ -579,15 +581,15 @@ fn initialCapacity(cols: size.CellCountInt) Capacity {
 /// Returns the allocator used for underlying page allocations.
 ///
 /// `alloc` is the caller-provided allocator. It is used on native freestanding
-/// targets, where no OS page allocator is available. Other targets select a
+/// targets and Emscripten, where the embedder owns the heap. Other targets select a
 /// platform-specific allocator below.
 inline fn pageAllocator(alloc: Allocator) Allocator {
     // In tests we use our testing allocator so we can detect leaks.
     if (builtin.is_test) return std.testing.allocator;
 
-    // Native freestanding targets don't have an OS page allocator, so use
-    // the allocator provided by the embedder.
-    if (native_freestanding) return alloc;
+    // These targets must allocate through the embedder rather than grow
+    // linear memory independently of its heap.
+    if (native_freestanding or builtin.target.os.tag == .emscripten) return alloc;
 
     // On non-macOS we use our standard Zig page allocator.
     if (!builtin.target.os.tag.isDarwin()) return std.heap.page_allocator;
@@ -776,8 +778,11 @@ fn initPages(
         // interface will always memset to 0xAA for undefined. On freestanding
         // (WASM), the WasmAllocator reuses freed slots without zeroing since
         // only fresh memory.grow pages are guaranteed zero by the WASM spec.
+        // Emscripten uses the embedder allocator, which need not return zeros.
         // On native, the OS page allocator (mmap) returns zeroed pages.
-        if (comptime std.debug.runtime_safety or builtin.target.os.tag == .freestanding)
+        if (comptime std.debug.runtime_safety or
+            builtin.target.os.tag == .freestanding or
+            builtin.target.os.tag == .emscripten)
             @memset(page_buf, 0);
 
         // Initialize the first set of pages to contain our viewport so that
@@ -5370,12 +5375,15 @@ inline fn createPageExt(
 
     // In runtime safety modes, allocators fill with 0xAA. On freestanding
     // (WASM), the WasmAllocator reuses freed slots without zeroing.
+    // Emscripten also uses an allocator that need not return zeros.
     //
     // Otherwise, we rely on pool item buffers being zeroed: fresh items
     // come from the OS page allocator (zeroed pages), destroyNodeExt
     // zeroes buffers before returning them to the pool, and the pool
     // never writes into its items (see PagePool).
-    if (comptime std.debug.runtime_safety or builtin.target.os.tag == .freestanding)
+    if (comptime std.debug.runtime_safety or
+        builtin.target.os.tag == .freestanding or
+        builtin.target.os.tag == .emscripten)
         @memset(page_buf, 0);
 
     page.* = .{
