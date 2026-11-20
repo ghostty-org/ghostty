@@ -115,10 +115,7 @@ pub const Shaper = struct {
         self: *Shaper,
         opts: font.shape.RunOptions,
     ) font.shape.RunIterator {
-        return .{
-            .hooks = .{ .shaper = self },
-            .opts = opts,
-        };
+        return .init(.{ .shaper = self }, opts);
     }
 
     /// Shape the given text run. The text run must be the immediately previous
@@ -568,9 +565,9 @@ test "run iterator: empty cells with background set" {
         });
         {
             const run = (try it.next(alloc)).?;
-            try testing.expectEqual(@as(u32, 3), shaper.hb_buf.getLength());
+            try testing.expectEqual(@as(u32, 1), shaper.hb_buf.getLength());
             const cells = try shaper.shape(run);
-            try testing.expectEqual(@as(usize, 3), cells.len);
+            try testing.expectEqual(@as(usize, 1), cells.len);
         }
         try testing.expect(try it.next(alloc) == null);
     }

@@ -44,21 +44,30 @@ pub const RunIterator = struct {
     opts: shape.RunOptions,
     i: usize = 0,
 
+    /// The end of the cells to shape. Trailing blank cells are skipped even
+    /// with a background color, since the renderer draws backgrounds itself.
+    max: usize,
+
+    pub fn init(
+        hooks: font.Shaper.RunIteratorHook,
+        opts: shape.RunOptions,
+    ) RunIterator {
+        const cells = opts.cells.items(.raw);
+        var max = cells.len;
+        // A spacer head is only ever in the last column and has nothing to
+        // shape, but isBlank keeps it because isEmpty counts it as content.
+        if (max > 0 and cells[max - 1].wide == .spacer_head) max -= 1;
+        while (max > 0 and cells[max - 1].isBlank()) max -= 1;
+        return .{ .hooks = hooks, .opts = opts, .max = max };
+    }
+
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
         const cells: []const terminal.page.Cell = slice.items(.raw);
         const graphemes: []const []const u21 = slice.items(.grapheme);
         const styles: []const terminal.Style = slice.items(.style);
 
-        // Trim the right side of a row that might be empty
-        const max: usize = max: {
-            for (0..cells.len) |i| {
-                const rev_i = cells.len - i - 1;
-                if (!cells[rev_i].isEmpty()) break :max rev_i + 1;
-            }
-
-            break :max 0;
-        };
+        const max = self.max;
 
         // Invisible cells don't have any glyphs rendered,
         // so we explicitly skip them in the shaping process.
@@ -393,4 +402,56 @@ fn comparableStyle(style: terminal.Style) terminal.Style {
     s.bg_color = .none;
 
     return s;
+}
+
+test "run iterator: row erased with background" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[48;2;255;0;0m\x1b[2K");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // The hooks and grid are only used once there is something to shape.
+    const it: RunIterator = .init(undefined, .{
+        .grid = undefined,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    try testing.expectEqual(0, it.max);
+}
+
+test "run iterator: row erased with background before a spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Erase the row with a background, then print a wide character in the
+    // last column so it wraps and leaves a spacer head behind.
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[48;2;255;0;0m\x1b[2K\x1b[1;5H橋");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const cells = state.row_data.get(0).cells.slice();
+    try testing.expectEqual(.spacer_head, cells.items(.raw)[4].wide);
+
+    const it: RunIterator = .init(undefined, .{
+        .grid = undefined,
+        .cells = cells,
+    });
+    try testing.expectEqual(0, it.max);
 }

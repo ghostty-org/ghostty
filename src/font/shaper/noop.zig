@@ -70,10 +70,7 @@ pub const Shaper = struct {
         self: *Shaper,
         opts: font.shape.RunOptions,
     ) font.shape.RunIterator {
-        return .{
-            .hooks = .{ .shaper = self },
-            .opts = opts,
-        };
+        return .init(.{ .shaper = self }, opts);
     }
 
     pub fn shape(self: *Shaper, run: font.shape.TextRun) ![]const font.shape.Cell {
