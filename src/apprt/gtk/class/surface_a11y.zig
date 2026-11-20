@@ -25,55 +25,44 @@ const CoreSurface = @import("../../../Surface.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface_a11y);
 
-/// Viewport text served to AT reads. Served until a rendered frame
-/// marks it stale, so offsets stay consistent across a multi-call read.
-cached_text: ?[:0]const u8 = null,
+/// The viewport snapshot AT reads are served from: text, cell widths
+/// and caret. It is always exactly what clients have read or been told
+/// about through change events, which makes it the baseline the next
+/// change is diffed against. Between frames it does not move, so
+/// offsets stay consistent across a multi-call read.
+cache: a11y.text.Snapshot = .{},
 
-/// Columns occupied by each codepoint of `cached_text`, filled by the
-/// same walk that builds it. Read through `cellWidths`.
-cached_widths: std.ArrayList(u8) = .empty,
+/// Whether `cache` holds a snapshot. False until the first AT read.
+cached: bool = false,
 
-/// Caret offset in codepoints within `cached_text`.
-cached_cursor_offset: c_uint = 0,
+/// The next snapshot is built here and swapped into `cache` when it
+/// differs, so neither allocates once grown to viewport size.
+scratch: a11y.text.Snapshot = .{},
 
 /// Latched on the first AT query, never cleared: GTK has no "the last
-/// AT client went away" signal. Gates the per-frame change probe.
+/// AT client went away" signal. Gates the per-frame change check.
 active: bool = false,
 
-/// Viewport text at the last change notification. Change events are
-/// diffed against this so clients see minimal insert/remove ranges
-/// rather than a whole-viewport replacement on every keystroke.
-last_snapshot: ?[:0]const u8 = null,
-
-/// Caret offset at the last caret notification.
-last_notified_caret: c_uint = 0,
-
-/// Set on every rendered frame; cleared when the cache is confirmed
-/// to still match the viewport.
+/// Set when a frame could not be checked against the cache, so the
+/// next read rebuilds it rather than trusting it.
 cache_stale: bool = false,
 
-/// Retained scratch for `probeChanged` and `refreshCache` so the
-/// per-frame probe does not allocate once it has grown to viewport size.
-probe: a11y.text.Snapshot = .{},
-
 pub fn deinit(self: *A11y, alloc: Allocator) void {
-    self.probe.deinit(alloc);
-    self.cached_widths.deinit(alloc);
-    if (self.cached_text) |v| alloc.free(v);
-    if (self.last_snapshot) |v| alloc.free(v);
+    self.cache.deinit(alloc);
+    self.scratch.deinit(alloc);
     self.* = .{};
 }
 
-/// Called by the surface after every rendered frame: mark the cache
-/// stale and, if an AT client has ever queried us, emit change events.
+/// Called by the surface after every rendered frame: if an AT client
+/// has ever queried us, check the viewport against the cache and emit
+/// change events for the difference.
 ///
 /// Narrower gates than `active` are wrong: focus would silence
 /// unfocused splits, and `org.a11y.Status.IsEnabled` is a hint ATs
-/// write, not proof one is listening. The latch costs one probe per
-/// rendered frame (4.0us at 30x80, 12.6us at 60x200, per
-/// `ghostty-bench +a11y-text --mode=probe`); idle surfaces pay nothing.
+/// write, not proof one is listening. The latch costs one snapshot per
+/// rendered frame (6.2us at 30x80, 16.8us at 60x200, per
+/// `ghostty-bench +a11y-text --mode=text`); idle surfaces pay nothing.
 pub fn frameRendered(self: *A11y, surface: *Surface) void {
-    self.cache_stale = true;
     if (self.active) self.notifyIfChanged(surface);
 }
 
@@ -197,93 +186,46 @@ fn getOffset(
     return 1;
 }
 
-/// Cell widths for the current `cached_text`, for converting between
-/// codepoint offsets and grid positions. Only meaningful after
-/// `refreshCache` has returned text; empty reads as one column per
-/// codepoint.
+/// Cell widths for the cached text, for converting between codepoint
+/// offsets and grid positions. Only meaningful after `refreshCache` has
+/// returned text.
 fn cellWidths(self: *A11y) a11y.offsets.CellWidths {
-    return .{ .per_cp = self.cached_widths.items };
+    return self.cache.cellWidths();
 }
 
-/// Return the cached viewport text, rebuilding it first if a rendered
-/// frame marked it stale. Deliberately not a TTL: that could refresh
-/// mid-read, shifting offsets under the client. The text is one visual
-/// row per `\n`-delimited line, including blank rows, so every row has
-/// a range flat review can point at.
-fn refreshCache(self: *A11y, surface: *Surface) ?[:0]const u8 {
+/// The caret of the cached text, in codepoints.
+fn caret(self: *A11y) c_uint {
+    return @intCast(self.cache.caret);
+}
+
+/// Return the cached viewport text, building it first if there is none
+/// yet. Deliberately not a TTL: that could refresh mid-read, shifting
+/// offsets under the client. The text is one visual row per
+/// `\n`-delimited line, including blank rows, so every row has a range
+/// flat review can point at.
+fn refreshCache(self: *A11y, surface: *Surface) ?[]const u8 {
     // Mark that an AT client is actively querying us.
     self.active = true;
 
-    // A frame rendered since this cache was built and nothing has
-    // since confirmed it still matches, so drop it. On a focused
-    // surface `notifyIfChanged` normally clears the mark first; this
-    // path keeps an unfocused surface's on-demand reads fresh.
-    const alloc = Application.default().allocator();
-    if (self.cache_stale) {
-        if (self.cached_text) |old| {
-            alloc.free(old);
-            self.cached_text = null;
-        }
+    // The first snapshot a client reads is the baseline change events
+    // are diffed against. A stale one is rebuilt the same way: no frame
+    // could check it, so the client gets what is on screen now.
+    if (!self.cached or self.cache_stale) {
+        const core_surface = surface.core() orelse return null;
+        self.cached = buildSnapshot(core_surface, &self.cache);
         self.cache_stale = false;
+        if (!self.cached) return null;
     }
 
-    if (self.cached_text != null) return self.cached_text;
-
-    const core_surface = surface.core() orelse return null;
-
-    // The renderer mutex covers only the build; everything after this
-    // point reads the snapshot, which is our own memory.
-    if (!self.buildSnapshot(core_surface, &self.probe)) return null;
-
-    const text = alloc.dupeSentinel(u8, self.probe.text.items, 0) catch return null;
-    self.cached_widths.clearRetainingCapacity();
-    self.cached_widths.appendSlice(alloc, self.probe.widths.items) catch {
-        alloc.free(text);
-        return null;
-    };
-    self.cached_text = text;
-    self.cached_cursor_offset = @intCast(self.probe.caret);
-
-    // The first text a client reads is the baseline change events are
-    // diffed against. Without one, the next frame would diff against ""
-    // and report the whole viewport, which the client already has, as
-    // newly inserted.
-    if (self.last_snapshot == null) {
-        self.last_snapshot = alloc.dupeSentinel(u8, text, 0) catch null;
-        self.last_notified_caret = self.cached_cursor_offset;
-    }
-
-    return self.cached_text;
-}
-
-/// Cheap per-frame check for "could anything an AT client cares about
-/// have changed?": build only the text into the retained scratch
-/// buffer and compare it and the caret against the last notification.
-/// Conservative: may answer true on a frame the full path then finds
-/// nothing to emit for, never false when something moved.
-fn probeChanged(self: *A11y, surface: *Surface) bool {
-    const core_surface = surface.core() orelse return false;
-
-    // No baseline means recording it failed in `refreshCache`; take
-    // the full path, which retries.
-    const old_text: []const u8 = self.last_snapshot orelse return true;
-
-    // Probing failed; fall back to the full path rather than risk
-    // swallowing a change.
-    if (!self.buildSnapshot(core_surface, &self.probe)) return true;
-
-    if (!std.mem.eql(u8, old_text, self.probe.text.items)) return true;
-    return self.probe.caret != self.last_notified_caret;
+    return self.cache.text.items;
 }
 
 /// Build the viewport snapshot of `core_surface` into `snap` under the
 /// renderer mutex. False if it could not be built.
 fn buildSnapshot(
-    self: *A11y,
     core_surface: *CoreSurface,
     snap: *a11y.text.Snapshot,
 ) bool {
-    _ = self;
     const alloc = Application.default().allocator();
 
     core_surface.renderer_state.mutex.lockUncancelable(global.io());
@@ -299,183 +241,114 @@ fn buildSnapshot(
     return true;
 }
 
-/// Emit AT-SPI change events if the viewport text or caret moved since
-/// the last notification. We diff against the last notified snapshot
-/// and emit the smallest remove/insert pair: firing unconditionally
-/// would make an AT client restart reading on every rendered frame,
-/// and Orca's terminal script classifies events by `any_data` length,
-/// so a one-character insert reads as typing echo, not command output.
+/// Build a snapshot of the viewport and, if the text or caret differ
+/// from the cache, make it the cache and emit AT-SPI events for the
+/// difference. The diff is the smallest remove/insert pair: firing
+/// unconditionally would make an AT client restart reading on every
+/// rendered frame, and Orca's terminal script classifies events by
+/// `any_data` length, so a one-character insert reads as typing echo,
+/// not command output.
+///
+/// One build per frame serves both the check and the cache, and since
+/// the cache only ever changes here or on a client's own read, it is
+/// always what the client last saw.
 fn notifyIfChanged(self: *A11y, surface: *Surface) void {
-    const alloc = Application.default().allocator();
+    // Nothing read yet: the first read takes the baseline.
+    if (!self.cached) return;
 
-    // On an unchanged frame the cache still describes the viewport:
-    // retract this frame's staleness mark rather than making the next
-    // AT read pay for a rebuild.
-    if (!self.probeChanged(surface)) {
-        self.cache_stale = false;
+    const core_surface = surface.core() orelse return;
+    if (!buildSnapshot(core_surface, &self.scratch)) {
+        // The cache could not be checked against this frame, so a
+        // read must not trust it.
+        self.cache_stale = true;
         return;
     }
 
-    // Drop the cache so `refreshCache` rebuilds from the live
-    // viewport; the cache is the sole source of truth for AT reads.
-    if (self.cached_text) |old| {
-        alloc.free(old);
-        self.cached_text = null;
-    }
-    const new_text = self.refreshCache(surface) orelse return;
-    const old_text: []const u8 = self.last_snapshot orelse "";
+    if (self.scratch.eql(&self.cache)) return;
+    const caret_changed = self.scratch.caret != self.cache.caret;
 
-    const text_changed = !std.mem.eql(u8, old_text, new_text);
-    const caret_changed = self.cached_cursor_offset != self.last_notified_caret;
+    // Both slices stay valid across the swap below: it exchanges the
+    // two snapshots, it frees nothing.
+    const old_text = self.cache.text.items;
+    const new_text = self.scratch.text.items;
+    const change = textChange(old_text, new_text);
+    const accessible = surface.as(gtk.AccessibleText);
 
-    if (!text_changed and !caret_changed) return;
+    // GTK's bridge fills a remove's `any_data` by reading the removed
+    // range back out of us synchronously, so the cache still holds the
+    // old text for it, and the new text for the insert.
+    if (change.remove) |r| gtk.AccessibleText.updateContents(accessible, .remove, r[0], r[1]);
+    std.mem.swap(a11y.text.Snapshot, &self.cache, &self.scratch);
+    if (change.insert) |r| gtk.AccessibleText.updateContents(accessible, .insert, r[0], r[1]);
 
-    if (text_changed) {
-        self.emitTextDiff(surface, old_text, new_text);
-
-        // Keep our own copy rather than aliasing `cached_text`: the
-        // cache is freed and rewritten on every refresh.
-        if (self.last_snapshot) |prev| alloc.free(prev);
-        self.last_snapshot = alloc.dupeSentinel(u8, new_text, 0) catch null;
-    }
-    if (caret_changed) {
-        self.last_notified_caret = self.cached_cursor_offset;
-        gtk.AccessibleText.updateCaretPosition(surface.as(gtk.AccessibleText));
-    }
+    if (caret_changed) gtk.AccessibleText.updateCaretPosition(accessible);
 }
 
-/// Cache state displaced by `aliasOldSnapshot`.
-const AliasedCache = struct {
-    text: ?[:0]const u8,
-    cursor: c_uint,
-    widths: std.ArrayList(u8),
+/// The AT-SPI events for a change of text, as codepoint ranges. The
+/// remove is emitted against the old text, then the insert against the
+/// new, so each range is valid in the text the client has at that time.
+const TextChange = struct {
+    remove: ?[2]c_uint = null,
+    insert: ?[2]c_uint = null,
 };
 
-/// Point the cache at the pre-change snapshot for the duration of a
-/// `.remove` emit: GTK's bridge fills `any_data` by calling back into
-/// `getContents` synchronously, and for a remove the client expects
-/// the *deleted* substring, which the cache no longer holds. The
-/// displaced widths go empty (one column per codepoint); nothing
-/// inside the emit can rebuild the cache behind our back.
-fn aliasOldSnapshot(self: *A11y) AliasedCache {
-    const saved: AliasedCache = .{
-        .text = self.cached_text,
-        .cursor = self.cached_cursor_offset,
-        .widths = self.cached_widths,
-    };
-    self.cached_text = self.last_snapshot;
-    self.cached_cursor_offset = self.last_notified_caret;
-    self.cached_widths = .empty;
-    return saved;
-}
+/// The events for the change from `old_text` to `new_text`.
+/// `chooseDiff` owns the shape choice (pure arithmetic, unit-tested). A
+/// line shift is a `.remove` at one end plus an `.insert` at the other,
+/// matching what VTE exposes to Orca; a whole-viewport replacement
+/// would be re-read in full on every scroll.
+fn textChange(old_text: []const u8, new_text: []const u8) TextChange {
+    const cp = struct {
+        fn count(s: []const u8) c_uint {
+            return @intCast(utf8CpCount(s));
+        }
+    }.count;
 
-fn restoreCache(self: *A11y, saved: AliasedCache) void {
-    self.cached_text = saved.text;
-    self.cached_cursor_offset = saved.cursor;
-    self.cached_widths = saved.widths;
-}
-
-/// Prefix/suffix diff: bytes `[0..p)` and `[len-s..)` are unchanged,
-/// the rest was replaced, with both cuts on codepoint boundaries.
-const PrefixSuffixDiff = a11y.offsets.PrefixSuffixDiff;
-
-/// Fire the AT-SPI events for the change from `old_text` to
-/// `new_text`. `chooseDiff` owns the shape choice (pure arithmetic,
-/// unit-tested). A line shift is a `.remove` at one end plus an
-/// `.insert` at the other, matching what VTE exposes to Orca; a
-/// whole-viewport replacement would be re-read in full on every scroll.
-fn emitTextDiff(self: *A11y, surface: *Surface, old_text: []const u8, new_text: []const u8) void {
     switch (a11y.offsets.chooseDiff(old_text, new_text)) {
-        .none => {},
-        .shift_up => |k| self.emitShiftUp(surface, old_text, new_text, k),
-        .shift_down => |j| self.emitShiftDown(surface, old_text, new_text, j),
-        .replace => |ps| self.emitPrefixSuffix(surface, old_text, new_text, ps),
-    }
-}
+        .none => return .{},
 
-/// Emit `.remove(0, K_cp)` + `.insert(tail_cp, |new|_cp)` for an
-/// upward line shift. `scroll_k` is > 0 and lands on a `\n` boundary
-/// of `old` (guaranteed by `chooseDiff`).
-fn emitShiftUp(
-    self: *A11y,
-    surface: *Surface,
-    old_text: []const u8,
-    new_text: []const u8,
-    scroll_k: usize,
-) void {
-    const accessible = surface.as(gtk.AccessibleText);
+        // Upward line shift: `.remove(0, K)` + `.insert(tail, |new|)`.
+        // `k` is > 0 and lands on a `\n` boundary of `old`.
+        .shift_up => |k| {
+            const tail_cp = cp(old_text[k..]);
+            const new_end_cp = cp(new_text);
+            return .{
+                .remove = .{ 0, cp(old_text[0..k]) },
+                .insert = if (new_end_cp > tail_cp) .{ tail_cp, new_end_cp } else null,
+            };
+        },
 
-    const removed_cp: c_uint = @intCast(utf8CpCount(old_text[0..scroll_k]));
-    const tail_cp: c_uint = @intCast(utf8CpCount(old_text[scroll_k..]));
-    const new_end_cp: c_uint = @intCast(utf8CpCount(new_text));
+        // Downward line shift (scrolling back through output):
+        // `.remove(kept, |old|)` + `.insert(0, J)`. After the remove the
+        // exposed text is exactly `new[j..]`, so the insert offset needs
+        // no adjustment. `chooseDiff` guarantees
+        // `old_text[0..kept] == new_text[j..]`.
+        .shift_down => |j| {
+            const kept_cp = cp(old_text[0 .. new_text.len - j]);
+            const old_end_cp = cp(old_text);
+            return .{
+                .remove = if (old_end_cp > kept_cp) .{ kept_cp, old_end_cp } else null,
+                .insert = .{ 0, cp(new_text[0..j]) },
+            };
+        },
 
-    // The bridge reads the deleted range back out of us synchronously,
-    // so the cache must point at the pre-remove text for the call.
-    {
-        const saved = self.aliasOldSnapshot();
-        defer self.restoreCache(saved);
-        gtk.AccessibleText.updateContents(accessible, .remove, 0, removed_cp);
-    }
-
-    if (new_end_cp > tail_cp) {
-        gtk.AccessibleText.updateContents(accessible, .insert, tail_cp, new_end_cp);
-    }
-}
-
-/// Emit `.remove(kept_cp, |old|_cp)` + `.insert(0, J_cp)` for a
-/// downward line shift (scrolling back through output). Remove first:
-/// after it the exposed text is exactly `new[scroll_j..]`, so the
-/// insert offset needs no adjustment.
-fn emitShiftDown(
-    self: *A11y,
-    surface: *Surface,
-    old_text: []const u8,
-    new_text: []const u8,
-    scroll_j: usize,
-) void {
-    const accessible = surface.as(gtk.AccessibleText);
-
-    // Bytes of `old` that survive the shift. `chooseDiff` guarantees
-    // `old_text[0..kept] == new_text[scroll_j..]`.
-    const kept = new_text.len - scroll_j;
-    const kept_cp: c_uint = @intCast(utf8CpCount(old_text[0..kept]));
-    const old_end_cp: c_uint = @intCast(utf8CpCount(old_text));
-    const inserted_cp: c_uint = @intCast(utf8CpCount(new_text[0..scroll_j]));
-
-    if (old_end_cp > kept_cp) {
-        const saved = self.aliasOldSnapshot();
-        defer self.restoreCache(saved);
-        gtk.AccessibleText.updateContents(accessible, .remove, kept_cp, old_end_cp);
-    }
-
-    gtk.AccessibleText.updateContents(accessible, .insert, 0, inserted_cp);
-}
-
-/// Emit a single remove+insert pair covering the region between the
-/// common prefix and common suffix of `old` and `new`.
-fn emitPrefixSuffix(
-    self: *A11y,
-    surface: *Surface,
-    old_text: []const u8,
-    new_text: []const u8,
-    diff: PrefixSuffixDiff,
-) void {
-    const p = diff.prefix_len;
-    const s = diff.suffix_len;
-    const removed_len = old_text.len - p - s;
-    const inserted_len = new_text.len - p - s;
-
-    const accessible = surface.as(gtk.AccessibleText);
-    const start_cp: c_uint = @intCast(utf8CpCount(old_text[0..p]));
-    if (removed_len != 0) {
-        const saved = self.aliasOldSnapshot();
-        defer self.restoreCache(saved);
-        const end_cp: c_uint = @intCast(utf8CpCount(old_text[0..(old_text.len - s)]));
-        gtk.AccessibleText.updateContents(accessible, .remove, start_cp, end_cp);
-    }
-    if (inserted_len != 0) {
-        const end_cp: c_uint = @intCast(utf8CpCount(new_text[0..(new_text.len - s)]));
-        gtk.AccessibleText.updateContents(accessible, .insert, start_cp, end_cp);
+        // One remove+insert pair covering the region between the common
+        // prefix and the common suffix.
+        .replace => |d| {
+            const p = d.prefix_len;
+            const s = d.suffix_len;
+            const start_cp = cp(old_text[0..p]);
+            return .{
+                .remove = if (old_text.len - p - s != 0)
+                    .{ start_cp, cp(old_text[0 .. old_text.len - s]) }
+                else
+                    null,
+                .insert = if (new_text.len - p - s != 0)
+                    .{ start_cp, cp(new_text[0 .. new_text.len - s]) }
+                else
+                    null,
+            };
+        },
     }
 }
 
@@ -576,5 +449,5 @@ fn getCaretPosition(
     const surface = gobject.ext.cast(Surface, accessible) orelse return 0;
     const self = surface.a11y();
     _ = self.refreshCache(surface);
-    return self.cached_cursor_offset;
+    return self.caret();
 }
