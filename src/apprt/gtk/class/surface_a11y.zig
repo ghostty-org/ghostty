@@ -21,6 +21,7 @@ const gtk_version = @import("../gtk_version.zig");
 const scale_util = @import("../scale.zig");
 const Application = @import("application.zig").Application;
 const Surface = @import("surface.zig").Surface;
+const CoreSurface = @import("../../../Surface.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface_a11y);
 
@@ -51,12 +52,12 @@ last_notified_caret: c_uint = 0,
 /// to still match the viewport.
 cache_stale: bool = false,
 
-/// Retained scratch for `probeChanged` so the per-frame probe does
-/// not allocate once it has grown to viewport size.
-probe_buf: std.ArrayList(u8) = .empty,
+/// Retained scratch for `probeChanged` and `refreshCache` so the
+/// per-frame probe does not allocate once it has grown to viewport size.
+probe: a11y.text.Snapshot = .{},
 
 pub fn deinit(self: *A11y, alloc: Allocator) void {
-    self.probe_buf.deinit(alloc);
+    self.probe.deinit(alloc);
     self.cached_widths.deinit(alloc);
     if (self.cached_text) |v| alloc.free(v);
     if (self.last_snapshot) |v| alloc.free(v);
@@ -230,44 +231,18 @@ fn refreshCache(self: *A11y, surface: *Surface) ?[:0]const u8 {
 
     const core_surface = surface.core() orelse return null;
 
-    // Widths are rebuilt in lockstep with the text below; `build` only
-    // appends, so the retained list must start empty to stay aligned
-    // with the fresh text. The writer takes over the list's memory and
-    // the defer hands it back on every exit path.
+    // The renderer mutex covers only the build; everything after this
+    // point reads the snapshot, which is our own memory.
+    if (!self.buildSnapshot(core_surface, &self.probe)) return null;
+
+    const text = alloc.dupeSentinel(u8, self.probe.text.items, 0) catch return null;
     self.cached_widths.clearRetainingCapacity();
-    var widths: std.Io.Writer.Allocating = .fromArrayList(alloc, &self.cached_widths);
-    defer self.cached_widths = widths.toArrayList();
-
-    var buffer: std.Io.Writer.Allocating = .init(alloc);
-    defer buffer.deinit();
-
-    // The renderer mutex covers only the walk; everything after this
-    // point reads `buffer`, which is our own memory.
-    const result = result: {
-        core_surface.renderer_state.mutex.lockUncancelable(global.io());
-        defer core_surface.renderer_state.mutex.unlock(global.io());
-
-        const screen: *terminal.Screen =
-            core_surface.renderer_state.terminal.screens.active;
-
-        break :result a11y.text.build(
-            &buffer.writer,
-            screen,
-            .{ .widths = &widths.writer },
-        ) catch |err| {
-            log.warn("ax text build failed: {}", .{err});
-            return null;
-        };
+    self.cached_widths.appendSlice(alloc, self.probe.widths.items) catch {
+        alloc.free(text);
+        return null;
     };
-
-    const text = alloc.dupeSentinel(u8, buffer.written(), 0) catch return null;
     self.cached_text = text;
-
-    // AT-SPI wants the caret in codepoints; the walk reports a byte
-    // position. A cursor row outside the viewport has no byte offset
-    // and anchors at end-of-text.
-    const cursor_byte = @min(result.cursor_byte orelse text.len, text.len);
-    self.cached_cursor_offset = @intCast(utf8CpCount(text[0..cursor_byte]));
+    self.cached_cursor_offset = @intCast(self.probe.caret);
 
     // The first text a client reads is the baseline change events are
     // diffed against. Without one, the next frame would diff against ""
@@ -293,42 +268,35 @@ fn probeChanged(self: *A11y, surface: *Surface) bool {
     // the full path, which retries.
     const old_text: []const u8 = self.last_snapshot orelse return true;
 
+    // Probing failed; fall back to the full path rather than risk
+    // swallowing a change.
+    if (!self.buildSnapshot(core_surface, &self.probe)) return true;
+
+    if (!std.mem.eql(u8, old_text, self.probe.text.items)) return true;
+    return self.probe.caret != self.last_notified_caret;
+}
+
+/// Build the viewport snapshot of `core_surface` into `snap` under the
+/// renderer mutex. False if it could not be built.
+fn buildSnapshot(
+    self: *A11y,
+    core_surface: *CoreSurface,
+    snap: *a11y.text.Snapshot,
+) bool {
+    _ = self;
     const alloc = Application.default().allocator();
 
-    // The writer takes over the retained scratch buffer's memory and
-    // the defer hands it back on every exit path, so the capacity it
-    // grew survives for the next frame's probe.
-    self.probe_buf.clearRetainingCapacity();
-    var probe: std.Io.Writer.Allocating = .fromArrayList(alloc, &self.probe_buf);
-    defer self.probe_buf = probe.toArrayList();
+    core_surface.renderer_state.mutex.lockUncancelable(global.io());
+    defer core_surface.renderer_state.mutex.unlock(global.io());
 
-    const result = result: {
-        core_surface.renderer_state.mutex.lockUncancelable(global.io());
-        defer core_surface.renderer_state.mutex.unlock(global.io());
+    const screen: *terminal.Screen =
+        core_surface.renderer_state.terminal.screens.active;
 
-        const screen: *terminal.Screen =
-            core_surface.renderer_state.terminal.screens.active;
-
-        break :result a11y.text.build(
-            &probe.writer,
-            screen,
-            .{},
-        ) catch |err| {
-            // Probing failed; fall back to the full path rather than
-            // risk swallowing a change.
-            log.warn("ax probe build failed: {}", .{err});
-            return true;
-        };
+    a11y.text.build(alloc, snap, screen) catch |err| {
+        log.warn("ax text build failed: {}", .{err});
+        return false;
     };
-
-    const text = probe.written();
-    if (!std.mem.eql(u8, old_text, text)) return true;
-
-    // Text is identical, so the caret's byte offset converts against
-    // the same bytes the cache was built from.
-    const cursor_byte = @min(result.cursor_byte orelse text.len, text.len);
-    const caret_cp: c_uint = @intCast(utf8CpCount(text[0..cursor_byte]));
-    return caret_cp != self.last_notified_caret;
+    return true;
 }
 
 /// Emit AT-SPI change events if the viewport text or caret moved since
