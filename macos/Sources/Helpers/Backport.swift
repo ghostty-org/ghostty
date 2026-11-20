@@ -107,11 +107,16 @@ enum BackportPointerStyle {
 enum BackportGlass {
     case regular, clear
 
+    /// The glass of a sidebar `NSSplitViewItem`. SwiftUI has no `Glass` for it,
+    /// so `official` is `.identity` and the caller must add this glass itself.
+    case sidebar
+
     @available(macOS 26, *)
     var official: Glass {
         switch self {
         case .regular: return .regular
         case .clear: return .clear
+        case .sidebar: return .identity
         }
     }
 }

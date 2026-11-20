@@ -221,6 +221,12 @@ test "c_get: background-blur" {
         try testing.expect(get(&c, .@"background-blur", @ptrCast(&cval)));
         try testing.expectEqual(-2, cval);
     }
+    {
+        c.@"background-blur" = .@"macos-glass-sidebar";
+        var cval: i16 = undefined;
+        try testing.expect(get(&c, .@"background-blur", @ptrCast(&cval)));
+        try testing.expectEqual(-3, cval);
+    }
 }
 
 test "c_get: split-preserve-zoom" {

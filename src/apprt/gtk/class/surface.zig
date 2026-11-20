@@ -2060,7 +2060,11 @@ pub const Surface = extern struct {
 
             break :blur switch (config.get().@"background-blur") {
                 .radius => |v| @as(f32, v),
-                .true, .@"macos-glass-regular", .@"macos-glass-clear" => 20.0,
+                .true,
+                .@"macos-glass-regular",
+                .@"macos-glass-clear",
+                .@"macos-glass-sidebar",
+                => 20.0,
                 .false => null,
             };
         };

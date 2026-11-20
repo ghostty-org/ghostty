@@ -22,6 +22,10 @@ class TerminalViewContainer: NSView {
         return window.value(forKey: "_cornerRadius") as? CGFloat
     }
 
+    var reduceTransparency: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+
     init<Root: View>(@ViewBuilder rootView: () -> Root) {
         self.terminalView = NSHostingView(rootView: rootView())
         super.init(frame: .zero)
@@ -61,6 +65,18 @@ class TerminalViewContainer: NSView {
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+
+        // The sidebar glass depends on Reduce Transparency, see updateGlassEffectIfNeeded.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(accessibilityDisplayOptionsDidChange),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func accessibilityDisplayOptionsDidChange(_ notification: Notification) {
+        updateGlassEffectIfNeeded()
     }
 
     override func viewDidMoveToWindow() {
@@ -130,7 +146,71 @@ private class TerminalGlassView: NSView, ObservableObject {
         }
     }
 
+    /// The glass that the system uses for sidebars. Unlike `NSGlassEffectView`
+    /// and SwiftUI's `Glass`, it picks up color from just outside of the
+    /// window's edges. The only public way to get it is to let AppKit create
+    /// it for a sidebar split view item, so this hosts a split view whose
+    /// only item is an empty sidebar.
+    class SidebarGlassView: NSView {
+        /// Only used for its view, so it doesn't need a parent view controller.
+        private let splitViewController = NSSplitViewController()
+
+        init() {
+            super.init(frame: .zero)
+            translatesAutoresizingMaskIntoConstraints = false
+
+            // We can't set the shape of this glass, so we clip it to the
+            // corner radius, like the SwiftUI glass's rounded rectangle.
+            wantsLayer = true
+            clipsToBounds = true
+
+            let sidebar = NSViewController()
+            sidebar.view = NSView()
+            let item = NSSplitViewItem(sidebarWithViewController: sidebar)
+            // The sidebar must always fill this view: never collapse it and
+            // don't let its minimum thickness become our window's minimum width.
+            item.canCollapse = false
+            item.minimumThickness = 0
+            splitViewController.addSplitViewItem(item)
+
+            let splitView = splitViewController.view
+            splitView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(splitView)
+            NSLayoutConstraint.activate([
+                splitView.topAnchor.constraint(equalTo: topAnchor),
+                splitView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                splitView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                splitView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ])
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        // This is purely decorative, so hide the split view from accessibility.
+        override func isAccessibilityElement() -> Bool { false }
+        override func accessibilityChildren() -> [Any]? { [] }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+
+            // AppKit shows the titlebar background of a window again in the
+            // next layout after a sidebar is added to or removed from it, so
+            // we need to sync our appearance again after that.
+            for affected in [window, newWindow].compactMap({ $0 }) {
+                DispatchQueue.main.async { [weak affected] in
+                    guard let affected else { return }
+                    affected.layoutIfNeeded()
+                    (affected.windowController as? BaseTerminalController)?.syncAppearance()
+                }
+            }
+        }
+    }
+
     private let glassEffectView: NSView
+    private var sidebarGlassView: SidebarGlassView?
     private var topConstraint: NSLayoutConstraint!
     private let glassViewModel: GlassViewModel
 
@@ -164,7 +244,7 @@ private class TerminalGlassView: NSView, ObservableObject {
 
     /// Configures the glass, tint color, corner radius.
     func configure(
-        glass: Glass,
+        glass: BackportGlass,
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         cornerRadius: CGFloat?,
@@ -172,7 +252,29 @@ private class TerminalGlassView: NSView, ObservableObject {
         glassViewModel.backgroundColor = Color(backgroundColor)
         glassViewModel.backgroundOpacity = backgroundOpacity
         glassViewModel.cornerRadius = cornerRadius ?? 0
-        glassViewModel.glass = glass
+        glassViewModel.glass = glass.official
+
+        guard glass == .sidebar else {
+            sidebarGlassView?.removeFromSuperview()
+            sidebarGlassView = nil
+            return
+        }
+
+        // The sidebar glass goes over the background color instead of under
+        // it, because color over this glass hides the color that it picks up.
+        // For this glass, glassEffectView only draws the background color.
+        if sidebarGlassView == nil {
+            let view = SidebarGlassView()
+            addSubview(view)
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: glassEffectView.topAnchor),
+                view.leadingAnchor.constraint(equalTo: glassEffectView.leadingAnchor),
+                view.bottomAnchor.constraint(equalTo: glassEffectView.bottomAnchor),
+                view.trailingAnchor.constraint(equalTo: glassEffectView.trailingAnchor),
+            ])
+            sidebarGlassView = view
+        }
+        sidebarGlassView?.layer?.cornerRadius = cornerRadius ?? 0
     }
 
     /// Updates the top inset offset for both the glass effect and tint overlay.
@@ -218,8 +320,15 @@ extension TerminalViewContainer {
             return
         }
 
+        // With Reduce Transparency, the sidebar glass is a solid system color
+        // that would replace the background color, so use the regular glass.
+        var glass = derivedConfig.glass
+        if glass == .sidebar, reduceTransparency {
+            glass = .regular
+        }
+
         effectView.configure(
-            glass: derivedConfig.glass.official,
+            glass: glass,
             backgroundColor: derivedConfig.backgroundColor,
             backgroundOpacity: derivedConfig.backgroundOpacity,
             cornerRadius: derivedConfig.cornerRadius,
@@ -252,6 +361,8 @@ extension TerminalViewContainer {
                 glass = .regular
             case .macosGlassClear:
                 glass = .clear
+            case .macosGlassSidebar:
+                glass = .sidebar
             default:
                 return nil
             }
