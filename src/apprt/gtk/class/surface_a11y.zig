@@ -47,15 +47,27 @@ active: bool = false,
 /// next read rebuilds it rather than trusting it.
 cache_stale: bool = false,
 
+/// The pending idle source that checks the last painted frame, if any.
+check_source: ?c_uint = null,
+
+/// Must run before the surface is freed: the pending check holds a
+/// plain pointer to it.
 pub fn deinit(self: *A11y, alloc: Allocator) void {
+    if (self.check_source) |id| {
+        if (glib.Source.remove(id) == 0) {
+            log.warn("unable to remove the a11y check source", .{});
+        }
+    }
     self.cache.deinit(alloc);
     self.scratch.deinit(alloc);
     self.* = .{};
 }
 
-/// Called by the surface after every rendered frame: if an AT client
-/// has ever queried us, check the viewport against the cache and emit
-/// change events for the difference.
+/// Called by the surface after every rendered frame, from inside GTK's
+/// paint: if an AT client has ever queried us, schedule a check of the
+/// viewport against the cache, which emits change events for the
+/// difference. The check runs from an idle callback right after the
+/// paint, not inside it, and frames painted before it runs share it.
 ///
 /// Narrower gates than `active` are wrong: focus would silence
 /// unfocused splits, and `org.a11y.Status.IsEnabled` is a hint ATs
@@ -63,7 +75,25 @@ pub fn deinit(self: *A11y, alloc: Allocator) void {
 /// rendered frame (6.2us at 30x80, 16.8us at 60x200, per
 /// `ghostty-bench +a11y-text --mode=text`); idle surfaces pay nothing.
 pub fn frameRendered(self: *A11y, surface: *Surface) void {
-    if (self.active) self.notifyIfChanged(surface);
+    if (!self.active or self.check_source != null) return;
+
+    // Default priority, the same as the D-Bus traffic the events go
+    // out with, so a busy bus cannot hold the check back the way it
+    // would hold back a default-idle source.
+    self.check_source = glib.idleAddFull(
+        glib.PRIORITY_DEFAULT,
+        checkFrame,
+        surface,
+        null,
+    );
+}
+
+fn checkFrame(ud: ?*anyopaque) callconv(.c) c_int {
+    const surface: *Surface = @ptrCast(@alignCast(ud orelse return 0));
+    const self = surface.a11y();
+    self.check_source = null;
+    self.notifyIfChanged(surface);
+    return 0;
 }
 
 //---------------------------------------------------------------

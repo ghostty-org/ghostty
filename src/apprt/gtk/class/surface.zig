@@ -3531,9 +3531,11 @@ pub const Surface = extern struct {
         _: *RenderSurface,
         self: *Self,
     ) callconv(.c) void {
-        // Notify AT-SPI clients of any content change, gated so that an
-        // unchanged frame emits nothing and an AT client is never
-        // interrupted mid-read by a cursor blink. See `A11y.frameRendered`.
+        // Schedule a check that notifies AT-SPI clients of any content
+        // change, gated so that an unchanged frame emits nothing and an
+        // AT client is never interrupted mid-read by a cursor blink. This
+        // runs inside GTK's paint, so the check itself is deferred to an
+        // idle callback. See `A11y.frameRendered`.
         self.private().a11y.frameRendered(self);
     }
 
