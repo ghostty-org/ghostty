@@ -611,7 +611,7 @@ fn lowestUnusedBroadcastGroup(self: *const App) ?u4 {
 }
 
 /// Toggle the given surface's membership in the broadcast group with
-/// the given one-based number: a surface already in that group leaves
+/// the given zero-based number: a surface already in that group leaves
 /// it, any other surface joins it (leaving its previous group).
 ///
 /// This is the implementation of the `toggle_broadcast_group`
