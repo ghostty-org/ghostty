@@ -1147,7 +1147,7 @@ fn printSliceFill(
                     cursor.page_row.wrap = true;
                     spacer.wide = .spacer_head;
                 }
-                cursor.page_row.markWritten();
+                cursor.page_row.markWritten(cursor.x + 1);
                 if (style_id != style.default_id) cursor.page_row.styled = true;
                 cells[0] = spacer;
                 if (linked) {
@@ -1194,10 +1194,10 @@ fn printSliceFill(
             // several cells at a time manually.
             var simple = k;
             simple: {
-                // A blank row holds only zero cells (see Row.blank): each
-                // is simple once it holds a reference to our style, so
-                // there is nothing to scan.
-                if (k == 0 and cursor.page_row.blank) {
+                // Cells at or right of the row's extent are zero cells
+                // (see Row.extent): each is simple once it holds a
+                // reference to our style, so there is nothing to scan.
+                if (k == 0 and cursor.x >= cursor.page_row.extent()) {
                     if (style_id != style.default_id) {
                         page.styles.useMultiple(page.memory, style_id, @intCast(cell_count));
                     }
@@ -1381,7 +1381,7 @@ fn printSliceFill(
         if (k > 0) {
             assert(k % cells_per_cp == 0);
 
-            cursor.page_row.markWritten();
+            cursor.page_row.markWritten(cursor.x + k);
             if (style_id != style.default_id) cursor.page_row.styled = true;
 
             // Every cell written has the hyperlink flag from the
@@ -1548,7 +1548,7 @@ fn printSliceMixed(
         // cursor past them, onto the last cell with a pending wrap if
         // the row is full, as in print().
         if (state.k > 0) {
-            cursor.page_row.markWritten();
+            cursor.page_row.markWritten(cursor.x + state.k);
             if (style_id != style.default_id) cursor.page_row.styled = true;
             if (linked) page.setHyperlinkRun(
                 cursor.page_row,
@@ -1578,7 +1578,7 @@ fn printSliceMixed(
                     cursor.page_row.wrap = true;
                     spacer.wide = .spacer_head;
                 }
-                cursor.page_row.markWritten();
+                cursor.page_row.markWritten(cursor.x + 1);
                 if (style_id != style.default_id) cursor.page_row.styled = true;
                 cursor.page_cell.* = spacer;
                 if (linked) page.setHyperlinkRun(
@@ -2303,15 +2303,17 @@ fn writeCell(
     c: u21,
     wide: Cell.Wide,
 ) void {
-    defer self.screens.active.assertIntegrity();
+    const screen = self.screens.active;
+    const cursor = &screen.cursor;
+    defer screen.assertIntegrity();
 
     // TODO: spacers should use a bgcolor only cell
 
     // Done here rather than in callers so that every write is covered,
     // including the spacer head written before a wide char wraps.
-    self.screens.active.cursor.page_row.markWritten();
+    cursor.page_row.markWritten(cursor.x + 1);
 
-    const cell = self.screens.active.cursor.page_cell;
+    const cell = cursor.page_cell;
 
     // If the wide property of this cell is the same, then we don't
     // need to do the special handling here because the structure will
@@ -2324,12 +2326,12 @@ fn writeCell(
 
             // Previous cell was wide. We need to clear the tail and head.
             .wide => wide: {
-                if (self.screens.active.cursor.x >= self.cols - 1) break :wide;
+                if (cursor.x >= self.cols - 1) break :wide;
 
-                const spacer_cell = self.screens.active.cursorCellRight(1);
-                self.screens.active.clearCells(
-                    self.screens.active.cursor.page_pin.node.page(),
-                    self.screens.active.cursor.page_row,
+                const spacer_cell = screen.cursorCellRight(1);
+                screen.clearCells(
+                    cursor.page_pin.node.page(),
+                    cursor.page_row,
                     spacer_cell[0..1],
                 );
 
@@ -2337,14 +2339,14 @@ fn writeCell(
                 // wrapped from the previous row, leaving a spacer_head
                 // at the end of that row. Clear it so the previous row
                 // doesn't keep a stale spacer_head.
-                if (self.screens.active.cursor.y > 0 and self.screens.active.cursor.x <= 1) {
-                    const head_cell = self.screens.active.cursorCellEndOfPrev();
+                if (cursor.y > 0 and cursor.x <= 1) {
+                    const head_cell = screen.cursorCellEndOfPrev();
                     if (head_cell.wide == .spacer_head) head_cell.wide = .narrow;
                 }
             },
 
             .spacer_tail => {
-                assert(self.screens.active.cursor.x > 0);
+                assert(cursor.x > 0);
 
                 // So integrity checks pass. We fix this up later so we don't
                 // need to do this without safety checks.
@@ -2352,18 +2354,18 @@ fn writeCell(
                     cell.wide = .narrow;
                 }
 
-                const wide_cell = self.screens.active.cursorCellLeft(1);
-                self.screens.active.clearCells(
-                    self.screens.active.cursor.page_pin.node.page(),
-                    self.screens.active.cursor.page_row,
+                const wide_cell = screen.cursorCellLeft(1);
+                screen.clearCells(
+                    cursor.page_pin.node.page(),
+                    cursor.page_row,
                     wide_cell[0..1],
                 );
                 // If we're near the left edge, a wide char may have
                 // wrapped from the previous row, leaving a spacer_head
                 // at the end of that row. Clear it so the previous row
                 // doesn't keep a stale spacer_head.
-                if (self.screens.active.cursor.y > 0 and self.screens.active.cursor.x <= 1) {
-                    const head_cell = self.screens.active.cursorCellEndOfPrev();
+                if (cursor.y > 0 and cursor.x <= 1) {
+                    const head_cell = screen.cursorCellEndOfPrev();
                     if (head_cell.wide == .spacer_head) head_cell.wide = .narrow;
                 }
             },
@@ -2377,20 +2379,20 @@ fn writeCell(
 
     // If the prior value had graphemes, clear those
     if (cell.hasGrapheme()) {
-        const page = self.screens.active.cursor.page_pin.node.page();
+        const page = cursor.page_pin.node.page();
         page.clearGrapheme(cell);
-        page.updateRowGraphemeFlag(self.screens.active.cursor.page_row);
+        page.updateRowGraphemeFlag(cursor.page_row);
     }
 
     // We don't need to update the style refs unless the
     // cell's new style will be different after writing.
-    const style_changed = cell.style_id != self.screens.active.cursor.style_id;
+    const style_changed = cell.style_id != cursor.style_id;
     if (style_changed) {
-        var page = self.screens.active.cursor.page_pin.node.page();
+        var page = cursor.page_pin.node.page();
 
         // Release the old style.
         if (cell.style_id != style.default_id) {
-            assert(self.screens.active.cursor.page_row.styled);
+            assert(cursor.page_row.styled);
             page.styles.release(page.memory, cell.style_id);
         }
     }
@@ -2402,19 +2404,19 @@ fn writeCell(
     cell.* = .{
         .content_tag = .codepoint,
         .content = .{ .codepoint = .{ .data = c } },
-        .style_id = self.screens.active.cursor.style_id,
+        .style_id = cursor.style_id,
         .wide = wide,
-        .protected = self.screens.active.cursor.protected,
-        .semantic_content = self.screens.active.cursor.semantic_content,
+        .protected = cursor.protected,
+        .semantic_content = cursor.semantic_content,
     };
 
     if (style_changed) {
-        var page = self.screens.active.cursor.page_pin.node.page();
+        var page = cursor.page_pin.node.page();
 
         // Use the new style.
         if (cell.style_id != style.default_id) {
             page.styles.use(page.memory, cell.style_id);
-            self.screens.active.cursor.page_row.styled = true;
+            cursor.page_row.styled = true;
         }
     }
 
@@ -2423,28 +2425,28 @@ fn writeCell(
     if (comptime build_options.kitty_graphics) {
         if (c == kitty.graphics.unicode.placeholder) {
             @branchHint(.unlikely);
-            self.screens.active.cursor.page_row.kitty_virtual_placeholder = true;
+            cursor.page_row.kitty_virtual_placeholder = true;
         }
     }
 
     // We check for an active hyperlink first because setHyperlink
     // handles clearing the old hyperlink and an optimization if we're
     // overwriting the same hyperlink.
-    if (self.screens.active.cursor.hyperlink_id > 0) {
-        self.screens.active.cursorSetHyperlink() catch |err| {
+    if (cursor.hyperlink_id > 0) {
+        screen.cursorSetHyperlink() catch |err| {
             @branchHint(.unlikely);
             log.warn("error reallocating for more hyperlink space, ignoring hyperlink err={}", .{err});
 
             // A partially successful grow can replace the page even when the
             // call fails, so `cell` may be stale here. The cursor pointers are
             // always reloaded, so read the cell through the cursor.
-            assert(!self.screens.active.cursor.page_cell.hyperlink);
+            assert(!cursor.page_cell.hyperlink);
         };
     } else if (had_hyperlink) {
         // If the previous cell had a hyperlink then we need to clear it.
-        var page = self.screens.active.cursor.page_pin.node.page();
+        var page = cursor.page_pin.node.page();
         page.clearHyperlink(cell);
-        page.updateRowHyperlinkFlag(self.screens.active.cursor.page_row);
+        page.updateRowHyperlinkFlag(cursor.page_row);
     }
 }
 
@@ -4030,10 +4032,13 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
 ///
 /// The inserted cells are colored according to the current SGR state.
 pub fn insertBlanks(self: *Terminal, count: usize) void {
+    const screen = self.screens.active;
+    const cursor = &screen.cursor;
+
     // Unset pending wrap state without wrapping. Note: this purposely
     // happens BEFORE the scroll region check below, because that's what
     // xterm does.
-    self.screens.active.cursor.pending_wrap = false;
+    cursor.pending_wrap = false;
 
     // If we're given a zero then we do nothing. The rest of this function
     // assumes count > 0 and will crash if zero so return early. Note that
@@ -4043,40 +4048,40 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 
     // If our cursor is outside the margins then do nothing. We DO reset
     // wrap state still so this must remain below the above logic.
-    if (self.screens.active.cursor.x < self.scrolling_region.left or
-        self.screens.active.cursor.x > self.scrolling_region.right) return;
+    if (cursor.x < self.scrolling_region.left or
+        cursor.x > self.scrolling_region.right) return;
 
     // If our count is larger than the remaining amount, we just erase right.
     // We only do this if we can erase the entire line (no right margin).
     // if (right_limit == self.cols and
-    //     count > right_limit - self.screens.active.cursor.x)
+    //     count > right_limit - cursor.x)
     // {
     //     self.eraseLine(.right, false);
     //     return;
     // }
 
     // left is just the cursor position but as a multi-pointer
-    const left: [*]Cell = @ptrCast(self.screens.active.cursor.page_cell);
-    var page = self.screens.active.cursor.page_pin.node.page();
+    const left: [*]Cell = @ptrCast(cursor.page_cell);
+    var page = cursor.page_pin.node.page();
 
     // If our X is a wide spacer tail then we need to erase the
     // previous cell too so we don't split a multi-cell character.
-    if (self.screens.active.cursor.page_cell.wide == .spacer_tail) {
-        assert(self.screens.active.cursor.x > 0);
-        self.screens.active.clearCells(page, self.screens.active.cursor.page_row, (left - 1)[0..2]);
+    if (cursor.page_cell.wide == .spacer_tail) {
+        assert(cursor.x > 0);
+        screen.clearCells(page, cursor.page_row, (left - 1)[0..2]);
     }
 
     // Remaining cols from our cursor to the right margin.
-    const rem = self.scrolling_region.right - self.screens.active.cursor.x + 1;
+    const rem = self.scrolling_region.right - cursor.x + 1;
 
     // If the cell at the right margin is wide, its spacer tail is
     // outside the scroll region and would be orphaned by either the
     // shift or the clear. Clean up both halves up front.
     {
         const right_cell: *Cell = @ptrCast(left + (rem - 1));
-        if (right_cell.wide == .wide) self.screens.active.clearCells(
+        if (right_cell.wide == .wide) screen.clearCells(
             page,
-            self.screens.active.cursor.page_row,
+            cursor.page_row,
             @as([*]Cell, @ptrCast(right_cell))[0..2],
         );
     }
@@ -4100,9 +4105,9 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
         if (end.wide == .wide) {
             const end_multi: [*]Cell = @ptrCast(end);
             assert(end_multi[1].wide == .spacer_tail);
-            self.screens.active.clearCells(
+            screen.clearCells(
                 page,
-                self.screens.active.cursor.page_row,
+                cursor.page_row,
                 end_multi[0..2],
             );
         }
@@ -4113,13 +4118,16 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
             const dst: *Cell = @ptrCast(x + adjusted_count);
             page.swapCells(src, dst);
         }
+
+        // The shifted cells may have content up to the right margin.
+        cursor.page_row.markWritten(self.scrolling_region.right + 1);
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.screens.active.clearCells(page, self.screens.active.cursor.page_row, left[0..adjusted_count]);
+    screen.clearCells(page, cursor.page_row, left[0..adjusted_count]);
 
     // Our row is always dirty
-    self.screens.active.cursorMarkDirty();
+    screen.cursorMarkDirty();
 }
 
 /// Removes amount characters from the current cursor position to the right.
@@ -4133,24 +4141,27 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 pub fn deleteChars(self: *Terminal, count_req: usize) void {
     if (count_req == 0) return;
 
+    const screen = self.screens.active;
+    const cursor = &screen.cursor;
+
     // If our cursor is outside the margins then do nothing. We DO reset
     // wrap state still so this must remain below the above logic.
-    if (self.screens.active.cursor.x < self.scrolling_region.left or
-        self.screens.active.cursor.x > self.scrolling_region.right) return;
+    if (cursor.x < self.scrolling_region.left or
+        cursor.x > self.scrolling_region.right) return;
 
     // left is just the cursor position but as a multi-pointer
-    const left: [*]Cell = @ptrCast(self.screens.active.cursor.page_cell);
-    var page = self.screens.active.cursor.page_pin.node.page();
+    const left: [*]Cell = @ptrCast(cursor.page_cell);
+    var page = cursor.page_pin.node.page();
 
     // Remaining cols from our cursor to the right margin.
-    const rem = self.scrolling_region.right - self.screens.active.cursor.x + 1;
+    const rem = self.scrolling_region.right - cursor.x + 1;
 
     // We can only insert blanks up to our remaining cols
     const count = @min(count_req, rem);
 
-    self.screens.active.splitCellBoundary(self.screens.active.cursor.x);
-    self.screens.active.splitCellBoundary(self.screens.active.cursor.x + count);
-    self.screens.active.splitCellBoundary(self.scrolling_region.right + 1);
+    screen.splitCellBoundary(cursor.x);
+    screen.splitCellBoundary(cursor.x + count);
+    screen.splitCellBoundary(self.scrolling_region.right + 1);
 
     // This is the amount of space at the right of the scroll region
     // that will NOT be blank, so we need to shift the correct cols right.
@@ -4168,16 +4179,20 @@ pub fn deleteChars(self: *Terminal, count_req: usize) void {
             const dst: *Cell = @ptrCast(x);
             page.swapCells(src, dst);
         }
+
+        // The deleted cells rotate to the right margin until the clear
+        // below, so they may be right of the extent.
+        cursor.page_row.markWritten(self.scrolling_region.right + 1);
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.screens.active.clearCells(page, self.screens.active.cursor.page_row, x[0 .. rem - scroll_amount]);
+    screen.clearCells(page, cursor.page_row, x[0 .. rem - scroll_amount]);
 
     // Our row's soft-wrap is always reset.
-    self.screens.active.cursorResetWrap();
+    screen.cursorResetWrap();
 
     // Our row is always dirty
-    self.screens.active.cursorMarkDirty();
+    screen.cursorMarkDirty();
 }
 
 /// DECIC - Insert Column. Inserts count blank columns at the cursor
@@ -4502,8 +4517,8 @@ pub fn eraseDisplay(
                         .none => {
                             // Blank rows below the prompt tell us nothing,
                             // keep searching for the last non-empty row.
-                            if (row.blank) continue;
-                            if (!Cell.hasTextAny(p.cells(.all))) continue;
+                            if (row.isBlank()) continue;
+                            if (!Cell.hasTextAny(row.content(p.cells(.all)))) continue;
 
                             // If we have command output, then we're most
                             // certainly not at a prompt.
@@ -4622,7 +4637,7 @@ pub fn decaln(self: *Terminal) !void {
         const row = self.screens.active.cursor.page_row;
         const cells_multi: [*]Cell = row.cells.ptr(page.memory);
         const cells = cells_multi[0..page.size.cols];
-        row.blank = false;
+        row.markWritten(cells.len);
         @memset(cells, .{
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 'E' } },
@@ -15997,6 +16012,10 @@ test "Terminal: printSliceAscii matches printSlice" {
         var t2 = try init(io_impl, alloc, .{ .cols = 10, .rows = 4 });
         defer t2.deinit(alloc);
         inline for (.{ &t1, &t2 }) |t| {
+            // Clear the rows so their extent is known. A new row may
+            // have content anywhere (see Row.extent), so the fill would
+            // never take its shortcut for the zero cells past it.
+            t.eraseDisplay(.complete, false);
             switch (setup) {
                 0 => {},
                 1 => {
@@ -17061,35 +17080,35 @@ test "Terminal: eraseDisplay complete twice leaves blank rows undirtied" {
     try testing.expect(t.flags.dirty.clear);
 }
 
-/// Returns the row at the given active y, for tests of Row.blank.
+/// Returns the row at the given active y, for tests of Row.extent.
 fn testActiveRow(t: *const Terminal, y: size.CellCountInt) *pagepkg.Row {
     return t.screens.active.pages.getCell(.{ .active = .{ .y = y } }).?.row;
 }
 
-test "Terminal: blank bit with colored blank cells" {
+test "Terminal: colored blank cells keep a row from being blank" {
     const alloc = testing.allocator;
     var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 5 });
     defer t.deinit(alloc);
 
     t.eraseDisplay(.complete, false);
-    try testing.expect(testActiveRow(&t, 0).blank);
+    try testing.expect(testActiveRow(&t, 0).isBlank());
 
     // Erasing part of a row with a background color writes colored
     // cells, so the row is no longer blank.
     try t.setAttribute(.{ .direct_color_bg = .{ .r = 0xFF, .g = 0, .b = 0 } });
     t.setCursorPos(1, 2);
     t.eraseChars(2);
-    try testing.expect(!testActiveRow(&t, 0).blank);
+    try testing.expect(!testActiveRow(&t, 0).isBlank());
 
     // Erasing a whole row with a background color doesn't make it blank.
     t.setCursorPos(2, 1);
     t.eraseLine(.complete, false);
-    try testing.expect(!testActiveRow(&t, 1).blank);
+    try testing.expect(!testActiveRow(&t, 1).isBlank());
 
     // Erasing it again with no background color does.
     try t.setAttribute(.{ .unset = {} });
     t.eraseLine(.complete, false);
-    try testing.expect(testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 1).isBlank());
 
     try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
 }
@@ -17110,13 +17129,13 @@ test "Terminal: eraseDisplay below skips blank rows" {
 
     // The row with text is cleared, marked dirty and now blank.
     try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
-    try testing.expect(testActiveRow(&t, 0).blank);
+    try testing.expect(testActiveRow(&t, 0).isBlank());
 
     // The blank row is skipped. Its metadata is reset, but it isn't
     // marked dirty because its cells didn't change.
     try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
     try testing.expect(!testActiveRow(&t, 1).wrap);
-    try testing.expect(testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 1).isBlank());
 }
 
 test "Terminal: protected eraseDisplay leaves blank rows alone" {
@@ -17132,10 +17151,10 @@ test "Terminal: protected eraseDisplay leaves blank rows alone" {
     t.eraseDisplay(.complete, true);
     try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
     try testing.expect(testActiveRow(&t, 1).wrap);
-    try testing.expect(testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 1).isBlank());
 }
 
-test "Terminal: blank bit moves with rows" {
+test "Terminal: blank rows move with scrolled rows" {
     const alloc = testing.allocator;
     var t = try init(testing.io, alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
@@ -17149,18 +17168,18 @@ test "Terminal: blank bit moves with rows" {
     t.setTopAndBottomMargin(2, 4);
     t.setCursorPos(4, 1);
     try t.index();
-    try testing.expect(!testActiveRow(&t, 1).blank);
-    try testing.expect(testActiveRow(&t, 0).blank);
+    try testing.expect(!testActiveRow(&t, 1).isBlank());
+    try testing.expect(testActiveRow(&t, 0).isBlank());
 
     // Inserting and deleting lines move it down and back up.
     t.setTopAndBottomMargin(0, 0);
     t.setCursorPos(1, 1);
     t.insertLines(1);
-    try testing.expect(!testActiveRow(&t, 2).blank);
+    try testing.expect(!testActiveRow(&t, 2).isBlank());
     t.deleteLines(1);
-    try testing.expect(!testActiveRow(&t, 1).blank);
-    try testing.expect(testActiveRow(&t, 0).blank);
-    try testing.expect(testActiveRow(&t, 2).blank);
+    try testing.expect(!testActiveRow(&t, 1).isBlank());
+    try testing.expect(testActiveRow(&t, 0).isBlank());
+    try testing.expect(testActiveRow(&t, 2).isBlank());
 
     try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
 }
@@ -17192,7 +17211,7 @@ test "Terminal: eraseLine on a blank row keeps it blank" {
         t.clearDirty();
 
         t.eraseLine(mode, false);
-        try testing.expect(testActiveRow(&t, 1).blank);
+        try testing.expect(testActiveRow(&t, 1).isBlank());
         try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
         try testing.expect(!t.screens.active.cursor.pending_wrap);
         try testing.expectEqual(!resets_wrap, testActiveRow(&t, 1).wrap);
@@ -17213,7 +17232,7 @@ test "Terminal: eraseChars on a blank row keeps it blank" {
     t.clearDirty();
 
     t.eraseChars(2);
-    try testing.expect(testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 1).isBlank());
     try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
     try testing.expect(!testActiveRow(&t, 1).wrap);
     try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
@@ -17233,7 +17252,29 @@ test "Terminal: protected erases on a blank row keep it blank" {
     t.eraseLine(.complete, false);
     t.eraseLine(.right, true);
     t.eraseChars(3);
-    try testing.expect(testActiveRow(&t, 1).blank);
+    try testing.expect(testActiveRow(&t, 1).isBlank());
+    try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
+}
+
+test "Terminal: row extent follows printed text" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 10 });
+    defer t.deinit(alloc);
+
+    t.eraseDisplay(.complete, false);
+
+    // Printing covers exactly the printed cells, through the batched
+    // and the per-codepoint paths.
+    try t.printSliceAscii("ABC");
+    try testing.expectEqual(3, testActiveRow(&t, 0).extent());
+    t.setCursorPos(1, 7);
+    try t.print('X');
+    try testing.expectEqual(7, testActiveRow(&t, 0).extent());
+
+    // Appending past the extent writes onto known zero cells.
+    try t.printSliceAscii("YZ");
+    try testing.expectEqual(9, testActiveRow(&t, 0).extent());
+
     try t.screens.active.cursor.page_pin.node.page().verifyIntegrity(alloc);
 }
 

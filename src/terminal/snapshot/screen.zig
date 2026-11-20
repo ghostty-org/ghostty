@@ -1909,7 +1909,7 @@ test "SCREEN encodes the minimal complete-page active suffix" {
     // oldest-to-newest ordering. The mixed page's marker is in its incidental
     // history prefix and must survive because complete pages are encoded.
     // Rows that scrolling created are marked blank, so writing a cell
-    // directly must clear that like the terminal's own writers do.
+    // directly must raise their extent like the terminal's own writers do.
     inline for (.{
         .{ historical, 'A' },
         .{ mixed, 'B' },
@@ -1917,7 +1917,7 @@ test "SCREEN encodes the minimal complete-page active suffix" {
     }) |marker| {
         const rac = marker[0].page().getRowAndCell(0, 0);
         rac.cell.* = .init(marker[1]);
-        rac.row.blank = false;
+        rac.row.markWritten(1);
     }
 
     var destination: std.Io.Writer.Allocating = .init(

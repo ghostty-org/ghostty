@@ -3428,8 +3428,8 @@ fn trimTrailingBlankRows(
         // If the row has any text then we're done. A row marked blank
         // has no text, so we don't need to read its cells.
         const rac = row_pin.rowAndCell();
-        if (!rac.row.blank and
-            pagepkg.Cell.hasTextAny(row_pin.cells(.all))) return trimmed;
+        if (!rac.row.isBlank() and
+            pagepkg.Cell.hasTextAny(rac.row.content(row_pin.cells(.all)))) return trimmed;
 
         // If our tracked pins are in this row then we cannot trim it
         // because it implies some sort of importance. If we trimmed this
@@ -3795,9 +3795,9 @@ pub fn scrollClear(self: *PageList) Allocator.Error!void {
                 // empty, so we don't need to read them. Shells that
                 // clear this way (`CSI 22 J`, or `CSI 2 J` at a prompt)
                 // usually have mostly blank rows below the content.
-                if (!row.blank) {
+                if (!row.isBlank()) {
                     const cells = row.cells.ptr(current_page.memory)[0..self.cols];
-                    if (!pagepkg.Cell.isEmptyAll(cells)) {
+                    if (!pagepkg.Cell.isEmptyAll(row.content(cells))) {
                         break :non_empty self.rows - n;
                     }
                 }
@@ -4339,16 +4339,23 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         // does when it recycles a page. Only the old layout's bytes can
         // be dirty, since every path that gives up a pool item zeroes
         // the bytes it used.
-        const old_memory = first.restore(.discard).memory;
+        //
+        // Resident pages can skip known-zero cells. Compressed pages
+        // must be cleared in full because their row headers were discarded.
+        const was_compressed = first.isCompressed();
+        const old_page = first.restore(.discard);
+        const old_memory = old_page.memory;
+
         assert(old_memory.len <= std_size);
         assert(layout.total_size <= std_size);
         const item: *align(std.heap.page_size_min) [std_size]u8 =
             @ptrCast(@alignCast(old_memory.ptr));
-        @memset(old_memory, 0);
+        if (was_compressed) @memset(old_memory, 0) else old_page.zeroMemory();
         if (comptime build_options.slow_runtime_safety) {
-            // Check that the rest of the item is zero. verifyIntegrity
-            // can't catch stale bytes because they look like page data.
-            assert(std.mem.allEqual(u8, item[old_memory.len..], 0));
+            // Check that the whole item is zero, including the bytes
+            // zeroMemory skipped. verifyIntegrity can't catch stale bytes
+            // because they look like page data.
+            assert(std.mem.allEqual(u8, item, 0));
         }
 
         // Initialize our new page and reinsert it as the last
@@ -16392,10 +16399,10 @@ test "PageList scrollClear skips blank rows and stops at a spacer" {
     defer s.deinit();
     try testing.expect(s.pages.first == s.pages.last);
     const page = s.pages.first.?.page();
-    for (0..s.rows) |y| page.getRow(y).blank = false;
+    for (0..s.rows) |y| page.getRow(y).markWritten(s.cols);
 
     // From the top: text, a wide spacer head with no text, a styled
-    // cell with no text, a zero row without the blank bit (the bit is
+    // cell with no text, a zero row that isn't marked blank (blank is
     // only a hint), and two rows marked blank.
     page.getRowAndCell(0, 0).cell.* = .init('A');
     page.getRowAndCell(s.cols - 1, 1).cell.wide = .spacer_head;
@@ -16405,8 +16412,8 @@ test "PageList scrollClear skips blank rows and stops at a spacer" {
         .{ .flags = .{ .bold = true } },
     );
     page.getRow(2).styled = true;
-    page.getRow(4).blank = true;
-    page.getRow(5).blank = true;
+    page.getRow(4).markCleared();
+    page.getRow(5).markCleared();
     try page.verifyIntegrity(alloc);
 
     // Every row below the spacer is empty, so the text and the spacer
