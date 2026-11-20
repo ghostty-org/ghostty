@@ -829,6 +829,7 @@ pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
 
 const IntegrityError = error{
     MaxLinesExceeded,
+    PageCountMismatch,
     PageSerialInvalid,
     TotalRowsMismatch,
     TrackedPinInvalid,
@@ -845,12 +846,14 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
     // Our viewport pin should never be garbage
     assert(!self.viewport_pin.garbage);
 
-    // Grab our total rows
+    // Grab our total rows and page count
     var actual_total: usize = 0;
+    var actual_pages: usize = 0;
     {
         var node_ = self.pages.first;
         while (node_) |node| {
             actual_total += node.rows();
+            actual_pages += 1;
             node_ = node.next;
 
             // Every live node must belong to the current validity epoch.
@@ -871,6 +874,15 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
             .{ self.total_rows, actual_total },
         );
         return IntegrityError.TotalRowsMismatch;
+    }
+
+    // Verify that the list's cached length matches the actual page count
+    if (actual_pages != self.pages.len) {
+        log.warn(
+            "PageList integrity violation: page count mismatch cached={} actual={}",
+            .{ self.pages.len, actual_pages },
+        );
+        return IntegrityError.PageCountMismatch;
     }
 
     // A line limit may only be exceeded when the oldest page also contains
@@ -1040,12 +1052,15 @@ pub fn reset(self: *PageList) void {
 
     // Initialize our pages. This should not be able to fail since
     // we retained the capacity for the minimum number of pages we need.
+    // The list version carries over so it never goes backwards.
+    const version = self.pages.version;
     self.pages, self.page_size = initPages(
         &self.pool,
         &self.page_serial,
         self.cols,
         self.rows,
     ) catch @panic("initPages failed");
+    self.pages.version += version;
 
     // Our total rows always goes back to the default
     self.total_rows = self.rows;
@@ -1545,8 +1560,8 @@ fn resizeCols(
 
     // Set our new page as the only page. This orphans the existing pages
     // in the list, but that's fine since we're gonna delete them anyway.
-    self.pages.first = first_rewritten_node;
-    self.pages.last = first_rewritten_node;
+    self.pages = .{ .version = self.pages.version };
+    self.pages.append(first_rewritten_node);
 
     // Reflow all our rows.
     {
@@ -7612,17 +7627,9 @@ fn totalRows(self: *const PageList) usize {
     return rows;
 }
 
-/// The total number of pages in this list. This should only be used
-/// for tests since it is O(N) over the list of pages.
+/// The total number of pages in this list.
 pub fn totalPages(self: *const PageList) usize {
-    var pages: usize = 0;
-    var node_ = self.pages.first;
-    while (node_) |node| {
-        pages += 1;
-        node_ = node.next;
-    }
-
-    return pages;
+    return self.pages.len;
 }
 
 /// Snapshot of the storage used by page nodes in this list.

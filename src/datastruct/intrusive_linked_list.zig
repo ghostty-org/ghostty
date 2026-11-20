@@ -18,6 +18,13 @@ pub fn DoublyLinkedList(comptime T: type) type {
         first: ?*Node = null,
         last: ?*Node = null,
 
+        /// The number of nodes in the list.
+        len: usize = 0,
+
+        /// Incremented on every insert and remove, so a caller can cheaply
+        /// tell whether the list changed since it last looked.
+        version: u64 = 0,
+
         /// Insert a new node after an existing one.
         ///
         /// Arguments:
@@ -35,6 +42,8 @@ pub fn DoublyLinkedList(comptime T: type) type {
                 list.last = new_node;
             }
             node.next = new_node;
+            list.len += 1;
+            list.version += 1;
         }
 
         /// Insert a new node before an existing one.
@@ -54,6 +63,8 @@ pub fn DoublyLinkedList(comptime T: type) type {
                 list.first = new_node;
             }
             node.prev = new_node;
+            list.len += 1;
+            list.version += 1;
         }
 
         /// Insert a new node at the end of the list.
@@ -84,6 +95,8 @@ pub fn DoublyLinkedList(comptime T: type) type {
                 list.last = new_node;
                 new_node.prev = null;
                 new_node.next = null;
+                list.len += 1;
+                list.version += 1;
             }
         }
 
@@ -107,6 +120,9 @@ pub fn DoublyLinkedList(comptime T: type) type {
                 // Last element of the list.
                 list.last = node.prev;
             }
+
+            list.len -= 1;
+            list.version += 1;
         }
 
         /// Remove and return the last node in the list.
@@ -151,6 +167,8 @@ test "basic DoublyLinkedList test" {
     list.prepend(&one); // {1, 2, 5}
     list.insertBefore(&five, &four); // {1, 2, 4, 5}
     list.insertAfter(&two, &three); // {1, 2, 3, 4, 5}
+    try testing.expectEqual(5, list.len);
+    try testing.expectEqual(5, list.version);
 
     // Traverse forwards.
     {
@@ -178,4 +196,11 @@ test "basic DoublyLinkedList test" {
 
     try testing.expect(list.first.?.data == 2);
     try testing.expect(list.last.?.data == 4);
+    try testing.expectEqual(2, list.len);
+
+    list.remove(&two); // {4}
+    list.remove(&four); // {}
+    try testing.expectEqual(0, list.len);
+    try testing.expectEqual(10, list.version);
+    try testing.expect(list.first == null);
 }
