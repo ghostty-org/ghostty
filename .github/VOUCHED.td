@@ -170,6 +170,7 @@ gmile
 gordonbondon
 -gotar No HITL
 gotenksin
+gourneau
 gpanders
 guilhermetk
 -guysoft LLM communication (likely automated)
