@@ -50,6 +50,20 @@ cache_stale: bool = false,
 /// The pending idle source that checks the last painted frame, if any.
 check_source: ?c_uint = null,
 
+/// True while change events are being emitted, during which GTK reads
+/// the removed text back out of the cache.
+emitting: bool = false,
+
+/// When the renderer pushed the oldest frame GTK has not painted yet,
+/// in `glib.getMonotonicTime` microseconds, or null if it painted them
+/// all.
+unpainted_since: ?i64 = null,
+
+/// How long a pushed frame may wait for GTK to paint it before the
+/// surface counts as not painted. GTK paints a frame within a display
+/// refresh or two; a quarter of a second is far past any of that.
+const unpainted_after_us = 250 * std.time.us_per_ms;
+
 /// Must run before the surface is freed: the pending check holds a
 /// plain pointer to it.
 pub fn deinit(self: *A11y, alloc: Allocator) void {
@@ -75,6 +89,7 @@ pub fn deinit(self: *A11y, alloc: Allocator) void {
 /// rendered frame (6.2us at 30x80, 16.8us at 60x200, per
 /// `ghostty-bench +a11y-text --mode=text`); idle surfaces pay nothing.
 pub fn frameRendered(self: *A11y, surface: *Surface) void {
+    self.unpainted_since = null;
     if (!self.active or self.check_source != null) return;
 
     // Default priority, the same as the D-Bus traffic the events go
@@ -86,6 +101,24 @@ pub fn frameRendered(self: *A11y, surface: *Surface) void {
         surface,
         null,
     );
+}
+
+/// Called by the surface when the renderer pushes a new frame, on the
+/// main thread. A window can stop being painted without GTK unmapping
+/// anything or reporting it suspended (an X11 window unmapped by its
+/// window manager, or covered on a compositor that does not say so);
+/// the frames it is pushed and never paints are how that shows.
+pub fn framePushed(self: *A11y) void {
+    if (self.unpainted_since == null) self.unpainted_since = glib.getMonotonicTime();
+}
+
+/// Whether frames reach the screen, so the cache gets checked against
+/// every change: GTK paints the surface and has not left a pushed frame
+/// unpainted for long.
+fn painted(self: *const A11y, surface: *Surface) bool {
+    if (!surface.isPainted()) return false;
+    const since = self.unpainted_since orelse return true;
+    return glib.getMonotonicTime() - since < unpainted_after_us;
 }
 
 fn checkFrame(ud: ?*anyopaque) callconv(.c) c_int {
@@ -237,10 +270,21 @@ fn refreshCache(self: *A11y, surface: *Surface) ?[]const u8 {
     // Mark that an AT client is actively querying us.
     self.active = true;
 
+    // Mid-emit, GTK reads the old text back out of the cache; it must
+    // not move under it.
+    if (self.emitting) return self.cache.text.items;
+
     // The first snapshot a client reads is the baseline change events
     // are diffed against. A stale one is rebuilt the same way: no frame
-    // could check it, so the client gets what is on screen now.
-    if (!self.cached or self.cache_stale) {
+    // could check it, so the client gets what is on screen now. So is
+    // the cache of a surface GTK does not paint: no frames means no
+    // checks, so it would keep whatever the screen held when the
+    // surface was hidden, while the terminal behind it moves on. Such a
+    // surface pays a build per read; nothing is announced for it, the
+    // client reads the change itself.
+    if (!self.cached or self.cache_stale or
+        (self.check_source == null and !self.painted(surface)))
+    {
         const core_surface = surface.core() orelse return null;
         self.cached = buildSnapshot(core_surface, &self.cache);
         self.cache_stale = false;
@@ -303,6 +347,8 @@ fn notifyIfChanged(self: *A11y, surface: *Surface) void {
     const new_text = self.scratch.text.items;
     const change = textChange(old_text, new_text);
     const accessible = surface.as(gtk.AccessibleText);
+    self.emitting = true;
+    defer self.emitting = false;
 
     // GTK's bridge fills a remove's `any_data` by reading the removed
     // range back out of us synchronously, so the cache still holds the

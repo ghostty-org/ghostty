@@ -2892,7 +2892,7 @@ const Action = struct {
     pub fn render(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.redraw(),
+            .surface => |v| v.rt_surface.surface.framePushed(),
         }
     }
 

@@ -852,6 +852,12 @@ pub const Surface = extern struct {
         priv.render_surface.as(gtk.Widget).queueDraw();
     }
 
+    /// The renderer pushed a new frame: draw it.
+    pub fn framePushed(self: *Self) void {
+        self.private().a11y.framePushed();
+        self.redraw();
+    }
+
     /// Callback used to determine whether border should be shown around the
     /// surface.
     fn closureShouldBorderBeShown(
@@ -3515,10 +3521,17 @@ pub const Surface = extern struct {
     /// suspended state changes.
     pub fn updateOcclusion(self: *Self) void {
         const surface = self.core() orelse return;
-        const visible = self.private().mapped and !self.windowSuspended();
-        surface.occlusionCallback(visible) catch |err| {
+        surface.occlusionCallback(self.isPainted()) catch |err| {
             log.warn("error in occlusion callback err={}", .{err});
         };
+    }
+
+    /// Whether GTK paints this surface: not while it is unmapped (a
+    /// background tab) or its window is suspended (minimized or fully
+    /// covered, where the compositor reports that). A window can also
+    /// stop being painted without either, see `A11y.framePushed`.
+    pub fn isPainted(self: *Self) bool {
+        return self.private().mapped and !self.windowSuspended();
     }
 
     fn windowSuspended(self: *Self) bool {
