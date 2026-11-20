@@ -525,16 +525,37 @@ pub fn contentsAt(
             };
         },
         .word => {
+            // GTK's word granularity: from the start of the current word
+            // to the start of the next one, so the spaces after a word
+            // belong to it. An offset in a run of spaces resolves to the
+            // word before them, and every range ends past its offset,
+            // which is what lets a client step word by word without
+            // stalling. A row is a hard boundary: its newline ends the
+            // range of its last word, and spaces at the start of a row
+            // with no word before them form a range of their own.
+            // Spaces and newlines are single bytes, so scanning bytes
+            // never lands inside a multi-byte codepoint.
+            const isWordByte = struct {
+                fn f(b: u8) bool {
+                    return b != ' ' and b != '\n';
+                }
+            }.f;
+
+            // Back to the start of the word the offset is in, or of the
+            // one before the spaces it is in.
             var ws_byte: usize = off_byte;
-            while (ws_byte > 0 and
-                text[ws_byte - 1] != ' ' and
-                text[ws_byte - 1] != '\n') : (ws_byte -= 1)
-            {}
+            if (ws_byte == text.len or !isWordByte(text[ws_byte])) {
+                while (ws_byte > 0 and text[ws_byte - 1] == ' ') ws_byte -= 1;
+            }
+            while (ws_byte > 0 and isWordByte(text[ws_byte - 1])) ws_byte -= 1;
+
+            // Forward over the rest of the word and the spaces after it,
+            // up to the next word or past the end of the row.
             var we_byte: usize = off_byte;
-            while (we_byte < text.len and
-                text[we_byte] != ' ' and
-                text[we_byte] != '\n') : (we_byte += 1)
-            {}
+            while (we_byte < text.len and isWordByte(text[we_byte])) we_byte += 1;
+            while (we_byte < text.len and text[we_byte] == ' ') we_byte += 1;
+            if (we_byte < text.len and text[we_byte] == '\n') we_byte += 1;
+
             return .{
                 .start_cp = utf8.cpCount(text[0..ws_byte]),
                 .end_cp = utf8.cpCount(text[0..we_byte]),
@@ -961,28 +982,82 @@ test "contents: character granularity past the end is empty" {
     try testing.expectEqualStrings("", c.bytes);
 }
 
-test "contents: word granularity stops at spaces and newlines" {
+test "contents: word granularity runs to the start of the next word" {
     const text = "alpha beta\ngamma";
 
-    const mid = contentsAt(text, 7, .word);
-    try testing.expectEqualStrings("beta", mid.bytes);
-    try testing.expectEqual(6, mid.start_cp);
-    try testing.expectEqual(10, mid.end_cp);
+    // A word takes the space after it.
+    const first = contentsAt(text, 2, .word);
+    try testing.expectEqualStrings("alpha ", first.bytes);
+    try testing.expectEqual(0, first.start_cp);
+    try testing.expectEqual(6, first.end_cp);
 
-    // A word bounded by a newline rather than a space.
+    // The last word of a row takes the row's newline, and goes no
+    // further.
+    const mid = contentsAt(text, 7, .word);
+    try testing.expectEqualStrings("beta\n", mid.bytes);
+    try testing.expectEqual(6, mid.start_cp);
+    try testing.expectEqual(11, mid.end_cp);
+
+    // A word bounded by a newline rather than a space, at the end.
     const after_nl = contentsAt(text, 12, .word);
     try testing.expectEqualStrings("gamma", after_nl.bytes);
     try testing.expectEqual(11, after_nl.start_cp);
+    try testing.expectEqual(16, after_nl.end_cp);
 
-    // Sitting on the separator itself walks back to the start of the
-    // preceding word and stops immediately going forward, so the offset
-    // resolves to the word to its left rather than to an empty range.
-    // Pinning this down because it is the boundary case an AT client hits
-    // when stepping word-by-word across a line.
+    // Sitting on the separator resolves to the word to its left.
     const on_space = contentsAt(text, 5, .word);
-    try testing.expectEqualStrings("alpha", on_space.bytes);
-    try testing.expectEqual(0, on_space.start_cp);
-    try testing.expectEqual(5, on_space.end_cp);
+    try testing.expectEqualStrings("alpha ", on_space.bytes);
+}
+
+test "contents: word granularity inside a run of spaces" {
+    const text = "foo   bar";
+
+    // Every space of the run belongs to the word before it, never to
+    // an empty range.
+    for (3..6) |off| {
+        const c = contentsAt(text, off, .word);
+        try testing.expectEqualStrings("foo   ", c.bytes);
+        try testing.expectEqual(0, c.start_cp);
+        try testing.expectEqual(6, c.end_cp);
+    }
+
+    const last = contentsAt(text, 6, .word);
+    try testing.expectEqualStrings("bar", last.bytes);
+}
+
+test "contents: word granularity on spaces with no word before them" {
+    // Leading spaces on a row form a range of their own, up to the
+    // first word.
+    const text = "x\n  lead";
+    const lead = contentsAt(text, 3, .word);
+    try testing.expectEqualStrings("  ", lead.bytes);
+    try testing.expectEqual(2, lead.start_cp);
+    try testing.expectEqual(4, lead.end_cp);
+
+    // A blank row is its newline.
+    const blank = contentsAt("a\n\nb", 2, .word);
+    try testing.expectEqualStrings("\n", blank.bytes);
+    try testing.expectEqual(2, blank.start_cp);
+    try testing.expectEqual(3, blank.end_cp);
+}
+
+test "contents: stepping word by word reaches the end" {
+    // What a client does to read word by word: ask for the word at an
+    // offset, then continue from the end of that range. It must get
+    // through runs of spaces, blank rows and wide characters without
+    // ever being handed back the same range.
+    const text = "  one   two\n\n日本 語  \nlast";
+    const cp_count = utf8.cpCount(text);
+
+    var off: usize = 0;
+    var steps: usize = 0;
+    while (off < cp_count) : (steps += 1) {
+        const c = contentsAt(text, off, .word);
+        try testing.expect(c.start_cp <= off);
+        try testing.expect(c.end_cp > off);
+        off = c.end_cp;
+        try testing.expect(steps < cp_count);
+    }
 }
 
 test "contents: line granularity includes the trailing newline" {
