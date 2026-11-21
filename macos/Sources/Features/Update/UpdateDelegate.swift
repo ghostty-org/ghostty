@@ -17,7 +17,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     /// Called when an update is scheduled to install silently,
-    /// which occurs when `auto-update = download`.
+    /// which occurs when `auto-update = install`.
     ///
     /// When `auto-update = check`, Sparkle will call the corresponding
     /// delegate method on the responsible driver instead.
