@@ -205,12 +205,7 @@ pub const Tab = extern struct {
         tab.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
 
         // Create our initial surface in the split tree.
-        priv.split_tree.newSplit(.right, null, .{
-            .command = overrides.command,
-            .shell_integration = overrides.shell_integration,
-            .working_directory = overrides.working_directory,
-            .title = overrides.title,
-        }) catch |err| switch (err) {
+        priv.split_tree.newSplit(.right, null, overrides) catch |err| switch (err) {
             error.OutOfMemory => {
                 // TODO: We should make our "no surfaces" state more aesthetically
                 // pleasing and show something like an "Oops, something went wrong"
