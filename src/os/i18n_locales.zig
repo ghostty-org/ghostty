@@ -62,4 +62,5 @@ pub const locales = [_][:0]const u8{
     "da",
     "sr",
     "sr@latin",
+    "sv",
 };
