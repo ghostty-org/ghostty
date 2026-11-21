@@ -70,6 +70,7 @@ Overlay terminal_page {
     GestureClick {
       pressed => $mouse_down();
       released => $mouse_up();
+      unpaired-release => $mouse_unpaired_release();
       button: 0;
     }
   };

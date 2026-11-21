@@ -463,21 +463,31 @@ test "button mode requires button" {
 }
 
 test "sgr release keeps button identity" {
-    var data: [32]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&data);
-    var last: ?point.Coordinate = null;
-    try encode(&writer, .{
-        .button = .right,
-        .action = .release,
-        .pos = .{ .x = 4, .y = 5 },
-    }, .{
-        .event = .any,
-        .format = .sgr,
-        .size = testSize(),
-        .last_cell = &last,
-    });
+    const cases = [_]struct {
+        button: mouse.Button,
+        expected: []const u8,
+    }{
+        .{ .button = .right, .expected = "\x1B[<2;5;6m" },
+        .{ .button = .eight, .expected = "\x1B[<128;5;6m" },
+        .{ .button = .nine, .expected = "\x1B[<129;5;6m" },
+    };
+    for (cases) |case| {
+        var data: [32]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&data);
+        var last: ?point.Coordinate = null;
+        try encode(&writer, .{
+            .button = case.button,
+            .action = .release,
+            .pos = .{ .x = 4, .y = 5 },
+        }, .{
+            .event = .any,
+            .format = .sgr,
+            .size = testSize(),
+            .last_cell = &last,
+        });
 
-    try testing.expectEqualStrings("\x1B[<2;5;6m", writer.buffered());
+        try testing.expectEqualStrings(case.expected, writer.buffered());
+    }
 }
 
 test "sgr motion with no button" {
