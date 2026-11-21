@@ -14,6 +14,63 @@ extension Ghostty {
         /// If multiple items map to the same shortcut, the most recent one wins.
         private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
+        /// A menu item whose xib-configured shortcut can be restored while a non-terminal
+        /// responder has focus, and re-synced with the config once a terminal regains it.
+        private struct RestorableMenuItem {
+            /// We store a weak reference so this can never be the owner of the menu item.
+            let item: Weak<NSMenuItem>
+
+            let originalKeyEquivalent: NSMenuItem.KeyEquivalentConfig
+
+            /// The Ghostty keybind action used to re-sync the item with the config, if any.
+            let action: String?
+
+            /// Whether the original shortcut is currently applied to the item.
+            var isRestored = false
+        }
+
+        private var restorableMenuItems: [RestorableMenuItem] = []
+
+        func saveRestorableMenuItem(_ item: NSMenuItem?, action ghosttyAction: String?) {
+            guard
+                let item,
+                !item.keyEquivalent.isEmpty
+            else {
+                return
+            }
+            restorableMenuItems.append(.init(
+                item: .init(item),
+                originalKeyEquivalent: item.keyEquivalentConfig,
+                action: ghosttyAction))
+        }
+
+        /// Restore shortcuts for the items that are registered
+        ///
+        /// - Important: an item is only restored when its current shortcut is empty, so
+        ///   config-bound shortcuts are never overwritten. Calling this repeatedly is safe:
+        ///   items restored by an earlier call stay marked as restored.
+        func restoreMenuShortcuts() {
+            for index in restorableMenuItems.indices {
+                let item = restorableMenuItems[index]
+                guard
+                    let menuItem = item.item.value,
+                    menuItem.keyEquivalent.isEmpty
+                else { continue }
+                menuItem.update(with: item.originalKeyEquivalent)
+                restorableMenuItems[index].isRestored = true
+            }
+        }
+
+        /// Re-sync shortcuts for the items that are restored
+        func reSyncRestoredMenuShortcuts(config: Ghostty.Config) {
+            for index in restorableMenuItems.indices where restorableMenuItems[index].isRestored {
+                if let menuItem = restorableMenuItems[index].item.value {
+                    syncMenuShortcut(config, action: restorableMenuItems[index].action, menuItem: menuItem)
+                }
+                restorableMenuItems[index].isRestored = false
+            }
+        }
+
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
         func reset() {
             menuItemsByShortcut.removeAll(keepingCapacity: true)
@@ -99,9 +156,7 @@ private extension Ghostty.MenuShortcutManager {
         let physicalKeyCode = isPhysical ? Ghostty.Input.Key(cKey: trigger.key.physical)?.keyCode : nil
         // Build a direct lookup for key-equivalent dispatch so we don't need to
         // linearly walk the full menu hierarchy at event time.
-        guard let key = MenuShortcutKey(shortcut, physicalKeyCode: physicalKeyCode) else {
-            return false
-        }
+        let key = MenuShortcutKey(shortcut, physicalKeyCode: physicalKeyCode)
 
         menu.keyEquivalent = shortcut.key.character.description
         menu.keyEquivalentModifierMask = key.modifierFlags
@@ -132,18 +187,14 @@ extension Ghostty.MenuShortcutManager {
             NSEvent.ModifierFlags(rawValue: modifiersRawValue)
         }
 
-        init?(keyEquivalent: String, modifiers: NSEvent.ModifierFlags) {
-            let normalized = keyEquivalent.lowercased()
-            guard !normalized.isEmpty else { return nil }
+        init(keyEquivalent: Character, modifiers: NSEvent.ModifierFlags) {
             var mods = modifiers.intersection(Self.shortcutModifiers)
-            if
-                keyEquivalent.lowercased() != keyEquivalent.uppercased(),
-                normalized.uppercased() == keyEquivalent {
-                // If key equivalent is case sensitive and
-                // it's originally uppercased, then we need to add `shift` to the modifiers
+            // An uppercase key equivalent implies shift.
+            if keyEquivalent.isUppercase {
                 mods.insert(.shift)
             }
-            self.identity = .keyEquivalent(normalized)
+            // Stored as a String because Character.lowercased() returns one.
+            self.identity = .keyEquivalent(keyEquivalent.lowercased())
             self.modifiersRawValue = mods.rawValue
         }
 
@@ -152,20 +203,28 @@ extension Ghostty.MenuShortcutManager {
             self.modifiersRawValue = modifiers.intersection(Self.shortcutModifiers).rawValue
         }
 
+        @MainActor
         init?(event: NSEvent) {
-            guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
-            self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
+            guard
+                event.type == .keyDown,
+                // We use physical key code to cover different layouts.
+                let char = KeyboardLayout.character(
+                    for: event.keyCode,
+                    modifiers: event.modifierFlags,
+                )
+            else {
+                return nil
+            }
+            self.init(keyEquivalent: char, modifiers: event.modifierFlags)
         }
 
         /// Create from a SwiftUI `KeyboardShortcut`.
-        init?(_ shortcut: KeyboardShortcut, physicalKeyCode: UInt16? = nil) {
+        init(_ shortcut: KeyboardShortcut, physicalKeyCode: UInt16? = nil) {
             let modifiers = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
             if let physicalKeyCode {
                 self.init(physicalKeyCode: physicalKeyCode, modifiers: modifiers)
             } else {
-                self.init(
-                    keyEquivalent: shortcut.key.character.description,
-                    modifiers: modifiers)
+                self.init(keyEquivalent: shortcut.key.character, modifiers: modifiers)
             }
         }
     }
