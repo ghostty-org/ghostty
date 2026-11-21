@@ -255,6 +255,9 @@ class AppDelegate: NSObject,
         // This registers the Ghostty => Services menu to exist.
         NSApp.servicesMenu = menuServices
 
+        // Register search handler to quickly open search on the website.
+        NSApp.registerUserInterfaceItemSearchHandler(self)
+
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
         _ = NSEvent.addLocalMonitorForEvents(
@@ -1063,6 +1066,28 @@ class AppDelegate: NSObject,
 
     @IBAction func showHelp(_ sender: Any) {
         guard let url = URL(string: "https://ghostty.org/docs") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func showHelp(searchTerm: String) {
+        guard var components = URLComponents(string: "https://ghostty.org/docs") else { return }
+        // Encode characters that `URLSearchParams` treats differently.
+        // Ref: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams
+        // And we want to make the search term as the only query, so we encode `&` as well
+        let encodedSearchTerm = searchTerm
+            .addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed.subtracting(["+", "&"])
+            )
+        components.percentEncodedQueryItems = [
+            URLQueryItem(
+                name: "q",
+                value: encodedSearchTerm
+            )
+        ]
+        guard let url = components.url else {
+            Self.logger.error("failed to open help docs for \(searchTerm)")
+            return
+        }
         NSWorkspace.shared.open(url)
     }
 
