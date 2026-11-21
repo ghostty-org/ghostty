@@ -52,6 +52,7 @@ andrejdaskalov
 anhthang
 anmitalidev
 anthonyzhoon
+aohanhongzhi
 aprilnea
 arc-source-coder
 aredmondd
@@ -112,6 +113,7 @@ dariogriffo
 database64128
 dave92082
 davey-hughes
+davidbrochart
 davidhodge
 -davidpmclaughlin Refusing to follow AI policy and exhibit good faith behavior
 davidsanchez222
@@ -168,6 +170,7 @@ gmile
 gordonbondon
 -gotar No HITL
 gotenksin
+gourneau
 gpanders
 guilhermetk
 -guysoft LLM communication (likely automated)
@@ -315,6 +318,7 @@ ocean6954
 ollieatkinson
 ollioddi
 olrtg
+orion0616
 oshdubh
 otomn
 paaloeye
@@ -394,6 +398,7 @@ tasselx
 tbrundige
 tdgroot
 tdslot
+teddytennant
 thapakrish
 thirstycrow
 -thomas-trijindev No human in the loop

@@ -39,6 +39,17 @@ const global = @import("../global.zig");
 
 const log = std.log.scoped(.font_shared_grid);
 
+/// Source of the unique `id` assigned to each grid in `init`. This is a
+/// usize rather than a u64 because not all targets support 64-bit atomics.
+var next_id: std.atomic.Value(usize) = .init(1);
+
+/// Identifies this grid instance. It is taken from a process-wide counter
+/// (starting at 1) each time a grid is created, so a grid created later at the
+/// same memory address as a freed one gets a different value. That makes it
+/// usable to decide whether a cache built from one grid is still valid for
+/// another. It does not change after `init`.
+id: usize,
+
 /// Cache for codepoints to font indexes in a group.
 codepoints: std.HashMapUnmanaged(CodepointKey, ?Collection.Index, CodepointKey.Context, 80) = .{},
 
@@ -96,6 +107,7 @@ pub fn init(
     errdefer atlas_color.deinit(alloc);
 
     var result: SharedGrid = .{
+        .id = next_id.fetchAdd(1, .monotonic),
         .resolver = resolver,
         .atlas_grayscale = atlas_grayscale,
         .atlas_color = atlas_color,
