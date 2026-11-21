@@ -12,7 +12,7 @@ const Overrides = @This();
 const ParseError = Allocator.Error || error{ValueRequired};
 
 command: ?configpkg.Command,
-shell_integration: ?configpkg.Config.ShellIntegration,
+shell_integration: ?configpkg.ShellIntegration,
 working_directory: ?[:0]const u8,
 title: ?[:0]const u8,
 
@@ -30,7 +30,7 @@ pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError
     var title: ?[:0]const u8 = null;
     var command: ?configpkg.Command = null;
     var parsed_shell_integration: struct {
-        @"shell-integration": ?configpkg.Config.ShellIntegration = null,
+        @"shell-integration": ?configpkg.ShellIntegration = null,
     } = .{};
 
     const s_variant_type = glib.VariantType.new("s");
