@@ -188,16 +188,8 @@ pub const RenderSurface = extern struct {
         const css_w: f32 = @as(f32, @floatFromInt(texture.getWidth())) / scale;
         const css_h: f32 = @as(f32, @floatFromInt(texture.getHeight())) / scale;
 
-        // GTK, Metal, Vulkan, etc. all have their origin points in the
-        // top left, but not OpenGL!
-        const flip = !rendererpkg.Renderer.custom_shader_y_is_down;
-        if (flip) snap.save();
-        defer if (flip) snap.restore();
-        if (flip) {
-            snap.translate(&.{ .f_x = 0, .f_y = css_h });
-            snap.scale(1, -1);
-        }
-
+        // Frames arrive top row first on every backend; OpenGL flips its
+        // bottom-up framebuffer during export (see opengl/Target.zig).
         snap.appendTexture(texture, &.{
             .f_origin = .{ .f_x = @floatCast(origin.x), .f_y = @floatCast(origin.y) },
             .f_size = .{ .f_width = css_w, .f_height = css_h },
