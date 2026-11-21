@@ -3119,14 +3119,14 @@ fn maybeHandleBinding(
     self.keyboard.sequence_set = null;
 
     // Setup our actions
-    const actions = leaf.actionsSlice();
+    var actions = leaf.actionsSlice();
 
     // Attempt to perform the action
     log.debug("key event binding flags={} action={any}", .{
         leaf.flags,
         actions,
     });
-    const performed = performed: {
+    var performed = performed: {
         // If this is a global or all action, then we perform it on
         // the app and it applies to every surface.
         if (leaf.flags.global or leaf.flags.all) {
@@ -3155,6 +3155,21 @@ fn maybeHandleBinding(
 
         break :performed performed;
     };
+
+    // If a performable binding wasn't performed and has an else action,
+    // we perform that instead and handle it below as the bound action.
+    if (leaf.flags.performable and !performed) {
+        if (leaf.else_action) |*else_action| {
+            actions = else_action[0..1];
+            performed = self.performBindingAction(else_action.*) catch |err| err: {
+                log.info(
+                    "key binding else action failed action={t} err={}",
+                    .{ else_action.*, err },
+                );
+                break :err false;
+            };
+        }
+    }
 
     if (performed) {
         // If we performed an action and it was a closing action,
