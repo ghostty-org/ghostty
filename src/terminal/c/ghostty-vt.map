@@ -38,3 +38,10 @@ GHOSTTY_VT_1.0 {
     local:
         *;
 };
+
+/* Functions added during 1.1 are listed here. */
+GHOSTTY_VT_1.1 {
+    global:
+        ghostty_formatter_screen_new;
+        ghostty_terminal_screen_grid_ref;
+} GHOSTTY_VT_1.0;
