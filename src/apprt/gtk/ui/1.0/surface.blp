@@ -242,6 +242,8 @@ Overlay terminal_page {
       actions: move;
       prepare => $surface_drag_prepare();
       drag-begin => $surface_drag_begin();
+      drag-cancel => $surface_drag_cancel();
+      drag-end => $surface_drag_end();
     }
   }
 

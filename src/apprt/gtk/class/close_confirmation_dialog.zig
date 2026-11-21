@@ -177,6 +177,8 @@ pub const Target = enum(c_int) {
     tab,
     window,
     surface,
+    tabs,
+    windows,
 
     pub fn title(self: Target) [*:0]const u8 {
         return switch (self) {
@@ -184,6 +186,8 @@ pub const Target = enum(c_int) {
             .tab => i18n._("Close Tab?"),
             .window => i18n._("Close Window?"),
             .surface => i18n._("Close Split?"),
+            .tabs => i18n._("Close Tabs?"),
+            .windows => i18n._("Close All Windows?"),
         };
     }
 
@@ -193,6 +197,8 @@ pub const Target = enum(c_int) {
             .tab => i18n._("All terminal sessions in this tab will be terminated."),
             .window => i18n._("All terminal sessions in this window will be terminated."),
             .surface => i18n._("The currently running process in this split will be terminated."),
+            .tabs => i18n._("All terminal sessions in these tabs will be terminated."),
+            .windows => i18n._("All terminal sessions will be terminated."),
         };
     }
 

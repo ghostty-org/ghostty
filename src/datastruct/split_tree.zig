@@ -227,6 +227,30 @@ pub fn SplitTree(comptime V: type) type {
             }
         };
 
+        /// Both handles must refer to leaves in this tree.
+        pub fn commonAncestor(self: *const Self, first: Node.Handle, last: Node.Handle) Node.Handle {
+            if (first == last) return first;
+            var result: ?Node.Handle = null;
+            _ = self.markCommonAncestor(.root, first, last, &result);
+            return result.?;
+        }
+
+        fn markCommonAncestor(
+            self: *const Self,
+            at: Node.Handle,
+            first: Node.Handle,
+            last: Node.Handle,
+            result: *?Node.Handle,
+        ) u2 {
+            const found: u2 = switch (self.nodes[at.idx()]) {
+                .leaf => @as(u2, @intFromBool(at == first)) | (@as(u2, @intFromBool(at == last)) << 1),
+                .split => |branch| self.markCommonAncestor(branch.left, first, last, result) |
+                    self.markCommonAncestor(branch.right, first, last, result),
+            };
+            if (found == 3 and result.* == null) result.* = at;
+            return found;
+        }
+
         /// Change the zoomed state to the given node. Assumes the handle
         /// is valid.
         pub fn zoom(self: *Self, handle: ?Node.Handle) void {
@@ -585,6 +609,35 @@ pub fn SplitTree(comptime V: type) type {
             };
         }
 
+        pub const RemovalPlacement = struct {
+            anchor: *View,
+            sibling_end: *View,
+            direction: Split.Direction,
+            ratio: f16,
+        };
+
+        pub fn removalPlacement(self: *const Self, at: Node.Handle) ?RemovalPlacement {
+            for (self.nodes) |node| {
+                const parent = switch (node) {
+                    .split => |value| value,
+                    .leaf => continue,
+                };
+                const removed_left = parent.left == at;
+                if (!removed_left and parent.right != at) continue;
+                const sibling = if (removed_left) parent.right else parent.left;
+                return .{
+                    .anchor = self.nodes[self.deepest(.left, sibling).idx()].leaf,
+                    .sibling_end = self.nodes[self.deepest(.right, sibling).idx()].leaf,
+                    .direction = switch (parent.layout) {
+                        .horizontal => if (removed_left) .left else .right,
+                        .vertical => if (removed_left) .up else .down,
+                    },
+                    .ratio = parent.ratio,
+                };
+            }
+            return null;
+        }
+
         /// Remove a node from the tree.
         pub fn remove(
             self: *Self,
@@ -765,9 +818,9 @@ pub fn SplitTree(comptime V: type) type {
                     .split => {},
                     .leaf => |view| nodes[i] = .{ .leaf = try viewRef(view, gpa) },
                 }
-                reffed = i;
+                reffed = i + 1;
             }
-            assert(reffed == nodes.len - 1);
+            assert(reffed == nodes.len);
         }
 
         /// Equalize this node and all its children, returning a new node with splits
@@ -1829,6 +1882,231 @@ test "SplitTree: remove leaf" {
         \\+---+
         \\
     );
+}
+
+test "SplitTree: removal placement preserves side and ratio" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var left_view: TestView = .{ .label = "left" };
+    var left = try TestTree.init(alloc, &left_view);
+    defer left.deinit();
+    var right_view: TestView = .{ .label = "right" };
+    var right = try TestTree.init(alloc, &right_view);
+    defer right.deinit();
+    for ([_]struct {
+        split_direction: TestTree.Split.Direction,
+        removed_side: TestTree.Side,
+        restore_direction: TestTree.Split.Direction,
+        sibling: []const u8,
+    }{
+        .{ .split_direction = .right, .removed_side = .left, .restore_direction = .left, .sibling = "right" },
+        .{ .split_direction = .right, .removed_side = .right, .restore_direction = .right, .sibling = "left" },
+        .{ .split_direction = .down, .removed_side = .left, .restore_direction = .up, .sibling = "right" },
+        .{ .split_direction = .down, .removed_side = .right, .restore_direction = .down, .sibling = "left" },
+    }) |case| {
+        var tree = try left.split(alloc, .root, case.split_direction, 0.25, &right);
+        defer tree.deinit();
+        const placement = tree.removalPlacement(tree.deepest(case.removed_side, .root)).?;
+        try testing.expectEqual(case.restore_direction, placement.direction);
+        try testing.expectEqual(@as(f16, 0.25), placement.ratio);
+        try testing.expectEqualStrings(case.sibling, placement.anchor.label);
+        try testing.expectEqualStrings(case.sibling, placement.sibling_end.label);
+    }
+}
+
+test "SplitTree: removal placement restores layout" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var left_view: TestView = .{ .label = "left" };
+    var left = try TestTree.init(alloc, &left_view);
+    defer left.deinit();
+    var right_view: TestView = .{ .label = "right" };
+    var right = try TestTree.init(alloc, &right_view);
+    defer right.deinit();
+    for ([_]TestTree.Split.Direction{ .left, .right, .up, .down }) |direction| {
+        for ([_]TestTree.Side{ .left, .right }) |side| {
+            for ([_]f16{ 0, 0.25, 0.5, 0.75, 1 }) |ratio| {
+                var tree = try left.split(alloc, .root, direction, ratio, &right);
+                defer tree.deinit();
+                const handle = tree.deepest(side, .root);
+                const placement = tree.removalPlacement(handle).?;
+                var removed = try TestTree.init(alloc, tree.nodes[handle.idx()].leaf);
+                defer removed.deinit();
+                var reduced = try tree.remove(alloc, handle);
+                defer reduced.deinit();
+                var restored = try reduced.split(alloc, .root, placement.direction, placement.ratio, &removed);
+                defer restored.deinit();
+                const expected = try alloc.print("{f}", .{tree});
+                defer alloc.free(expected);
+                const actual = try alloc.print("{f}", .{restored});
+                defer alloc.free(actual);
+                try testing.expectEqualStrings(expected, actual);
+            }
+        }
+    }
+}
+
+test "SplitTree: removal placement uses resized parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var first_view: TestView = .{ .label = "first" };
+    var first = try TestTree.init(alloc, &first_view);
+    defer first.deinit();
+    var second_view: TestView = .{ .label = "second" };
+    var second = try TestTree.init(alloc, &second_view);
+    defer second.deinit();
+    for ([_]struct {
+        direction: TestTree.Split.Direction,
+        layout: TestTree.Split.Layout,
+    }{
+        .{ .direction = .right, .layout = .horizontal },
+        .{ .direction = .down, .layout = .vertical },
+    }) |case| {
+        var tree = try first.split(alloc, .root, case.direction, 0.5, &second);
+        defer tree.deinit();
+        var resized = try tree.resize(alloc, tree.deepest(.right, .root), case.layout, 0.25);
+        defer resized.deinit();
+        const placement = resized.removalPlacement(resized.deepest(.right, .root)).?;
+        try testing.expectEqual(@as(f16, 0.75), placement.ratio);
+        try testing.expectEqual(case.direction, placement.direction);
+    }
+}
+
+test "SplitTree: removal and restoration allocation failure" {
+    const testing = std.testing;
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(alloc: Allocator) !void {
+            var first_view: TestView = .{ .label = "first" };
+            var first = try TestTree.init(alloc, &first_view);
+            defer first.deinit();
+            var second_view: TestView = .{ .label = "second" };
+            var second = try TestTree.init(alloc, &second_view);
+            defer second.deinit();
+            var tree = try first.split(alloc, .root, .right, 0.25, &second);
+            defer tree.deinit();
+            const handle = tree.deepest(.left, .root);
+            const placement = tree.removalPlacement(handle).?;
+            var reduced = try tree.remove(alloc, handle);
+            defer reduced.deinit();
+            var restored = try reduced.split(alloc, .root, placement.direction, placement.ratio, &first);
+            defer restored.deinit();
+            const expected = try alloc.print("{f}", .{tree});
+            defer alloc.free(expected);
+            const actual = try alloc.print("{f}", .{restored});
+            defer alloc.free(actual);
+            try testing.expectEqualStrings(expected, actual);
+        }
+    }.run, .{});
+}
+
+test "SplitTree: removal placement keeps nested sibling range" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var first_view: TestView = .{ .label = "first" };
+    var first = try TestTree.init(alloc, &first_view);
+    defer first.deinit();
+    var middle_view: TestView = .{ .label = "middle" };
+    var middle = try TestTree.init(alloc, &middle_view);
+    defer middle.deinit();
+    var last_view: TestView = .{ .label = "last" };
+    var last = try TestTree.init(alloc, &last_view);
+    defer last.deinit();
+    var pair = try first.split(alloc, .root, .right, 0.25, &middle);
+    defer pair.deinit();
+    var tree = try pair.split(alloc, pair.deepest(.right, .root), .down, 0.4, &last);
+    defer tree.deinit();
+
+    const placement = tree.removalPlacement(tree.deepest(.left, .root)).?;
+    try testing.expectEqualStrings("middle", placement.anchor.label);
+    try testing.expectEqualStrings("last", placement.sibling_end.label);
+}
+
+test "SplitTree: removal placement restores expanded sibling" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var first_view: TestView = .{ .label = "first" };
+    var first = try TestTree.init(alloc, &first_view);
+    defer first.deinit();
+    var middle_view: TestView = .{ .label = "middle" };
+    var middle = try TestTree.init(alloc, &middle_view);
+    defer middle.deinit();
+    var last_view: TestView = .{ .label = "last" };
+    var last = try TestTree.init(alloc, &last_view);
+    defer last.deinit();
+    var added_view: TestView = .{ .label = "added" };
+    var added = try TestTree.init(alloc, &added_view);
+    defer added.deinit();
+    var pair = try middle.split(alloc, .root, .down, 0.4, &last);
+    defer pair.deinit();
+    var original = try first.split(alloc, .root, .right, 0.25, &pair);
+    defer original.deinit();
+
+    const placement = original.removalPlacement(original.deepest(.left, .root)).?;
+    var reduced = try original.remove(alloc, original.deepest(.left, .root));
+    defer reduced.deinit();
+    var expanded = try reduced.split(alloc, reduced.deepest(.left, .root), .right, 0.5, &added);
+    defer expanded.deinit();
+    // TestView.ref copies views, so match the saved labels.
+    var anchor: ?TestTree.Node.Handle = null;
+    var sibling_end: ?TestTree.Node.Handle = null;
+    var iterator = expanded.iterator();
+    while (iterator.next()) |entry| {
+        if (std.mem.eql(u8, entry.view.label, placement.anchor.label)) anchor = entry.handle;
+        if (std.mem.eql(u8, entry.view.label, placement.sibling_end.label)) sibling_end = entry.handle;
+    }
+    const target = expanded.commonAncestor(anchor.?, sibling_end.?);
+    var restored = try expanded.split(alloc, target, placement.direction, placement.ratio, &first);
+    defer restored.deinit();
+    var expected = try first.split(alloc, .root, .right, 0.25, &expanded);
+    defer expected.deinit();
+    const actual_text = try alloc.print("{f}", .{restored});
+    defer alloc.free(actual_text);
+    const expected_text = try alloc.print("{f}", .{expected});
+    defer alloc.free(expected_text);
+    try testing.expectEqualStrings(expected_text, actual_text);
+}
+
+test "SplitTree: removal placement excludes root" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var view: TestView = .{ .label = "only" };
+    var tree = try TestTree.init(alloc, &view);
+    defer tree.deinit();
+
+    try testing.expect(tree.removalPlacement(.root) == null);
+}
+
+test "SplitTree: common ancestor spans nested leaves" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var first_view: TestView = .{ .label = "first" };
+    var first = try TestTree.init(alloc, &first_view);
+    defer first.deinit();
+    var middle_view: TestView = .{ .label = "middle" };
+    var middle = try TestTree.init(alloc, &middle_view);
+    defer middle.deinit();
+    var last_view: TestView = .{ .label = "last" };
+    var last = try TestTree.init(alloc, &last_view);
+    defer last.deinit();
+    var pair = try first.split(alloc, .root, .right, 0.25, &middle);
+    defer pair.deinit();
+    var tree = try pair.split(alloc, pair.deepest(.right, .root), .down, 0.4, &last);
+    defer tree.deinit();
+
+    const first_handle = tree.deepest(.left, .root);
+    const last_handle = tree.deepest(.right, .root);
+    const middle_handle = (try tree.goto(alloc, last_handle, .previous)).?;
+    const sibling = tree.commonAncestor(middle_handle, last_handle);
+    try testing.expectEqual(middle_handle, tree.deepest(.left, sibling));
+    try testing.expectEqual(last_handle, tree.deepest(.right, sibling));
+    try testing.expectEqual(TestTree.Node.Handle.root, tree.commonAncestor(first_handle, last_handle));
+    try testing.expectEqual(middle_handle, tree.commonAncestor(middle_handle, middle_handle));
+    try testing.expectEqual(sibling, tree.commonAncestor(last_handle, middle_handle));
+    try testing.expectEqual(TestTree.Node.Handle.root, tree.commonAncestor(last_handle, first_handle));
+    try testing.expectEqual(TestTree.Node.Handle.root, tree.commonAncestor(first_handle, middle_handle));
+    try testing.expectEqual(TestTree.Node.Handle.root, tree.commonAncestor(middle_handle, first_handle));
+    try testing.expectEqual(first_handle, tree.commonAncestor(first_handle, first_handle));
+    try testing.expectEqual(last_handle, tree.commonAncestor(last_handle, last_handle));
 }
 
 test "SplitTree: split twice, remove intermediary" {
