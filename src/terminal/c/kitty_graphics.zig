@@ -5,7 +5,7 @@ const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 const kitty_storage = @import("../kitty/graphics_storage.zig");
 const kitty_cmd = @import("../kitty/graphics_command.zig");
-const Image = @import("../kitty/graphics_image.zig").Image;
+const KittyImage = @import("../kitty/graphics_image.zig").KittyImage;
 const grid_ref = @import("grid_ref.zig");
 const selection_c = @import("selection.zig");
 const terminal_c = @import("terminal.zig");
@@ -22,7 +22,7 @@ else
 
 /// C: GhosttyKittyGraphicsImage
 pub const ImageHandle = if (build_options.kitty_graphics)
-    ?*const Image
+    ?*const KittyImage
 else
     ?*const anyopaque;
 
@@ -663,7 +663,7 @@ pub fn placement_render_info(
 /// at or below the viewport's last row).
 fn computeViewportPos(
     p: *const kitty_storage.ImageStorage.Placement,
-    image: *const Image,
+    image: *const KittyImage,
     t: *Terminal,
 ) struct { col: i32, row: i32, visible: bool } {
     // Virtual placements use unicode placeholders and don't have a
@@ -1118,7 +1118,7 @@ test "image_get exposes pending metadata without a data pointer" {
 
     const pixels = try alloc.alloc(u8, 12);
     @memset(pixels, '*');
-    try testing.expect(pending.complete(graphics, testing.io, pixels));
+    try testing.expect(pending.complete(graphics, testing.io, alloc, pixels));
     const completed_img = image_get_handle(graphics, 42);
     try testing.expect(completed_img != null);
     // Complete: the pixels carry their length, equal to the expected one.
