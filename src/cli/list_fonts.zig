@@ -5,6 +5,8 @@ const Action = @import("ghostty.zig").Action;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
 const global = @import("../global.zig");
+const picker = @import("list_fonts_picker.zig");
+const tui = @import("tui.zig");
 
 const log = std.log.scoped(.list_fonts);
 
@@ -23,6 +25,9 @@ pub const Options = struct {
     /// match the given styles will be listed.
     bold: bool = false,
     italic: bool = false,
+
+    /// Force a plain listing even when stdout is a TTY.
+    plain: bool = false,
 
     pub fn deinit(self: *Options) void {
         if (self._arena) |arena| arena.deinit();
@@ -45,7 +50,15 @@ pub const Options = struct {
 /// the sorting will be disabled and the results instead will be shown in the
 /// same priority order Ghostty would use to pick a font.
 ///
+/// If this command is run from a TTY, an interactive picker is shown: a
+/// searchable list of families with a rendered sample of the highlighted
+/// family (the sample requires a terminal that supports the Kitty graphics
+/// protocol). Pressing Enter exits and prints the matching `font-family`
+/// line. If stdout is not a TTY, or `--plain` is set, a plain list is printed.
+///
 /// Flags:
+///
+///   * `--plain`: Force a plain listing of fonts.
 ///
 ///   * `--bold`: Filter results to specific bold styles. It is not guaranteed
 ///     that only those styles are returned. They are only prioritized.
@@ -146,6 +159,32 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
                 return std.mem.order(u8, lhs, rhs) == .lt;
             }
         }.lessThan);
+    }
+
+    if (tui.can_pretty_print and !config.plain and
+        try std.Io.File.stdout().isTty(global.io()))
+    {
+        var entries: std.ArrayList(picker.Family) = .empty;
+        for (families.items) |family| {
+            const list = map.get(family) orelse continue;
+            if (list.items.len == 0) continue;
+            if (config.family == null) {
+                std.mem.sortUnstable([]const u8, list.items, {}, struct {
+                    fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+                        return std.mem.order(u8, lhs, rhs) == .lt;
+                    }
+                }.lessThan);
+            }
+            try entries.append(alloc, .{
+                .name = try alloc.dupeZ(u8, family),
+                .styles = list.items,
+            });
+        }
+
+        if (try picker.run(alloc, entries.items, font_lib, &disco)) |chosen|
+            try stdout.print("font-family = \"{s}\"\n", .{chosen});
+        try stdout.flush();
+        return 0;
     }
 
     // Output each
