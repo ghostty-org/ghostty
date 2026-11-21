@@ -112,7 +112,7 @@ pub const ClipboardConfirmationDialog = extern struct {
         /// what a confirmed request that carries one value sends.
         clipboard_contents: ?*gtk.TextBuffer = null,
 
-        /// Whether the contents should be blurred.
+        /// Whether the contents should be hidden until explicitly revealed.
         blur: bool = false,
 
         /// Whether the user can remember the choice.
@@ -364,11 +364,14 @@ pub const ClipboardConfirmationDialog = extern struct {
     ) callconv(.c) void {
         const priv = self.private();
         if (priv.blur) {
+            // Blurring alone leaves the password available to accessibility.
+            priv.parts_stack.as(gtk.Widget).setVisible(@intFromBool(false));
             priv.parts_stack.as(gtk.Widget).setSensitive(@intFromBool(false));
             priv.parts_stack.as(gtk.Widget).addCssClass("blurred");
             priv.reveal_button.as(gtk.Widget).setVisible(@intFromBool(true));
             priv.hide_button.as(gtk.Widget).setVisible(@intFromBool(false));
         } else {
+            priv.parts_stack.as(gtk.Widget).setVisible(@intFromBool(true));
             priv.parts_stack.as(gtk.Widget).setSensitive(@intFromBool(true));
             priv.parts_stack.as(gtk.Widget).removeCssClass("blurred");
             priv.reveal_button.as(gtk.Widget).setVisible(@intFromBool(false));
@@ -433,6 +436,7 @@ pub const ClipboardConfirmationDialog = extern struct {
 
     fn revealButtonClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
         const priv = self.private();
+        priv.parts_stack.as(gtk.Widget).setVisible(@intFromBool(true));
         priv.parts_stack.as(gtk.Widget).setSensitive(@intFromBool(true));
         priv.parts_stack.as(gtk.Widget).removeCssClass("blurred");
         priv.hide_button.as(gtk.Widget).setVisible(@intFromBool(true));
@@ -441,6 +445,7 @@ pub const ClipboardConfirmationDialog = extern struct {
 
     fn hideButtonClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
         const priv = self.private();
+        priv.parts_stack.as(gtk.Widget).setVisible(@intFromBool(false));
         priv.parts_stack.as(gtk.Widget).setSensitive(@intFromBool(false));
         priv.parts_stack.as(gtk.Widget).addCssClass("blurred");
         priv.hide_button.as(gtk.Widget).setVisible(@intFromBool(false));
