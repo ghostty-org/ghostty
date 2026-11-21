@@ -11,6 +11,12 @@ template $GhostttySurfaceScrolledWindow: Adw.Bin {
     Gtk.ScrolledWindow scrolled_window {
       hscrollbar-policy: never;
       vscrollbar-policy: bind $scrollbar_policy(template.config) as <Gtk.PolicyType>;
+      // Propagate the natural size of the terminal so that
+      // the window is sized to fit it when created, otherwise
+      // the window will use the minimum size possible which isn't
+      // what we want.
+      propagate-natural-width: true;
+      propagate-natural-height: true;
     }
   }
 }

@@ -2234,11 +2234,6 @@ keybind: Keybinds = .{},
 /// value will not affect the size of the window after it has been created. This
 /// is only used for the initial size.
 ///
-/// BUG: On Linux with GTK, the calculated window size will not properly take
-/// into account window decorations. As a result, the grid dimensions will not
-/// exactly match this configuration. If window decorations are disabled (see
-/// `window-decoration`), then this will work as expected.
-///
 /// Windows smaller than 10 wide by 4 high are not allowed.
 @"window-height": u32 = 0,
 @"window-width": u32 = 0,
