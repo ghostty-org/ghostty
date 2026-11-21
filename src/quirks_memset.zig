@@ -168,13 +168,16 @@ comptime {
     //   6. Where we can forward to glibc's memset we do that instead,
     //      because it is at least as fast as ours. See "Why glibc is
     //      excluded" above.
+    //   7. When targeting MSVC, use the CRT's memset to avoid a
+    //      duplicate symbol with libvcruntime.
     const enabled =
         std.simd.suggestVectorLength(u8) != null and
         builtin.target.ofmt != .c and
         !(linkage == .weak and builtin.target.ofmt == .coff) and
         !builtin.target.os.tag.isDarwin() and
         builtin.target.cpu.arch != .x86_64 and
-        !Glibc.enabled;
+        !Glibc.enabled and
+        builtin.target.abi != .msvc;
 
     if (enabled) @export(&memset, .{
         .name = "memset",
