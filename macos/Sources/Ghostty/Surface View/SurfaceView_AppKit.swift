@@ -180,6 +180,15 @@ extension Ghostty {
         /// state so we're mixing this with direct surface access.
         private(set) var surfaceModel: Ghostty.Surface?
 
+        /// Every view that has created a surface. Some are owned only by undo actions
+        /// or pending restore state, so no window or controller can reach them.
+        private static let surfaceViews = NSHashTable<SurfaceView>.weakObjects()
+
+        /// Free the surface of every view, wherever that view is owned.
+        static func freeAllSurfaces() {
+            surfaceViews.allObjects.forEach { $0.freeSurface() }
+        }
+
         /// Returns the underlying C value for the surface. See "note" on surfaceModel.
         override var surface: ghostty_surface_t? {
             surfaceModel?.unsafeCValue
@@ -393,6 +402,7 @@ extension Ghostty {
                 return
             }
             self.surfaceModel = Ghostty.Surface(cSurface: surface)
+            Self.surfaceViews.add(self)
 
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
@@ -435,6 +445,14 @@ extension Ghostty {
 
             // Cancel progress report timer
             progressReportTimer?.invalidate()
+        }
+
+        /// Free this view's surface, leaving `surface` nil. This is safe to call
+        /// multiple times.
+        func freeSurface() {
+            // Cancel any pending clipboard request first. Completing it requires the surface.
+            pendingClipboardConfirmation = nil
+            surfaceModel?.free()
         }
 
         override func endSearch() {
