@@ -2135,7 +2135,7 @@ pub const CAPI = struct {
         surface: *Surface,
         ptr: ?[*]const u8,
         len: usize,
-        cursor_pos: i32
+        cursor_pos: i32,
     ) void {
         const text = ptr orelse return surface.preeditCallback(null, cursor_pos);
         surface.preeditCallback(if (len == 0) null else text[0..len], cursor_pos);

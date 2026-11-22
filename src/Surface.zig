@@ -2733,7 +2733,7 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8, cursor_pos: i32) !
 
     self.renderer_state.preedit = .{
         .codepoints = try codepoints.toOwnedSlice(self.alloc),
-        .cursor_pos = cursor_pos
+        .cursor_pos = cursor_pos,
     };
     try self.queueRender();
 }

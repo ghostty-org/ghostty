@@ -2862,7 +2862,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         state.colors.background,
                         cursor_wide,
                         cursor_x,
-                        range.y
+                        range.y,
                     );
                 }
             }
@@ -3587,7 +3587,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     @intCast(render.glyph.offset_y),
                 },
             }, cursor_style);
-            
+
             if (cursor_style != .block) return;
             // set uniform for block cursor
 
@@ -3607,7 +3607,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
             } else state.colors.background;
 
-            self.uniforms.cursor_pos = .{ x, y, };
+            self.uniforms.cursor_pos = .{ x, y };
             self.uniforms.bools.cursor_wide = wide;
             self.uniforms.cursor_color = .{
                 uniform_color.r,

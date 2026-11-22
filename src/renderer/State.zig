@@ -137,7 +137,7 @@ pub const Preedit = struct {
     pub fn clone(self: *const Preedit, alloc: Allocator) !Preedit {
         return .{
             .codepoints = try alloc.dupe(Codepoint, self.codepoints),
-            .cursor_pos = self.cursor_pos
+            .cursor_pos = self.cursor_pos,
         };
     }
 
