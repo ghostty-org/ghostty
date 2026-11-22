@@ -152,8 +152,8 @@ fn resetTyped(wrapper: *MouseEncoderWrapper, comptime option: Option) Result {
         },
 
         .size => {
+            if (!std.meta.eql(wrapper.opts.size, defaults.size)) wrapper.last_cell = null;
             wrapper.opts.size = defaults.size;
-            wrapper.last_cell = null;
         },
 
         .any_button_pressed => wrapper.opts.any_button_pressed = defaults.any_button_pressed,
@@ -198,11 +198,16 @@ fn setTyped(
                 return .invalid_value;
             }
 
-            wrapper.opts.size = value.toRenderer() orelse {
+            const size = value.toRenderer() orelse {
                 log.warn("set invalid size values (cell width and height must be non-zero)", .{});
                 return .invalid_value;
             };
-            wrapper.last_cell = null;
+
+            // Forget the last cell only if the size changed. A host may
+            // set the same size before every event and still expects
+            // repeated motion in one cell to be skipped.
+            if (!std.meta.eql(wrapper.opts.size, size)) wrapper.last_cell = null;
+            wrapper.opts.size = size;
         },
 
         .any_button_pressed => wrapper.opts.any_button_pressed = value.*,
@@ -225,9 +230,18 @@ pub fn set_from_terminal(
     if (comptime !lib.feature(.input_encode)) return .unsupported;
     const wrapper = encoder_ orelse return .invalid_value;
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+
+    // Forget the last cell only if the mode or format changed. A host
+    // may sync before every event and still expects repeated motion in
+    // one cell to be skipped.
+    if (wrapper.opts.event != t.flags.mouse_event or
+        wrapper.opts.format != t.flags.mouse_format)
+    {
+        wrapper.last_cell = null;
+    }
+
     wrapper.opts.event = t.flags.mouse_event;
     wrapper.opts.format = t.flags.mouse_format;
-    wrapper.last_cell = null;
     return .success;
 }
 
@@ -554,6 +568,152 @@ test "encode: motion dedupe and reset" {
     try testing.expectEqual(Result.success, reset(encoder));
 
     {
+        var buf: [32]u8 = undefined;
+        var written: usize = 0;
+        try testing.expectEqual(Result.success, encode(
+            encoder,
+            event,
+            &buf,
+            buf.len,
+            &written,
+        ));
+        try testing.expect(written > 0);
+    }
+}
+
+test "encode: motion dedupe survives unchanged syncs" {
+    const terminal_c = @import("terminal.zig");
+
+    // A host that syncs from the terminal before every event, with or
+    // without setting the same size, still gets repeated motion skipped.
+    for ([_]bool{ false, true }) |set_size| {
+        var t: Terminal = undefined;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &t,
+            80,
+            24,
+        ));
+        defer terminal_c.free(t);
+        const modes = "\x1b[?1003h\x1b[?1006h";
+        terminal_c.vt_write(t, modes, modes.len);
+
+        var encoder: Encoder = undefined;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &encoder,
+        ));
+        defer free(encoder);
+        const size = testSize();
+        try testing.expectEqual(Result.success, set(encoder, .size, &size));
+        const track_last_cell = true;
+        try testing.expectEqual(Result.success, set(encoder, .track_last_cell, &track_last_cell));
+
+        var event: Event = undefined;
+        try testing.expectEqual(Result.success, mouse_event.new(
+            &lib.alloc.test_allocator,
+            &event,
+        ));
+        defer mouse_event.free(event);
+        try testing.expectEqual(Result.success, mouse_event.set_action(event, .motion));
+        try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
+
+        // Three motion events within cell (5, 6).
+        var reports: usize = 0;
+        for ([_]f32{ 5.1, 5.5, 5.9 }) |x| {
+            try testing.expectEqual(Result.success, set_from_terminal(encoder, t));
+            if (set_size) try testing.expectEqual(Result.success, set(encoder, .size, &size));
+            try testing.expectEqual(Result.success, mouse_event.set_position(
+                event,
+                .{ .x = x, .y = 6.5 },
+            ));
+
+            var buf: [32]u8 = undefined;
+            var written: usize = 0;
+            try testing.expectEqual(Result.success, encode(
+                encoder,
+                event,
+                &buf,
+                buf.len,
+                &written,
+            ));
+            if (written > 0) reports += 1;
+        }
+        try testing.expectEqual(@as(usize, 1), reports);
+    }
+}
+
+test "encode: motion reported after a mode, format or size change" {
+    const terminal_c = @import("terminal.zig");
+
+    // Each change happens between two motion events in the same cell.
+    // The second event must be reported, not dropped as a repeat.
+    const Change = union(enum) { vt: []const u8, screen_width: u32 };
+    const changes = [_]Change{
+        .{ .vt = "\x1b[?1002h" }, // any-event to button-event tracking
+        .{ .vt = "\x1b[?1006l" }, // SGR to X10 format
+        .{ .screen_width = 999 }, // same cell, different geometry
+    };
+
+    for (changes) |change| {
+        var t: Terminal = undefined;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &t,
+            80,
+            24,
+        ));
+        defer terminal_c.free(t);
+        const modes = "\x1b[?1003h\x1b[?1006h";
+        terminal_c.vt_write(t, modes, modes.len);
+
+        var encoder: Encoder = undefined;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &encoder,
+        ));
+        defer free(encoder);
+        var size = testSize();
+        try testing.expectEqual(Result.success, set(encoder, .size, &size));
+        const track_last_cell = true;
+        try testing.expectEqual(Result.success, set(encoder, .track_last_cell, &track_last_cell));
+
+        var event: Event = undefined;
+        try testing.expectEqual(Result.success, mouse_event.new(
+            &lib.alloc.test_allocator,
+            &event,
+        ));
+        defer mouse_event.free(event);
+        try testing.expectEqual(Result.success, mouse_event.set_action(event, .motion));
+        try testing.expectEqual(Result.success, mouse_event.set_button(event, .left));
+        try testing.expectEqual(Result.success, mouse_event.set_position(
+            event,
+            .{ .x = 5.5, .y = 6.5 },
+        ));
+
+        // First event is reported, a repeat with no change is not.
+        for ([_]bool{ true, false }) |expect_report| {
+            try testing.expectEqual(Result.success, set_from_terminal(encoder, t));
+            try testing.expectEqual(Result.success, set(encoder, .size, &size));
+            var buf: [32]u8 = undefined;
+            var written: usize = 0;
+            try testing.expectEqual(Result.success, encode(
+                encoder,
+                event,
+                &buf,
+                buf.len,
+                &written,
+            ));
+            try testing.expectEqual(expect_report, written > 0);
+        }
+
+        switch (change) {
+            .vt => |data| terminal_c.vt_write(t, data.ptr, data.len),
+            .screen_width => |w| size.screen_width = w,
+        }
+
+        try testing.expectEqual(Result.success, set_from_terminal(encoder, t));
+        try testing.expectEqual(Result.success, set(encoder, .size, &size));
         var buf: [32]u8 = undefined;
         var written: usize = 0;
         try testing.expectEqual(Result.success, encode(
