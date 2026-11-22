@@ -1041,13 +1041,11 @@ palette: Palette = .{},
 ///
 ///   * `macos-glass-regular` - Standard glass effect with some opacity
 ///   * `macos-glass-clear` - Highly transparent glass effect
-///   * `macos-glass-sidebar` - The glass of macOS sidebars. While the window
-///     is focused, it picks up color from just outside the window's edges
-///     (most visible below the menu bar). It slightly changes the background
-///     color, so cells that programs draw with an explicit background color
-///     may stand out. `background-opacity` only controls how much of what is
-///     behind the window shows through. With Reduce Transparency, this uses
-///     `macos-glass-regular` instead. (Available since: 1.5.0)
+///   * `macos-glass-sidebar` - The same glass style used in
+///     macOS sidebars. `background-color` doesn't participate in
+///     the tinting. `background-opacity` controls the opacity of
+///     glass. With Reduce Transparency, `macos-glass-regular` will
+///     be used instead. (Available since: 1.5.0)
 ///
 /// If the macOS values are set, then this implies `background-blur = true`
 /// on non-macOS platforms.

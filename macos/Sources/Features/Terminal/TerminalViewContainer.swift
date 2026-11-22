@@ -260,9 +260,9 @@ private class TerminalGlassView: NSView, ObservableObject {
             return
         }
 
-        // The sidebar glass goes over the background color instead of under
-        // it, because color over this glass hides the color that it picks up.
-        // For this glass, glassEffectView only draws the background color.
+        // This glass doesn't use the background color, and the opacity
+        // applies to the glass itself.
+        glassViewModel.backgroundOpacity = 0
         if sidebarGlassView == nil {
             let view = SidebarGlassView()
             addSubview(view)
@@ -275,6 +275,7 @@ private class TerminalGlassView: NSView, ObservableObject {
             sidebarGlassView = view
         }
         sidebarGlassView?.layer?.cornerRadius = cornerRadius ?? 0
+        sidebarGlassView?.alphaValue = backgroundOpacity
     }
 
     /// Updates the top inset offset for both the glass effect and tint overlay.
