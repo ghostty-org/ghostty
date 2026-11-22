@@ -24,6 +24,11 @@ pub const application_id = @import("build/info.zig").application_id;
 /// GTK object path
 pub const object_path = @import("build/info.zig").object_path;
 
+/// Quitting leaves a tmux control mode session before any window is
+/// destroyed, once the quit is confirmed (see `Application.quitNow`), so
+/// the core doesn't have to leave it when asked to quit.
+pub const tmux_detach_on_quit = true;
+
 /// The GObject Application instance
 app: *Application,
 
