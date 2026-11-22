@@ -206,6 +206,7 @@ test "preedit range covers exact cell width" {
     {
         const p: Preedit = .{
             .codepoints = &.{.{ .codepoint = 'a' }},
+            .cursor_pos = 0,
         };
         const range = p.range(2, 9);
         try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.start);
@@ -216,6 +217,7 @@ test "preedit range covers exact cell width" {
     {
         const p: Preedit = .{
             .codepoints = &.{.{ .codepoint = test_hangul_ga, .wide = true }},
+            .cursor_pos = 0,
         };
         const range = p.range(2, 9);
         try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.start);
@@ -229,6 +231,7 @@ test "preedit range shifts left at right edge" {
 
     const p: Preedit = .{
         .codepoints = &.{.{ .codepoint = test_hangul_ga, .wide = true }},
+        .cursor_pos = 0,
     };
     const range = p.range(9, 9);
     try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 8), range.start);
