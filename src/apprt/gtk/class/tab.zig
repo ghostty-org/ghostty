@@ -11,10 +11,13 @@ const CoreSurface = @import("../../../Surface.zig");
 const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
+const WeakRef = @import("../weak_ref.zig").WeakRef;
+const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
+const Window = @import("window.zig").Window;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Overrides = @import("Overrides.zig");
 
@@ -157,6 +160,8 @@ pub const Tab = extern struct {
     };
 
     const Private = struct {
+        close_dialog: WeakRef(CloseConfirmationDialog) = .empty,
+
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
@@ -189,10 +194,30 @@ pub const Tab = extern struct {
     }
 
     pub fn new(config: ?*Config, overrides: Overrides) *Self {
+        const tab = newEmpty(config);
+
+        tab.private().split_tree.newSplit(.right, null, .{
+            .command = overrides.command,
+            .shell_integration = overrides.shell_integration,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        }) catch |err| switch (err) {
+            error.OutOfMemory => @panic("oom"),
+        };
+
+        return tab;
+    }
+
+    pub fn newFromSurface(config: ?*Config, surface: *Surface) *Self {
+        const tab = newEmpty(config);
+        tab.private().split_tree.setSurface(surface) catch @panic("oom");
+        return tab;
+    }
+
+    pub fn newEmpty(config: ?*Config) *Self {
         const tab = gobject.ext.newInstance(Tab, .{});
 
         const priv: *Private = tab.private();
-
         if (config) |c| priv.config = c.ref();
 
         // If our configuration is null then we get the configuration
@@ -203,21 +228,6 @@ pub const Tab = extern struct {
         }
 
         tab.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
-
-        // Create our initial surface in the split tree.
-        priv.split_tree.newSplit(.right, null, .{
-            .command = overrides.command,
-            .shell_integration = overrides.shell_integration,
-            .working_directory = overrides.working_directory,
-            .title = overrides.title,
-        }) catch |err| switch (err) {
-            error.OutOfMemory => {
-                // TODO: We should make our "no surfaces" state more aesthetically
-                // pleasing and show something like an "Oops, something went wrong"
-                // message. For now, this is incredibly unlikely.
-                @panic("oom");
-            },
-        };
 
         return tab;
     }
@@ -242,6 +252,10 @@ pub const Tab = extern struct {
         };
 
         _ = ext.actions.addAsGroup(Self, self, "tab", &actions);
+    }
+
+    pub fn requestClose(self: *Self) void {
+        signals.@"close-request".impl.emit(self, null, .{}, null);
     }
 
     //---------------------------------------------------------------
@@ -296,6 +310,14 @@ pub const Tab = extern struct {
         return priv.split_tree;
     }
 
+    pub fn setCloseDialog(self: *Self, dialog: ?*CloseConfirmationDialog) void {
+        self.private().close_dialog.set(dialog);
+    }
+
+    pub fn getCloseDialog(self: *Self) ?*CloseConfirmationDialog {
+        return self.private().close_dialog.get();
+    }
+
     /// Returns true if this tab needs confirmation before quitting based
     /// on the various Ghostty configurations.
     pub fn getNeedsConfirmQuit(self: *Self) bool {
@@ -322,6 +344,7 @@ pub const Tab = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
+        priv.close_dialog.deinit();
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
@@ -371,12 +394,7 @@ pub const Tab = extern struct {
         // If our tree is empty we close the tab.
         const tree: *const Surface.Tree = self.getSurfaceTree() orelse &.empty;
         if (tree.isEmpty()) {
-            signals.@"close-request".impl.emit(
-                self,
-                null,
-                .{},
-                null,
-            );
+            self.requestClose();
             return;
         }
     }
@@ -423,8 +441,10 @@ pub const Tab = extern struct {
         // a close-page signal that the parent can intercept.
         switch (mode) {
             .this => tab_view.closePage(page),
-            .other => tab_view.closeOtherPages(page),
-            .right => tab_view.closePagesAfter(page),
+            .other, .right => {
+                const window = ext.getAncestor(Window, self.as(gtk.Widget)) orelse return;
+                window.closeTabs(page, mode);
+            },
         }
     }
 

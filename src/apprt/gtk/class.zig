@@ -373,4 +373,5 @@ pub fn Common(
 
 test {
     @import("std").testing.refAllDecls(@This());
+    _ = @import("class/Overrides.zig");
 }

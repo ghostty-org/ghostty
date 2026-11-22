@@ -23,6 +23,15 @@ pub const none: Overrides = .{
     .title = null,
 };
 
+pub fn clone(self: Overrides, arena_alloc: Allocator) Allocator.Error!Overrides {
+    return .{
+        .command = if (self.command) |v| try v.clone(arena_alloc) else null,
+        .shell_integration = self.shell_integration,
+        .working_directory = if (self.working_directory) |v| try arena_alloc.dupeSentinel(u8, v, 0) else null,
+        .title = if (self.title) |v| try arena_alloc.dupeSentinel(u8, v, 0) else null,
+    };
+}
+
 pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError!Overrides {
     var args: std.ArrayList([:0]const u8) = .empty;
 
@@ -121,4 +130,33 @@ pub fn parse(arena_alloc: Allocator, arguments_it: *glib.VariantIter) ParseError
         .working_directory = working_directory,
         .title = title,
     };
+}
+
+test "Overrides clone retains creation arguments" {
+    const testing = std.testing;
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn testClone(alloc: Allocator) !void {
+            var arena: std.heap.ArenaAllocator = .init(alloc);
+            defer arena.deinit();
+            for ([_]?configpkg.Command{ null, .{ .shell = "echo hello" }, .{ .direct = &.{ "echo", "hello" } } }) |command| {
+                const original: Overrides = .{
+                    .command = command,
+                    .shell_integration = .none,
+                    .working_directory = "/tmp",
+                    .title = "restored",
+                };
+                const copy = try original.clone(arena.allocator());
+                try testing.expectEqualDeep(original, copy);
+                try testing.expect(original.title.?.ptr != copy.title.?.ptr);
+                try testing.expect(original.working_directory.?.ptr != copy.working_directory.?.ptr);
+                if (copy.command) |value| switch (value) {
+                    .shell => |shell| try testing.expect(shell.ptr != command.?.shell.ptr),
+                    .direct => |args| for (args, command.?.direct) |arg, source| {
+                        try testing.expect(arg.ptr != source.ptr);
+                    },
+                };
+            }
+            try testing.expectEqualDeep(Overrides.none, try Overrides.none.clone(arena.allocator()));
+        }
+    }.testClone, .{});
 }
