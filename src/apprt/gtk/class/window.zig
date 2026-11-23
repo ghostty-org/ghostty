@@ -1958,7 +1958,7 @@ pub const Window = extern struct {
         // compositor's side for the protocol to activate, and only GTK
         // knows how to show it again, so it always goes through GTK.
         const visible = self.as(gtk.Widget).isVisible() != 0;
-        if (timestamp == 0 or !visible or !priv.winproto.present()) {
+        if (timestamp == 0 or !visible or !priv.winproto.forceActivate()) {
             self.as(gtk.Window).presentWithTime(@intCast(timestamp));
         }
     }

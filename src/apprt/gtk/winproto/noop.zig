@@ -82,7 +82,7 @@ pub const Window = struct {
 
     pub fn setUrgent(_: *Window, _: bool) !void {}
 
-    pub fn present(_: *Window) bool {
+    pub fn forceActivate(_: *Window) bool {
         return false;
     }
 };

@@ -259,36 +259,20 @@ pub const Window = struct {
         _ = env;
     }
 
-    /// Ask the compositor to raise and focus this window on behalf of a
-    /// user interaction that happened in some other process, such as
-    /// picking a result in the GNOME Shell search. Returns false if this
-    /// compositor gives us no way to do that, in which case the caller
-    /// should fall back to GTK.
-    ///
-    /// `gtk_window_present` on Wayland asks the compositor for an
-    /// xdg-activation token and proves the request was wanted with the
-    /// serial of the last input event we received. When the interaction
-    /// happened elsewhere that serial is stale, Mutter refuses the token,
-    /// and the most it will do is mark the window as demanding attention,
-    /// which GNOME Shell shows as a "Ghostty is ready" notification.
-    ///
-    /// Mutter also accepts an activation that names a startup sequence it
-    /// already knows about, and `gtk_shell1.notify_launch` registers one,
-    /// stamped with the current time, under whatever ID we give it. That
-    /// is how GTK's own app launch context tells Mutter about the apps it
-    /// starts, and it is the same trust Mutter extends to X11 clients,
-    /// where a `_NET_ACTIVE_WINDOW` with a recent timestamp is enough.
-    ///
-    /// This bypasses focus stealing prevention entirely. Mutter accepts a
-    /// startup sequence that is newer than the last user interaction, and
-    /// a sequence registered a moment ago always is, so the activation is
-    /// always granted. Only call this for a request a trusted party has
-    /// vouched for; the search provider only does so for requests from
-    /// GNOME Shell itself.
-    ///
-    /// gtk_shell1 is Mutter's private protocol with GTK, so this only ever
-    /// works on GNOME.
-    pub fn present(self: *Window) bool {
+    /// Raise and focus this window, bypassing focus stealing prevention.
+    /// Only call this for a request a trusted party has vouched for.
+    /// Returns false if the compositor isn't Mutter.
+    pub fn forceActivate(self: *Window) bool {
+        // gtk_window_present proves the request was wanted with the serial
+        // of our last input event. When the interaction happened in another
+        // process, such as GNOME Shell's search, that serial is stale and
+        // Mutter only shows a "Ghostty is ready" notification.
+        //
+        // Mutter also grants an activation that names a startup sequence it
+        // knows about. gtk_shell1.notify_launch registers one stamped with
+        // the current time, which is always newer than the last user
+        // interaction, so the activation is always granted. gtk_shell1 is
+        // private to Mutter, so this only works on GNOME.
         const shell = self.globals.get(.gtk_shell) orelse return false;
         const activation = self.globals.get(.xdg_activation) orelse return false;
 

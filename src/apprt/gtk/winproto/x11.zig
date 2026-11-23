@@ -339,9 +339,11 @@ pub const Window = struct {
         self.x11_surface.setUrgencyHint(@intFromBool(urgent));
     }
 
-    /// `gtk_window_present_with_time` hands the timestamp to the window
-    /// manager itself on X11, so there is nothing for us to do.
-    pub fn present(_: *Window) bool {
+    /// Not needed on X11, so it always returns false. See
+    /// `winproto.Window.forceActivate`. The caller falls back to
+    /// `gtk_window_present_with_time`, and on X11 the window manager
+    /// accepts the timestamp the trusted party gave us.
+    pub fn forceActivate(_: *Window) bool {
         return false;
     }
 

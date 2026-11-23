@@ -73,8 +73,8 @@
 //!
 //! `SearchProvider2` has no way to pass an activation token, so on Wayland
 //! the window protocol layer makes the request another way; see
-//! `winproto.wayland.Window.present`. That only works on GNOME, but GNOME
-//! is the only place this interface exists.
+//! `winproto.wayland.Window.forceActivate`. That only works on GNOME,
+//! but GNOME is the only place this interface exists.
 //!
 //! That other way gets the focus whatever the timestamp says, so anyone
 //! able to hand us a timestamp could steal the focus with it, and anything
@@ -358,13 +358,13 @@ fn setShellOwner(self: *SearchProvider, owner: ?[*:0]const u8) void {
 /// `sender`, given the timestamp the request carried.
 ///
 /// On Wayland a non-zero timestamp makes us raise the window through
-/// `winproto.wayland.Window.present`, which Mutter grants regardless of
-/// what the timestamp says, so a timestamp is as good as permission to
-/// steal the focus. Only GNOME Shell actually saw the interaction that
-/// picked a result, so only its word counts. Anyone else on the session
-/// bus gets a zero timestamp: the surface is still presented, but through
-/// `gtk_window_present`, where focus stealing prevention applies as it
-/// does to any other request.
+/// `winproto.wayland.Window.forceActivate`, which Mutter grants
+/// regardless of what the timestamp says, so a timestamp is as good as
+/// permission to steal the focus. Only GNOME Shell actually saw the
+/// interaction that picked a result, so only its word counts. Anyone else
+/// on the session bus gets a zero timestamp: the surface is still
+/// presented, but through `gtk_window_present`, where focus stealing
+/// prevention applies as it does to any other request.
 fn activationTimestamp(
     self: *const SearchProvider,
     sender: ?[*:0]const u8,
@@ -396,6 +396,28 @@ fn errorMessage(err_: ?*glib.Error) [:0]const u8 {
 // is bound to the main thread's GMainContext, so it is safe to reach into
 // the application state directly.
 
+/// The methods of `org.gnome.Shell.SearchProvider2`, named as on the bus.
+const Method = enum {
+    GetInitialResultSet,
+    GetSubsearchResultSet,
+    GetResultMetas,
+    ActivateResult,
+    LaunchSearch,
+};
+
+test "Method matches the interface definition" {
+    const testing = std.testing;
+
+    var count: usize = 0;
+    var it = std.mem.splitSequence(u8, interface_xml, "<method name=\"");
+    _ = it.next();
+    while (it.next()) |rest| : (count += 1) {
+        const name = rest[0..std.mem.findScalar(u8, rest, '"').?];
+        try testing.expect(std.meta.stringToEnum(Method, name) != null);
+    }
+    try testing.expectEqual(@typeInfo(Method).@"enum".field_names.len, count);
+}
+
 fn methodCall(
     _: *gio.DBusConnection,
     sender: ?[*:0]const u8,
@@ -407,70 +429,69 @@ fn methodCall(
     ud: ?*anyopaque,
 ) callconv(.c) void {
     const self: *SearchProvider = @ptrCast(@alignCast(ud.?));
-    const method = std.mem.span(method_name);
-
-    if (std.mem.eql(u8, method, "GetInitialResultSet")) {
-        const terms = parameters.getChildValue(0);
-        defer terms.unref();
-        returnResultSet(invocation, terms);
-        return;
-    }
-
-    if (std.mem.eql(u8, method, "GetSubsearchResultSet")) {
-        // We don't use the previous result set: re-running the search is
-        // just as cheap and can't go stale.
-        const terms = parameters.getChildValue(1);
-        defer terms.unref();
-        returnResultSet(invocation, terms);
-        return;
-    }
-
-    if (std.mem.eql(u8, method, "GetResultMetas")) {
-        const identifiers = parameters.getChildValue(0);
-        defer identifiers.unref();
-        returnResultMetas(invocation, identifiers);
-        return;
-    }
-
-    if (std.mem.eql(u8, method, "ActivateResult")) {
-        const identifier = parameters.getChildValue(0);
-        defer identifier.unref();
-        const timestamp = parameters.getChildValue(2);
-        defer timestamp.unref();
-
-        if (parseId(identifier)) |id| presentSurface(
-            id,
-            self.activationTimestamp(sender, timestamp),
-        );
-        invocation.returnValue(null);
-        return;
-    }
-
-    if (std.mem.eql(u8, method, "LaunchSearch")) {
-        // There's no "show all results" UI in Ghostty, so the best we can
-        // do is focus the first thing we would have matched.
-        const terms = parameters.getChildValue(0);
-        defer terms.unref();
-        const timestamp = parameters.getChildValue(1);
-        defer timestamp.unref();
-
-        var results: [max_results]u64 = undefined;
-        if (search(terms, &results) > 0) presentSurface(
-            results[0],
-            self.activationTimestamp(sender, timestamp),
-        );
-        invocation.returnValue(null);
-        return;
-    }
 
     // GDBus rejects methods that aren't in our interface definition before
     // they get here, so this is purely defensive.
-    log.warn("unknown method called method={s}", .{method});
-    invocation.returnErrorLiteral(
-        gio.DBusError.quark(),
-        @backingInt(gio.DBusError.unknown_method),
-        "unknown method",
-    );
+    const method = std.meta.stringToEnum(Method, std.mem.span(method_name)) orelse {
+        log.warn("unknown method called method={s}", .{method_name});
+        invocation.returnErrorLiteral(
+            gio.DBusError.quark(),
+            @backingInt(gio.DBusError.unknown_method),
+            "unknown method",
+        );
+        return;
+    };
+
+    switch (method) {
+        .GetInitialResultSet => {
+            const terms = parameters.getChildValue(0);
+            defer terms.unref();
+            returnResultSet(invocation, terms);
+        },
+
+        .GetSubsearchResultSet => {
+            // We don't use the previous result set: re-running the search
+            // is just as cheap and can't go stale.
+            const terms = parameters.getChildValue(1);
+            defer terms.unref();
+            returnResultSet(invocation, terms);
+        },
+
+        .GetResultMetas => {
+            const identifiers = parameters.getChildValue(0);
+            defer identifiers.unref();
+            returnResultMetas(invocation, identifiers);
+        },
+
+        .ActivateResult => {
+            const identifier = parameters.getChildValue(0);
+            defer identifier.unref();
+            const timestamp = parameters.getChildValue(2);
+            defer timestamp.unref();
+
+            if (parseId(identifier)) |id| presentSurface(
+                id,
+                self.activationTimestamp(sender, timestamp),
+            );
+            invocation.returnValue(null);
+        },
+
+        .LaunchSearch => {
+            // There's no "show all results" UI in Ghostty, so the best we
+            // can do is focus the first thing we would have matched.
+            const terms = parameters.getChildValue(0);
+            defer terms.unref();
+            const timestamp = parameters.getChildValue(1);
+            defer timestamp.unref();
+
+            var results: [max_results]u64 = undefined;
+            if (search(terms, &results) > 0) presentSurface(
+                results[0],
+                self.activationTimestamp(sender, timestamp),
+            );
+            invocation.returnValue(null);
+        },
+    }
 }
 
 /// Find the surfaces matching all of the given terms, writing their IDs to
@@ -756,27 +777,20 @@ const Terms = struct {
         const raw = variant.getStrv(&len);
         defer glib.free(@ptrCast(raw));
 
-        // zf rejects every haystack for an empty needle, so a single empty
-        // term would hide all of the results. Skip them.
-        var nonempty: usize = 0;
-        for (raw[0..len]) |term| {
-            if (term.?[0] != 0) nonempty += 1;
-        }
-
-        const values = try alloc.alloc([]const u8, nonempty);
-        var count: usize = 0;
+        var values: std.ArrayList([]const u8) = try .initCapacity(alloc, len);
         errdefer {
-            for (values[0..count]) |v| alloc.free(v);
-            alloc.free(values);
+            for (values.items) |v| alloc.free(v);
+            values.deinit(alloc);
         }
 
         for (raw[0..len]) |term| {
+            // zf rejects every haystack for an empty needle, so a single
+            // empty term would hide all of the results. Skip them.
             if (term.?[0] == 0) continue;
-            values[count] = try foldAlloc(alloc, std.mem.span(term.?));
-            count += 1;
+            values.appendAssumeCapacity(try foldAlloc(alloc, std.mem.span(term.?)));
         }
 
-        return .{ .values = values };
+        return .{ .values = try values.toOwnedSlice(alloc) };
     }
 
     fn deinit(self: *Terms, alloc: Allocator) void {

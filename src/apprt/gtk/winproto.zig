@@ -175,12 +175,13 @@ pub const Window = union(Protocol) {
     }
 
     /// Raise and focus the window on behalf of a user interaction in
-    /// another process, if the window protocol has a way to do that which
-    /// GTK doesn't. Returns false if it doesn't, and the caller should
-    /// fall back to `gtk_window_present_with_time`.
-    pub fn present(self: *Window) bool {
+    /// another process, bypassing focus stealing prevention. GTK has no
+    /// way to do that on Wayland. Returns false if the window protocol
+    /// can't, and the caller should fall back to
+    /// `gtk_window_present_with_time`.
+    pub fn forceActivate(self: *Window) bool {
         return switch (self.*) {
-            inline else => |*v| v.present(),
+            inline else => |*v| v.forceActivate(),
         };
     }
 };
