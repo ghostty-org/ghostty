@@ -48,12 +48,19 @@ const no_trailing_punctuation =
     \\(?<![,.])
 ;
 
-const no_trailing_colon =
-    \\(?<!:)
+// A path can't end in sentence punctuation, except for the dots of a
+// `.` or `..` path segment.
+const no_trailing_path_punctuation =
+    \\(?:(?<![:.;!?])|(?<=\/\.)(?!\.)|(?<=\/\.\.)(?!\.))
 ;
 
 const dotted_path_lookahead =
     \\(?=[\w\-.~:\/?#@!$&*+;=%]*\.)
+;
+
+// Like dotted_path_lookahead, but a dot at the end of the path doesn't count.
+const bare_dotted_path_lookahead =
+    \\(?=[\w\-.~:\/?#@!$&*+;=%]*\.[\w\-.~:\/?#@!$&*+;=%])
 ;
 
 const non_dotted_path_lookahead =
@@ -61,11 +68,11 @@ const non_dotted_path_lookahead =
 ;
 
 const dotted_path_space_segments =
-    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
+    \\(?:(?<![:;!?]) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
 ;
 
 const any_path_space_segments =
-    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]+)*
+    \\(?:(?<![:;!?]) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]+)*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -87,12 +94,12 @@ const rooted_or_relative_path_branch =
     dotted_path_lookahead ++
     path_chars ++ "+" ++
     dotted_path_space_segments ++
-    no_trailing_colon ++
+    no_trailing_path_punctuation ++
     "|" ++
     non_dotted_path_lookahead ++
     path_chars ++ "+" ++
     any_path_space_segments ++
-    no_trailing_colon ++
+    no_trailing_path_punctuation ++
     ")";
 
 // Branch 3: Bare relative paths such as src/config/url.zig.
@@ -101,10 +108,10 @@ const bare_relative_path_prefix =
 ;
 
 const bare_relative_path_branch =
-    dotted_path_lookahead ++
+    bare_dotted_path_lookahead ++
     bare_relative_path_prefix ++
     path_chars ++ "+" ++
-    no_trailing_colon;
+    no_trailing_path_punctuation;
 
 pub const regex =
     scheme_url_branch ++
@@ -337,7 +344,7 @@ test "url regex" {
         // Trailing whitespace isn't part of a detected file path.
         .{
             .input = "./spaces-end.   ",
-            .expect = "./spaces-end.",
+            .expect = "./spaces-end",
         },
         // File paths with internal spaces
         .{
@@ -474,6 +481,65 @@ test "url regex" {
             .input = "./Downloads: Operation not permitted",
             .expect = "./Downloads",
         },
+        // trailing period should not be part of the path
+        .{
+            .input = "See /etc/hosts.",
+            .expect = "/etc/hosts",
+        },
+        .{
+            .input = "Wrote ./out/report.pdf.",
+            .expect = "./out/report.pdf",
+        },
+        .{
+            .input = "Edit src/config/url.zig.",
+            .expect = "src/config/url.zig",
+        },
+        .{
+            .input = "Loading /usr/share/foo...",
+            .expect = "/usr/share/foo",
+        },
+        .{
+            .input = "Shift+Cmd+click ~/.config/ghostty/config again.",
+            .expect = "~/.config/ghostty/config",
+        },
+        // other trailing sentence punctuation should not be part of the path
+        .{
+            .input = "Is it in /etc/hosts?",
+            .expect = "/etc/hosts",
+        },
+        .{
+            .input = "Did you edit src/main.zig?",
+            .expect = "src/main.zig",
+        },
+        .{
+            .input = "Edit ./config.toml!",
+            .expect = "./config.toml",
+        },
+        .{
+            .input = "see /etc/hosts; then reload",
+            .expect = "/etc/hosts",
+        },
+        .{
+            .input = "./foo bar! wow",
+            .expect = "./foo bar",
+        },
+        // . and .. segments keep their dots
+        .{
+            .input = "cd ../..",
+            .expect = "../..",
+        },
+        .{
+            .input = "cd ../../..",
+            .expect = "../../..",
+        },
+        .{
+            .input = "ls /tmp/..",
+            .expect = "/tmp/..",
+        },
+        .{
+            .input = "ls ~/.",
+            .expect = "~/.",
+        },
     };
 
     for (cases) |case| {
@@ -506,6 +572,8 @@ test "url regex" {
         // double-slash comments are not paths
         "// foo bar",
         "//foo",
+        // a trailing period does not make a bare path dotted
+        "see foo/bar.",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
