@@ -29,7 +29,7 @@ const url_schemes =
 ;
 
 const ipv6_url_pattern =
-    \\(?:\[[:0-9a-fA-F]+(?:[:0-9a-fA-F]*)+\](?::[0-9]+)?)
+    \\(?:\[[:0-9a-fA-F]+\](?::[0-9]+)?)
 ;
 
 const scheme_url_chars =
@@ -506,6 +506,8 @@ test "url regex" {
         // double-slash comments are not paths
         "// foo bar",
         "//foo",
+        // unclosed IPv6 bracket is not a URL
+        "http://[aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
