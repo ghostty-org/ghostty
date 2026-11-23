@@ -65,7 +65,7 @@ const dotted_path_space_segments =
 ;
 
 const any_path_space_segments =
-    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]+)*
+    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)(?![-#&])[\w\-.~:\/?#@!$&*+;=%]+)*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -473,6 +473,24 @@ test "url regex" {
         .{
             .input = "./Downloads: Operation not permitted",
             .expect = "./Downloads",
+        },
+        // Space-separated path continuation must stop at shell syntax:
+        // prompt separators, command flags, and command chains.
+        .{
+            .input = "/dir # cmd --flag arg",
+            .expect = "/dir",
+        },
+        .{
+            .input = "/tmp/foo --flag value",
+            .expect = "/tmp/foo",
+        },
+        .{
+            .input = "/tmp/foo # comment",
+            .expect = "/tmp/foo",
+        },
+        .{
+            .input = "/tmp/foo && rm -rf /",
+            .expect = "/tmp/foo",
         },
     };
 
