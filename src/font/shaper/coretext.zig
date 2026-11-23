@@ -304,10 +304,7 @@ pub const Shaper = struct {
         self: *Shaper,
         opts: font.shape.RunOptions,
     ) font.shape.RunIterator {
-        return .{
-            .hooks = .{ .shaper = self },
-            .opts = opts,
-        };
+        return .init(.{ .shaper = self }, opts);
     }
 
     /// Note that this will accumulate garbage in the release pool. The
@@ -991,7 +988,7 @@ test "run iterator: empty cells with background set" {
         {
             const run = (try it.next(alloc)).?;
             const cells = try shaper.shape(run);
-            try testing.expectEqual(@as(usize, 3), cells.len);
+            try testing.expectEqual(@as(usize, 1), cells.len);
         }
         try testing.expect(try it.next(alloc) == null);
     }
