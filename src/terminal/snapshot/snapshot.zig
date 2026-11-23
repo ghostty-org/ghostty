@@ -1396,6 +1396,76 @@ test "complete snapshot restores semantic prompt state for an input cursor" {
     );
 }
 
+test "complete snapshot restores a pending wrap away from the last column" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // A wrap can be pending at a column other than the last one. Each case
+    // sets up that state in a 24 column terminal and takes a snapshot.
+    // Then it writes the same bytes to the original and the restored
+    // terminal, and both must end up the same. Columns below are 1-based,
+    // as in the escape sequences.
+    //
+    // `margin` sets the left and right margins to columns 3 and 12, moves
+    // to column 3, and prints ten characters. That fills the margins
+    // exactly and leaves a wrap pending at column 12.
+    const margin = "\x1b[?69h\x1b[3;12s\x1b[1;3Hten chars!";
+    const cases = [_]struct { setup: []const u8, after: []const u8 }{
+        // The next character wraps to column 3 of the next row (#15265).
+        .{ .setup = margin, .after = "X" },
+
+        // Save the cursor with its pending wrap (DECSC) and move away. Both
+        // terminals then restore it (DECRC) and print.
+        .{ .setup = margin ++ "\x1b7\r\n", .after = "\x1b8X" },
+
+        // Turn margins off. The wrap stays pending at column 12, which is
+        // no longer a margin.
+        .{ .setup = margin ++ "\x1b[?69l", .after = "X" },
+
+        // Save the cursor, move the right margin to column 20, and restore
+        // the cursor. The wrap is pending at column 12, inside the margins.
+        .{ .setup = margin ++ "\x1b7\x1b[1;20s\x1b8", .after = "X" },
+    };
+
+    for (cases) |case| {
+        var source = try Terminal.init(testing.io, alloc, .{ .cols = 24, .rows = 6 });
+        defer source.deinit(alloc);
+        var source_stream = source.vtStream();
+        defer source_stream.deinit();
+        source_stream.nextSlice(case.setup);
+
+        var encoded: std.Io.Writer.Allocating = .init(alloc);
+        defer encoded.deinit();
+        try encode(alloc, &encoded.writer, &source, test_encode_options);
+        var encoded_source: std.Io.Reader = .fixed(encoded.written());
+        var decoded = try decode(alloc, testing.io, &encoded_source, test_decode_options);
+        defer decoded.deinit(alloc);
+        var restored = decoded.toOwned();
+        defer restored.deinit(alloc);
+
+        const source_cursor = &source.screens.active.cursor;
+        const restored_cursor = &restored.screens.active.cursor;
+        try testing.expectEqual(source_cursor.pending_wrap, restored_cursor.pending_wrap);
+        if (source.screens.active.saved_cursor) |saved| try testing.expectEqual(
+            saved.pending_wrap,
+            restored.screens.active.saved_cursor.?.pending_wrap,
+        );
+
+        var restored_stream = restored.vtStream();
+        defer restored_stream.deinit();
+        source_stream.nextSlice(case.after);
+        restored_stream.nextSlice(case.after);
+        try testing.expectEqual(source_cursor.x, restored_cursor.x);
+        try testing.expectEqual(source_cursor.y, restored_cursor.y);
+        try testing.expectEqual(source_cursor.pending_wrap, restored_cursor.pending_wrap);
+        const source_text = try source.plainString(alloc);
+        defer alloc.free(source_text);
+        const restored_text = try restored.plainString(alloc);
+        defer alloc.free(restored_text);
+        try testing.expectEqualStrings(source_text, restored_text);
+    }
+}
+
 test "complete snapshot validates continuation before writing" {
     const testing = std.testing;
     var t = try Terminal.init(

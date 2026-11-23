@@ -444,8 +444,13 @@ pub fn decode(
                 .x = x,
                 .y = y,
                 .cursor_style = header.cursor_style,
-                .pending_wrap = header.cursor_flags.pending_wrap and
-                    x == row_pin.node.cols() - 1,
+                // Keep a pending wrap at whatever column it was saved. It is
+                // usually the last column, but a terminal can also leave one
+                // at a right margin (DECSLRM), or at any column after the
+                // margins change (DECRC, or turning DECLRMM off). Clearing it
+                // would make the next character overwrite the cursor cell
+                // instead of wrapping to the next row.
+                .pending_wrap = header.cursor_flags.pending_wrap,
                 .protected = header.cursor_flags.protected,
                 .style = header.cursor_pen,
                 .hyperlink_implicit_id = header.hyperlink_implicit_id,
@@ -860,7 +865,8 @@ pub const SavedCursor = struct {
             .y = @min(self.y, rows - 1),
             .style = self.pen,
             .protected = self.flags.protected,
-            .pending_wrap = self.flags.pending_wrap and x == cols - 1,
+            // Valid at any column, as for the cursor in decode().
+            .pending_wrap = self.flags.pending_wrap,
             .origin = self.flags.origin,
             .charset = self.charset,
         };
@@ -2108,15 +2114,15 @@ test "SCREEN restoration normalizes invalid cursor positions" {
             .expected_y = 1,
             .expected_pending_wrap = true,
         },
-        // Pending wrap away from the final column would trip native printing
-        // assertions, so retain the position and clear only that flag.
+        // A pending wrap away from the last column is valid, for example
+        // at a right margin, so it is kept.
         .{
             .x = 0,
             .y = 0,
             .pending_wrap = true,
             .expected_x = 0,
             .expected_y = 0,
-            .expected_pending_wrap = false,
+            .expected_pending_wrap = true,
         },
     };
 
