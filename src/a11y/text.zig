@@ -1,23 +1,6 @@
-//! Builds the flat UTF-8 text snapshot of a terminal viewport that
-//! accessibility clients (AT-SPI on Linux) read.
-//!
-//! This lives outside of any apprt implementation so the snapshot can be
-//! unit tested and benchmarked without standing up a live GTK surface
-//! and an AT-SPI bus. `src/benchmark/A11yText.zig` drives it directly;
-//! `apprt/gtk/class/surface_a11y.zig` drives it under the renderer mutex
-//! once per rendered frame while an AT client is attached.
-//!
-//! The text itself comes from the terminal's own plain-text formatter
-//! (`terminal.formatter`): one line per viewport row, rows joined by
-//! `\n`, trailing blanks on a row dropped and interior blanks kept as
-//! spaces so columns still line up. What this module adds on top is
-//! what an AT client needs and the formatter does not provide: every
-//! viewport row present even when it is blank, the columns each
-//! codepoint covers, and the caret. `offsets.zig` is the companion
-//! module that navigates the result.
-//!
-//! IMPORTANT: every offset produced here that is destined for an AT
-//! client is in UTF-8 *codepoints*, not bytes.
+//! The text of a terminal viewport as accessibility clients read it:
+//! one line per row, with the width of each character and the caret.
+//! The text comes from the plain-text formatter.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -26,29 +9,20 @@ const formatter = terminal.formatter;
 const unicode = @import("../unicode/main.zig");
 const offsets = @import("offsets.zig");
 
-/// One viewport snapshot. Built in place by `build`, which reuses the
-/// buffers, so a long-lived snapshot stops allocating once it has grown
-/// to the viewport's size.
+/// One viewport snapshot. `build` reuses its buffers.
 pub const Snapshot = struct {
-    /// The viewport text, one line per viewport row.
+    /// One line per viewport row.
     text: std.ArrayList(u8) = .empty,
 
-    /// How many columns each codepoint of `text` covers
-    /// (`offsets.CellWidths`), index-aligned with the codepoints: 2 for
-    /// a double-width cell, 0 for a combining mark that shares its base
-    /// character's cell and for the row separator, 1 otherwise.
-    ///
-    /// The text alone cannot be re-measured afterwards without guessing
-    /// at the terminal's grapheme-width method, so these come from the
-    /// cells the formatter read.
+    /// Columns covered by each codepoint of `text`; see
+    /// `offsets.CellWidths`. A newline covers 0.
     widths: std.ArrayList(u8) = .empty,
 
-    /// The caret, as a codepoint offset into `text`. A cursor outside the
-    /// viewport (scrolled back far enough) anchors at the end of the text.
-    caret: usize = 0,
+    /// The caret, as a codepoint offset. The end of the text when the
+    /// cursor is outside the viewport.
+    caret: offsets.CodepointOffset = 0,
 
-    /// Scratch for the formatter's byte-to-cell map. Retained only so it
-    /// does not reallocate on every build.
+    /// Kept only to reuse its memory.
     pin_map: formatter.PinMap.Map = .empty,
 
     pub fn deinit(self: *Snapshot, alloc: Allocator) void {
@@ -58,14 +32,11 @@ pub const Snapshot = struct {
         self.* = undefined;
     }
 
-    /// The widths in the form `offsets` takes them.
     pub fn cellWidths(self: *const Snapshot) offsets.CellWidths {
         return .{ .per_cp = self.widths.items };
     }
 
-    /// Whether an AT client would see any difference between the two.
-    /// Widths follow from the text and the cells under it, so a change
-    /// that matters to a client always shows in the text or the caret.
+    /// Compares the text and the caret.
     pub fn eql(self: *const Snapshot, other: *const Snapshot) bool {
         return self.caret == other.caret and
             std.mem.eql(u8, self.text.items, other.text.items);
@@ -88,11 +59,9 @@ pub fn build(
     const viewport_rows: usize = pages.rows;
 
     {
-        // Not trimmed: a space the program printed at the end of a row
-        // is text. A prompt ends in one, and a space typed at the end
-        // of the line has to show up in the text, or there is neither a
-        // text change nor a caret move to echo it with. Cells that were
-        // never written (or were erased) are still dropped.
+        // Keep spaces printed at the end of a row, such as the one after
+        // a prompt, so that typing a space changes the text. Empty cells
+        // are still dropped.
         var f: formatter.PageListFormatter = .init(pages, .{
             .emit = .plain,
             .trim = false,
@@ -106,9 +75,8 @@ pub fn build(
         f.format(&aw.writer) catch return error.OutOfMemory;
     }
 
-    // The formatter drops blank rows at the bottom. Put them back: the
-    // line index is the row index for extents and caret math, and a
-    // cursor sitting on one of those rows needs its line to exist.
+    // The formatter drops blank rows at the bottom. Add them back so that
+    // line N of the text is row N of the viewport.
     const newlines = std.mem.countScalar(u8, snap.text.items, '\n');
     if (newlines + 1 < viewport_rows) {
         try snap.text.appendNTimes(alloc, '\n', viewport_rows - 1 - newlines);
@@ -125,9 +93,8 @@ fn recordWidths(alloc: Allocator, snap: *Snapshot) Allocator.Error!void {
 
     try snap.widths.ensureTotalCapacity(alloc, text.len);
 
-    // The cell the previous codepoint came from, so that the extra
-    // codepoints of a grapheme, which all map to their base character's
-    // cell, cover no columns of their own.
+    // Later codepoints of a grapheme map to the same cell as the first
+    // one, and cover no columns.
     var prev: ?terminal.Pin = null;
 
     var i: usize = 0;
@@ -136,8 +103,6 @@ fn recordWidths(alloc: Allocator, snap: *Snapshot) Allocator.Error!void {
         defer i += len;
 
         if (text[i] == '\n') {
-            // A row separator, not a cell: it occupies no column, and
-            // column math never crosses it.
             snap.widths.appendAssumeCapacity(0);
             prev = null;
             continue;
@@ -155,30 +120,19 @@ fn recordWidths(alloc: Allocator, snap: *Snapshot) Allocator.Error!void {
         };
         prev = pin;
 
-        // A wide character is followed by a spacer the formatter skips,
-        // so it is one codepoint standing in for two columns, which is
-        // the whole reason widths cannot be recovered from the text.
+        // The formatter skips the spacer cell after a wide character.
         const wide = pin.rowAndCell().cell.wide == .wide;
         snap.widths.appendAssumeCapacity(if (wide) 2 else 1);
     }
 }
 
-/// The codepoint offset of the character under the cursor.
-///
-/// The cursor's column is matched against the columns each codepoint
-/// covers, which resolves every case the text alone cannot: a cursor
-/// on the tail half of a wide character lands on that character, one
-/// inside a run of interior blanks lands on its own space, and one
-/// past the last character of its row (on trailing blanks the text
-/// does not keep) lands at the end of that row.
-fn caretOffset(snap: *const Snapshot, screen: *const terminal.Screen) usize {
+/// The codepoint under the cursor. Past the end of its row, the end of
+/// that row.
+fn caretOffset(snap: *const Snapshot, screen: *const terminal.Screen) offsets.CodepointOffset {
     const text = snap.text.items;
     const widths = snap.widths.items;
     const cp_count = widths.len;
 
-    // The cursor's row counts from the top of the active area, which is
-    // not the top of the viewport once the user scrolls back. A cursor
-    // that is not on screen at all anchors at the end of the text.
     const pt = screen.pages.pointFromPin(
         .viewport,
         screen.cursor.page_pin.*,
@@ -186,7 +140,6 @@ fn caretOffset(snap: *const Snapshot, screen: *const terminal.Screen) usize {
     const cursor = pt.coord();
     if (cursor.y >= screen.pages.rows) return cp_count;
 
-    // Find the first codepoint of the cursor's line.
     var cp: usize = 0;
     var byte: usize = 0;
     var row: usize = 0;
@@ -196,7 +149,6 @@ fn caretOffset(snap: *const Snapshot, screen: *const terminal.Screen) usize {
         byte += std.unicode.utf8ByteSequenceLength(text[byte]) catch 1;
     }
 
-    // Walk the line until a codepoint covers the cursor's column.
     var col: usize = 0;
     while (byte < text.len and text[byte] != '\n') : (cp += 1) {
         const w = widths[cp];
@@ -211,7 +163,6 @@ const testing = std.testing;
 
 fn testBuild(t: *terminal.Terminal, snap: *Snapshot) !void {
     try build(testing.allocator, snap, t.screens.active);
-    // One width per codepoint, or every lookup past the drift is wrong.
     try testing.expectEqual(
         unicode.utf8.cpCount(snap.text.items),
         snap.widths.items.len,
@@ -232,9 +183,7 @@ test "a11y text: rows joined by newline, trailing blanks trimmed" {
     defer snap.deinit(alloc);
     try testBuild(&t, &snap);
 
-    // Row 3 is empty but still gets its line, so it contributes the
-    // separator in front of it and nothing else. The cells after each
-    // word were never written and are dropped.
+    // Row 3 is blank but still has a line.
     try testing.expectEqualStrings("hello\nworld\n", snap.text.items);
 }
 
@@ -251,8 +200,6 @@ test "a11y text: printed trailing spaces are text" {
     try testBuild(&t, &snap);
 
     try testing.expectEqualStrings("$ ls ", snap.text.items);
-    // The cursor is on the cell after the typed space, which was never
-    // written: the end of the row.
     try testing.expectEqual(5, snap.caret);
 }
 
@@ -270,7 +217,6 @@ test "a11y text: every viewport row has a line, even blank ones" {
     try testBuild(&t, &snap);
 
     try testing.expectEqualStrings("\nmid\n\n\n", snap.text.items);
-    // The cursor sits on the last, blank row, which still exists.
     try testing.expectEqual(snap.widths.items.len, snap.caret);
 }
 
@@ -279,25 +225,20 @@ test "a11y text: widths report the columns each codepoint covers" {
     var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 20, .rows = 2 });
     defer t.deinit(alloc);
 
-    // Three double-width characters between narrow ones. The wide cells
-    // each get a spacer the formatter skips, so the text is one
-    // codepoint per character while the row is 5 + 6 + 5 columns wide.
     try t.printString("wide 日本語 tail");
 
     var snap: Snapshot = .{};
     defer snap.deinit(alloc);
     try testBuild(&t, &snap);
 
-    // "wide " then 日本語 then " tail", plus the separator of row 2.
+    // The last 0 is the newline before row 2.
     try testing.expectEqualSlices(
         u8,
         &.{ 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 0 },
         snap.widths.items,
     );
 
-    // The payoff: 't' of "tail" is codepoint 9 but column 12. Reading the
-    // codepoint index as a column is what put a routed caret three cells
-    // to the left, inside 語.
+    // 't' of "tail" is codepoint 9 but column 12.
     const text = snap.text.items;
     const t_byte = std.mem.indexOf(u8, text, "tail").?;
     const cp_idx = unicode.utf8.cpCount(text[0..t_byte]);
@@ -310,8 +251,7 @@ test "a11y text: combining marks cover no columns" {
     var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 1 });
     defer t.deinit(alloc);
 
-    // 'e' followed by U+0301 COMBINING ACUTE ACCENT: one cell, two
-    // codepoints.
+    // 'e' and a combining acute accent: two codepoints in one cell.
     try t.printString("e\u{0301}x");
 
     var snap: Snapshot = .{};
@@ -353,8 +293,7 @@ test "a11y text: cursor anchors past trailing blanks" {
     defer snap.deinit(alloc);
     try testBuild(&t, &snap);
 
-    // "hi\nabc\n", with the cursor on the blank after "abc". That is
-    // trailing, so it anchors at the end of its row, not of the text.
+    // The cursor is after "abc": the end of its row, not of the text.
     try testing.expectEqualStrings("hi\nabc\n", snap.text.items);
     try testing.expectEqual(6, snap.caret);
 }
@@ -367,8 +306,7 @@ test "a11y text: cursor inside an interior blank run lands on its column" {
     try t.printString("ab");
     t.setCursorPos(1, 7);
     try t.printString("cd");
-    // Park the cursor on column 4 (0-based 3), inside the blank gap that
-    // gets written as spaces rather than dropped as trailing.
+    // On the second of the four spaces.
     t.setCursorPos(1, 4);
 
     var snap: Snapshot = .{};
@@ -376,8 +314,6 @@ test "a11y text: cursor inside an interior blank run lands on its column" {
     try testBuild(&t, &snap);
 
     try testing.expectEqualStrings("ab    cd", snap.text.items);
-    // The second of the four spaces, the cell the cursor is on, not the
-    // start or the end of the run.
     try testing.expectEqual(3, snap.caret);
 }
 
@@ -386,7 +322,7 @@ test "a11y text: cursor on a wide character's spacer lands on the character" {
     var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 1 });
     defer t.deinit(alloc);
 
-    // 日 occupies columns 2 and 3; column 3 is its spacer tail.
+    // 日 covers columns 2 and 3. The cursor is on column 3.
     try t.printString("ab日cd");
     t.setCursorPos(1, 4);
 
@@ -395,8 +331,6 @@ test "a11y text: cursor on a wide character's spacer lands on the character" {
     try testBuild(&t, &snap);
 
     try testing.expectEqualStrings("ab日cd", snap.text.items);
-    // The cursor is visually sitting on 日, so it resolves to that
-    // character's own offset.
     try testing.expectEqual(2, snap.caret);
 }
 
@@ -405,7 +339,7 @@ test "a11y text: the caret follows the cursor's row when scrolled back" {
     var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
-    // Five lines into three rows: "1" and "2" scroll into history.
+    // "1" and "2" scroll into history.
     for (0..5) |i| {
         if (i > 0) {
             t.carriageReturn();
@@ -417,14 +351,12 @@ test "a11y text: the caret follows the cursor's row when scrolled back" {
     var snap: Snapshot = .{};
     defer snap.deinit(alloc);
 
-    // At the bottom the cursor is on the last row, after "5".
     try testBuild(&t, &snap);
     try testing.expectEqualStrings("3\n4\n5", snap.text.items);
     try testing.expectEqual(5, snap.caret);
 
-    // Scrolled back by one, the cursor's row is the last viewport row
-    // still: the viewport moved, the cursor did not. Counting its row
-    // from the top of the active area would put the caret after "4".
+    // The cursor's row is now below the viewport. Counting rows from the
+    // top of the active area would put the caret after "4".
     t.scrollViewport(.{ .delta = -1 });
     try testBuild(&t, &snap);
     try testing.expectEqualStrings("2\n3\n4", snap.text.items);

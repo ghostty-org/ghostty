@@ -1,18 +1,7 @@
-//! This benchmark tests the performance of building the accessibility
-//! text snapshot of a viewport (`a11y.text.build`).
-//!
-//! This matters because the GTK apprt builds it once for every rendered
-//! frame while an AT client (Orca) is attached, and it does so while
-//! holding `renderer_state.mutex`, so like `ScreenClone` this is a lock
-//! holder that directly impacts IO throughput.
-//!
-//! `text` is the per-frame path: the snapshot is built into a retained
-//! scratch snapshot, text, widths and caret, then compared against the
-//! cached one.
-//!
-//! What this does NOT measure: the AT-SPI D-Bus traffic that follows a
-//! change, which needs a live GTK app and bus. The numbers here are a
-//! floor on the real per-frame cost, not the whole of it.
+//! This benchmark tests building the accessibility text snapshot of a
+//! viewport (`a11y.text.build`). The GTK apprt builds one per frame
+//! while a screen reader is running, under `renderer_state.mutex`, so
+//! like `ScreenClone` it affects IO throughput.
 const A11yText = @This();
 
 const std = @import("std");
@@ -29,10 +18,7 @@ const log = std.log.scoped(.@"a11y-text-bench");
 opts: Options,
 alloc: Allocator,
 terminal: Terminal,
-/// Retained scratch snapshot, mirroring the GTK surface a11y state.
 scratch: a11y.text.Snapshot = .{},
-/// The snapshot the scratch one is compared against, mirroring the
-/// cache an unchanged frame is checked against.
 cached: a11y.text.Snapshot = .{},
 
 pub const Options = struct {
@@ -56,14 +42,11 @@ pub const Options = struct {
 };
 
 pub const Mode = enum {
-    /// Baseline: iterate the same viewport rows without building
-    /// anything. Isolates iteration overhead from the snapshot work.
+    /// Only iterate the viewport rows.
     noop,
 
-    /// The per-frame work: build the snapshot, widths and caret
-    /// included, into a retained scratch snapshot and compare it against
-    /// the cached one. Once the change check is in place this is what
-    /// every frame costs, changed or not.
+    /// Build a snapshot and compare it with the cached one, as the GTK
+    /// apprt does each frame.
     text,
 };
 
@@ -136,9 +119,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
             stream.nextSlice(buf[0..n]);
         }
     } else {
-        // No data file: synthesize a viewport that exercises every kind
-        // of cell the snapshot handles: a styled run, double-width
-        // cells, an interior blank gap and trailing blanks.
+        // Styled text, wide characters, a gap and trailing blanks.
         var s = self.terminal.vtStream();
         defer s.deinit();
         for (0..self.terminal.rows) |i| {
@@ -148,8 +129,6 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
         }
     }
 
-    // The cached snapshot to compare against, built out here so the
-    // timed loop measures only the per-frame work.
     a11y.text.build(
         self.alloc,
         &self.cached,
@@ -160,8 +139,6 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     };
 }
 
-/// Iterations per step. The snapshot is proportional to the viewport
-/// cell count, so this is far lower than the cheap per-call benchmarks.
 fn iterations(self: *const A11yText) u64 {
     return 100 * @as(u64, self.opts.loops);
 }
@@ -183,8 +160,6 @@ fn stepNoop(ptr: *anyopaque) Benchmark.Error!void {
     }
 }
 
-/// Mirrors what the GTK surface does once per rendered frame: build into
-/// the retained scratch snapshot, then compare it with the cache.
 fn stepText(ptr: *anyopaque) Benchmark.Error!void {
     const self: *A11yText = @ptrCast(@alignCast(ptr));
 

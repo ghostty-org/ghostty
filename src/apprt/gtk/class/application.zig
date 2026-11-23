@@ -271,18 +271,10 @@ pub const Application = extern struct {
         // logging system rather than just getting dumped directly to stderr.
         _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
-        // Seed the program name and application name before any GTK /
-        // libadwaita initialization. The AT-SPI bridge reads
-        // `g_get_prgname()` for the application object's "Name" property
-        // (`gtkatspiroot.c`: `g_variant_new_string (g_get_prgname () ?
-        // g_get_prgname () : "Unnamed")`) and `g_get_application_name()`
-        // for "Description". Without prgname we appear to screen readers
-        // and to accerciser as "Unnamed", and can't be located by name.
-        //
-        // On X11, `winproto/x11.zig` may override prgname later to derive
-        // WM_CLASS, which is fine; on Wayland this stays as "Ghostty".
-        // `g_set_application_name` is one-shot, so setting it this early
-        // also guarantees it wins over anything GTK would otherwise pick.
+        // The AT-SPI bridge fetches our program and application names
+        // when the application initializes and establishes itself over D-Bus.
+        // We must do it now since otherwise the application won't have a name
+        // to identify as.
         glib.setPrgname("Ghostty");
         glib.setApplicationName("Ghostty");
 
@@ -3134,9 +3126,7 @@ const Action = struct {
         const win = gobject.ext.newInstance(Window, .{
             .application = self,
             .@"quick-terminal" = true,
-            // Seed the accessible role for the same reason `Window.new`
-            // does; this path builds its instance directly and would
-            // otherwise get the default `.widget` role.
+            // See `Window.new`.
             .@"accessible-role" = gtk.AccessibleRole.window,
         });
         assert(win.isQuickTerminal());

@@ -1,84 +1,44 @@
-//! Offset math over the flat accessibility text snapshot produced by
-//! `text.build`.
-//!
-//! Where `text.zig` produces the snapshot, this module navigates it:
-//! converting between byte offsets, UTF-8 codepoint offsets, terminal
-//! grid positions and widget-space points, and computing the minimal
-//! diff between two snapshots.
-//!
-//! It is deliberately free of GTK and of any surface state. Every
-//! function takes the snapshot text and returns numbers, so the offset
-//! arithmetic can be tested directly. That matters more here than
-//! anywhere else in the accessibility code: AT-SPI offsets are in
-//! codepoints, not bytes, and every historical crash in this subsystem
-//! has been a boundary or unit mix-up. Handing an orphan UTF-8
-//! continuation byte to the AT-SPI bridge makes `g_variant_new_string`
-//! return NULL and SIGSEGVs inside `g_variant_builder_add_value`; being
-//! off by a codepoint in the other direction silently truncates what a
-//! screen reader announces.
-//!
-//! Two units appear throughout and are never interchangeable:
-//!
-//!   - `usize` is an offset *into the snapshot*, either bytes or
-//!     codepoints. Parameter and field names say which (`..._byte`,
-//!     `..._cp`); an unsuffixed offset in a public signature is a
-//!     codepoint offset, because that is what AT-SPI speaks.
-//!   - `u32` is a *terminal grid* coordinate: a row or a column, counted
-//!     in cells.
-//!
-//! Nothing here uses C integer types. The apprt casts at the boundary
-//! where it hands numbers to GTK, which keeps that conversion in one
-//! reviewable place instead of spread across the arithmetic.
+//! Offset math over the text snapshot built by `text.zig`: converting
+//! between bytes, codepoints and grid cells, and diffing two snapshots.
+//! Accessibility clients count offsets in codepoints.
 
 const std = @import("std");
 const utf8 = @import("../unicode/main.zig").utf8;
 
-/// The unchanged ends of two snapshots: the leading `prefix_len` bytes
-/// and the trailing `suffix_len` bytes are common to both, and everything
-/// between them was replaced. Both lengths land on UTF-8 codepoint
-/// boundaries in either snapshot.
-pub const PrefixSuffixDiff = struct {
-    prefix_len: usize,
-    suffix_len: usize,
+pub const ByteOffset = usize;
+pub const CodepointOffset = usize;
+pub const GridCoordinate = u32;
 
-    /// Bytes each side has to be told about: what leaves `old` plus what
-    /// arrives from `new`.
+/// The common ends of two snapshots, in bytes. Everything between them
+/// changed. Both lengths fall on codepoint boundaries.
+pub const PrefixSuffixDiff = struct {
+    prefix_len: ByteOffset,
+    suffix_len: ByteOffset,
+
+    /// Bytes removed from `old` plus bytes inserted from `new`.
     pub fn cost(self: PrefixSuffixDiff, old_len: usize, new_len: usize) usize {
         const unchanged = self.prefix_len + self.suffix_len;
         return (old_len - unchanged) + (new_len - unchanged);
     }
 };
 
-/// Compute the byte-wise common prefix and suffix of `old` and `new`,
-/// then pull both offsets back to UTF-8 codepoint boundaries.
-///
-/// Alignment matters because two multi-byte codepoints can share a
-/// leading byte (e.g. U+2502 and U+251C, both starting with 0xE2 0x94), and a
-/// byte-wise compare can land inside a character.
-///
-/// Aligning against `old_text` alone also aligns `new_text`: the bytes at
-/// the two boundaries are equal by construction, and in well-formed UTF-8
-/// a non-continuation byte can only ever begin a codepoint. So a boundary
-/// that is valid in one snapshot is valid in the other.
+/// The common prefix and suffix of `old_text` and `new_text`, moved back
+/// to codepoint boundaries. Two characters can share leading bytes, so a
+/// byte compare can stop inside one.
 pub fn prefixSuffix(old_text: []const u8, new_text: []const u8) PrefixSuffixDiff {
     var prefix: usize = 0;
     const min_len = @min(old_text.len, new_text.len);
     while (prefix < min_len and old_text[prefix] == new_text[prefix]) : (prefix += 1) {}
 
-    // Cap the suffix so it can't overlap the prefix (that would make the
-    // remove/insert ranges go negative).
+    // The suffix must not overlap the prefix.
     var suffix: usize = 0;
     const max_suffix = @min(old_text.len - prefix, new_text.len - prefix);
     while (suffix < max_suffix and
         old_text[old_text.len - 1 - suffix] == new_text[new_text.len - 1 - suffix]) : (suffix += 1)
     {}
 
-    // Retreat each end onto a codepoint boundary. Both only ever shrink,
-    // so the no-overlap cap above still holds afterwards.
-    //
-    // The `prefix < old_text.len` guard matters when `old_text` is a
-    // prefix of `new_text`: `prefix == old_text.len` and indexing would go
-    // out of bounds, but end-of-buffer is already a codepoint boundary.
+    // Move both back to a codepoint boundary. `prefix` can equal
+    // `old_text.len`, which is already a boundary.
     while (prefix > 0 and prefix < old_text.len and
         utf8.isContinuation(old_text[prefix])) : (prefix -= 1)
     {}
@@ -87,32 +47,20 @@ pub fn prefixSuffix(old_text: []const u8, new_text: []const u8) PrefixSuffixDiff
     return .{ .prefix_len = prefix, .suffix_len = suffix };
 }
 
-/// Look for a whole-line shift: a K > 0 at a `\n` boundary of `old` such
-/// that `new[0..|old|-K] == old[K..]`. Returns 0 if no such K exists.
-/// Since `\n` is ASCII, every candidate K is already a UTF-8 codepoint
-/// boundary.
-///
-/// As written this finds an *upward* shift: K bytes left the top and the
-/// remainder moved up. The downward shift is the same relation with the
-/// snapshots exchanged, so `chooseDiff` finds it by calling this with the
-/// arguments swapped rather than by duplicating the scan.
-pub fn scrollK(old_text: []const u8, new_text: []const u8) usize {
+/// The smallest K, just past a `\n` in `old_text`, such that
+/// `new_text` starts with `old_text[K..]`: the text scrolled up by the
+/// lines before K. Returns 0 if there is none. Swap the arguments to find
+/// a scroll down.
+pub fn scrollK(old_text: []const u8, new_text: []const u8) ByteOffset {
     var search: usize = 0;
     while (std.mem.indexOfScalarPos(u8, old_text, search, '\n')) |i| {
         search = i + 1;
         const boundary = i + 1;
         const remainder = old_text.len - boundary;
-        // A zero-byte remainder matches trivially at every trailing `\n`
-        // and would mask the prefix/suffix diff for every change where
-        // old_text ends in `\n`. Require a non-trivial middle.
+        // An empty remainder would match any text ending in `\n`.
         if (remainder == 0) continue;
-        // Early rows have a remainder too long to fit in `new_text`. The
-        // remainder shrinks as the scan advances, so this is a skip and
-        // not a stop.
         if (remainder > new_text.len) continue;
         if (std.mem.eql(u8, new_text[0..remainder], old_text[boundary..])) {
-            // The first match is the smallest K, which is the one that
-            // describes the change in the fewest bytes.
             return boundary;
         }
     }
@@ -121,58 +69,45 @@ pub fn scrollK(old_text: []const u8, new_text: []const u8) usize {
 
 /// How to describe a viewport change to an AT client.
 pub const Diff = union(enum) {
-    /// Nothing to announce.
     none,
 
-    /// The text shifted up by whole lines: `k` bytes left the top of the
-    /// viewport, everything below moved up to fill the gap, and new
-    /// content arrived at the bottom. This is the shape of command
-    /// output, and of scrolling forwards towards the prompt.
-    shift_up: usize,
+    /// Whole lines scrolled up: the first `k` bytes left the top and new
+    /// text arrived at the bottom, as with command output.
+    shift_up: ByteOffset,
 
-    /// The text shifted down by whole lines: `j` bytes of new content
-    /// arrived at the top and the tail fell off the bottom. This is the
-    /// shape of scrolling back into the scrollback.
-    shift_down: usize,
+    /// Whole lines scrolled down: `j` new bytes arrived at the top and the
+    /// end fell off the bottom, as when scrolling back.
+    shift_down: ByteOffset,
 
-    /// Anything else: replace the bytes between the common prefix and the
-    /// common suffix.
+    /// Replace the bytes between the common prefix and suffix.
     replace: PrefixSuffixDiff,
 };
 
-/// Pick the cheapest description of the change from `old_text` to
-/// `new_text`, measured in bytes the AT client has to be told about.
+/// Choose the description of the change from `old_text` to `new_text`
+/// that sends the fewest bytes to the AT client.
 ///
-/// Cheapest-wins is what keeps the three shapes from poaching each
-/// other's cases. On a real whole-line shift, prefix/suffix covers nearly
-/// the whole viewport (every row moved), so a shift wins by a wide
-/// margin. But shift detection also matches spuriously on typing echo:
-/// typing `x` at a `$ ` prompt when earlier rows also end in `$ ` makes
-/// the last row of `old` a prefix of `new`, and there the shift is the
-/// expensive one. Neither side needs to know about the other; the byte
-/// count separates them.
+/// Comparing costs is enough to pick the right one. When lines scroll,
+/// almost every row changes position, so a prefix/suffix replace costs
+/// nearly the whole viewport and the shift is far cheaper. When the user
+/// types `x` at a `$ ` prompt and earlier rows also end in `$ `,
+/// `scrollK` finds a false shift, but the replace is cheaper.
 ///
-/// A shift only wins by being strictly cheaper, so an exact tie with
-/// prefix/suffix takes the replacement. Between the two shift directions
-/// a tie goes to `shift_up`, which is by far the common case, since a terminal
-/// spends most of its life scrolling forwards.
+/// A tie between a shift and a replace goes to the replace, and a tie
+/// between the two shifts goes to `shift_up`.
 pub fn chooseDiff(old_text: []const u8, new_text: []const u8) Diff {
     const ps = prefixSuffix(old_text, new_text);
     const ps_total = ps.cost(old_text.len, new_text.len);
 
-    // Bytes off the top, plus whatever `new` grew past what survived.
-    //
-    // The subtractions below cannot underflow: a non-zero K from
-    // `scrollK(a, b)` carries the guarantee that `a.len - K <= b.len`,
-    // which is exactly what each one needs.
+    // Bytes removed from the top plus bytes added at the bottom. A
+    // non-zero `scrollK(a, b)` means `a.len - K <= b.len`, so the
+    // subtractions here and below cannot underflow.
     const k = scrollK(old_text, new_text);
     const up_total = if (k > 0)
         k + (new_text.len - (old_text.len - k))
     else
         std.math.maxInt(usize);
 
-    // The mirror image: `j` bytes onto the top of `new`, plus whatever of
-    // `old` fell off the bottom.
+    // Bytes added at the top plus bytes removed from the bottom.
     const j = scrollK(new_text, old_text);
     const down_total = if (j > 0)
         j + (old_text.len - (new_text.len - j))
@@ -187,50 +122,31 @@ pub fn chooseDiff(old_text: []const u8, new_text: []const u8) Diff {
     return .none;
 }
 
-/// How many terminal columns each codepoint of a snapshot occupies.
-///
-/// The snapshot holds one codepoint per *character*, but a terminal row is
-/// a grid of *cells*, and the two do not correspond: a double-width
-/// character (CJK, an emoji in emoji presentation) is one codepoint across
-/// two columns, while the combining marks of a grapheme cluster are
-/// codepoints across no columns of their own. Equating codepoint index
-/// with column, which every function here used to do, puts a caret, a
-/// click, or a highlight one column left per wide character preceding it
-/// on the row.
-///
-/// Nothing in the text records that, so `text.build` records it here
-/// as it walks the cells. The widths therefore come from the same cell
-/// data the renderer draws from, rather than from a width table this
-/// module would have to keep in sync with the terminal's own idea of how
-/// wide a character rendered, which depends on the configured
-/// grapheme-width method and cannot be re-derived from the text alone.
+/// How many columns each codepoint of a snapshot covers: 2 for a wide
+/// character, 0 for a combining mark, 1 otherwise. `text.build` takes
+/// these from the terminal's cells, since the width can't be worked out
+/// from the text alone.
 pub const CellWidths = struct {
-    /// Columns occupied by the i-th codepoint of the snapshot. Indices
-    /// past the end read as 1, so a short or absent slice degrades to one
-    /// column per codepoint instead of going out of bounds.
+    /// Indexed by codepoint. Indices past the end read as 1.
     per_cp: []const u8 = &.{},
 
-    /// Widths for a snapshot whose cell data we don't have. Exact for
-    /// all-single-width text and off by a column per wide character
-    /// otherwise, so pass it only where an approximate answer beats no
-    /// answer at all.
+    /// One column per codepoint, for text without cell data.
     pub const uniform: CellWidths = .{};
 
-    pub fn at(self: CellWidths, cp_idx: usize) u32 {
+    pub fn at(self: CellWidths, cp_idx: CodepointOffset) GridCoordinate {
         if (cp_idx >= self.per_cp.len) return 1;
         return self.per_cp[cp_idx];
     }
 };
 
-/// Where a row begins, in both units we need to walk it: bytes to index
-/// `text`, codepoints to index `CellWidths`.
+/// Where a row begins, in bytes and in codepoints.
 const RowStart = struct {
-    byte: usize,
-    cp: usize,
+    byte: ByteOffset,
+    cp: CodepointOffset,
 };
 
-/// Locate the start of `row`, or null when the snapshot has fewer rows.
-fn rowStart(text: []const u8, row: u32) ?RowStart {
+/// The start of `row`, or null when the snapshot has fewer rows.
+fn rowStart(text: []const u8, row: GridCoordinate) ?RowStart {
     if (row == 0) return .{ .byte = 0, .cp = 0 };
 
     var byte: usize = 0;
@@ -247,8 +163,8 @@ fn rowStart(text: []const u8, row: u32) ?RowStart {
     return null;
 }
 
-/// Start of the last row in the snapshot. A snapshot ending in '\n' has an
-/// empty last row, and this returns its (past-the-end) start.
+/// The start of the last row. If the text ends in `\n`, that is the end
+/// of the text.
 fn lastRowStart(text: []const u8) RowStart {
     var out: RowStart = .{ .byte = 0, .cp = 0 };
     var byte: usize = 0;
@@ -262,25 +178,20 @@ fn lastRowStart(text: []const u8) RowStart {
     return out;
 }
 
-/// Codepoint index of the character occupying column `col` of the row
-/// starting at `start`.
-///
-/// A column past the row's last cell resolves to one past its last
-/// codepoint, which is where a caret at end of line belongs.
+/// The codepoint in column `col` of the row at `start`. A column past
+/// the end of the row gives the end of the row.
 fn cpAtColumn(
     text: []const u8,
     widths: CellWidths,
     start: RowStart,
-    col: u32,
-) usize {
+    col: GridCoordinate,
+) CodepointOffset {
     var byte = start.byte;
     var cp = start.cp;
     var column: u32 = 0;
     while (byte < text.len and text[byte] != '\n') {
         const w = widths.at(cp);
-        // Zero-width codepoints (the combining marks of a grapheme
-        // cluster) live in the cell their base character opened, so a
-        // column resolves to that base and never to one of them.
+        // A column gives its base character, not a combining mark.
         if (w > 0 and col < column + w) return cp;
         column += w;
         byte += utf8.cpLen(text[byte]);
@@ -289,25 +200,18 @@ fn cpAtColumn(
     return cp;
 }
 
-/// Column at which codepoint `cp_idx` sits, counted from the start of its
-/// own row. `cp_idx` must be at or after `start`.
-///
-/// A zero-width codepoint reports the column of the cell it shares rather
-/// than the next one along, so it stays the inverse of `cpAtColumn`: that
-/// resolves a column to the base character, and this resolves the base's
-/// marks back to the same column. Running off the end of the row instead
-/// reports the row's full width, which is where a caret at end of line
-/// belongs.
+/// The column of codepoint `cp_idx` in the row at `start`. A combining
+/// mark gives the column of its base character. Past the end of the row
+/// gives the row's width.
 fn columnOfCp(
     text: []const u8,
     widths: CellWidths,
     start: RowStart,
-    cp_idx: usize,
-) u32 {
+    cp_idx: CodepointOffset,
+) GridCoordinate {
     var byte = start.byte;
     var cp = start.cp;
     var column: u32 = 0;
-    // Column at which the cell currently being filled began.
     var cell_start: u32 = 0;
     while (byte < text.len and text[byte] != '\n' and cp < cp_idx) {
         const w = widths.at(cp);
@@ -322,58 +226,41 @@ fn columnOfCp(
     return column;
 }
 
-/// Map (row, col) in the snapshot to a codepoint offset. Returns null
-/// when `row` is past the last row in `text`.
-///
-/// Contrast `offsetAtGrid`, which clamps to the last row instead. The
-/// difference is deliberate: a selection anchored to a row that scrolled
-/// out of the viewport has no offset and must be dropped, whereas a
-/// pointer event below the last row should still resolve to something.
-///
-/// Either cell of a double-width character resolves to that character.
+/// The codepoint at (row, col), or null when `row` is past the last row.
+/// Used for selections, where a row that scrolled out has no offset.
 pub fn rowColToCp(
     text: []const u8,
     widths: CellWidths,
-    row: u32,
-    col: u32,
-) ?usize {
+    row: GridCoordinate,
+    col: GridCoordinate,
+) ?CodepointOffset {
     const start = rowStart(text, row) orelse return null;
     return cpAtColumn(text, widths, start, col);
 }
 
-/// Map (row, col) to a codepoint offset, clamping a row past the end of
-/// the snapshot to the last row and a column past end-of-row to the row
-/// length. Always resolves; see `rowColToCp` for the variant that fails.
+/// Like `rowColToCp`, but a row past the end gives the last row. Used for
+/// points, which should always land somewhere.
 pub fn offsetAtGrid(
     text: []const u8,
     widths: CellWidths,
-    want_row: u32,
-    col: u32,
-) usize {
+    want_row: GridCoordinate,
+    col: GridCoordinate,
+) CodepointOffset {
     const start = rowStart(text, want_row) orelse lastRowStart(text);
     return cpAtColumn(text, widths, start, col);
 }
 
-/// Everything a single forward walk can learn about a codepoint offset:
-/// where it sits in bytes, which row it lands on, and where that row
-/// begins.
+/// A codepoint's byte offset, its row, and where that row starts.
 const Location = struct {
-    /// `cp_idx` clamped to the end of the text.
-    cp: usize,
-    byte: usize,
-    row: u32,
+    /// Clamped to the end of the text.
+    cp: CodepointOffset,
+    byte: ByteOffset,
+    row: GridCoordinate,
     row_start: RowStart,
 };
 
-/// Walk to codepoint `cp_idx`, or to the end of `text` if it is shorter.
-///
-/// This exists so the callers below make one pass instead of several.
-/// They used to derive the same four numbers independently: a codepoint
-/// count here, a newline count there, a backwards scan for the row start.
-/// That is a handful of full scans of the snapshot per call, and
-/// `extentsCells` is called once per row every time a screen reader
-/// rebuilds flat review.
-fn locate(text: []const u8, cp_idx: usize) Location {
+/// Walk to codepoint `cp_idx`, or to the end of `text`.
+fn locate(text: []const u8, cp_idx: CodepointOffset) Location {
     var byte: usize = 0;
     var cp: usize = 0;
     var row: u32 = 0;
@@ -382,7 +269,6 @@ fn locate(text: []const u8, cp_idx: usize) Location {
         const is_newline = text[byte] == '\n';
         byte += utf8.cpLen(text[byte]);
         cp += 1;
-        // A newline ends its row, so the row below starts just past it.
         if (is_newline) {
             row += 1;
             row_start = .{ .byte = byte, .cp = cp };
@@ -391,13 +277,9 @@ fn locate(text: []const u8, cp_idx: usize) Location {
     return .{ .cp = cp, .byte = byte, .row = row, .row_start = row_start };
 }
 
-/// Map a codepoint offset back to the grid position it occupies. This is the
-/// inverse of `rowColToCp`, and the one conversion both the caret click
-/// and `extentsCells` are built on.
-///
-/// An offset past the end of the snapshot lands at the end of the last
-/// row rather than failing.
-pub fn cpToGrid(text: []const u8, widths: CellWidths, cp_idx: usize) GridPos {
+/// The grid position of a codepoint; the inverse of `rowColToCp`. Past
+/// the end of the text gives the end of the last row.
+pub fn cpToGrid(text: []const u8, widths: CellWidths, cp_idx: CodepointOffset) GridPos {
     const loc = locate(text, cp_idx);
     return .{
         .row = loc.row,
@@ -405,17 +287,14 @@ pub fn cpToGrid(text: []const u8, widths: CellWidths, cp_idx: usize) GridPos {
     };
 }
 
-/// A position on the terminal grid, in cells.
 pub const GridPos = struct {
-    row: u32,
-    col: u32,
+    row: GridCoordinate,
+    col: GridCoordinate,
 };
 
-/// Convert a widget-space point to a grid position.
-///
-/// Negative and non-finite inputs clamp to (0, 0) so the float-to-int
-/// conversion stays in range; `max_cells` guards against absurd
-/// magnitudes. Callers clamp the result against the actual text bounds.
+/// The grid cell under a widget-space point. Negative, infinite and NaN
+/// values give 0, and huge ones are capped, so the conversion to integer
+/// is always safe. Callers clamp the result to the text.
 pub fn pointToGrid(x: f32, y: f32, cell_w: f32, cell_h: f32) GridPos {
     const max_cells: f32 = 1_000_000;
     const row_f = y / cell_h;
@@ -434,33 +313,24 @@ pub fn pointToGrid(x: f32, y: f32, cell_w: f32, cell_h: f32) GridPos {
     };
 }
 
-/// The grid rectangle covered by a codepoint range. Height is always one
-/// row: AT clients get one rect per line, and a range spanning rows is
-/// reported as its first row only.
+/// The cells covered by a codepoint range. Always one row high: a range
+/// over several rows gives its first row.
 pub const GridRect = struct {
-    row: u32,
-    col: u32,
-    width_cols: u32,
+    row: GridCoordinate,
+    col: GridCoordinate,
+    width_cols: GridCoordinate,
 };
 
-/// Grid rectangle for the codepoint range `[start, end)`.
-///
-/// Rows must come out distinct per line: a screen reader's flat review
-/// collapses to a single line if every row reports the same Y.
+/// The cells covered by the codepoints `[start_cp, end_cp)`. The width is
+/// at least 1, so an empty range still has a rect to point at.
 pub fn extentsCells(
     text: []const u8,
     widths: CellWidths,
-    start_cp: usize,
-    end_cp: usize,
+    start_cp: CodepointOffset,
+    end_cp: CodepointOffset,
 ) GridRect {
-    // `locate` clamps `start_cp`, and the walk below stops at the end of
-    // the text, so neither bound needs clamping against a codepoint count.
     const loc = locate(text, start_cp);
 
-    // Width in cells: the columns taken by the codepoints from the start
-    // up to `end_cp`, stopping at the row end. A zero here means the range
-    // covered nothing that occupies a cell (an empty range, or combining
-    // marks alone), and AT clients need a rect they can point at.
     var width_cols: u32 = 0;
     var byte = loc.byte;
     var cp = loc.cp;
@@ -478,32 +348,23 @@ pub fn extentsCells(
     };
 }
 
-/// Text granularities we resolve. GTK's enum also carries `sentence` and
-/// `paragraph`; both map to `line` for a terminal, where a visual row is
-/// the only meaningful unit above a word.
+/// GTK's sentence and paragraph granularities map to `line`.
 pub const Granularity = enum {
     character,
     word,
     line,
 };
 
-/// A resolved granularity range: codepoint bounds plus the matching
-/// slice of the input text.
 pub const Contents = struct {
-    start_cp: usize,
-    end_cp: usize,
+    start_cp: CodepointOffset,
+    end_cp: CodepointOffset,
     bytes: []const u8,
 };
 
-/// Resolve the `granularity`-sized run of text containing codepoint
-/// `offset_cp`.
-///
-/// `offset_cp` arrives from AT-SPI as a codepoint index. Boundary
-/// scanning runs on bytes (fast, simple) and converts back to codepoint
-/// indices before returning, so callers never see a byte offset.
+/// The character, word or line that contains codepoint `offset_cp`.
 pub fn contentsAt(
     text: []const u8,
-    offset_cp: usize,
+    offset_cp: CodepointOffset,
     granularity: Granularity,
 ) Contents {
     const text_cp_count = utf8.cpCount(text);
@@ -525,32 +386,23 @@ pub fn contentsAt(
             };
         },
         .word => {
-            // GTK's word granularity: from the start of the current word
-            // to the start of the next one, so the spaces after a word
-            // belong to it. An offset in a run of spaces resolves to the
-            // word before them, and every range ends past its offset,
-            // which is what lets a client step word by word without
-            // stalling. A row is a hard boundary: its newline ends the
-            // range of its last word, and spaces at the start of a row
-            // with no word before them form a range of their own.
-            // Spaces and newlines are single bytes, so scanning bytes
-            // never lands inside a multi-byte codepoint.
+            // As in GTK, a word runs to the start of the next word, so it
+            // includes the spaces after it. A word never crosses a row:
+            // the last word of a row ends after its newline, and spaces
+            // at the start of a row are a range of their own.
             const isWordByte = struct {
                 fn f(b: u8) bool {
                     return b != ' ' and b != '\n';
                 }
             }.f;
 
-            // Back to the start of the word the offset is in, or of the
-            // one before the spaces it is in.
+            // In a run of spaces, go back to the word before it.
             var ws_byte: usize = off_byte;
             if (ws_byte == text.len or !isWordByte(text[ws_byte])) {
                 while (ws_byte > 0 and text[ws_byte - 1] == ' ') ws_byte -= 1;
             }
             while (ws_byte > 0 and isWordByte(text[ws_byte - 1])) ws_byte -= 1;
 
-            // Forward over the rest of the word and the spaces after it,
-            // up to the next word or past the end of the row.
             var we_byte: usize = off_byte;
             while (we_byte < text.len and isWordByte(text[we_byte])) we_byte += 1;
             while (we_byte < text.len and text[we_byte] == ' ') we_byte += 1;
@@ -579,10 +431,7 @@ pub fn contentsAt(
 
 const testing = std.testing;
 
-// Two three-byte codepoints that share their leading two bytes
-// (0xE2 0x94 0x82 vs 0xE2 0x94 0x9C). This pair is what makes a
-// byte-wise diff land mid-character. Escaped because both glyphs look
-// like ASCII punctuation.
+// Two characters that share their first two bytes.
 const box_v = "\u{2502}"; // BOX DRAWINGS LIGHT VERTICAL
 const box_t = "\u{251C}"; // BOX DRAWINGS LIGHT VERTICAL AND RIGHT
 
@@ -595,9 +444,7 @@ test "diff: prefixSuffix on a plain single-character edit" {
 }
 
 test "diff: prefixSuffix pulls back off a shared multi-byte lead" {
-    // Both sides start 0xE2 0x94, so a byte-wise prefix lands 2 bytes
-    // into the character. The result must retreat to the boundary or the
-    // AT-SPI bridge receives an orphan continuation byte.
+    // A byte compare stops 2 bytes into the box character.
     const old_text = "a" ++ box_v ++ "z";
     const new_text = "a" ++ box_t ++ "z";
 
@@ -609,7 +456,6 @@ test "diff: prefixSuffix pulls back off a shared multi-byte lead" {
 }
 
 test "diff: prefixSuffix when old is a prefix of new" {
-    // `p` reaches old_text.len; indexing at `p` would be out of bounds.
     const old_text = "abc";
     const new_text = "abcdef";
     const d = prefixSuffix(old_text, new_text);
@@ -632,8 +478,6 @@ test "diff: prefixSuffix on identical and empty inputs" {
 }
 
 test "diff: prefix and suffix never overlap" {
-    // Without the cap, the common prefix and suffix of "aaaa"/"aa" would
-    // both claim the same bytes and the replaced range would go negative.
     const old_text = "aaaa";
     const new_text = "aa";
     const d = prefixSuffix(old_text, new_text);
@@ -644,14 +488,10 @@ test "diff: prefix and suffix never overlap" {
 test "diff: scrollK detects a whole-line shift" {
     const old_text = "line1\nline2\nline3\n";
     const new_text = "line2\nline3\nline4\n";
-    // One line scrolled off: K is the byte just past the first newline.
     try testing.expectEqual(6, scrollK(old_text, new_text));
 }
 
 test "diff: scrollK rejects a trailing-newline-only match" {
-    // The zero-length remainder at the final `\n` matches trivially; if
-    // that were accepted every edit to a newline-terminated buffer would
-    // be reported as a scroll.
     const old_text = "abc\n";
     const new_text = "abz\n";
     try testing.expectEqual(0, scrollK(old_text, new_text));
@@ -664,9 +504,6 @@ test "diff: scrollK returns 0 with no newline or no match" {
 }
 
 test "diff: scrollK detects a downward shift with the arguments swapped" {
-    // Scrolling back into the scrollback: `line0` arrives at the top and
-    // `line3` falls off the bottom. Nothing about this matches the upward
-    // scan, which is why `chooseDiff` runs the scan both ways.
     const old_text = "line1\nline2\nline3\n";
     const new_text = "line0\nline1\nline2\n";
 
@@ -681,10 +518,7 @@ test "diff: choose prefers a shift over replacing the viewport" {
 }
 
 test "diff: choose reports scrolling back as a downward shift" {
-    // The regression this whole path exists for. A one-line scroll back
-    // changes row 0 and drops the last row, so prefix/suffix keeps almost
-    // nothing and ends up rewriting the viewport twice over, which Orca
-    // reads out in full instead of announcing the one new line.
+    // A replace here would remove and insert almost the whole viewport.
     const old_text = "line1\nline2\nline3\n";
     const new_text = "line0\nline1\nline2\n";
 
@@ -698,14 +532,12 @@ test "diff: choose reports scrolling back as a downward shift" {
 test "diff: choose handles a multi-line scroll back" {
     const old_text = "c\nd\ne\nf\n";
     const new_text = "a\nb\nc\nd\n";
-    // Two rows in at the top, two rows off the bottom.
     try testing.expectEqual(Diff{ .shift_down = 4 }, chooseDiff(old_text, new_text));
 }
 
 test "diff: choose keeps typing echo as a replacement" {
-    // Repeated `$ ` prompts make the last old row a prefix of new, so the
-    // upward shift scan fires spuriously. Cheapest-wins has to reject it:
-    // one appended character must not be announced as a scroll.
+    // `scrollK` finds a false shift here, but one typed character is
+    // not a scroll.
     const old_text = "$ \n$ \n$ ";
     const new_text = "$ \n$ \n$ x";
 
@@ -721,8 +553,6 @@ test "diff: choose says nothing for identical snapshots" {
 }
 
 test "diff: choose survives a viewport with no overlap at all" {
-    // A full-page jump shares no rows in either direction, so both shift
-    // scans come up empty and the replacement path has to carry it.
     const old_text = "a\nb\nc\n";
     const new_text = "x\ny\nz\n";
     const diff = chooseDiff(old_text, new_text);
@@ -730,8 +560,6 @@ test "diff: choose survives a viewport with no overlap at all" {
 }
 
 test "diff: shift offsets stay on codepoint boundaries" {
-    // The shift amounts index into the snapshots to build codepoint
-    // counts, so a multi-byte row must not leave them mid-character.
     const old_text = "héllo\n日本語\nend\n";
     const new_text = "日本語\nend\ntail\n";
 
@@ -749,8 +577,7 @@ test "diff: shift offsets stay on codepoint boundaries" {
 }
 
 test "diff: a downward shift describes a reachable edit" {
-    // Replay what `axEmitShiftDown` emits and check it reconstructs `new`:
-    // remove `old[kept..]`, then insert `new[0..j]` at the front.
+    // Remove `old[kept..]`, then insert `new[0..j]` at the front.
     const old_text = "line1\nline2\nline3\n";
     const new_text = "line0\nline1\nline2\n";
 
@@ -784,9 +611,7 @@ test "diff: an upward shift describes a reachable edit" {
 
 test "grid: rowColToCp counts codepoints, not bytes" {
     const text = box_v ++ box_v ++ "\nabc";
-    // Row 1 begins 7 bytes in but only 3 codepoints in (two box drawing
-    // characters plus the newline, which is itself a codepoint). Counting
-    // bytes here would report 7 and push every offset off the end.
+    // Row 1 starts at byte 7 but at codepoint 3.
     try testing.expectEqual(3, rowColToCp(text, .uniform, 1, 0));
     try testing.expectEqual(5, rowColToCp(text, .uniform, 1, 2));
     try testing.expectEqual(1, rowColToCp(text, .uniform, 0, 1));
@@ -800,33 +625,23 @@ test "grid: rowColToCp clamps column, fails past the last row" {
 
 test "grid: offsetAtGrid clamps instead of failing" {
     const text = "ab\ncd";
-    // Same in-range answers as rowColToCp...
     try testing.expectEqual(3, offsetAtGrid(text, .uniform, 1, 0));
-    // ...but a row past the end resolves into the last row rather than
-    // returning nothing.
     try testing.expectEqual(3, offsetAtGrid(text, .uniform, 7, 0));
     try testing.expectEqual(5, offsetAtGrid(text, .uniform, 7, 99));
 }
 
-// Three double-width characters followed by ASCII: one codepoint each,
-// two columns each, so codepoint index and column part ways at the very
-// first character.
 const wide_row = "日本語ab";
 const wide_widths: CellWidths = .{ .per_cp = &.{ 2, 2, 2, 1, 1 } };
 
 test "grid: a wide character spans two columns" {
-    // 'a' is codepoint 3 but column 6. Reading the codepoint index as a
-    // column is the bug this exists to prevent: it lands three columns
-    // to the left, on 語.
+    // 'a' is codepoint 3 but column 6.
     try testing.expectEqual(3, rowColToCp(wide_row, wide_widths, 0, 6));
     try testing.expectEqual(6, cpToGrid(wide_row, wide_widths, 3).col);
 
-    // Both cells of a wide character resolve to that character, so a
-    // click on either half routes to the same place.
+    // Both cells of a wide character give that character.
     try testing.expectEqual(1, rowColToCp(wide_row, wide_widths, 0, 2));
     try testing.expectEqual(1, rowColToCp(wide_row, wide_widths, 0, 3));
 
-    // Round trip: every codepoint's column maps back to itself.
     for (0..5) |cp| {
         const col = cpToGrid(wide_row, wide_widths, cp).col;
         try testing.expectEqual(cp, rowColToCp(wide_row, wide_widths, 0, col));
@@ -837,10 +652,7 @@ test "grid: widths are per row, and rows keep their own columns" {
     const text = "日本\nab";
     const widths: CellWidths = .{ .per_cp = &.{ 2, 2, 0, 1, 1 } };
 
-    // Row 0: column 2 is the second wide character.
     try testing.expectEqual(1, rowColToCp(text, widths, 0, 2));
-    // Row 1 starts its column count over, and its offsets are unaffected
-    // by the wide characters above it.
     try testing.expectEqual(3, rowColToCp(text, widths, 1, 0));
     try testing.expectEqual(4, rowColToCp(text, widths, 1, 1));
     try testing.expectEqual(GridPos{ .row = 1, .col = 1 }, cpToGrid(text, widths, 4));
@@ -851,9 +663,7 @@ test "grid: zero-width codepoints share their base character's cell" {
     const text = "e\u{0301}x";
     const widths: CellWidths = .{ .per_cp = &.{ 1, 0, 1 } };
 
-    // Column 0 resolves to the base character, never to the mark.
     try testing.expectEqual(0, rowColToCp(text, widths, 0, 0));
-    // 'x' follows in the next column even though it is codepoint 2.
     try testing.expectEqual(2, rowColToCp(text, widths, 0, 1));
     try testing.expectEqual(1, cpToGrid(text, widths, 2).col);
     // The mark itself reports its base character's column.
@@ -861,8 +671,6 @@ test "grid: zero-width codepoints share their base character's cell" {
 }
 
 test "grid: missing widths degrade to one column per codepoint" {
-    // Short slices and empty ones read as width 1 past their end, which
-    // is the pre-widths behaviour rather than an out-of-bounds read.
     const short: CellWidths = .{ .per_cp = &.{2} };
     try testing.expectEqual(1, rowColToCp(wide_row, short, 0, 2));
     try testing.expectEqual(2, rowColToCp(wide_row, short, 0, 3));
@@ -871,22 +679,16 @@ test "grid: missing widths degrade to one column per codepoint" {
 
 test "grid: cpToGrid clamps an offset past the end" {
     const text = "ab\ncd";
-    // Past-the-end lands at the end of the last row, not out of bounds.
     try testing.expectEqual(GridPos{ .row = 1, .col = 2 }, cpToGrid(text, .uniform, 99));
 }
 
 test "grid: a newline belongs to the row it terminates" {
-    // The separator is a codepoint of its own, and the offset *at* it must
-    // still report the row above; the row below only begins one past it.
-    // Getting this backwards shifts every extent by a row and puts flat
-    // review one line out of step with the text it reads.
     const text = "ab\ncd\nef";
     try testing.expectEqual(GridPos{ .row = 0, .col = 2 }, cpToGrid(text, .uniform, 2));
     try testing.expectEqual(GridPos{ .row = 1, .col = 0 }, cpToGrid(text, .uniform, 3));
     try testing.expectEqual(GridPos{ .row = 1, .col = 2 }, cpToGrid(text, .uniform, 5));
     try testing.expectEqual(GridPos{ .row = 2, .col = 0 }, cpToGrid(text, .uniform, 6));
 
-    // `extentsCells` shares the same walk, so it agrees.
     try testing.expectEqual(0, extentsCells(text, .uniform, 2, 3).row);
     try testing.expectEqual(1, extentsCells(text, .uniform, 3, 4).row);
 }
@@ -897,20 +699,14 @@ test "grid: pointToGrid survives negative and non-finite input" {
 
     try testing.expectEqual(GridPos{ .row = 2, .col = 3 }, pointToGrid(35, 55, cw, ch));
 
-    // Negatives clamp to the origin rather than wrapping through
-    // @intFromFloat.
     try testing.expectEqual(GridPos{ .row = 0, .col = 0 }, pointToGrid(-500, -500, cw, ch));
 
-    // NaN and both infinities are non-finite, so they take the origin
-    // fallback rather than the magnitude guard.
     const nan = std.math.nan(f32);
     const inf = std.math.inf(f32);
     try testing.expectEqual(GridPos{ .row = 0, .col = 0 }, pointToGrid(nan, nan, cw, ch));
     try testing.expectEqual(GridPos{ .row = 0, .col = 0 }, pointToGrid(-inf, -inf, cw, ch));
     try testing.expectEqual(GridPos{ .row = 0, .col = 0 }, pointToGrid(inf, inf, cw, ch));
 
-    // A finite but absurd magnitude saturates at the guard instead of
-    // overflowing the float-to-int conversion.
     const huge = pointToGrid(1e30, 1e30, cw, ch);
     try testing.expectEqual(1_000_000, huge.row);
     try testing.expectEqual(1_000_000, huge.col);
@@ -918,7 +714,6 @@ test "grid: pointToGrid survives negative and non-finite input" {
 
 test "extents: each row reports a distinct row index" {
     const text = "row0\nrow1\nrow2";
-    // Flat review collapses to one line if these ever coincide.
     try testing.expectEqual(0, extentsCells(text, .uniform, 0, 1).row);
     try testing.expectEqual(1, extentsCells(text, .uniform, 5, 6).row);
     try testing.expectEqual(2, extentsCells(text, .uniform, 10, 11).row);
@@ -926,7 +721,6 @@ test "extents: each row reports a distinct row index" {
 
 test "extents: column and width are in cells, not bytes" {
     const text = box_v ++ box_v ++ "abc";
-    // Third codepoint sits at column 2 even though it is byte 6.
     const r = extentsCells(text, .uniform, 2, 5);
     try testing.expectEqual(0, r.row);
     try testing.expectEqual(2, r.col);
@@ -934,9 +728,6 @@ test "extents: column and width are in cells, not bytes" {
 }
 
 test "extents: a wide character is two cells wide and shifts what follows" {
-    // Highlighting 語 must cover both its columns, and 'a' after it must
-    // start at column 6, or a screen reader's highlight sits a
-    // character behind the text it is reading.
     const wide = extentsCells(wide_row, wide_widths, 2, 3);
     try testing.expectEqual(4, wide.col);
     try testing.expectEqual(2, wide.width_cols);
@@ -945,22 +736,18 @@ test "extents: a wide character is two cells wide and shifts what follows" {
     try testing.expectEqual(6, after.col);
     try testing.expectEqual(2, after.width_cols);
 
-    // The whole row: three wide characters plus two narrow ones.
     try testing.expectEqual(8, extentsCells(wide_row, wide_widths, 0, 5).width_cols);
 }
 
 test "extents: width stops at the row end and never reports zero" {
     const text = "ab\ncdef";
-    // Range spans the newline; width covers only the first row.
     const spanning = extentsCells(text, .uniform, 0, 6);
     try testing.expectEqual(2, spanning.width_cols);
 
-    // An empty range still reports one cell so the rect is visible.
     const empty = extentsCells(text, .uniform, 1, 1);
     try testing.expectEqual(1, empty.width_cols);
 
-    // So does a range covering only zero-width codepoints: a combining
-    // mark alone sums to no columns, but an AT client still needs a rect.
+    // A combining mark alone.
     const marks: CellWidths = .{ .per_cp = &.{ 1, 0, 1 } };
     try testing.expectEqual(1, extentsCells("e\u{0301}x", marks, 1, 2).width_cols);
 }
@@ -1012,8 +799,7 @@ test "contents: word granularity runs to the start of the next word" {
 test "contents: word granularity inside a run of spaces" {
     const text = "foo   bar";
 
-    // Every space of the run belongs to the word before it, never to
-    // an empty range.
+    // Every space of the run belongs to the word before it.
     for (3..6) |off| {
         const c = contentsAt(text, off, .word);
         try testing.expectEqualStrings("foo   ", c.bytes);
@@ -1042,10 +828,8 @@ test "contents: word granularity on spaces with no word before them" {
 }
 
 test "contents: stepping word by word reaches the end" {
-    // What a client does to read word by word: ask for the word at an
-    // offset, then continue from the end of that range. It must get
-    // through runs of spaces, blank rows and wide characters without
-    // ever being handed back the same range.
+    // A client reads word by word by asking for the word at the end of
+    // the last one. That must never give the same range twice.
     const text = "  one   two\n\n日本 語  \nlast";
     const cp_count = utf8.cpCount(text);
 
@@ -1079,14 +863,11 @@ test "contents: line granularity with multi-byte rows" {
     const text = box_v ++ box_v ++ "\nabc";
     const second = contentsAt(text, 3, .line);
     try testing.expectEqualStrings("abc", second.bytes);
-    // Row 1 begins at codepoint 3 (two box chars plus the newline).
     try testing.expectEqual(3, second.start_cp);
     try testing.expectEqual(6, second.end_cp);
 }
 
 test "contents: every granularity yields valid UTF-8 on multi-byte text" {
-    // The bridge substitutes the literal "[Invalid UTF-8]" for anything
-    // that fails validation, and a screen reader then speaks it.
     const text = box_v ++ " " ++ box_t ++ "x\n😀 tail";
     const cp_count = utf8.cpCount(text);
 
@@ -1101,15 +882,9 @@ test "contents: every granularity yields valid UTF-8 on multi-byte text" {
     }
 }
 
-/// A test-only model of the AT client's copy of our text.
-///
-/// An AT client does not re-read the whole buffer when it changes; it
-/// applies the `remove`/`insert` events we emit to the copy it already
-/// has. So the property that actually matters is not "is each event
-/// plausible" but "does replaying them reproduce the new text exactly".
-/// If it does not, the client's copy silently drifts from ours and stays
-/// wrong until something makes it rebuild from scratch -- which, in Orca,
-/// is a focus change.
+/// The AT client's copy of our text. A client applies our remove and
+/// insert events to its copy instead of reading the text again, so the
+/// events must turn the old text into exactly the new text.
 const EventModel = struct {
     buf: []u8,
 
@@ -1138,9 +913,7 @@ const EventModel = struct {
     }
 
     /// `updateContents(.insert, start_cp, end_cp)`. The client reads the
-    /// inserted bytes back out of us with `axGetContents`, which serves
-    /// the post-change text -- so the content comes from `new_text` at the
-    /// same codepoint range the event names.
+    /// inserted text from the new text.
     fn insert(
         self: *EventModel,
         alloc: std.mem.Allocator,
@@ -1160,12 +933,8 @@ const EventModel = struct {
     }
 };
 
-/// Replay the events `surface.zig` would emit for `chooseDiff(old, new)`.
-///
-/// This mirrors `axEmitShiftUp` / `axEmitShiftDown` / `axEmitPrefixSuffix`
-/// exactly, including which ranges are skipped when empty. Keep the two in
-/// step: if an emit function changes, change this and the fuzz test below
-/// will tell you whether the change still round-trips.
+/// Apply the events for `chooseDiff(old, new)` to a copy of `old`. Must
+/// match `textChange` in `apprt/gtk/class/surface_a11y.zig`.
 fn replayDiff(
     alloc: std.mem.Allocator,
     old_text: []const u8,
@@ -1250,17 +1019,14 @@ test "diff: events round-trip on the shapes we emit by name" {
     // Empty in both directions.
     try expectRoundTrip("", "a\nb");
     try expectRoundTrip("a\nb", "");
-    // Multi-byte content shifting, including a row that is pure emoji --
-    // the case where a byte-wise prefix/suffix would cut mid-codepoint.
+    // Multi-byte text.
     try expectRoundTrip("日本\nx\n😀", "x\n😀\n日本");
     try expectRoundTrip(box_v ++ "a\n" ++ box_t ++ "b", box_t ++ "b\n" ++ box_v ++ "a");
 }
 
 test "diff: events round-trip over generated viewports" {
     const alloc = testing.allocator;
-    // Deliberately includes characters that share leading bytes (box_v
-    // and box_t) and a 4-byte codepoint, since the prefix/suffix scan walks
-    // bytes and then backs up to a boundary.
+    // Includes characters that share leading bytes, and a 4-byte one.
     const glyphs = [_][]const u8{ "a", "b", " ", "$", "é", "日", box_v, box_t, "😀" };
 
     var prng = std.Random.DefaultPrng.init(0x9057e11);

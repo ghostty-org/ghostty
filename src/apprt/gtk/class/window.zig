@@ -312,13 +312,9 @@ pub const Window = extern struct {
             pub const none: @This() = .{};
         },
     ) *Self {
-        // Pass `accessible-role` as a construct-time property so the AT
-        // context GTK creates for this instance is seeded with the correct
-        // role. Setting it via `gtk_widget_class_set_accessible_role` does
-        // NOT propagate to the AT context here: the context still reports
-        // `.widget`, which maps to the AT-SPI role "filler". Screen readers
-        // locate a window by looking for a frame, so a filler at the top of
-        // the tree leaves them with nothing to descend into.
+        // The role must be set at construction. Set on the class, it does
+        // not reach the accessible, and screen readers can't find the
+        // window.
         const win = gobject.ext.newInstance(Self, .{
             .application = app,
             .@"accessible-role" = gtk.AccessibleRole.window,

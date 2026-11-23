@@ -89,10 +89,8 @@ pub const RenderSurface = extern struct {
             );
         };
 
-        /// Emitted when a newly rendered frame has been taken from the
-        /// renderer's queue, i.e. once per frame that actually reaches the
-        /// screen. A plain redraw that finds no new frame does not emit.
-        /// Emitted from `snapshot`, so always on the main thread.
+        /// Emitted on the main thread when a new frame is drawn. A redraw
+        /// of the same frame does not emit.
         pub const present = struct {
             pub const name = "present";
             const impl = gobject.ext.defineSignal(

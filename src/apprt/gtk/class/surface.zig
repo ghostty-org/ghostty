@@ -1779,10 +1779,8 @@ pub const Surface = extern struct {
     /// Focus this surface. This properly focuses the input part of
     /// our surface.
     pub fn grabFocus(self: *Self) void {
-        // Focus the GhosttySurface itself (not the inner render surface) so the
-        // focused object exposes role=terminal and GtkAccessibleText to
-        // AT-SPI. The EventControllerKey attached to the template root
-        // receives key events from this focus target.
+        // Focus the surface, not the render surface, since the surface is
+        // what screen readers read.
         _ = self.as(gtk.Widget).grabFocus();
     }
 
@@ -2967,8 +2965,7 @@ pub const Surface = extern struct {
         const priv = self.private();
         const core_surface = priv.core_surface orelse return;
 
-        // If we don't have focus, grab it. Focus is tracked on the
-        // GhosttySurface itself (see `grabFocus`), not the render surface.
+        // If we don't have focus, grab it.
         const widget = self.as(gtk.Widget);
         const had_focus = widget.hasFocus() != 0;
         if (!had_focus) {
@@ -3105,8 +3102,7 @@ pub const Surface = extern struct {
             @abs(priv.cursor_pos.y - pos.y) < 1;
         if (is_cursor_still) return;
 
-        // If we don't have focus, and we want it, grab it. Focus lives
-        // on the GhosttySurface itself, not the inner render surface.
+        // If we don't have focus, and we want it, grab it.
         if (priv.config) |config| {
             const widget = self.as(gtk.Widget);
             if (widget.hasFocus() == 0 and
@@ -3526,10 +3522,8 @@ pub const Surface = extern struct {
         };
     }
 
-    /// Whether GTK paints this surface: not while it is unmapped (a
-    /// background tab) or its window is suspended (minimized or fully
-    /// covered, where the compositor reports that). A window can also
-    /// stop being painted without either, see `A11y.framePushed`.
+    /// False when the surface is unmapped, such as a background tab, or
+    /// its window is suspended, such as minimized.
     pub fn isPainted(self: *Self) bool {
         return self.private().mapped and !self.windowSuspended();
     }
@@ -3544,11 +3538,6 @@ pub const Surface = extern struct {
         _: *RenderSurface,
         self: *Self,
     ) callconv(.c) void {
-        // Schedule a check that notifies AT-SPI clients of any content
-        // change, gated so that an unchanged frame emits nothing and an
-        // AT client is never interrupted mid-read by a cursor blink. This
-        // runs inside GTK's paint, so the check itself is deferred to an
-        // idle callback. See `A11y.frameRendered`.
         self.private().a11y.frameRendered(self);
     }
 
@@ -3986,9 +3975,6 @@ pub const Surface = extern struct {
             gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
 
-            // Set the accessible role to terminal so screen readers
-            // like Orca know how to handle this widget. This matches
-            // GTK_ACCESSIBLE_ROLE_TERMINAL added in GTK 4.14.
             gtk.WidgetClass.setAccessibleRole(class.as(gtk.Widget.Class), .terminal);
 
             gtk.Widget.Class.setTemplateFromResource(
