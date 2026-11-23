@@ -19591,6 +19591,117 @@ test "Terminal: deleteLines blank row does not retain semantic prompt" {
     }
 }
 
+test "Terminal: insertLines and deleteLines in margins keep semantic prompt" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+
+    // Each case prints a prompt "$ " on row `prompt_y`, then runs IL
+    // (row 2 into row 3) or DL (row 3 into row 2) inside margins. Margins
+    // 3;10 leave the prompt in place and 1;8 move it. Row `check_y` must
+    // still be marked as a prompt.
+    const Case = struct {
+        seq: []const u8,
+        margins: []const u8,
+        prompt_y: u16,
+        check_y: u16,
+    };
+    const cases = [_]Case{
+        .{ .seq = "\x1b[L", .margins = "\x1b[3;10s", .prompt_y = 3, .check_y = 3 },
+        .{ .seq = "\x1b[L", .margins = "\x1b[1;8s", .prompt_y = 2, .check_y = 3 },
+        .{ .seq = "\x1b[M", .margins = "\x1b[3;10s", .prompt_y = 2, .check_y = 2 },
+        .{ .seq = "\x1b[M", .margins = "\x1b[1;8s", .prompt_y = 3, .check_y = 2 },
+    };
+
+    // Same page uses Page.moveCells, different pages use
+    // Page.clonePartialRowFrom.
+    for ([_]bool{ false, true }) |cross_page| for (cases) |c| {
+        var t = try init(io_impl, alloc, .{
+            .rows = 5,
+            .cols = 10,
+            .max_scrollback_bytes = 1024,
+        });
+        defer t.deinit(alloc);
+
+        // Put active rows 0-2 and 3-4 on different pages.
+        const pages = &t.screens.active.pages;
+        if (cross_page) {
+            const first_page_rows = pages.pages.first.?.capacity().rows;
+            for (0..first_page_rows + 1) |_| try t.linefeed();
+        }
+        const row2 = pages.pin(.{ .active = .{ .y = 2 } }).?;
+        const row3 = pages.pin(.{ .active = .{ .y = 3 } }).?;
+        try testing.expectEqual(cross_page, row2.node != row3.node);
+
+        var s = t.vtStream();
+        defer s.deinit();
+
+        var buf: [64]u8 = undefined;
+        s.nextSlice(try std.mem.print(
+            &buf,
+            "\x1b[{d};1H\x1b]133;A\x07$ \x1b]133;C\x07",
+            .{c.prompt_y + 1},
+        ));
+        s.nextSlice("\x1b[?69h");
+        s.nextSlice(c.margins);
+        s.nextSlice("\x1b[3;3H");
+        s.nextSlice(c.seq);
+
+        const rac = pages.getCell(.{ .active = .{ .y = c.check_y } }).?;
+        try testing.expectEqual(.prompt, rac.cell.semantic_content);
+        try testing.expectEqual(.prompt, rac.row.semantic_prompt);
+    };
+}
+
+test "Terminal: insertLines in margins keeps kitty placeholder flag" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{
+        .rows = 5,
+        .cols = 10,
+        .max_scrollback_bytes = 1024,
+    });
+    defer t.deinit(alloc);
+
+    // Put active rows 0-2 and 3-4 on different pages.
+    const pages = &t.screens.active.pages;
+    const first_page_rows = pages.pages.first.?.capacity().rows;
+    for (0..first_page_rows + 1) |_| try t.linefeed();
+    {
+        const row2 = pages.pin(.{ .active = .{ .y = 2 } }).?;
+        const row3 = pages.pin(.{ .active = .{ .y = 3 } }).?;
+        const row4 = pages.pin(.{ .active = .{ .y = 4 } }).?;
+        try testing.expect(row2.node != row3.node);
+        try testing.expect(row3.node == row4.node);
+    }
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // A styled placeholder at the start of row 3.
+    s.nextSlice("\x1b[4;1H\x1b[38;5;1m\u{10EEEE}\x1b[m");
+
+    // IL across the page boundary with the placeholder outside the
+    // margins. Row 3 keeps it, so it must keep the flag.
+    s.nextSlice("\x1b[?69h\x1b[3;10s\x1b[3;3H\x1b[L");
+    {
+        const rac = pages.getCell(.{ .active = .{ .y = 3 } }).?;
+        try testing.expectEqual(kitty.graphics.unicode.placeholder, rac.cell.codepoint());
+        try testing.expect(rac.row.kitty_virtual_placeholder);
+    }
+
+    // IL on one page moves the placeholder into row 4. Page.moveCells
+    // only looks for placeholders when the flag is set, so a flag
+    // dropped above would hide the image here.
+    s.nextSlice("\x1b[1;4s\x1b[4;1H\x1b[L");
+    {
+        const rac = pages.getCell(.{ .active = .{ .y = 4 } }).?;
+        try testing.expectEqual(kitty.graphics.unicode.placeholder, rac.cell.codepoint());
+        try testing.expect(rac.row.kitty_virtual_placeholder);
+    }
+}
+
 test "Terminal: eraseDisplay complete ignores stale prompt on recycled row" {
     const alloc = testing.allocator;
     const io_impl = testing.io;
