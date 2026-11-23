@@ -209,6 +209,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// The images that we may render.
         images: ImageState = .empty,
 
+        /// If true, draw the background opaque regardless of
+        /// `background-opacity`.
+        background_opaque: bool = false,
+
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
         /// Set whenever the background image changes, signalling
@@ -1677,7 +1681,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.terminal_state.colors.background.r,
                     self.terminal_state.colors.background.g,
                     self.terminal_state.colors.background.b,
-                    @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                    if (self.background_opaque)
+                        255
+                    else
+                        @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
 
                 // If we're on macOS and have glass styles, we remove
@@ -3210,7 +3217,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         if (style.flags.inverse) break :bg_alpha default;
 
                         // If the user requested to have opacity on all cells, apply it.
-                        if (self.config.background_opacity_cells and bg_style != null) {
+                        if (self.config.background_opacity_cells and
+                            bg_style != null and
+                            !self.background_opaque)
+                        {
                             var opacity: f64 = @floatFromInt(default);
                             opacity *= self.config.background_opacity;
                             break :bg_alpha @intFromFloat(opacity);

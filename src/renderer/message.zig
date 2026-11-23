@@ -67,6 +67,9 @@ pub const Message = union(enum) {
     /// The macOS display ID has changed for the window.
     macos_display_id: u32,
 
+    /// Force the background opaque, or stop forcing it.
+    background_opaque: bool,
+
     /// Updates the health of the current presentation state.
     ///
     /// If unhealthy, then somehow the apprt failed to present frames from

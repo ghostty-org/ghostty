@@ -890,14 +890,12 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     toggle_visibility,
 
-    /// Toggle the window background opacity between transparent and opaque.
+    /// Toggle the background opacity of all windows between transparent
+    /// and opaque.
     ///
     /// This does nothing when `background-opacity` is set to 1 or above.
-    ///
-    /// When `background-opacity` is less than 1, this action will either make
-    /// the window transparent or not depending on its current transparency state.
-    ///
-    /// Only implemented on macOS.
+    /// On macOS, it also does nothing when the focused window is in native
+    /// fullscreen.
     toggle_background_opacity,
 
     /// Check for updates.

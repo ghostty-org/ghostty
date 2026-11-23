@@ -182,6 +182,10 @@ pub const Application = extern struct {
         /// The application window theme selected for this session.
         window_theme_override: apprt.action.WindowTheme = .config,
 
+        /// Set by `toggle_background_opacity`. Applies to every surface,
+        /// including ones created later.
+        background_opaque: bool = false,
+
         /// State and logic for the underlying windowing protocol.
         winproto: winprotopkg.App,
 
@@ -797,6 +801,7 @@ pub const Application = extern struct {
             .toggle_maximize => Action.toggleMaximize(target),
             .toggle_fullscreen => Action.toggleFullscreen(target),
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
+            .toggle_background_opacity => return Action.toggleBackgroundOpacity(self),
             .toggle_tab_overview => return Action.toggleTabOverview(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
@@ -815,7 +820,6 @@ pub const Application = extern struct {
             .close_all_windows,
             .float_window,
             .toggle_visibility,
-            .toggle_background_opacity,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -838,6 +842,10 @@ pub const Application = extern struct {
     /// not a reference-counted type so you should not store this.
     pub fn core(self: *Self) *CoreApp {
         return self.private().core_app;
+    }
+
+    pub fn isBackgroundOpaque(self: *Self) bool {
+        return self.private().background_opaque;
     }
 
     /// Returns the apprt application associated with this application.
@@ -3122,6 +3130,20 @@ const Action = struct {
         });
         assert(win.isQuickTerminal());
         initAndShowWindow(self, win, null, .none);
+        return true;
+    }
+
+    pub fn toggleBackgroundOpacity(self: *Application) bool {
+        const priv = self.private();
+        if (priv.config.get().@"background-opacity" >= 1) return false;
+
+        priv.background_opaque = !priv.background_opaque;
+        for (priv.core_app.surfaces.items) |surface| {
+            surface.core().setBackgroundOpaque(priv.background_opaque) catch |err| {
+                log.warn("error setting background opacity err={}", .{err});
+            };
+        }
+
         return true;
     }
 

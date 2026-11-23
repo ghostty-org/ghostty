@@ -3466,6 +3466,15 @@ pub fn occlusionCallback(self: *Surface, visible: bool) !void {
     try self.queueRender();
 }
 
+/// Called by the apprt to implement `toggle_background_opacity`.
+pub fn setBackgroundOpaque(self: *Surface, value: bool) !void {
+    _ = self.renderer_thread.mailbox.push(global.io(), .{
+        .background_opaque = value,
+    }, .{ .forever = {} });
+
+    try self.queueRender();
+}
+
 pub fn focusCallback(self: *Surface, focused: bool) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
