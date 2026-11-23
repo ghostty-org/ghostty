@@ -1608,9 +1608,11 @@ fn searchCallback_(
 /// The renderer state mutex MUST NOT be held.
 fn modsChanged(self: *Surface, mods: input.Mods) void {
     // The only place we keep track of mods currently is on the mouse.
-    if (!self.mouse.mods.equal(mods)) {
-        // The mouse mods only contain binding modifiers since we don't
-        // want caps/num lock or sided modifiers to affect the mouse.
+    // The mouse mods only contain binding modifiers since we don't
+    // want caps/num lock or sided modifiers to affect the mouse, so
+    // we compare binding mods too. Otherwise every key press with
+    // num lock on would look like a mods change.
+    if (!self.mouse.mods.equal(mods.binding())) {
         self.mouse.mods = mods.binding();
 
         // We also need to update the renderer so it knows if it should
@@ -2857,8 +2859,9 @@ pub fn keyCallback(
     }
 
     // If our mouse modifiers change we may need to change our
-    // link highlight state.
-    if (!self.mouse.mods.equal(event.mods)) mouse_mods: {
+    // link highlight state. The mouse mods are binding mods only,
+    // see modsChanged.
+    if (!self.mouse.mods.equal(event.mods.binding())) mouse_mods: {
         // Update our modifiers, this will update mouse mods too
         self.modsChanged(event.mods);
 
