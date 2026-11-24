@@ -6668,6 +6668,8 @@ test "Terminal: graphemeWidth parity" {
     try expectGraphemeWidthParity(&.{ 0x23, 0xFE0F, 0x20E3 });
     try expectGraphemeWidthParity(&.{ '1', 0x20E3 });
     try expectGraphemeWidthParity(&.{ 0x1F44B, 0x1F3FF });
+    try expectGraphemeWidthParity(&.{ 0x261D, 0x1F3FB });
+    try expectGraphemeWidthParity(&.{ 0x1F575, 0x1F3FB, 0x200D, 0x2642, 0xFE0F });
     try expectGraphemeWidthParity(&.{ 0x1F1E6, 0x1F1E7, 0x1F1E8 });
     try expectGraphemeWidthParity(&.{ 'a', 'b' });
     try expectGraphemeWidthParity(&.{ 0x0301, 0x0302 });
@@ -6906,6 +6908,95 @@ test "Terminal: Fitzpatrick skin tone next valid base" {
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
     }
+}
+
+test "Terminal: Fitzpatrick skin tone widens a narrow base like VS16" {
+    // Every emoji that accepts a skin tone but is drawn as text by
+    // default (Emoji_Modifier_Base minus Emoji_Presentation in
+    // emoji-data.txt). Each is narrow on its own. A skin tone modifier
+    // asks for the emoji form, so base + modifier must lay out exactly
+    // like base + VS16.
+    const bases = [_]u21{
+        0x261D,  0x26F9,  0x270C,  0x270D,  0x1F3CB,
+        0x1F3CC, 0x1F574, 0x1F575, 0x1F590,
+    };
+
+    // A 3 column screen, with the base printed in each column. VS16 and
+    // every modifier must produce the same expected result.
+    const Case = struct {
+        x: u16,
+        wraparound: bool,
+        // Where the base ends up and whether its cell became wide.
+        base_x: u16,
+        base_y: u16,
+        wide: bool,
+        cursor_x: u16,
+        cursor_y: u16,
+        pending_wrap: bool,
+    };
+    const cases = [_]Case{
+        // First column: the cell widens in place.
+        .{ .x = 0, .wraparound = true, .base_x = 0, .base_y = 0, .wide = true, .cursor_x = 2, .cursor_y = 0, .pending_wrap = false },
+        .{ .x = 0, .wraparound = false, .base_x = 0, .base_y = 0, .wide = true, .cursor_x = 2, .cursor_y = 0, .pending_wrap = false },
+        // Second-to-last column: the tail lands in the last column.
+        .{ .x = 1, .wraparound = true, .base_x = 1, .base_y = 0, .wide = true, .cursor_x = 2, .cursor_y = 0, .pending_wrap = true },
+        .{ .x = 1, .wraparound = false, .base_x = 1, .base_y = 0, .wide = true, .cursor_x = 2, .cursor_y = 0, .pending_wrap = true },
+        // Last column: the cluster moves to the next line.
+        .{ .x = 2, .wraparound = true, .base_x = 0, .base_y = 1, .wide = true, .cursor_x = 2, .cursor_y = 1, .pending_wrap = false },
+        // Last column without wraparound: the second code point is dropped.
+        .{ .x = 2, .wraparound = false, .base_x = 2, .base_y = 0, .wide = false, .cursor_x = 2, .cursor_y = 0, .pending_wrap = true },
+    };
+
+    const seconds = [_]u21{ 0xFE0F, 0x1F3FB, 0x1F3FC, 0x1F3FD, 0x1F3FE, 0x1F3FF };
+
+    for (cases) |c| for (bases) |base| for (seconds) |second| {
+        var t = try init(testing.io, testing.allocator, .{ .cols = 3, .rows = 5 });
+        defer t.deinit(testing.allocator);
+        t.modes.set(.grapheme_cluster, true);
+        t.modes.set(.wraparound, c.wraparound);
+
+        t.setCursorPos(1, c.x + 1);
+        try t.print(base);
+        try t.print(second);
+
+        const cursor = &t.screens.active.cursor;
+        try testing.expectEqual(@as(usize, c.cursor_x), cursor.x);
+        try testing.expectEqual(@as(usize, c.cursor_y), cursor.y);
+        try testing.expectEqual(c.pending_wrap, cursor.pending_wrap);
+
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{
+            .x = c.base_x,
+            .y = c.base_y,
+        } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(base, cell.content.codepoint.data);
+        if (c.wide) {
+            try testing.expectEqual(Cell.Wide.wide, cell.wide);
+            try testing.expectEqualSlices(
+                u21,
+                &.{second},
+                list_cell.node.page().lookupGrapheme(cell).?,
+            );
+
+            const tail = t.screens.active.pages.getCell(.{ .screen = .{
+                .x = c.base_x + 1,
+                .y = c.base_y,
+            } }).?.cell;
+            try testing.expectEqual(Cell.Wide.spacer_tail, tail.wide);
+
+            // Wrapping leaves a spacer head in the last column.
+            if (c.base_y == 1) {
+                const head = t.screens.active.pages.getCell(.{ .screen = .{
+                    .x = 2,
+                    .y = 0,
+                } }).?.cell;
+                try testing.expectEqual(Cell.Wide.spacer_head, head.wide);
+            }
+        } else {
+            try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+            try testing.expect(!cell.hasGrapheme());
+        }
+    };
 }
 
 test "Terminal: Fitzpatrick skin tone next to non-base" {

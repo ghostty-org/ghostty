@@ -372,6 +372,37 @@ test "grapheme width: emoji sequences" {
     try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x1F44B, 0x1F3FF }));
 }
 
+test "grapheme width: emoji modifiers widen text-default bases" {
+    const testing = std.testing;
+
+    // Every emoji that accepts a skin tone but is drawn as text by
+    // default (Emoji_Modifier_Base minus Emoji_Presentation in
+    // emoji-data.txt). Each is narrow on its own, and a modifier asks
+    // for its emoji form, which is wide.
+    const bases = [_]u21{
+        0x261D,  0x26F9,  0x270C,  0x270D,  0x1F3CB,
+        0x1F3CC, 0x1F574, 0x1F575, 0x1F590,
+    };
+    for (bases) |base| {
+        try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 1 }, graphemeWidth(u21, &.{base}));
+        for (0x1F3FB..0x1F400) |modifier_usize| {
+            const modifier: u21 = @intCast(modifier_usize);
+            try testing.expectEqual(GraphemeWidthEffect.wide, graphemeWidthEffect(base, modifier));
+            try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ base, modifier }));
+        }
+    }
+
+    // A modifier after anything else starts its own cluster.
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 1 }, graphemeWidth(u21, &.{ 'a', 0x1F3FB }));
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 2 }, graphemeWidth(u21, &.{0x1F3FB}));
+
+    // The exception is a Prepend code point, which joins whatever comes
+    // after it (Unicode rule GB9b). A modifier then widens the cluster,
+    // as any other visible code point does.
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x0600, 'a' }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x0600, 0x1F3FB }));
+}
+
 test "grapheme width: spacing marks can widen narrow clusters" {
     const testing = std.testing;
 

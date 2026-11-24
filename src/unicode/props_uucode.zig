@@ -13,10 +13,24 @@ pub fn get(cp: u21) Properties {
         .emoji_vs_base = false,
     };
 
+    const grapheme_break = uucode.get(.grapheme_break_no_control, cp);
     return .{
         .width = uucode.get(.width, cp),
-        .width_zero_in_grapheme = uucode.get(.wcwidth_zero_in_grapheme, cp),
-        .grapheme_break = uucode.get(.grapheme_break_no_control, cp),
+        // uucode marks the skin tone modifiers (U+1F3FB through U+1F3FF)
+        // as zero width inside a cluster because its own width function
+        // handles them separately. Ghostty's does not, so we clear the
+        // flag and graphemeWidthEffect widens the cluster, as it does
+        // for VS16.
+        //
+        // A modifier only joins a cluster after an emoji that accepts
+        // skin tones or after a Prepend code point. After an emoji, the
+        // modifier asks for its emoji form (UTS #51, section 2.4), so a
+        // base that is narrow on its own, such as U+261D, becomes 2
+        // cells. After a Prepend, the cluster widens as it would for any
+        // other visible code point.
+        .width_zero_in_grapheme = uucode.get(.wcwidth_zero_in_grapheme, cp) and
+            grapheme_break != .emoji_modifier,
+        .grapheme_break = grapheme_break,
         .emoji_vs_base = uucode.get(.is_emoji_vs_base, cp),
     };
 }
