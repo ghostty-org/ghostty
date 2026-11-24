@@ -2048,7 +2048,9 @@ test "feed after complete discovers prepended history pages" {
         const page = allocation.page();
         page.size.rows = 2;
         for ("Test", 0..) |c, x| page.getRowAndCell(x, 0).cell.* = .init(c);
+        page.getRow(0).markWritten(4);
         for ("xxxxxxxxTe", 0..) |c, x| page.getRowAndCell(x, 1).cell.* = .init(c);
+        page.getRow(1).markWritten(10);
         page.getRow(1).wrap = true;
         old_first.page().getRow(0).wrap_continuation = true;
         try allocation.finalize(.prepend, .{});
@@ -2102,6 +2104,7 @@ test "feed after complete discovers prepended history pages" {
         const page = allocation.page();
         page.size.rows = 2;
         for ("Test", 0..) |c, x| page.getRowAndCell(x, 0).cell.* = .init(c);
+        page.getRow(0).markWritten(4);
         try allocation.finalize(.prepend, .{});
     }
     const oldest_node = list.pages.first.?;

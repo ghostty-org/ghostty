@@ -2330,6 +2330,7 @@ fn testHistoryTerminal() !Terminal {
             const built = try builder.allocatePage(.{ .cols = 2, .rows = 2 });
             built.size.rows = 2;
             built.getRowAndCell(0, 0).cell.* = .init(c);
+            built.getRow(0).markWritten(1);
         }
         var pages = try builder.finish();
         errdefer pages.deinit();

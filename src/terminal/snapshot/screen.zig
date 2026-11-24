@@ -2041,6 +2041,7 @@ test "SCREEN encoding preserves a compressed suffix page" {
     );
     defer screen.deinit();
     screen.pages.getCell(.{ .active = .{} }).?.cell.* = .init('A');
+    screen.pages.getCell(.{ .active = .{} }).?.row.markWritten(1);
 
     // Force the active suffix into the representation that current PageList
     // policy normally reserves for history. This models a future policy change

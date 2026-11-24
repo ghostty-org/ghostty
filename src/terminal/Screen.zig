@@ -1104,11 +1104,8 @@ pub fn cursorDownScroll(self: *Screen) !void {
             self.cursor.page_cell = page_rac.cell;
         }
 
-        // Our new row is always dirty. It is also always in the zero
-        // state: from unused page capacity, a fresh page, or a recycled
-        // page that grow() zeroed. Marking it blank too, in the same
-        // write, lets printing into it skip checking its old cells.
-        self.cursor.page_row.markCleared();
+        // Our new row is always dirty
+        self.cursorMarkDirty();
     }
 
     self.cursorRowFillBackground();
@@ -1179,10 +1176,6 @@ pub fn cursorScrollAbove(self: *Screen) !void {
             const page_rac = self.cursor.page_pin.rowAndCell();
             self.cursor.page_row = page_rac.row;
             self.cursor.page_cell = page_rac.cell;
-
-            // The new row came from unused page capacity, so it is in the
-            // zero state. See cursorDownScroll.
-            self.cursor.page_row.markCleared();
         } else {
             // We didn't grow pages but our cursor isn't on the last page.
             // In this case we need to do more work because we need to copy
@@ -1354,7 +1347,7 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
             // graphemes, hyperlinks) and our blank is zero so this is
             // a straight zero fill. This is the overwhelmingly common
             // case for scroll region usage.
-            Cell.zeroAll(row.content(page.getCells(row)));
+            Cell.zeroAll(page.getContentCells(row));
         } else {
             // The generic clear handles managed memory and fills the
             // row with our blank cell, preserving the background color.
@@ -1368,7 +1361,7 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
         break :reset .{
             .cells = row.cells,
             .dirty = true,
-            .extent = if (blank_is_zero) 0 else std.math.maxInt(u16),
+            .extent = if (blank_is_zero) 0 else page.size.cols,
         };
     };
 
@@ -1863,7 +1856,6 @@ pub fn clearRows(
                 // A protected clear keeps metadata, so it has nothing to do.
                 if (!protected) row.* = .{
                     .cells = row.cells,
-                    .extent = 0,
                     .dirty = row.dirty,
                 };
                 continue;
@@ -7274,6 +7266,7 @@ test "Screen: resize (no reflow) less rows trims blank lines" {
             .content_tag = .bg_color_rgb,
             .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
         };
+        list_cell.row.markWritten(1);
     }
 
     const cursor = s.cursor;
@@ -7310,6 +7303,7 @@ test "Screen: resize (no reflow) more rows trims blank lines" {
             .content_tag = .bg_color_rgb,
             .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
         };
+        list_cell.row.markWritten(1);
     }
 
     const cursor = s.cursor;
@@ -8142,6 +8136,7 @@ test "Screen: resize more cols bounded scrollback keeps viewport valid" {
                     .content_tag = .codepoint,
                     .content = .{ .codepoint = @bitCast(@as(u24, 'A')) },
                 };
+                page.getRow(y).markWritten(x + 1);
             }
         }
     }
@@ -11668,6 +11663,8 @@ test "Screen: cursorSetHyperlink OOM + URI too large for string alloc" {
     const base_capacity = s.cursor.page_pin.node.page().hyperlinkCapacity();
     const base_string_bytes = s.cursor.page_pin.node.capacity().string_bytes;
     for (0..base_capacity * 2) |_| {
+        // Like `Terminal.print`, cover the cell before linking it.
+        s.cursor.page_row.markWritten(s.cursor.x + 1);
         try s.cursorSetHyperlink();
         if (s.cursor.x >= s.pages.cols - 1) {
             try s.cursorDownOrScroll();

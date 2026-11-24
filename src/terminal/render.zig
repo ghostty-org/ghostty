@@ -2747,7 +2747,7 @@ const RowBuilder = struct {
         if (!page_row.managedMemory() and !placeholder_row) return;
 
         // Get the cells in the page that may be nonzero.
-        const page_cells: []const page.Cell = page_row.content(all_cells[0..b.cols]);
+        const page_cells: []const page.Cell = p.getContentCells(page_row);
         const arena_alloc = arena.allocator();
         if (placeholder_row) {
             @branchHint(.unlikely);

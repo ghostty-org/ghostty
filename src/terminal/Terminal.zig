@@ -4574,7 +4574,7 @@ pub fn eraseDisplay(
                             // Blank rows below the prompt tell us nothing,
                             // keep searching for the last non-empty row.
                             if (row.isBlank()) continue;
-                            if (!Cell.hasTextAny(row.content(p.cells(.all)))) continue;
+                            if (!Cell.hasTextAny(p.cells(.content))) continue;
 
                             // If we have command output, then we're most
                             // certainly not at a prompt.
@@ -16159,10 +16159,6 @@ test "Terminal: printSliceAscii matches printSlice" {
         var t2 = try init(io_impl, alloc, .{ .cols = 10, .rows = 4 });
         defer t2.deinit(alloc);
         inline for (.{ &t1, &t2 }) |t| {
-            // Clear the rows so their extent is known. A new row may
-            // have content anywhere (see Row.extent), so the fill would
-            // never take its shortcut for the zero cells past it.
-            t.eraseDisplay(.complete, false);
             switch (setup) {
                 0 => {},
                 1 => {
@@ -17408,8 +17404,6 @@ test "Terminal: row extent follows printed text" {
     var t = try init(testing.io, alloc, .{ .rows = 3, .cols = 10 });
     defer t.deinit(alloc);
 
-    t.eraseDisplay(.complete, false);
-
     // Printing covers exactly the printed cells, through the batched
     // and the per-codepoint paths.
     try t.printSliceAscii("ABC");
@@ -17823,7 +17817,9 @@ test "Terminal: eraseDisplay protected complete" {
 
     t.clearDirty();
     t.eraseDisplay(.complete, true);
-    for (0..t.rows) |y| try testing.expect(t.isDirty(.{ .active = .{
+    // Only the first two rows were written. The others don't change, so
+    // they stay clean.
+    for (0..2) |y| try testing.expect(t.isDirty(.{ .active = .{
         .x = 0,
         .y = @intCast(y),
     } }));

@@ -886,6 +886,9 @@ pub fn decode(
         if (count > cells.len) return error.InvalidRowCellCount;
         if (count == 0) continue;
 
+        // Decoded pages start with blank rows. Cover the decoded cells.
+        row.extent = count;
+
         // The encoded cell width is framing: it determines exactly how many
         // bytes this row occupies.
         switch (row_header.cell_width) {
@@ -1679,6 +1682,7 @@ test "grid golden encoding and decoding" {
 
     const grapheme = source.getRowAndCell(2, 0);
     grapheme.cell.* = .init('x');
+    grapheme.row.markWritten(3);
     try source.setGraphemes(
         grapheme.row,
         grapheme.cell,
@@ -1705,15 +1709,18 @@ test "grid golden encoding and decoding" {
     head.row.wrap = true;
     head.row.wrap_continuation = true;
     head.row.semantic_prompt = .prompt_continuation;
+    head.row.markWritten(3);
 
     // The third row is bare ASCII text with an interior blank, which uses
     // the one-byte encoded cell width.
     source.getRowAndCell(0, 2).cell.* = .init('h');
     source.getRowAndCell(2, 2).cell.* = .init('i');
+    source.getRow(2).markWritten(3);
 
     // The fourth row needs the two-byte width for a codepoint above U+00FF.
     source.getRowAndCell(0, 3).cell.* = .init(0x0416); // Ж
     source.getRowAndCell(1, 3).cell.* = .init('!');
+    source.getRow(3).markWritten(2);
 
     var encoded: [160]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&encoded);
@@ -1845,8 +1852,10 @@ test "grid elides trailing default cells" {
     // Row 2 has one protected-only cell at column four.
     const middle = page.getRowAndCell(2, 1);
     middle.cell.* = .init('b');
+    middle.row.markWritten(3);
     page.getRowAndCell(0, 1).cell.* = .init('a');
     page.getRowAndCell(4, 2).cell.protected = true;
+    page.getRow(2).markWritten(5);
 
     var encoded: [256]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&encoded);
@@ -2199,9 +2208,11 @@ test "grid encodes rows at their narrowest width" {
     // Width zero: bare Latin-1 text.
     page.getRowAndCell(0, 0).cell.* = .init('A');
     page.getRowAndCell(1, 0).cell.* = .init(0xFF);
+    page.getRow(0).markWritten(2);
 
     // Width one: any BMP codepoint.
     page.getRowAndCell(0, 1).cell.* = .init(0x0100);
+    page.getRow(1).markWritten(1);
 
     // Width two: a small style ID and a background color.
     const style_id = try page.styles.add(page.memory, .{
@@ -2215,9 +2226,11 @@ test "grid encodes rows at their narrowest width" {
     const bg = page.getRowAndCell(1, 2);
     bg.cell.content_tag = .bg_color_palette;
     bg.cell.content = .{ .color_palette = .{ .data = 7 } };
+    bg.row.markWritten(2);
 
     // Width three: a protected cell.
     page.getRowAndCell(0, 3).cell.protected = true;
+    page.getRow(3).markWritten(1);
 
     var encoded: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&encoded);

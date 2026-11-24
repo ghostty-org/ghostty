@@ -600,6 +600,7 @@ test "feed discovers pages prepended after exhaustion" {
         const page = allocation.page();
         page.size.rows = 2;
         for ("Fizz", 0..) |c, x| page.getRowAndCell(x, 1).cell.* = .init(c);
+        page.getRow(1).markWritten(4);
         try allocation.finalize(.prepend, .{});
     }
     const prepended = pages.pages.first.?;
