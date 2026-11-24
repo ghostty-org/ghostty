@@ -115,6 +115,14 @@ GHOSTTY_API uint8_t ghostty_unicode_codepoint_width(uint32_t cp);
  *   cluster is a valid emoji variation sequence base (per Unicode
  *   emoji-variation-sequences.txt). Invalid variation selectors are
  *   ignored entirely.
+ * - A skin tone modifier (U+1F3FB through U+1F3FF) that continues a
+ *   cluster forces it wide (2), just like VS16. A modifier asks for the
+ *   emoji form of the codepoint before it, so U+261D U+1F3FB (index
+ *   pointing up, light skin tone) is 2 cells wide even though U+261D on
+ *   its own is 1. A modifier only continues a cluster after an emoji that
+ *   accepts skin tones, or after a Prepend codepoint such as U+0600.
+ *   After anything else, such as "a", it starts a new cluster, which is
+ *   2 cells wide on its own.
  * - Any other continuation codepoint that contributes to grapheme width
  *   forces the cluster wide (2). Note this means cluster width is NOT the
  *   maximum of per-codepoint widths: some continuation marks have narrow
