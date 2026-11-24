@@ -25,6 +25,10 @@ extension Ghostty {
         /// The surface view that will be dragged.
         let surfaceView: SurfaceView
 
+        /// Whether the surface is one of several splits. Only those can move
+        /// out into a new tab.
+        let isSplit: Bool
+
         /// Binding that reflects whether a drag session is currently active.
         @Binding var isDragging: Bool
 
@@ -34,6 +38,7 @@ extension Ghostty {
         var body: some View {
             SurfaceDragSourceViewRepresentable(
                 surfaceView: surfaceView,
+                isSplit: isSplit,
                 isDragging: $isDragging,
                 isHovering: $isHovering)
             .preference(key: DraggingSurfaceKey.self, value: isDragging ? surfaceView.id : nil)
@@ -44,12 +49,14 @@ extension Ghostty {
     /// This gives us control over the drag lifecycle, particularly detecting drag start.
     fileprivate struct SurfaceDragSourceViewRepresentable: NSViewRepresentable {
         let surfaceView: SurfaceView
+        let isSplit: Bool
         @Binding var isDragging: Bool
         @Binding var isHovering: Bool
 
         func makeNSView(context: Context) -> SurfaceDragSourceView {
             let view = SurfaceDragSourceView()
             view.surfaceView = surfaceView
+            view.isSplit = isSplit
             view.onDragStateChanged = { dragging in
                 isDragging = dragging
             }
@@ -63,6 +70,7 @@ extension Ghostty {
 
         func updateNSView(_ nsView: SurfaceDragSourceView, context: Context) {
             nsView.surfaceView = surfaceView
+            nsView.isSplit = isSplit
             nsView.onDragStateChanged = { dragging in
                 isDragging = dragging
             }
@@ -87,6 +95,10 @@ extension Ghostty {
         /// pasteboard for drop targets to identify which surface is being moved.
         var surfaceView: SurfaceView?
 
+        /// Whether the surface is one of several splits. Only a split can leave
+        /// its tree, so a lone surface never offers a titlebar drop.
+        var isSplit: Bool = false
+
         /// Callback invoked when the drag state changes. Called with `true` when
         /// a drag session begins, and `false` when it ends (completed or cancelled).
         var onDragStateChanged: ((Bool) -> Void)?
@@ -105,10 +117,14 @@ extension Ghostty {
         /// Whether the current drag was cancelled by pressing escape.
         private var dragCancelledByEscape: Bool = false
 
+        /// Outlines the titlebar of the window the drag would drop into as a new tab.
+        private let tabDropHighlight = SurfaceTabDropHighlight()
+
         deinit {
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
             }
+            tabDropHighlight.hide()
         }
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -226,6 +242,11 @@ extension Ghostty {
             movedTo screenPoint: NSPoint
         ) {
             NSCursor.closedHand.set()
+            if let window = tabDropTarget(at: screenPoint) {
+                tabDropHighlight.show(over: window)
+            } else {
+                tabDropHighlight.hide()
+            }
         }
 
         func draggingSession(
@@ -238,11 +259,21 @@ extension Ghostty {
                 self.escapeMonitor = nil
             }
 
-            if operation == [] && !dragCancelledByEscape {
+            tabDropHighlight.hide()
+
+            // A cancelled drag ends while the mouse button is still down.
+            let cancelled = dragCancelledByEscape || NSEvent.pressedMouseButtons & 1 != 0
+            if operation == [] && !cancelled {
                 let endsInWindow = NSApplication.shared.windows.contains { window in
                     window.isVisible && window.frame.contains(screenPoint)
                 }
-                if !endsInWindow {
+                if let window = tabDropTarget(at: screenPoint) {
+                    NotificationCenter.default.post(
+                        name: .ghosttySurfaceDragEndedOnTitlebar,
+                        object: surfaceView,
+                        userInfo: [Foundation.Notification.Name.ghosttySurfaceDragNewTabWindowKey: window]
+                    )
+                } else if !endsInWindow {
                     NotificationCenter.default.post(
                         name: .ghosttySurfaceDragEndedNoTarget,
                         object: surfaceView,
@@ -254,6 +285,25 @@ extension Ghostty {
             isTracking = false
             onDragStateChanged?(false)
         }
+
+        /// The window that takes the surface as a new tab if it is dropped at
+        /// the point.
+        private func tabDropTarget(at screenPoint: NSPoint) -> NSWindow? {
+            guard isSplit else { return nil }
+
+            // Ask the window server so panels and other apps' windows on top
+            // count. It skips click-through windows such as the highlight.
+            let number = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
+            guard let window = NSApp.window(withWindowNumber: number) as? SurfaceTabDropTarget,
+                  window.acceptsSurfaceTabDrop(at: screenPoint) else { return nil }
+            return window
+        }
+    }
+
+    /// A window that can take a dragged surface as a new tab when the drag
+    /// ends on its titlebar or tab bar.
+    protocol SurfaceTabDropTarget: NSWindow {
+        func acceptsSurfaceTabDrop(at screenPoint: NSPoint) -> Bool
     }
 }
 
@@ -265,4 +315,12 @@ extension Notification.Name {
 
     /// Key for the screen point where the drag ended in the userInfo dictionary.
     static let ghosttySurfaceDragEndedNoTargetPointKey = "endedAtPoint"
+
+    /// Posted when a surface drag session ends on the titlebar or tab bar of a
+    /// window that takes it as a new tab. The notification's object is the
+    /// SurfaceView that was dragged.
+    static let ghosttySurfaceDragEndedOnTitlebar = Notification.Name("ghosttySurfaceDragEndedOnTitlebar")
+
+    /// Key for the window that the dragged surface becomes a new tab in.
+    static let ghosttySurfaceDragNewTabWindowKey = "newTabWindow"
 }

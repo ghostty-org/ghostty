@@ -10,6 +10,7 @@ extension Ghostty {
         private static let hoverHeightFactor: CGFloat = 0.2
 
         @ObservedObject var surfaceView: SurfaceView
+        let isSplit: Bool
         let dragHandle: Ghostty.Config.DragHandle
 
         @State private var isHovering: Bool = false
@@ -58,6 +59,7 @@ extension Ghostty {
                 ZStack {
                     SurfaceDragSource(
                         surfaceView: surfaceView,
+                        isSplit: isSplit,
                         isDragging: $isDragging,
                         isHovering: $isHovering
                     )

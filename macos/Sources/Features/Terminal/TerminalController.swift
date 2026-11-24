@@ -61,6 +61,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// Whether a new tab can join this window's tab group.
+    var canAcceptNewTab: Bool {
+        window?.tabbingMode != .disallowed && !fullscreenBlocksTabs
+    }
+
+    /// New tabs do not work in non-native fullscreen.
+    /// See: https://github.com/mitchellh/ghostty/issues/392
+    private var fullscreenBlocksTabs: Bool {
+        guard let fullscreenStyle else { return false }
+        return fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs
+    }
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -428,10 +440,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
         }
 
+        return addTab(to: parent, of: parentController, confirmUndo: true) {
+            TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        } redo: { ghostty in
+            _ = TerminalController.newTab(ghostty, from: parent, withBaseConfig: baseConfig)
+        }
+    }
+
+    /// Create a new tab in the parent's tab group with an existing split tree.
+    /// Returns nil if the parent can't take the tab.
+    static func newTab(
+        _ ghostty: Ghostty.App,
+        from parent: NSWindow,
+        tree: SplitTree<Ghostty.SurfaceView>
+    ) -> TerminalController? {
+        // A closed window keeps its controller, and tabbing into it would show
+        // it again with nothing in it.
+        guard parent.isVisible || parent.isMiniaturized,
+              let parentController = parent.windowController as? TerminalController else { return nil }
+        return addTab(to: parent, of: parentController, confirmUndo: false) {
+            TerminalController.init(ghostty, withSurfaceTree: tree)
+        } redo: { ghostty in
+            // The parent may have closed since; the surface still needs a window.
+            if TerminalController.newTab(ghostty, from: parent, tree: tree) == nil {
+                _ = TerminalController.newWindow(ghostty, tree: tree, confirmUndo: false)
+            }
+        }
+    }
+
+    /// Shows the controller from `makeController` as a new tab of the parent,
+    /// or as its own window if new windows don't tab. Returns nil, after
+    /// showing an alert sheet, if the parent is in non-native fullscreen.
+    private static func addTab(
+        to parent: NSWindow,
+        of parentController: TerminalController,
+        confirmUndo: Bool,
+        _ makeController: () -> TerminalController,
+        redo: @escaping (Ghostty.App) -> Void
+    ) -> TerminalController? {
         // If our parent is in non-native fullscreen, then new tabs do not work.
-        // See: https://github.com/mitchellh/ghostty/issues/392
-        if let fullscreenStyle = parentController.fullscreenStyle,
-           fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs {
+        if parentController.fullscreenBlocksTabs {
             let alert = NSAlert()
             alert.messageText = "Cannot Create New Tab"
             alert.informativeText = "New tabs are unsupported while in non-native fullscreen. Exit fullscreen and try again."
@@ -442,7 +490,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Create a new window and add it to the parent
-        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        let controller = makeController()
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         guard let window = controller.window else { return controller }
 
@@ -466,7 +514,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if window.tabbingMode != .disallowed {
             let tabCreated: Bool
             // Add the window to the tab group and show it.
-            switch ghostty.config.windowNewTabPosition {
+            switch controller.ghostty.config.windowNewTabPosition {
             case "end":
                 // If we already have a tab group and we want the new tab to open at the end,
                 // then we use the last window in the tab group as the parent.
@@ -532,19 +580,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ) { target in
                 // Close the tab when undoing
                 undoManager.disableUndoRegistration {
-                    target.closeTab(nil)
+                    if confirmUndo {
+                        target.closeTab(nil)
+                    } else {
+                        target.closeTabImmediately()
+                    }
                 }
 
                 // Register redo action
                 undoManager.registerUndo(
-                    withTarget: ghostty,
-                    expiresAfter: target.undoExpiration
-                ) { ghostty in
-                    _ = TerminalController.newTab(
-                        ghostty,
-                        from: parent,
-                        withBaseConfig: baseConfig)
-                }
+                    withTarget: target.ghostty,
+                    expiresAfter: target.undoExpiration,
+                    handler: redo)
             }
         }
 
