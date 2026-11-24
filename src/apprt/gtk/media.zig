@@ -137,15 +137,32 @@ test "bellMediaFile reuses one MediaFile per path" {
     // Regression guard for the audio-bell thread leak: each bell must replay a
     // single cached MediaFile, not allocate a fresh GStreamer pipeline (which
     // leaked gstglcontext/gldisplay-event threads) per ring. We assert the
-    // reuse contract of bellMediaFile directly; this needs no display and no
-    // playback (MediaFile is lazy), only that the path comparison drives reuse.
+    // reuse contract of bellMediaFile directly; this needs no playback
+    // (MediaFile is lazy), only that the path comparison drives reuse.
     const testing = std.testing;
 
-    // The files need not exist: MediaFile only records the path until played.
-    const path_a: [:0]const u8 = "/tmp/ghostty-bell-test-a.oga";
-    const path_b: [:0]const u8 = "/tmp/ghostty-bell-test-b.oga";
+    // GtkMediaFile needs GTK initialized, which registers its media backends,
+    // and initializing GTK needs a display.
+    if (gtk.initCheck() == 0) return error.SkipZigTest;
+    const io = testing.io;
+    const alloc = testing.allocator;
 
-    var current = bellMediaFile(null, path_a, false) orelse return error.SkipZigTest;
+    // fromFilename checks that the file is readable, so the files have to
+    // exist. They can be empty: MediaFile only records the path until played.
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    for ([_][]const u8{ "a.oga", "b.oga" }) |name| {
+        const file = try tmp.dir.createFile(io, name, .{});
+        file.close(io);
+    }
+    const tmp_path = try tmp.dir.realPathFileAlloc(io, ".", alloc);
+    defer alloc.free(tmp_path);
+    const path_a = try std.fs.path.joinZ(alloc, &.{ tmp_path, "a.oga" });
+    defer alloc.free(path_a);
+    const path_b = try std.fs.path.joinZ(alloc, &.{ tmp_path, "b.oga" });
+    defer alloc.free(path_b);
+
+    var current = bellMediaFile(null, path_a, false).?;
     const first = current;
     try testing.expect(isForPath(current, path_a));
 
@@ -154,7 +171,7 @@ test "bellMediaFile reuses one MediaFile per path" {
     try testing.expectEqual(first, current);
 
     // Changed path => rebuilt object targeting the new path (old one freed).
-    current = bellMediaFile(current, path_b, false) orelse return error.SkipZigTest;
+    current = bellMediaFile(current, path_b, false).?;
     try testing.expect(isForPath(current, path_b));
     try testing.expect(!isForPath(current, path_a));
 
