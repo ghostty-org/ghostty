@@ -37,7 +37,7 @@ desktop and mobile platform.
 The C ABI is stable from 1.0. See @ref stability for exactly what each release
 can change.
 
-**The latest version of libghostty-vt** is 1.0.1. See @ref release-notes.
+**The latest version of libghostty-vt** is 1.0.2. See @ref release-notes.
 
 ## Where to Next?
 
