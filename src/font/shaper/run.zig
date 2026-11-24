@@ -175,6 +175,10 @@ pub const RunIterator = struct {
                 assert(cps.len > 0);
                 if (cps[0] == 0xFE0E) break :p .text;
                 if (cps[0] == 0xFE0F) break :p .emoji;
+
+                // A skin tone modifier implies emoji presentation for its
+                // base (UTS #51, section 2.4).
+                if (cps[0] >= 0x1F3FB and cps[0] <= 0x1F3FF) break :p .emoji;
                 break :p null;
             } else emoji: {
                 // If we're not a grapheme, our individual char could be
@@ -324,6 +328,9 @@ pub const RunIterator = struct {
     /// This is used to find a font that supports the entire grapheme.
     /// We look for fonts that support each individual codepoint and then
     /// find the common font amongst all candidates.
+    ///
+    /// Emoji presentation implied by a skin tone modifier is only a
+    /// preference: if no font supports it, we search again without one.
     fn indexForCell(
         self: *RunIterator,
         alloc: Allocator,
@@ -359,35 +366,50 @@ pub const RunIterator = struct {
 
         // Try the primary font followed by the font selected for each
         // additional codepoint until one supports the entire grapheme.
-        candidate: for (0..graphemes.len + 1) |i| {
-            const idx = if (i == 0) primary else idx: {
-                const cp = graphemes[i - 1];
+        var search_presentation = presentation;
+        var search_primary = primary;
+        search: while (true) {
+            candidate: for (0..graphemes.len + 1) |i| {
+                const idx = if (i == 0) search_primary else idx: {
+                    const cp = graphemes[i - 1];
 
-                // Ignore Emoji ZWJs
-                if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue :candidate;
+                    // Ignore Emoji ZWJs
+                    if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue :candidate;
 
-                // We explicitly do not require the additional grapheme components
-                // to support the base presentation, since it is common for emoji
-                // fonts to support the base emoji with emoji presentation but not
-                // certain ZWJ-combined characters like the male and female signs.
-                break :idx try self.opts.grid.getIndex(
-                    alloc,
-                    cp,
-                    style,
-                    null,
-                ) orelse return null;
-            };
+                    // We explicitly do not require the additional grapheme components
+                    // to support the base presentation, since it is common for emoji
+                    // fonts to support the base emoji with emoji presentation but not
+                    // certain ZWJ-combined characters like the male and female signs.
+                    break :idx try self.opts.grid.getIndex(
+                        alloc,
+                        cp,
+                        style,
+                        null,
+                    ) orelse return null;
+                };
 
-            if (!self.opts.grid.hasCodepoint(idx, primary_cp, presentation)) continue;
-            for (graphemes) |cp| {
-                // Ignore Emoji ZWJs
-                if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
-                if (!self.opts.grid.hasCodepoint(idx, cp, null)) continue :candidate;
+                if (!self.opts.grid.hasCodepoint(idx, primary_cp, search_presentation)) continue;
+                for (graphemes) |cp| {
+                    // Ignore Emoji ZWJs
+                    if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
+                    if (!self.opts.grid.hasCodepoint(idx, cp, null)) continue :candidate;
+                }
+                return idx;
             }
-            return idx;
-        }
 
-        return null;
+            // Retry a modifier's implied emoji presentation with no
+            // preference. This is a loop, not a second call, so that
+            // indexForCell stays inlined into next.
+            if (search_presentation != .emoji or graphemes[0] == 0xFE0F) return null;
+            search_presentation = null;
+            search_primary = try self.opts.grid.getIndex(
+                alloc,
+                primary_cp,
+                style,
+                null,
+            ) orelse return null;
+            continue :search;
+        }
     }
 };
 
