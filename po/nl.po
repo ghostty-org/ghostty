@@ -418,7 +418,7 @@ msgstr "Paars"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:63
 msgid "Slate"
-msgstr "Leisteen"
+msgstr "Grijs"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
