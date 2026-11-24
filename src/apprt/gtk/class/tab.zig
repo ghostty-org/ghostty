@@ -1,5 +1,6 @@
 const std = @import("std");
 const adw = @import("adw");
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -173,6 +174,10 @@ pub const Tab = extern struct {
         /// Color chosen from the tab context menu, or null for none.
         tab_color: ?adw.AccentColor = null,
 
+        /// Indicator icon rendered for `tab_color`, kept so that it is only
+        /// rendered when the color changes.
+        tab_color_icon: ?*gdk.Texture = null,
+
         // Template bindings
         split_tree: *SplitTree,
 
@@ -274,19 +279,21 @@ pub const Tab = extern struct {
     }
 
     pub fn setTabColor(self: *Self, color: ?adw.AccentColor) void {
-        self.private().tab_color = color;
+        const priv = self.private();
+        if (priv.tab_color == color) return;
+        priv.tab_color = color;
+        if (priv.tab_color_icon) |v| v.unref();
+        priv.tab_color_icon = if (color) |c| tab_color_swatch.createIndicatorIcon(c) else null;
         self.syncColorIndicator();
     }
 
     pub fn syncColorIndicator(self: *Self) void {
         const page = self.getTabPage() orelse return;
-        const color = self.private().tab_color orelse {
+        const icon = self.private().tab_color_icon orelse {
             page.setIndicatorIcon(null);
             return;
         };
-        const texture = tab_color_swatch.createIndicatorIcon(color);
-        defer texture.unref();
-        page.setIndicatorIcon(texture.as(gio.Icon));
+        page.setIndicatorIcon(icon.as(gio.Icon));
     }
 
     pub fn promptTabTitle(self: *Self) void {
@@ -350,6 +357,10 @@ pub const Tab = extern struct {
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
+        }
+        if (priv.tab_color_icon) |v| {
+            v.unref();
+            priv.tab_color_icon = null;
         }
 
         gtk.Widget.disposeTemplate(

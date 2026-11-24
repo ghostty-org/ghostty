@@ -145,25 +145,18 @@ pub const TabColorDialog = extern struct {
     }
 
     fn dispose(self: *Self) callconv(.c) void {
-        gtk.Widget.disposeTemplate(
-            self.as(gtk.Widget),
-            getGObjectType(),
-        );
-
-        gobject.Object.virtual_methods.dispose.call(
-            Class.parent,
-            self.as(Parent),
-        );
-    }
-
-    fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.tab) |tab| {
             tab.unref();
             priv.tab = null;
         }
 
-        gobject.Object.virtual_methods.finalize.call(
+        gtk.Widget.disposeTemplate(
+            self.as(gtk.Widget),
+            getGObjectType(),
+        );
+
+        gobject.Object.virtual_methods.dispose.call(
             Class.parent,
             self.as(Parent),
         );
@@ -195,7 +188,6 @@ pub const TabColorDialog = extern struct {
             class.bindTemplateChildPrivate("swatches", .{});
 
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
-            gobject.Object.virtual_methods.finalize.implement(class, &finalize);
         }
 
         pub const as = C.Class.as;
