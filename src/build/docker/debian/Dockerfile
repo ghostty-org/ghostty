@@ -13,6 +13,7 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
     libxml2-utils \
     lintian \
     lsb-release \
+    minisign \
     libxml2-utils \
     pandoc \
     # Ghostty Dependencies
@@ -25,11 +26,13 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
 WORKDIR /src
 
 COPY ./build.zig ./build.zig.zon /src/
+COPY ./.github/scripts/download-zig.sh /usr/local/bin/
 
-# Install zig
-# https://ziglang.org/download/
+# Install zig from the community mirrors
+# https://ziglang.org/download/community-mirrors/
 
-RUN export ZIG_VERSION=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon) && curl -L -o /tmp/zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-$(uname -m)-linux-$ZIG_VERSION.tar.xz" && \
+RUN export ZIG_VERSION=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon) && \
+    download-zig.sh "$ZIG_VERSION" /tmp/zig.tar.xz && \
     tar -xf /tmp/zig.tar.xz -C /opt && \
     rm /tmp/zig.tar.xz && \
     ln -s "/opt/zig-$(uname -m)-linux-$ZIG_VERSION/zig" /usr/local/bin/zig
