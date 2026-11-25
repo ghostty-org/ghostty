@@ -64,13 +64,23 @@ pub fn complete(self: *const Self, sync: bool) void {
     // Then sync before exporting and pushing to the present queue.
     // The apprt pulls from this queue in its snapshot handler.
     const presented_frame: ?OpenGL.ExportedFrame = if (health == .healthy) frame: {
+        const presentation_health = self.renderer.presentationHealth();
         const frame = self.renderer.api.present(
             self.target.*,
-            self.renderer.presentationHealth(),
+            presentation_health,
         ) catch |err| {
             log.warn("failed to present render target: err={}", .{err});
             break :frame null;
         };
+
+        // If we were allowed to export a DMABUF but got CPU memory back,
+        // the export failed. That's usually permanent (e.g. a driver
+        // without DMABUF export, like Mesa under WSL), so stop trying and
+        // use CPU presentation from now on instead of failing every frame.
+        if (presentation_health == .healthy and frame == .memory) {
+            self.renderer.setPresentationHealth(.unhealthy);
+        }
+
         break :frame frame;
     } else null;
 
