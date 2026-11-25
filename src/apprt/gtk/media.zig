@@ -3,6 +3,7 @@ const assert = @import("../../quirks.zig").inlineAssert;
 
 const log = std.log.scoped(.gtk_media);
 
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -142,8 +143,11 @@ test "bellMediaFile reuses one MediaFile per path" {
     const testing = std.testing;
 
     // GtkMediaFile needs GTK initialized, which registers its media backends,
-    // and initializing GTK needs a display.
+    // and initializing GTK needs a display. initCheck only returns 0 the
+    // first time it fails to open a display, so we also check that there
+    // is a display.
     if (gtk.initCheck() == 0) return error.SkipZigTest;
+    if (gdk.Display.getDefault() == null) return error.SkipZigTest;
     const io = testing.io;
     const alloc = testing.allocator;
 
