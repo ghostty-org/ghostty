@@ -2222,8 +2222,8 @@ pub const PageFormatter = struct {
         };
     }
 
-    /// Write a string with HTML escaping. Used for escaping href attributes
-    /// and other HTML attribute values.
+    /// Write the start of a run of cells drawn with `style`: an SGR sequence
+    /// for VT, or a `<div>` with inline CSS for HTML.
     fn formatStyleOpen(
         self: PageFormatter,
         comptime emit: Format,
@@ -2276,6 +2276,15 @@ pub const PageFormatter = struct {
         }
     }
 
+    /// Write the start of the hyperlink `link`: an OSC 8 sequence for VT, or
+    /// an `<a>` tag for HTML.
+    ///
+    /// The URI comes from whatever printed to the terminal, so HTML only gets
+    /// it as the link target if htmlHrefAllowed accepts it. Any other link
+    /// keeps its tag but points at `#`:
+    ///
+    ///     https://example.com/a    <a href="https://example.com/a">
+    ///     javascript:alert(1)      <a href="#">
     fn formatHyperlinkOpen(
         self: PageFormatter,
         comptime emit: Format,
@@ -2296,17 +2305,48 @@ pub const PageFormatter = struct {
                 .implicit => try writer.print("\x1b]8;;{s}\x1b\\", .{uri}),
             },
 
-            // layout since we're primarily using it as a CSS wrapper.
             .html => {
+                if (!htmlHrefAllowed(uri)) {
+                    try writer.writeAll("<a href=\"#\">");
+                    return;
+                }
+
                 try writer.writeAll("<a href=\"");
-                for (uri) |byte| try self.writeCodepoint(
-                    emit,
-                    writer,
-                    byte,
-                );
+                for (uri) |byte| switch (byte) {
+                    // The URI may not be valid UTF-8, so percent-encode
+                    // anything that isn't printable ASCII.
+                    0...0x20, 0x7F...0xFF => try writer.print(
+                        "%{X:0>2}",
+                        .{byte},
+                    ),
+
+                    else => try self.writeCodepoint(emit, writer, byte),
+                };
                 try writer.writeAll("\">");
             },
         }
+    }
+
+    /// Returns true if `uri` from terminal output may be written as a link
+    /// target in HTML output.
+    ///
+    /// The URI must start with `http://`, `https://`, `mailto:` or `file://`,
+    /// in any letter case. Other schemes are refused because they can run
+    /// script (`javascript:`) or start an application when clicked.
+    ///
+    /// The match is exact because browsers skip leading spaces and control
+    /// characters before they read the scheme. A URI that needs that cleanup
+    /// is refused, and so is one with no scheme.
+    ///
+    /// `file://` is allowed with any host because programs such as
+    /// `ls --hyperlink` write `file://hostname/path`. On Windows, following
+    /// such a link connects to that host.
+    fn htmlHrefAllowed(uri: []const u8) bool {
+        inline for (.{ "http://", "https://", "mailto:", "file://" }) |prefix| {
+            if (std.ascii.startsWithIgnoreCase(uri, prefix)) return true;
+        }
+
+        return false;
     }
 
     /// The number of bytes formatHyperlinkOpen writes for `link`.
@@ -8071,6 +8111,126 @@ test "Page HTML with hyperlinks" {
     try testing.expectEqualStrings(
         "<div style=\"font-family: monospace; white-space: pre;\">" ++
             "<a href=\"https://example.com\">link text</a> normal" ++
+            "</div>",
+        output,
+    );
+}
+
+test "Page HTML hyperlink href is only written for allowed URIs" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    // The URI as the program sends it and the opening tag we expect.
+    const cases = [_]struct { uri: []const u8, open: []const u8 }{
+        .{ .uri = "http://example.com", .open = "<a href=\"http://example.com\">" },
+        .{ .uri = "https://example.com", .open = "<a href=\"https://example.com\">" },
+        .{ .uri = "HTTPS://example.com", .open = "<a href=\"HTTPS://example.com\">" },
+        .{ .uri = "mailto:a@example.com", .open = "<a href=\"mailto:a@example.com\">" },
+
+        // Script and document schemes.
+        .{ .uri = "javascript:alert(1)", .open = "<a href=\"#\">" },
+        .{ .uri = "JaVaScRiPt:alert(1)", .open = "<a href=\"#\">" },
+        .{ .uri = "vbscript:msgbox(1)", .open = "<a href=\"#\">" },
+        .{ .uri = "data:text/html,<script>alert(1)</script>", .open = "<a href=\"#\">" },
+        .{ .uri = "blob:https://example.com/1", .open = "<a href=\"#\">" },
+
+        // Browsers skip a leading space before they read the scheme.
+        .{ .uri = " javascript:alert(1)", .open = "<a href=\"#\">" },
+        .{ .uri = " https://example.com", .open = "<a href=\"#\">" },
+
+        // Files, with or without a host.
+        .{ .uri = "file:///home/user/a.txt", .open = "<a href=\"file:///home/user/a.txt\">" },
+        .{ .uri = "file://localhost/home/user/a.txt", .open = "<a href=\"file://localhost/home/user/a.txt\">" },
+        .{ .uri = "file://myhost/home/user/a.txt", .open = "<a href=\"file://myhost/home/user/a.txt\">" },
+        .{ .uri = "FILE:///C:/Users/a.txt", .open = "<a href=\"FILE:///C:/Users/a.txt\">" },
+
+        // Schemes that start another application.
+        .{ .uri = "ssh://example.com", .open = "<a href=\"#\">" },
+        .{ .uri = "x-custom://example.com", .open = "<a href=\"#\">" },
+
+        // No scheme, or no "//" after it.
+        .{ .uri = "//example.com/a", .open = "<a href=\"#\">" },
+        .{ .uri = "/etc/passwd", .open = "<a href=\"#\">" },
+        .{ .uri = "example.com", .open = "<a href=\"#\">" },
+        .{ .uri = "https:example.com", .open = "<a href=\"#\">" },
+        .{ .uri = "file:/home/user/a.txt", .open = "<a href=\"#\">" },
+        .{ .uri = "file:home/user/a.txt", .open = "<a href=\"#\">" },
+        .{ .uri = "http", .open = "<a href=\"#\">" },
+    };
+
+    for (cases) |case| {
+        var builder: std.Io.Writer.Allocating = .init(alloc);
+        defer builder.deinit();
+
+        var t = try Terminal.init(io, alloc, .{
+            .cols = 80,
+            .rows = 24,
+        });
+        defer t.deinit(alloc);
+
+        var s = t.vtStream();
+        defer s.deinit();
+
+        s.nextSlice("\x1b]8;;");
+        s.nextSlice(case.uri);
+        s.nextSlice("\x1b\\link\x1b]8;;\x1b\\ normal");
+
+        const pages = &t.screens.active.pages;
+        const page = pages.pages.last.?.page();
+        var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+        // hyperlinkOpenLen must agree with what was written.
+        var point_map: std.ArrayList(Coordinate) = .empty;
+        defer point_map.deinit(alloc);
+        formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+        try formatter.format(&builder.writer);
+        const output = builder.writer.buffered();
+
+        const expected = try std.fmt.allocPrint(
+            alloc,
+            "<div style=\"font-family: monospace; white-space: pre;\">" ++
+                "{s}link</a> normal" ++
+                "</div>",
+            .{case.open},
+        );
+        defer alloc.free(expected);
+        try testing.expectEqualStrings(expected, output);
+        try testing.expectEqual(output.len, point_map.items.len);
+    }
+}
+
+test "Page HTML hyperlink href percent-encodes bytes outside printable ASCII" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // UTF-8, a space, an invalid byte, DEL, then HTML special characters.
+    s.nextSlice("\x1b]8;;https://example.com/caf\xC3\xA9 a\xFF\x7F?a=\"1\"&b=<2>\x1b\\link\x1b]8;;\x1b\\");
+
+    const pages = &t.screens.active.pages;
+    const page = pages.pages.last.?.page();
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">" ++
+            "<a href=\"https://example.com/caf%C3%A9%20a%FF%7F?a=&quot;1&quot;&amp;b=&lt;2&gt;\">link</a>" ++
             "</div>",
         output,
     );
