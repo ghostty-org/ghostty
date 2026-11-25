@@ -10,7 +10,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-11-21 21:09-0600\n"
-"PO-Revision-Date: 2026-11-06 23:55+0800\n"
+"PO-Revision-Date: 2026-11-24 22:00+0800\n"
 "Last-Translator: Jun <jun@clavinjune.dev>\n"
 "Language-Team: Indonesian <translation-team-id@lists.sourceforge.net>\n"
 "Language: id\n"
@@ -55,7 +55,7 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Terminal ini sedang dalam model baca-saja. Anda hanya bisa melihat, memilih, "
+"Terminal ini sedang dalam mode baca-saja. Anda hanya bisa melihat, memilih, "
 "dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke aplikasi "
 "berjalan."
 
@@ -210,7 +210,7 @@ msgstr "Keluar"
 
 #: src/apprt/gtk/ui/1.4/window.blp:346
 msgid "Change Tab Color…"
-msgstr ""
+msgstr "Ubah Warna Tab…"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
@@ -255,7 +255,7 @@ msgid ""
 "and either reload your configuration or ignore these errors."
 msgstr ""
 "Ditemukan satu atau lebih kesalahan konfigurasi. Silakan tinjau kesalahan di "
-"bawah ini, dan muat ulang konfigurasi anda atau abaikan kesalahan ini."
+"bawah ini, dan muat ulang konfigurasi Anda atau abaikan kesalahan ini."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:11
 msgid "Ignore"
@@ -271,7 +271,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:5
 msgid "Tab Color"
-msgstr ""
+msgstr "Warna Tab"
 
 #: src/apprt/gtk/class/application.zig:1766
 msgid "The keybind was revoked by the system."
@@ -381,43 +381,43 @@ msgstr "Perintah Gagal"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:54
 msgid "None"
-msgstr ""
+msgstr "Tidak Ada"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:55
 msgid "Blue"
-msgstr ""
+msgstr "Biru"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:56
 msgid "Teal"
-msgstr ""
+msgstr "Hijau Kebiruan"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:57
 msgid "Green"
-msgstr ""
+msgstr "Hijau"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:58
 msgid "Yellow"
-msgstr ""
+msgstr "Kuning"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:59
 msgid "Orange"
-msgstr ""
+msgstr "Oranye"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:60
 msgid "Red"
-msgstr ""
+msgstr "Merah"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:61
 msgid "Pink"
-msgstr ""
+msgstr "Merah Muda"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:62
 msgid "Purple"
-msgstr ""
+msgstr "Ungu"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:63
 msgid "Slate"
-msgstr ""
+msgstr "Abu-abu Kebiruan"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
@@ -433,7 +433,7 @@ msgstr "Ubah Judul Jendela"
 
 #: src/apprt/gtk/class/window.zig:1186
 msgid "Reloaded the configuration"
-msgstr "Memuat ulang konfigurasi"
+msgstr "Konfigurasi telah dimuat ulang"
 
 #: src/apprt/gtk/class/window.zig:1891
 msgid "Copied to clipboard"
@@ -507,7 +507,7 @@ msgid ""
 "this has no effect."
 msgstr ""
 "Salin judul terminal ke papan klip. Jika judul terminal belum diatur "
-"tindakan ini tidak berdampak apapun."
+"tindakan ini tidak berdampak apa pun."
 
 #: src/input/command.zig:185
 msgid "Paste from Clipboard"
@@ -1210,4 +1210,4 @@ msgstr "Keluar dari aplikasi."
 
 #: src/input/command.zig:732
 msgid "Put a little Ghostty in your terminal."
-msgstr "Taruh Ghostty kecil di terminal anda."
+msgstr "Taruh Ghostty kecil di terminal Anda."
