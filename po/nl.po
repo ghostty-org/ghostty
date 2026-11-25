@@ -390,7 +390,7 @@ msgstr "Blauw"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:56
 msgid "Teal"
-msgstr "Turquoise"
+msgstr "Groenblauw"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:57
 msgid "Green"
