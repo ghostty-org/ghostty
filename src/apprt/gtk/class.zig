@@ -373,4 +373,8 @@ pub fn Common(
 
 test {
     @import("std").testing.refAllDecls(@This());
+
+    // Files reached only through private imports are not analyzed fully
+    // enough for their tests to be collected, so name them here.
+    _ = @import("class/tab.zig");
 }
