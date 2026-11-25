@@ -4872,7 +4872,9 @@ test "Screen: cursorCellEndOfPrev across mixed-width pages" {
     try s.pages.split(.{ .node = first, .y = 1 });
     s.cursorReload();
     const second = first.next.?;
-    first.page().size.cols = 2;
+    const first_page = first.page();
+    first_page.clearCells(first_page.getRow(0), 2, first_page.size.cols, .{});
+    first_page.size.cols = 2;
 
     try testing.expectEqual(second, s.cursor.page_pin.node);
     const expected = (Pin{ .node = first, .x = 1 }).rowAndCell().cell;
@@ -10282,7 +10284,10 @@ test "Screen: selectLine semantic boundary across mixed-width pages" {
     const first = s.pages.pages.first.?;
     try s.pages.split(.{ .node = first, .y = 1 });
     const second = first.next.?;
-    first.page().size.cols = 2;
+    const first_page = first.page();
+    first_page.clearCells(first_page.getRow(0), 2, first_page.size.cols, .{});
+    first_page.size.cols = 2;
+
     s.pages.pauseIntegrityChecks(true);
     defer s.pages.pauseIntegrityChecks(false);
 

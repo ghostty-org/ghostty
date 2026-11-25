@@ -4552,6 +4552,7 @@ test "Page moveCells text-only" {
     }
 
     const src = page.getRow(0);
+    src.markWritten(page.capacity.cols);
     const dst = page.getRow(1);
     page.moveCells(src, 0, dst, 0, page.capacity.cols);
 

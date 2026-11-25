@@ -9941,6 +9941,7 @@ test "PageList preserved page keeps compressed storage" {
     const resident = node.page();
     resident.dirty = true;
     resident.getRowAndCell(3, 2).cell.* = .init('X');
+    resident.getRow(2).markWritten(4);
 
     // Resident nodes can be borrowed without allocating an unnecessary copy.
     {

@@ -551,6 +551,7 @@ test "run iterator: empty cells with background set" {
                 .content_tag = .bg_color_rgb,
                 .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
             };
+            list_cell.row.markWritten(3);
         }
 
         var state: terminal.RenderState = .empty;
@@ -825,6 +826,7 @@ test "shape emoji width long" {
         .content_tag = .codepoint,
         .content = .{ .codepoint = @bitCast(@as(u24, 0x1F9D4)) }, // Person with beard
     };
+    row.markWritten(1);
     var graphemes = [_]u21{
         0x1F3FB, // Light skin tone (Fitz 1-2)
         0x200D, // ZWJ
