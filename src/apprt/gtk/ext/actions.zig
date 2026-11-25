@@ -3,6 +3,7 @@ const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const testing = std.testing;
 
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -138,7 +139,10 @@ pub fn addAsGroup(comptime T: type, self: *T, comptime name: [:0]const u8, actio
 
 test "adding actions to an object" {
     // This test requires a connection to an active display environment.
+    // initCheck only returns 0 the first time it fails to open a display,
+    // so we also check that there is a display.
     if (gtk.initCheck() == 0) return error.SkipZigTest;
+    if (gdk.Display.getDefault() == null) return error.SkipZigTest;
 
     _ = glib.MainContext.acquire(null);
     defer glib.MainContext.release(null);
