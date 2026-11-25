@@ -211,7 +211,7 @@ msgstr "Zakończ"
 
 #: src/apprt/gtk/ui/1.4/window.blp:346
 msgid "Change Tab Color…"
-msgstr ""
+msgstr "Zmień kolor karty…"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
@@ -272,7 +272,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:5
 msgid "Tab Color"
-msgstr ""
+msgstr "Kolor karty"
 
 #: src/apprt/gtk/class/application.zig:1766
 msgid "The keybind was revoked by the system."
@@ -360,11 +360,11 @@ msgstr "Proces działający w tym podziale zostanie zakończony."
 
 #: src/apprt/gtk/class/command_palette.zig:693
 msgid "Untitled"
-msgstr ""
+msgstr "Bez tytułu"
 
 #: src/apprt/gtk/class/command_palette.zig:697
 msgid "Focus"
-msgstr ""
+msgstr "Przejdź do"
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
@@ -382,43 +382,43 @@ msgstr "Polecenie nie powiodło się"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:54
 msgid "None"
-msgstr ""
+msgstr "Żaden"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:55
 msgid "Blue"
-msgstr ""
+msgstr "Niebieski"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:56
 msgid "Teal"
-msgstr ""
+msgstr "Morski"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:57
 msgid "Green"
-msgstr ""
+msgstr "Zielony"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:58
 msgid "Yellow"
-msgstr ""
+msgstr "Żółty"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:59
 msgid "Orange"
-msgstr ""
+msgstr "Pomarańczowy"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:60
 msgid "Red"
-msgstr ""
+msgstr "Czerwony"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:61
 msgid "Pink"
-msgstr ""
+msgstr "Różowy"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:62
 msgid "Purple"
-msgstr ""
+msgstr "Fioletowy"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:63
 msgid "Slate"
-msgstr ""
+msgstr "Łupkowy"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
@@ -1059,35 +1059,35 @@ msgstr "Wczytaj plik konfiguracyjny ponownie."
 
 #: src/input/command.zig:607
 msgid "Switch to Configured Appearance"
-msgstr ""
+msgstr "Przełącz na skonfigurowany wygląd"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
-msgstr ""
+msgstr "Użyj wyglądu aplikacji określonego w konfiguracji."
 
 #: src/input/command.zig:612
 msgid "Switch to System Appearance"
-msgstr ""
+msgstr "Przełącz na wygląd systemowy"
 
 #: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
-msgstr ""
+msgstr "Użyj wyglądu systemowego aplikacji dla tej sesji."
 
 #: src/input/command.zig:617
 msgid "Switch to Light Appearance"
-msgstr ""
+msgstr "Przełącz na jasny wygląd"
 
 #: src/input/command.zig:618
 msgid "Use a light application appearance for this session."
-msgstr ""
+msgstr "Użyj jasnego wyglądu aplikacji dla tej sesji."
 
 #: src/input/command.zig:622
 msgid "Switch to Dark Appearance"
-msgstr ""
+msgstr "Przełącz na ciemny wygląd"
 
 #: src/input/command.zig:623
 msgid "Use a dark application appearance for this session."
-msgstr ""
+msgstr "Użyj ciemnego wyglądu aplikacji dla tej sesji."
 
 #: src/input/command.zig:629
 msgid "Close Terminal"
