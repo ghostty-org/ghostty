@@ -9,8 +9,18 @@ const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const Tab = @import("tab.zig").Tab;
-const TabColor = @import("tab.zig").TabColor;
 const TabColorSwatch = @import("tab_color_swatch.zig").TabColorSwatch;
+
+/// The choices offered by the dialog, in order: no color, then every
+/// Adwaita accent color.
+const choices = choices: {
+    const tags = std.meta.tags(adw.AccentColor);
+    var result: [tags.len + 1]?adw.AccentColor = undefined;
+    result[0] = null;
+    for (tags, result[1..]) |tag, *choice| choice.* = tag;
+    const final = result;
+    break :choices &final;
+};
 
 /// Dialog to pick a per-tab color indicator.
 pub const TabColorDialog = extern struct {
@@ -49,9 +59,8 @@ pub const TabColorDialog = extern struct {
         const current = tab.getTabColor();
 
         var group: ?*gtk.ToggleButton = null;
-        for (std.meta.tags(TabColor)) |color| {
-            const tooltip: [*:0]const u8 = switch (color) {
-                .none => i18n._("None"),
+        for (choices) |color| {
+            const tooltip: [*:0]const u8 = if (color) |accent| switch (accent) {
                 .blue => i18n._("Blue"),
                 .teal => i18n._("Teal"),
                 .green => i18n._("Green"),
@@ -61,7 +70,9 @@ pub const TabColorDialog = extern struct {
                 .pink => i18n._("Pink"),
                 .purple => i18n._("Purple"),
                 .slate => i18n._("Slate"),
-            };
+                // `choices` holds only the named accent colors.
+                _ => unreachable,
+            } else i18n._("None");
 
             const swatch = TabColorSwatch.new(color);
             const button = gtk.ToggleButton.new();
@@ -119,7 +130,7 @@ pub const TabColorDialog = extern struct {
 
     const ColorPick = struct {
         dialog: *Self,
-        color: TabColor,
+        color: ?adw.AccentColor,
     };
 
     fn colorPickClicked(_: *gtk.Button, ud: *ColorPick) callconv(.c) void {
@@ -192,3 +203,13 @@ pub const TabColorDialog = extern struct {
         pub const bindTemplateCallback = C.Class.bindTemplateCallback;
     };
 };
+
+test "choices: none first, then every accent color once" {
+    const testing = std.testing;
+    const tags = std.meta.tags(adw.AccentColor);
+    try testing.expectEqual(tags.len + 1, choices.len);
+    try testing.expect(choices[0] == null);
+    for (tags, choices[1..]) |tag, choice| {
+        try testing.expectEqual(tag, choice.?);
+    }
+}
