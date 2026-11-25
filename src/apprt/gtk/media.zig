@@ -134,6 +134,27 @@ fn mediaFileError(
     });
 }
 
+/// Wait until GStreamer has set up `media_file`'s pipeline, as far as it
+/// will get. GTK's GStreamer backend releases the pipeline's source element
+/// on dispose without checking that it was ever created, which happens
+/// asynchronously after the MediaFile is. Disposing one before then logs
+/// "g_object_unref: assertion 'G_IS_OBJECT (object)' failed". A stream is
+/// only prepared, or given an error, once its source exists.
+///
+/// Ghostty keeps the bell's MediaFile long past this point, so only a test
+/// that creates and drops them back to back needs to wait.
+fn waitForPipeline(media_file: *gtk.MediaFile) void {
+    const stream = media_file.as(gtk.MediaStream);
+    const context = glib.MainContext.default();
+    // Give up after about five seconds. The worst that happens then is the
+    // critical message above.
+    for (0..1000) |_| {
+        if (stream.isPrepared() != 0 or stream.getError() != null) return;
+        while (context.iteration(0) != 0) {}
+        std.testing.io.sleep(.fromMilliseconds(5), .awake) catch return;
+    }
+}
+
 test "bellMediaFile reuses one MediaFile per path" {
     // Regression guard for the audio-bell thread leak: each bell must replay a
     // single cached MediaFile, not allocate a fresh GStreamer pipeline (which
@@ -168,6 +189,7 @@ test "bellMediaFile reuses one MediaFile per path" {
 
     var current = bellMediaFile(null, path_a, false).?;
     const first = current;
+    waitForPipeline(current);
     try testing.expect(isForPath(current, path_a));
 
     // Same path => identical object (the leak regression is rebuilding here).
@@ -179,5 +201,6 @@ test "bellMediaFile reuses one MediaFile per path" {
     try testing.expect(isForPath(current, path_b));
     try testing.expect(!isForPath(current, path_a));
 
+    waitForPipeline(current);
     current.unref();
 }
