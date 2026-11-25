@@ -556,7 +556,7 @@
 {
    GTK FontConfig data is never freed
    Memcheck:Leak
-   match-leak-kinds: possible
+   match-leak-kinds: possible,definite
    ...
    fun:FcConfigInit
    fun:fc_thread_func
