@@ -21,6 +21,25 @@ struct MenuShortcutManagerTests {
         }
     }
 
+    @MainActor @Test func performableUndoRedoShortcutsDependOnFocus() throws {
+        let config = try TemporaryConfig("")
+        let manager = Ghostty.MenuShortcutManager()
+        let undo = NSMenuItem(title: "Undo", action: nil, keyEquivalent: "")
+        let redo = NSMenuItem(title: "Redo", action: nil, keyEquivalent: "")
+
+        for includePerformable in [false, true, false] {
+            manager.reset()
+            manager.syncMenuShortcut(
+                config, action: "undo", menuItem: undo, includePerformable: includePerformable)
+            manager.syncMenuShortcut(
+                config, action: "redo", menuItem: redo, includePerformable: includePerformable)
+            #expect(undo.keyEquivalent == (includePerformable ? "z" : ""))
+            #expect(undo.keyEquivalentModifierMask == (includePerformable ? .command : []))
+            #expect(redo.keyEquivalent == (includePerformable ? "z" : ""))
+            #expect(redo.keyEquivalentModifierMask == (includePerformable ? [.command, .shift] : []))
+        }
+    }
+
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/779", id: 779))
     func unbindShouldDiscardDefault() async throws {
         let config = try TemporaryConfig("keybind = super+d=unbind")

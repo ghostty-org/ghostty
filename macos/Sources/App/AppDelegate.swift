@@ -1259,8 +1259,8 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
         syncMenuShortcut(config, action: "new_split:up", menuItem: self.menuSplitUp)
 
-        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
-        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
+        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo, includePerformable: includePerformable)
+        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo, includePerformable: includePerformable)
         syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy, includePerformable: includePerformable)
         syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste, includePerformable: includePerformable)
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)

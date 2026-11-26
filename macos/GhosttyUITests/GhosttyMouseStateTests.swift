@@ -99,6 +99,22 @@ final class GhosttyMouseStateTests: GhosttyCustomConfigCase {
         app.typeKey("v", modifierFlags: .command)
         XCTAssertEqual(textfield.stringValue, "clipboard")
     }
+
+    @MainActor func testSearchFieldUndoRedoShortcuts() throws {
+        let app = try ghosttyApplication()
+        app.activate()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
+        app.typeKey("f", modifierFlags: .command)
+
+        let textfield = app.textFields.firstMatch
+        XCTAssertTrue(textfield.waitForExistence(timeout: 5))
+        app.typeText("undo")
+        XCTAssertEqual(textfield.stringValue, "undo")
+        app.typeKey("z", modifierFlags: .command)
+        XCTAssertEqual(textfield.stringValue, "")
+        app.typeKey("z", modifierFlags: [.command, .shift])
+        XCTAssertEqual(textfield.stringValue, "undo")
+    }
 }
 
 private extension XCUIElement {
