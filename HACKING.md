@@ -45,7 +45,7 @@ here:
 Building Ghostty from a Git checkout on Linux requires some additional
 dependencies:
 
-- `blueprint-compiler` (version 0.16.0 or newer)
+- `blueprint-compiler` (version 0.20.0 or newer)
 
 ### macOS
 
