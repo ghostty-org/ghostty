@@ -10,7 +10,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-11-21 21:09-0600\n"
-"PO-Revision-Date: 2026-11-10 11:42+0100\n"
+"PO-Revision-Date: 2026-11-24 20:59+0100\n"
 "Last-Translator: Merijntje Tak <merijntje@tak.io>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
 "Language: nl\n"
@@ -211,7 +211,7 @@ msgstr "Afsluiten"
 
 #: src/apprt/gtk/ui/1.4/window.blp:346
 msgid "Change Tab Color…"
-msgstr ""
+msgstr "Wijzig tabbladkleur…"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
@@ -272,7 +272,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:5
 msgid "Tab Color"
-msgstr ""
+msgstr "Tabbladkleur"
 
 #: src/apprt/gtk/class/application.zig:1766
 msgid "The keybind was revoked by the system."
@@ -382,43 +382,43 @@ msgstr "Commando onsuccesvol afgerond"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:54
 msgid "None"
-msgstr ""
+msgstr "Geen"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:55
 msgid "Blue"
-msgstr ""
+msgstr "Blauw"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:56
 msgid "Teal"
-msgstr ""
+msgstr "Groenblauw"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:57
 msgid "Green"
-msgstr ""
+msgstr "Groen"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:58
 msgid "Yellow"
-msgstr ""
+msgstr "Geel"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:59
 msgid "Orange"
-msgstr ""
+msgstr "Oranje"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:60
 msgid "Red"
-msgstr ""
+msgstr "Rood"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:61
 msgid "Pink"
-msgstr ""
+msgstr "Roze"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:62
 msgid "Purple"
-msgstr ""
+msgstr "Paars"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:63
 msgid "Slate"
-msgstr ""
+msgstr "Grijs"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
