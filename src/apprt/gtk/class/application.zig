@@ -271,6 +271,13 @@ pub const Application = extern struct {
         // logging system rather than just getting dumped directly to stderr.
         _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
+        // The AT-SPI bridge fetches our program and application names
+        // when the application initializes and establishes itself over D-Bus.
+        // We must do it now since otherwise the application won't have a name
+        // to identify as.
+        glib.setPrgname("Ghostty");
+        glib.setApplicationName("Ghostty");
+
         // Log our GTK versions
         try gtk_version.logVersion();
         try adw_version.logVersion();
@@ -2877,7 +2884,7 @@ const Action = struct {
     pub fn render(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.redraw(),
+            .surface => |v| v.rt_surface.surface.framePushed(),
         }
     }
 
@@ -3119,6 +3126,8 @@ const Action = struct {
         const win = gobject.ext.newInstance(Window, .{
             .application = self,
             .@"quick-terminal" = true,
+            // See `Window.new`.
+            .@"accessible-role" = gtk.AccessibleRole.window,
         });
         assert(win.isQuickTerminal());
         initAndShowWindow(self, win, null, .none);

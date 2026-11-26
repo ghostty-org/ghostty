@@ -98,6 +98,18 @@ pub const RenderSurface = extern struct {
                 void,
             );
         };
+
+        /// Emitted on the main thread when a new frame is drawn. A redraw
+        /// of the same frame does not emit.
+        pub const present = struct {
+            pub const name = "present";
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
     };
 
     //---------------------------------------------------------------
@@ -188,6 +200,8 @@ pub const RenderSurface = extern struct {
 
                     else => log.warn("error building texture from frame err={}", .{err}),
                 };
+
+                signals.present.impl.emit(self, null, .{}, null);
             }
         }
 
@@ -499,6 +513,7 @@ pub const RenderSurface = extern struct {
 
             // Signals
             signals.resize.impl.register(.{});
+            signals.present.impl.register(.{});
         }
 
         pub const as = C.Class.as;

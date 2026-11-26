@@ -313,8 +313,12 @@ pub const Window = extern struct {
             pub const none: @This() = .{};
         },
     ) *Self {
+        // The role must be set at construction. Set on the class, it does
+        // not reach the accessible, and screen readers can't find the
+        // window.
         const win = gobject.ext.newInstance(Self, .{
             .application = app,
+            .@"accessible-role" = gtk.AccessibleRole.window,
         });
 
         if (overrides.title) |title| {
