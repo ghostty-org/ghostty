@@ -188,6 +188,7 @@ class AppDelegate: NSObject,
     private let appIconUpdater = AppIconUpdater()
 
     @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
+    @MainActor private var menuIncludesPerformable: Bool?
 
     override init() {
 #if DEBUG
@@ -627,7 +628,7 @@ class AppDelegate: NSObject,
 
     /// This handles events from the NSEvent.addLocalEventMonitor. We use this so we can get
     /// events without any terminal windows open.
-    private func localEventHandler(_ event: NSEvent) -> NSEvent? {
+    @MainActor private func localEventHandler(_ event: NSEvent) -> NSEvent? {
         return switch event.type {
         case .keyDown:
             localEventKeyDown(event)
@@ -637,7 +638,9 @@ class AppDelegate: NSObject,
         }
     }
 
-    private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
+    @MainActor private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
+        syncMenuShortcutsForFocus()
+
         // If the tab overview is visible and escape is pressed, close it.
         // This can't POSSIBLY be right and is probably a FirstResponder problem
         // that we should handle elsewhere in our program. But this works and it
@@ -697,8 +700,9 @@ class AppDelegate: NSObject,
         return event
     }
 
-    @objc private func windowDidBecomeKey(_ notification: Notification) {
+    @MainActor @objc private func windowDidBecomeKey(_ notification: Notification) {
         syncFloatOnTopMenu(notification.object as? NSWindow)
+        syncMenuShortcutsForFocus()
     }
 
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
@@ -1235,6 +1239,8 @@ extension AppDelegate {
     @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
 
+        let includePerformable = !(NSApp.keyWindow?.firstResponder is Ghostty.SurfaceView)
+        menuIncludesPerformable = includePerformable
         menuShortcutManager.reset()
 
         syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
@@ -1255,8 +1261,8 @@ extension AppDelegate {
 
         syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
         syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
-        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
-        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
+        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy, includePerformable: includePerformable)
+        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste, includePerformable: includePerformable)
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
         syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
@@ -1303,8 +1309,20 @@ extension AppDelegate {
         reloadDockMenu()
     }
 
-    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
-        menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
+    @MainActor func syncMenuShortcutsForFocus() {
+        let includePerformable = !(NSApp.keyWindow?.firstResponder is Ghostty.SurfaceView)
+        guard menuIncludesPerformable != includePerformable else { return }
+        syncMenuShortcuts(ghostty.config)
+    }
+
+    @MainActor private func syncMenuShortcut(
+        _ config: Ghostty.Config,
+        action: String,
+        menuItem: NSMenuItem?,
+        includePerformable: Bool = false
+    ) {
+        menuShortcutManager.syncMenuShortcut(
+            config, action: action, menuItem: menuItem, includePerformable: includePerformable)
     }
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {

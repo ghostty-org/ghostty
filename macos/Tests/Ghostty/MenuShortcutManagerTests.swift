@@ -4,6 +4,23 @@ import Testing
 @testable import Ghostty
 
 struct MenuShortcutManagerTests {
+    @MainActor @Test func performableClipboardShortcutsDependOnFocus() throws {
+        let config = try TemporaryConfig("")
+        let manager = Ghostty.MenuShortcutManager()
+        let copy = NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "")
+
+        for includePerformable in [false, true, false] {
+            manager.reset()
+            manager.syncMenuShortcut(
+                config, action: "copy_to_clipboard", menuItem: copy, includePerformable: includePerformable)
+            manager.syncMenuShortcut(
+                config, action: "paste_from_clipboard", menuItem: paste, includePerformable: includePerformable)
+            #expect(copy.keyEquivalent == (includePerformable ? "c" : ""))
+            #expect(paste.keyEquivalent == (includePerformable ? "v" : ""))
+        }
+    }
+
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/779", id: 779))
     func unbindShouldDiscardDefault() async throws {
         let config = try TemporaryConfig("keybind = super+d=unbind")

@@ -116,9 +116,10 @@ extension Ghostty {
             return Ghostty.keyboardShortcut(for: trigger)
         }
 
-        func keybindTrigger(for action: String) -> ghostty_input_trigger_s? {
+        func keybindTrigger(for action: String, includePerformable: Bool = false) -> ghostty_input_trigger_s? {
             guard let config else { return nil }
-            return ghostty_config_trigger(config, action, UInt(action.lengthOfBytes(using: .utf8)))
+            return ghostty_config_trigger_with_options(
+                config, action, UInt(action.lengthOfBytes(using: .utf8)), includePerformable)
         }
 
         // MARK: - Configuration Values

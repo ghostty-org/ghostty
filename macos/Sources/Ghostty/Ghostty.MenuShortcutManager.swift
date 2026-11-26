@@ -21,10 +21,15 @@ extension Ghostty {
 
         /// Syncs a single menu shortcut for the given action. The action string is the same
         /// action string used for the Ghostty configuration.
-        func syncMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem: NSMenuItem?) {
+        func syncMenuShortcut(
+            _ config: Ghostty.Config,
+            action: String?,
+            menuItem: NSMenuItem?,
+            includePerformable: Bool = false
+        ) {
             guard let menu = menuItem else { return }
 
-            if !updateMenuShortcut(config, action: action, menuItem: menu) {
+            if !updateMenuShortcut(config, action: action, menuItem: menu, includePerformable: includePerformable) {
                 menu.keyEquivalent = ""
                 menu.keyEquivalentModifierMask = []
                 menu.allowsAutomaticKeyEquivalentLocalization = true
@@ -88,10 +93,15 @@ private extension Ghostty.MenuShortcutManager {
     /// action string used for the Ghostty configuration.
     ///
     /// - Returns: Whether the menu item is updated and saved in ``menuItemsByShortcut``
-    func updateMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem menu: NSMenuItem) -> Bool {
+    func updateMenuShortcut(
+        _ config: Ghostty.Config,
+        action: String?,
+        menuItem menu: NSMenuItem,
+        includePerformable: Bool
+    ) -> Bool {
         guard
             let action,
-            let trigger = config.keybindTrigger(for: action),
+            let trigger = config.keybindTrigger(for: action, includePerformable: includePerformable),
             let shortcut = Ghostty.keyboardShortcut(for: trigger)
         else { return false }
 

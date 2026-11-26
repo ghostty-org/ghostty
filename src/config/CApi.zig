@@ -106,7 +106,16 @@ export fn ghostty_config_trigger(
     str: [*]const u8,
     len: usize,
 ) inputpkg.Binding.Trigger.C {
-    return config_trigger_(self, str[0..len]) catch |err| err: {
+    return ghostty_config_trigger_with_options(self, str, len, false);
+}
+
+export fn ghostty_config_trigger_with_options(
+    self: *Config,
+    str: [*]const u8,
+    len: usize,
+    include_performable: bool,
+) inputpkg.Binding.Trigger.C {
+    return config_trigger_(self, str[0..len], include_performable) catch |err| err: {
         log.err("error finding trigger err={}", .{err});
         break :err .{};
     };
@@ -115,9 +124,12 @@ export fn ghostty_config_trigger(
 fn config_trigger_(
     self: *Config,
     str: []const u8,
+    include_performable: bool,
 ) !inputpkg.Binding.Trigger.C {
     const action = try inputpkg.Binding.Action.parse(str);
-    const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTrigger(action) orelse .{};
+    const trigger = self.keybind.set.getTriggerWithOptions(action, .{
+        .include_performable = include_performable,
+    }) orelse inputpkg.Binding.Trigger{};
     return trigger.cval();
 }
 
@@ -252,29 +264,52 @@ test "ghostty_config_trigger: default keybind" {
 
     // Default commands should be fetchable through config_trigger_
     {
-        const trigger = try config_trigger_(&cfg, "open_config");
+        const trigger = try config_trigger_(&cfg, "open_config", false);
         try testing.expectEqual(.unicode, trigger.tag);
         try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
     }
+
     {
-        const trigger = try config_trigger_(&cfg, "reload_config");
+        const trigger = try config_trigger_(&cfg, "reload_config", false);
         try testing.expectEqual(.unicode, trigger.tag);
         try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
     }
     // Performable bindings are not tracked in the reverse map,
     // so config_trigger_ should return a default (empty) trigger.
     if (comptime builtin.target.os.tag.isDarwin()) {
-        const next = try config_trigger_(&cfg, "navigate_search:next");
+        const copy = try config_trigger_(&cfg, "copy_to_clipboard", true);
+        try testing.expectEqual(.unicode, copy.tag);
+        try testing.expectEqual(@as(u32, 'c'), copy.key.unicode);
+        const paste = try config_trigger_(&cfg, "paste_from_clipboard", true);
+        try testing.expectEqual(.unicode, paste.tag);
+        try testing.expectEqual(@as(u32, 'v'), paste.key.unicode);
+
+        const next = try config_trigger_(&cfg, "navigate_search:next", false);
         try testing.expectEqual(.physical, next.tag);
         try testing.expectEqual(.unidentified, next.key.physical);
 
-        const prev = try config_trigger_(&cfg, "navigate_search:previous");
+        const prev = try config_trigger_(&cfg, "navigate_search:previous", false);
         try testing.expectEqual(.physical, prev.tag);
         try testing.expectEqual(.unidentified, prev.key.physical);
     }
     {
-        const trigger = try config_trigger_(&cfg, "adjust_selection:left");
+        const trigger = try config_trigger_(&cfg, "adjust_selection:left", false);
         try testing.expectEqual(.physical, trigger.tag);
         try testing.expectEqual(.unidentified, trigger.key.physical);
     }
+}
+
+test "ghostty_config_trigger_with_options: performable" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+
+    cfg.keybind.set = .{};
+    try cfg.keybind.set.parseAndPut(cfg._arena.?.allocator(), "performable:ctrl+q=new_window");
+    const without = ghostty_config_trigger(&cfg, "new_window", "new_window".len);
+    const with = ghostty_config_trigger_with_options(&cfg, "new_window", "new_window".len, true);
+    try testing.expectEqual(.physical, without.tag);
+    try testing.expectEqual(.unidentified, without.key.physical);
+    try testing.expectEqual(.unicode, with.tag);
+    try testing.expectEqual(@as(u32, 'q'), with.key.unicode);
 }
