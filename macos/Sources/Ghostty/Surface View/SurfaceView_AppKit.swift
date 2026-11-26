@@ -442,10 +442,24 @@ extension Ghostty {
             super.endSearch()
         }
 
+        private func updateMenuShortcutsAfterFocusChange() {
+            // Only the key window owns the global application menu shortcuts;
+            // ignore focus changes from background windows (window activation
+            // is handled separately by windowDidBecomeKey).
+            guard window?.isKeyWindow == true else { return }
+
+            // AppKit updates window.firstResponder after these callbacks return.
+            DispatchQueue.main.async {
+                (NSApp.delegate as? AppDelegate)?.syncMenuShortcutsForFocus()
+            }
+        }
+
         override func focusDidChange(_ focused: Bool) {
-            guard let surface = self.surface else { return }
             guard self.focused != focused else { return }
             self.focused = focused
+            updateMenuShortcutsAfterFocusChange()
+
+            guard let surface = self.surface else { return }
 
             // If we lost our focus then remove the mouse event suppression so
             // our mouse release event leaving the surface can properly be
@@ -847,7 +861,6 @@ extension Ghostty {
             let result = super.becomeFirstResponder()
             if result {
                 focusDidChange(true)
-                updateMenuShortcutsAfterFocusChange()
             }
             return result
         }
@@ -859,17 +872,9 @@ extension Ghostty {
             // yield our focus state.
             if result {
                 focusDidChange(false)
-                updateMenuShortcutsAfterFocusChange()
             }
 
             return result
-        }
-
-        private func updateMenuShortcutsAfterFocusChange() {
-            // AppKit updates window.firstResponder after these callbacks return.
-            DispatchQueue.main.async {
-                (NSApp.delegate as? AppDelegate)?.syncMenuShortcutsForFocus()
-            }
         }
 
         override func updateTrackingAreas() {
