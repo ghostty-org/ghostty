@@ -20,12 +20,10 @@ Overlay terminal_page {
     hexpand: true;
     vexpand: true;
 
-    GraphicsOffload {
+    GraphicsOffload graphics_offload {
       hexpand: true;
       vexpand: true;
       enabled: enabled;
-      // shortcut: validated with opaque backgrounds; handle transparency before upstreaming.
-      black-background: true;
 
       child: $GhosttyRenderSurface render_surface {
         realize => $render_surface_realize();
