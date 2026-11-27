@@ -312,8 +312,8 @@ language: ?[:0]const u8 = null,
 /// This configuration can be repeated multiple times to specify multiple
 /// codepoint mappings.
 ///
-/// Changing this configuration at runtime will only affect new terminals,
-/// i.e. new windows, tabs, etc.
+/// Changing this configuration at runtime will also affect existing
+/// terminals when the configuration is reloaded.
 @"font-codepoint-map": RepeatableCodepointMap = .{},
 
 /// Map specific Unicode codepoints to replacement values when copying text
@@ -1007,7 +1007,9 @@ palette: Palette = .{},
 /// fullscreen. This is because the background becomes gray and it can cause
 /// widgets to show through which isn't generally desirable.
 ///
-/// On macOS, changing this configuration requires restarting Ghostty completely.
+/// On macOS, when `background-blur` is set to one of the `macos-glass-*`
+/// values, this sets the opacity of the background color tint drawn over
+/// the glass effect.
 @"background-opacity": f64 = 1.0,
 
 /// Applies background opacity to cells with an explicit background color
@@ -1022,15 +1024,17 @@ palette: Palette = .{},
 ///
 /// Setting this to `true` will apply the `background-opacity` to all cells
 /// regardless of whether they have an explicit background color set or not.
+/// Selected cells and cells with reverse video remain fully opaque.
 ///
 /// Available since: 1.2.0
 @"background-opacity-cells": bool = false,
 
 /// Whether to blur the background when `background-opacity` is less than 1.
+/// The `macos-glass-*` values below apply even when `background-opacity` is 1.
 ///
 /// Valid values are:
 ///
-///   * a nonnegative integer specifying the *blur intensity*
+///   * an integer from 0 to 255 specifying the *blur intensity*
 ///   * `false`, equivalent to a blur intensity of 0
 ///   * `true`, equivalent to the default blur intensity of 20, which is
 ///     reasonable for a good looking blur. Higher blur intensities may
@@ -1045,8 +1049,10 @@ palette: Palette = .{},
 /// If the macOS values are set, then this implies `background-blur = true`
 /// on non-macOS platforms.
 ///
-/// On Linux, the exact blur intensity is ignored and any positive integer
-/// or `true` value will enable background blur. On Wayland, Ghostty uses
+/// On Linux with GTK 4.23.3 or later, GTK renders the blur natively and
+/// uses the configured blur intensity. With older GTK versions, the exact
+/// blur intensity is ignored and any positive integer or `true` value will
+/// enable background blur. In that case, on Wayland, Ghostty uses
 /// the [`ext-background-effect-v1`](https://wayland.app/protocols/ext-background-effect-v1)
 /// protocol to enable the blur effect, but this is not always supported
 /// on all compositors. Check the documentation of your compositor or
@@ -1996,7 +2002,9 @@ keybind: Keybinds = .{},
 /// will appear in the logs.
 ///
 /// Changing this configuration at runtime will only affect new terminals, i.e.
-/// new windows, tabs, etc.
+/// new windows, tabs, etc., unless `window-padding-balance` is enabled, in
+/// which case existing terminals are also updated when the configuration
+/// is reloaded.
 ///
 /// To set a different left and right padding, specify two numerical values
 /// separated by a comma. For example, `window-padding-x = 2,4` will set the
@@ -2015,7 +2023,9 @@ keybind: Keybinds = .{},
 /// will appear in the logs.
 ///
 /// Changing this configuration at runtime will only affect new terminals,
-/// i.e. new windows, tabs, etc.
+/// i.e. new windows, tabs, etc., unless `window-padding-balance` is enabled,
+/// in which case existing terminals are also updated when the configuration
+/// is reloaded.
 ///
 /// To set a different top and bottom padding, specify two numerical values
 /// separated by a comma. For example, `window-padding-y = 2,4` will set the
@@ -2151,8 +2161,8 @@ keybind: Keybinds = .{},
 /// differentiate between client and server-side decorations (e.g. macOS and
 /// Windows).
 ///
-/// The "toggle_window_decorations" keybind action can be used to create
-/// a keybinding to toggle this setting at runtime.
+/// On Linux, the "toggle_window_decorations" keybind action can be used to
+/// create a keybinding to toggle this setting at runtime.
 ///
 /// macOS: To hide the titlebar without removing the native window borders
 ///        or rounded corners, use `macos-titlebar-style = hidden` instead.
@@ -2776,6 +2786,10 @@ keybind: Keybinds = .{},
 /// from the first by a comma (`,`). Percentage and pixel sizes can be mixed
 /// together: for instance, a size of `50%,500px` for a top-positioned quick
 /// terminal would be half a screen tall, and 500 pixels wide.
+///
+/// On macOS, once the quick terminal has been shown on a screen, it keeps
+/// its last size on that screen and changes to this setting do not apply
+/// there.
 ///
 /// Available since: 1.2.0
 @"quick-terminal-size": QuickTerminalSize = .{},
