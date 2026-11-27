@@ -374,10 +374,14 @@ pub const Page = struct {
 
     /// A helper that can be used to assert the integrity of the page when
     /// runtime safety is enabled. This is a no-op when runtime safety is
-    /// disabled or the target is freestanding. This uses the libc allocator.
+    /// disabled or the target is freestanding. Emscripten uses the libc heap
+    /// so debug allocations do not grow linear memory outside the host heap.
     pub inline fn assertIntegrity(self: *const Page) void {
         if (comptime build_options.slow_runtime_safety and builtin.target.os.tag != .freestanding) {
-            var debug_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+            var debug_allocator: std.heap.SafeAllocator = .init(
+                if (builtin.target.os.tag == .emscripten) std.heap.c_allocator else std.heap.page_allocator,
+                .{},
+            );
             defer _ = debug_allocator.deinit();
             const alloc = debug_allocator.allocator();
             self.verifyIntegrity(alloc) catch |err| {

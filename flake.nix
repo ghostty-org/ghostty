@@ -106,6 +106,9 @@
       }
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         fuzz = pkgs.callPackage ./nix/devShell.nix (args // {withAfl = true;});
+        emscripten = pkgs.callPackage ./nix/devShell-emscripten.nix {
+          inherit (args) zig;
+        };
       });
 
     packages =

@@ -34,6 +34,7 @@ sentry: bool = true,
 simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
+emscripten_threads: bool = false,
 
 /// Ghostty exe properties
 exe_entrypoint: ExeEntrypoint = .ghostty,
@@ -118,6 +119,11 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
     ) orelse (is_dep or
         // A libghostty-vt source tarball has LIB_VERSION but no VERSION.
         (versions.lib_file != null and versions.app_file == null));
+    const emscripten_threads = b.option(
+        bool,
+        "emscripten-threads",
+        "Build Emscripten archives for pthread hosts. Default: false.",
+    ) orelse false;
     const target = target: {
         var result = b.standardTargetOptions(.{});
 
@@ -142,22 +148,40 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
             result = b.resolveTargetQuery(query);
         }
 
-        // On wasm, default to enabling the simd128 feature. Every
-        // browser engine has supported it since 2023 or earlier
-        // (Chrome 91, Firefox 89, Safari 16.4) and it is a large
-        // performance win for the terminal hot paths (50%+ on
-        // print-heavy VT streams). Only apply when no explicit CPU
-        // was requested; targets for exotic non-browser runtimes
-        // can opt out with `-Dcpu=generic`.
+        // Standalone Wasm defaults to simd128 for terminal hot paths.
+        // Emscripten defaults to baseline so its archive can be linked by
+        // emcc without requiring matching SIMD flags in the host application.
+        // Respect an explicitly requested CPU or feature set on both targets.
         if (result.result.cpu.arch.isWasm() and
             result.query.cpu_model == .determined_by_arch_os and
             result.query.cpu_features_add.isEmpty() and
             result.query.cpu_features_sub.isEmpty())
         {
             var query = result.query;
-            query.cpu_features_add.addFeature(
-                @backingInt(std.Target.wasm.Feature.simd128),
-            );
+            if (result.result.os.tag == .emscripten) {
+                query.cpu_model = .baseline;
+            } else {
+                query.cpu_features_add.addFeature(
+                    @backingInt(std.Target.wasm.Feature.simd128),
+                );
+            }
+            result = b.resolveTargetQuery(query);
+        }
+
+        if (emscripten_threads) {
+            if (result.result.os.tag != .emscripten) {
+                std.log.err("-Demscripten-threads requires an Emscripten target", .{});
+                return error.UnsupportedTarget;
+            }
+            var query = result.query;
+            for ([_]std.Target.wasm.Feature{ .atomics, .bulk_memory }) |feature| {
+                const index = @backingInt(feature);
+                if (query.cpu_features_sub.isEnabled(index)) {
+                    std.log.err("-Demscripten-threads requires the Wasm {s} feature", .{@tagName(feature)});
+                    return error.UnsupportedTarget;
+                }
+                query.cpu_features_add.addFeature(index);
+            }
             result = b.resolveTargetQuery(query);
         }
 
@@ -206,6 +230,7 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
         .optimize = optimize,
         .target = target,
         .wasm_target = wasm_target,
+        .emscripten_threads = emscripten_threads,
         .is_dep = is_dep,
         .env = env,
     };
@@ -279,6 +304,11 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
 
         break :simd true;
     };
+
+    if (target.result.os.tag == .emscripten and config.simd) {
+        std.log.err("-Dsimd=true is not supported for Emscripten targets", .{});
+        return error.UnsupportedTarget;
+    }
 
     config.wayland = b.option(
         bool,

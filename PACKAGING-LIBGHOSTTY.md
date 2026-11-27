@@ -443,6 +443,62 @@ zip but isn't run, so it stays Tier 2.
 
 ## WebAssembly
 
+### Emscripten
+
+To embed libghostty-vt in an Emscripten application, build a static archive.
+On Linux, `nix develop .#emscripten` provides the necessary build and test tools:
+
+```sh
+zig build -Demit-lib-vt -Dtarget=wasm32-emscripten -Doptimize=fast
+emcc app.c -Izig-out/include zig-out/lib/libghostty-vt.a -o app.js
+```
+
+Emscripten defaults to the baseline CPU and disables the SIMD dependencies.
+Explicit `-Dsimd=true` is rejected.
+
+This installs `lib/libghostty-vt.a` and the C headers rather than a standalone
+Wasm module. Link the archive with `emcc`, either into the application or an
+Emscripten side module. Allocations use the host's libc heap by default;
+terminal pages also honor a caller-provided `GhosttyAllocator`. Terminal page
+backing buffers use 16-byte alignment and size rounding, independently of Wasm's
+64 KiB memory growth granularity. Page memory is cleared before initialization
+because host allocations may contain old data. The optional
+`ghostty_sys_log_stderr` callback writes through Emscripten's stderr; install it
+with `ghostty_sys_set(GHOSTTY_SYS_OPT_LOG, &ghostty_sys_log_stderr)` to enable
+library diagnostics.
+
+Builds are single-threaded by default. For a pthread-enabled host, build with
+`-Demscripten-threads=true`; this enables Zig's threaded mode and the Wasm
+`atomics` and `bulk_memory` features. Explicitly disabling either required
+feature is rejected. Compile host C/C++ files and link with `emcc -pthread`.
+Use separate builds for threaded and non-threaded hosts. Separate terminal
+instances can be used on separate threads; concurrent operations on one
+terminal require caller synchronization. Initialize global system callbacks
+before starting threads, and make shared allocators and callbacks thread-safe.
+Emscripten currently marks dynamic linking with pthreads as experimental.
+
+When linking a Debug archive, allow enough stack space
+(for example, `-sSTACK_SIZE=1048576`). Emscripten
+versions older than 4.0.14 also require `-sUSE_OFFSET_CONVERTER=1` for Zig's
+allocator diagnostics. Newer versions handle return addresses automatically
+and no longer accept that setting.
+
+On Linux, with Emscripten and Node.js installed, run the static and dynamic linking
+regression tests with:
+
+```sh
+bash example/c-vt-emscripten/run.sh zig-out
+```
+
+For the threaded build and its two-pthread regression test:
+
+```sh
+zig build -Demit-lib-vt -Dtarget=wasm32-emscripten -Demscripten-threads=true -Doptimize=fast
+bash example/c-vt-emscripten/run.sh zig-out --threads
+```
+
+### Standalone WebAssembly
+
 libghostty-vt can be built for WebAssembly for use in browsers and other
 wasm runtimes:
 
