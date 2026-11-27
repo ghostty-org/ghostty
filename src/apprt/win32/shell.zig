@@ -177,7 +177,8 @@ pub fn removeNotifyIcon(hwnd: c.Handle) void {
 fn copyUtf8(buffer: []u16, text: []const u8) void {
     @memset(buffer, 0);
     var index: usize = 0;
-    var view = std.unicode.Utf8View.initUnchecked(text).iterator();
+    const utf8 = std.unicode.Utf8View.init(text) catch return;
+    var view = utf8.iterator();
     while (view.nextCodepoint()) |codepoint| {
         var units: [2]u16 = undefined;
         const needed: usize = if (codepoint >= 0x10000) 2 else 1;
@@ -204,6 +205,10 @@ test "copyUtf8 truncates and terminates" {
     // after the first letter in a buffer this size.
     copyUtf8(&emoji, "a\u{1F600}");
     try std.testing.expectEqualSlices(u16, &.{ 'a', 0, 0 }, &emoji);
+
+    var invalid: [4]u16 = undefined;
+    copyUtf8(&invalid, "a\xff");
+    try std.testing.expectEqualSlices(u16, &.{ 0, 0, 0, 0 }, &invalid);
 }
 
 test "NotifyIconData matches the layout Windows expects" {
