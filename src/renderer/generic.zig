@@ -3246,7 +3246,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // an underline, in which case use a double underline to
                 // distinguish them.
                 const underline: terminal.Attribute.Underline = underline: {
-                    if (links.contains(.{
+                    // An empty set still hashes the key on every lookup,
+                    // and the set is empty unless a link is highlighted.
+                    if (links.count() > 0 and links.contains(.{
                         .x = @intCast(x),
                         .y = @intCast(y),
                     })) {
