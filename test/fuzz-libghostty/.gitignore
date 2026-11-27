@@ -4,6 +4,7 @@ zig-out/
 
 # AFL++ outputs
 afl-out/
+.afl-tmin-temp-*
 
 # Corpus trace files
 corpus/**/.traces/
