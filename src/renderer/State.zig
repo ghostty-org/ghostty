@@ -120,6 +120,7 @@ pub const Mouse = struct {
 pub const Preedit = struct {
     /// The codepoints to render as preedit text.
     codepoints: []const Codepoint = &.{},
+    cursor_pos: i32,
 
     /// A single codepoint to render as preedit text.
     pub const Codepoint = struct {
@@ -136,6 +137,7 @@ pub const Preedit = struct {
     pub fn clone(self: *const Preedit, alloc: Allocator) !Preedit {
         return .{
             .codepoints = try alloc.dupe(Codepoint, self.codepoints),
+            .cursor_pos = self.cursor_pos,
         };
     }
 
@@ -204,6 +206,7 @@ test "preedit range covers exact cell width" {
     {
         const p: Preedit = .{
             .codepoints = &.{.{ .codepoint = 'a' }},
+            .cursor_pos = 0,
         };
         const range = p.range(2, 9);
         try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.start);
@@ -214,6 +217,7 @@ test "preedit range covers exact cell width" {
     {
         const p: Preedit = .{
             .codepoints = &.{.{ .codepoint = test_hangul_ga, .wide = true }},
+            .cursor_pos = 0,
         };
         const range = p.range(2, 9);
         try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.start);
@@ -227,6 +231,7 @@ test "preedit range shifts left at right edge" {
 
     const p: Preedit = .{
         .codepoints = &.{.{ .codepoint = test_hangul_ga, .wide = true }},
+        .cursor_pos = 0,
     };
     const range = p.range(9, 9);
     try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 8), range.start);
