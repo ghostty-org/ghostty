@@ -3,11 +3,15 @@ import SwiftUI
 extension SplitView {
     /// The split divider that is rendered and can be used to resize a split view.
     struct Divider: View {
+        @Environment(\.appearsActive) var appearsActive
         let direction: SplitViewDirection
         let visibleSize: CGFloat
         let invisibleSize: CGFloat
         let color: Color
         @Binding var split: CGFloat
+
+        @State private var isHovered = false
+        private let visibleHoverScale: CGFloat = 3
 
         private var visibleWidth: CGFloat? {
             switch direction {
@@ -45,6 +49,19 @@ extension SplitView {
             }
         }
 
+        private var visibleScale: CGSize {
+            let identity = CGSize(width: 1, height: 1)
+            guard isHovered else {
+                return identity
+            }
+            switch direction {
+            case .horizontal:
+                return appearsActive ? CGSize(width: visibleHoverScale, height: identity.height) : identity
+            case .vertical:
+                return appearsActive ? CGSize(width: identity.width, height: visibleHoverScale) : identity
+            }
+        }
+
         private var pointerStyle: BackportPointerStyle {
             return switch direction {
             case .horizontal: .resizeLeftRight
@@ -60,9 +77,12 @@ extension SplitView {
                 Rectangle()
                     .fill(color)
                     .frame(width: visibleWidth, height: visibleHeight)
+                    .scaleEffect(visibleScale)
             }
             .backport.pointerStyle(pointerStyle)
+            .animation(.interactiveSpring, value: isHovered && appearsActive)
             .onHover { isHovered in
+                self.isHovered = isHovered
                 // macOS 15+ we use the pointerStyle helper which is much less
                 // error-prone versus manual NSCursor push/pop
                 if #available(macOS 15, *) {
