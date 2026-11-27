@@ -740,20 +740,16 @@ fragment float4 cell_text_fragment(
     }
 
     case ATLAS_COLOR: {
-      // For now, we assume that color glyphs
-      // are already premultiplied linear colors.
       float4 color = textureColor.sample(textureSampler, in.tex_coord);
 
-      // If we're doing linear blending, we can return this right away.
-      if (uniforms.use_linear_blending) {
-        return color;
+      // `src/font/face/coretext.zig` has a `renderGlyph()` that requests
+      // Display-P3 (sRGB encoded) with premultiplied alpha. To linearly blend,
+      // we need to decode this to premultiplied linear RGB.
+      if (uniforms.use_linear_blending && color.a > 0.0) {
+        color.rgb /= color.a;
+        color = linearize(color);
+        color.rgb *= color.a;
       }
-
-      // Otherwise we need to unlinearize the color. Since the alpha is
-      // premultiplied, we need to divide it out before unlinearizing.
-      color.rgb /= color.a;
-      color = unlinearize(color);
-      color.rgb *= color.a;
 
       return color;
     }
