@@ -751,7 +751,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         }
 
+        selectTabBeforeClosing()
         window.close()
+    }
+
+    /// Honor window-close-tab-focus before this tab's window closes. By
+    /// default AppKit selects the right neighbor when the selected tab
+    /// closes; `left` selects the left neighbor instead. Only reroutes
+    /// when we're closing the currently selected tab and a left neighbor
+    /// exists.
+    private func selectTabBeforeClosing() {
+        guard ghostty.config.windowCloseTabFocus == .left,
+              let window,
+              let tabGroup = window.tabGroup,
+              tabGroup.selectedWindow == window,
+              let index = tabGroup.windows.firstIndex(of: window),
+              index > 0 else { return }
+
+        // Select the tab the same way goto_tab does so it also becomes
+        // key and its surface gets keyboard focus.
+        tabGroup.windows[index - 1].makeKeyAndOrderFront(nil)
     }
 
     private func closeOtherTabsImmediately() {
