@@ -4015,8 +4015,7 @@ term: []const u8 = "xterm-ghostty",
 ///    beta testing by thousands of people. It is generally stable but
 ///    will likely have more bugs than the stable channel.
 ///
-/// Changing this configuration requires a full restart of
-/// Ghostty to take effect.
+/// Changing this value at runtime takes effect at the next update check.
 ///
 /// This only works on macOS since only macOS has an auto-update feature.
 @"auto-update-channel": ?build_config.ReleaseChannel = null,
