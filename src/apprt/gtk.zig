@@ -19,4 +19,5 @@ test {
     _ = @import("gtk/media.zig");
     _ = @import("gtk/portal.zig");
     _ = @import("gtk/scale.zig");
+    _ = @import("gtk/search_provider.zig");
 }

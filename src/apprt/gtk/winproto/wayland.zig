@@ -16,6 +16,7 @@ const org = wayland.client.org;
 const xdg = wayland.client.xdg;
 
 const Config = @import("../../../config.zig").Config;
+const global = @import("../../../global.zig");
 const Globals = @import("wayland/Globals.zig");
 const Hotkeys = @import("wayland/Hotkeys.zig");
 const input = @import("../../../input.zig");
@@ -256,6 +257,38 @@ pub const Window = struct {
     pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         _ = self;
         _ = env;
+    }
+
+    /// Raise and focus this window, bypassing focus stealing prevention.
+    /// Only call this for a request a trusted party has vouched for.
+    /// Returns false if the compositor isn't Mutter.
+    pub fn forceActivate(self: *Window) bool {
+        // gtk_window_present proves the request was wanted with the serial
+        // of our last input event. When the interaction happened in another
+        // process, such as GNOME Shell's search, that serial is stale and
+        // Mutter only shows a "Ghostty is ready" notification.
+        //
+        // Mutter also grants an activation that names a startup sequence it
+        // knows about. gtk_shell1.notify_launch registers one stamped with
+        // the current time, which is always newer than the last user
+        // interaction, so the activation is always granted. gtk_shell1 is
+        // private to Mutter, so this only works on GNOME.
+        const shell = self.globals.get(.gtk_shell) orelse return false;
+        const activation = self.globals.get(.xdg_activation) orelse return false;
+
+        // Mutter only ever compares the ID as a string, so it just has to
+        // be one nobody else is using.
+        var bytes: [16]u8 = undefined;
+        const rng_impl: std.Random.IoSource = .{ .io = global.io() };
+        rng_impl.interface().bytes(&bytes);
+        var buf: [bytes.len * 2 + 1]u8 = undefined;
+        const id = std.fmt.bufPrintSentinel(&buf, "{x}", .{bytes[0..]}, 0) catch unreachable;
+
+        // Both requests go out on the same connection, so the compositor
+        // sees the sequence before the activation that names it.
+        shell.notifyLaunch(id.ptr);
+        activation.activate(id.ptr, self.surface);
+        return true;
     }
 
     pub fn setUrgent(self: *Window, urgent: bool) !void {
