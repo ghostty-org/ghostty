@@ -525,7 +525,7 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Help" systemMenu="help" id="F2S-fz-NVQ">
                         <items>
-                            <menuItem title="Ghostty Help" keyEquivalent="?" id="FKE-Sm-Kum">
+                            <menuItem title="Open Ghostty Docs" keyEquivalent="?" id="FKE-Sm-Kum">
                                 <connections>
                                     <action selector="showHelp:" target="bbz-4X-AYv" id="tiy-ow-xSw"/>
                                 </connections>
