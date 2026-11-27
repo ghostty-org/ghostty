@@ -228,7 +228,10 @@ pub const Parser = struct {
             break :action c;
         };
         const control: Command.Control = switch (action) {
-            'q' => .{ .query = try .parse(self.kv) },
+            'q' => if (self.kv.get('e')) |e|
+                .{ .feature_query = try .parse(self.kv, e) }
+            else
+                .{ .query = try .parse(self.kv) },
             't' => .{ .transmit = try .parse(self.kv) },
             'T' => .{ .transmit_and_display = .{
                 .transmission = try .parse(self.kv),
@@ -255,7 +258,8 @@ pub const Parser = struct {
         return .{
             .control = control,
             .quiet = quiet,
-            .data = try self.decodeData(alloc),
+            // A feature query ignores its payload, so don't even decode it.
+            .data = if (control == .feature_query) "" else try self.decodeData(alloc),
         };
     }
 
@@ -337,6 +341,9 @@ pub const Response = struct {
     /// animation frame actions. This is how clients learn the frame
     /// number assigned to a newly created frame.
     frame: u32 = 0,
+    /// The keys supported for the action a feature query asked about.
+    /// Null if the action isn't supported or this isn't a feature query.
+    supported: ?FeatureQuery.Supported = null,
     message: []const u8 = "OK",
 
     pub fn encode(self: Response, writer: *std.Io.Writer) !void {
@@ -363,6 +370,10 @@ pub const Response = struct {
         if (self.frame > 0) {
             if (prior) try writer.writeByte(',') else prior = true;
             try writer.print("r={}", .{self.frame});
+        }
+        if (self.supported) |s| {
+            if (prior) try writer.writeByte(',') else prior = true;
+            try s.encode(writer);
         }
         try writer.writeByte(';');
         try writer.writeAll(self.message);
@@ -394,6 +405,7 @@ pub const Command = struct {
         transmit_animation_frame, // f
         control_animation, // a
         compose_animation, // c
+        feature_query, // q with e
     };
 
     pub const Quiet = enum {
@@ -414,6 +426,7 @@ pub const Command = struct {
         transmit_animation_frame: AnimationFrameLoading,
         control_animation: AnimationControl,
         compose_animation: AnimationFrameComposition,
+        feature_query: FeatureQuery,
 
         pub const Identifiers = struct {
             image_id: u32 = 0,
@@ -458,6 +471,10 @@ pub const Command = struct {
                     .image_id = c.image_id,
                     .image_number = c.image_number,
                     .placement_id = c.placement_id,
+                },
+                .feature_query => |q| .{
+                    .image_id = q.image_id,
+                    .image_number = q.image_number,
                 },
             };
         }
@@ -1218,6 +1235,160 @@ pub const Delete = struct {
     };
 };
 
+/// A query action (a=q) with the "e" key set. Rather than trying to load
+/// an image, it asks which of its keys are supported for the action named
+/// by "e". The keys mean what they would for that action, so they're kept
+/// as sent until they're checked against what the terminal can do.
+///
+/// https://sw.kovidgoyal.net/kitty/graphics-protocol/#querying-support-for-protocol-features
+pub const FeatureQuery = struct {
+    image_id: u32 = 0, // i
+    image_number: u32 = 0, // I
+
+    /// The action being asked about.
+    action: u8, // e
+
+    kv: KV,
+
+    /// The parts of the protocol that depend on the target or on how the
+    /// terminal is configured.
+    pub const Capabilities = struct {
+        file: bool = false,
+        temporary_file: bool = false,
+        shared_memory: bool = false,
+        png: bool = false,
+        max_dimension: u32,
+    };
+
+    /// The reply to a feature query: the action asked about and every key
+    /// from the query that is supported for it.
+    pub const Supported = struct {
+        action: u8,
+        kv: KV = .{},
+
+        fn encode(self: Supported, writer: *std.Io.Writer) !void {
+            try writer.print("e={c}", .{self.action});
+            for ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") |key| {
+                const v = self.kv.get(key) orelse continue;
+                switch (key) {
+                    't', 'o', 'd' => try writer.print(",{c}={c}", .{ key, @as(u8, @intCast(v)) }),
+                    'z', 'H', 'V' => try writer.print(",{c}={}", .{ key, @as(i32, @bitCast(v)) }),
+                    else => try writer.print(",{c}={}", .{ key, v }),
+                }
+            }
+        }
+
+        /// Report each of the keys that has a non-default value.
+        fn nonDefault(self: *Supported, kv: *const KV, keys: []const u8) void {
+            for (keys) |key| {
+                const v = kv.get(key) orelse continue;
+                if (v != 0) self.kv.put(key, v);
+            }
+        }
+
+        /// Report the key if it has exactly the given value.
+        fn exactly(self: *Supported, kv: *const KV, key: u8, value: u32) void {
+            if (kv.get(key) == value) self.kv.put(key, value);
+        }
+
+        /// Report the keys that place an image, for a=p and a=T.
+        fn display(self: *Supported, kv: *const KV) void {
+            self.nonDefault(kv, "pxywhXYcrzPQHV");
+            self.exactly(kv, 'C', 1);
+            self.exactly(kv, 'U', 1);
+        }
+    };
+
+    fn parse(kv: KV, action: u32) error{InvalidFormat}!FeatureQuery {
+        // Like Kitty, accept any letter so that a query about an action
+        // we don't know still gets a reply, just one without "e".
+        const c = std.math.cast(u8, action) orelse return error.InvalidFormat;
+        if (!std.ascii.isAlphabetic(c)) return error.InvalidFormat;
+
+        return .{
+            .image_id = kv.get('i') orelse 0,
+            .image_number = kv.get('I') orelse 0,
+            .action = c,
+            .kv = kv,
+        };
+    }
+
+    /// Returns the keys to report, or null if the action isn't supported.
+    /// The keys that identify the image or control the reply (a, e, i, I,
+    /// m, q) are never reported.
+    pub fn supported(self: *const FeatureQuery, caps: Capabilities) ?Supported {
+        const kv = &self.kv;
+        var result: Supported = .{ .action = self.action };
+
+        switch (self.action) {
+            't', 'T', 'q', 'f' => {
+                if (kv.get('t')) |v| {
+                    const ok = switch (v) {
+                        'd' => true,
+                        'f' => caps.file,
+                        't' => caps.temporary_file,
+                        's' => caps.shared_memory,
+                        else => false,
+                    };
+                    if (ok) result.kv.put('t', v);
+                }
+                result.exactly(kv, 'o', 'z');
+                if (kv.get('f')) |v| {
+                    const ok = switch (v) {
+                        24, 32 => true,
+                        100 => caps.png,
+                        else => false,
+                    };
+                    if (ok) result.kv.put('f', v);
+                }
+                for ("sv") |key| {
+                    const v = kv.get(key) orelse continue;
+                    if (v != 0 and v <= caps.max_dimension) result.kv.put(key, v);
+                }
+                result.nonDefault(kv, "SO");
+                result.exactly(kv, 'N', @bitCast(Transmission.Usage{ .transient = true }));
+
+                switch (self.action) {
+                    'f' => {
+                        result.nonDefault(kv, "xycrzY");
+                        result.exactly(kv, 'X', 1);
+                    },
+                    'T' => result.display(kv),
+                    else => {},
+                }
+            },
+
+            'p' => result.display(kv),
+
+            'd' => {
+                // The delete parser knows which values of "d" are valid.
+                _ = Delete.Action.parse(kv.*) catch return result;
+                if (kv.get('d')) |v| result.kv.put('d', v);
+                result.nonDefault(kv, "pxyz");
+
+                // Only deleting animation frames takes a frame number.
+                if (kv.get('d')) |v| if (v == 'f' or v == 'F') {
+                    result.nonDefault(kv, "r");
+                };
+            },
+
+            'a' => {
+                if (kv.get('s')) |v| if (v >= 1 and v <= 3) result.kv.put('s', v);
+                result.nonDefault(kv, "vrcz");
+            },
+
+            'c' => {
+                result.nonDefault(kv, "rcxywhXY");
+                result.exactly(kv, 'C', 1);
+            },
+
+            else => return null,
+        }
+
+        return result;
+    }
+};
+
 pub const CompositionMode = enum {
     alpha_blend, // 0
     overwrite, // 1
@@ -1364,6 +1535,31 @@ test "query command" {
     try testing.expectEqual(@as(u32, 1), v.height);
     try testing.expectEqual(@as(u32, 31), v.image_id);
     try testing.expectEqualStrings("AAAA", command.data);
+}
+
+test "feature query command" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // A value that would make a=t malformed is kept for the action asked
+    // about, and the payload is dropped without being decoded.
+    const command = try Parser.parseString(alloc, "a=q,i=31,e=d,t=x;!!!!");
+    defer command.deinit(alloc);
+
+    try testing.expect(command.control == .feature_query);
+    const v = command.control.feature_query;
+    try testing.expectEqual(@as(u8, 'd'), v.action);
+    try testing.expectEqual(@as(u32, 31), v.image_id);
+    try testing.expectEqualStrings("", command.data);
+}
+
+test "feature query command requires a letter" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    try testing.expectError(
+        error.InvalidFormat,
+        Parser.parseString(alloc, "a=q,i=31,e=5"),
+    );
 }
 
 test "display command" {
