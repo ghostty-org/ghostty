@@ -24,6 +24,14 @@ const MainReturn = switch (build_config.artifact) {
 };
 
 pub fn main(minimal: std.process.Init.Minimal) !MainReturn {
+    // The Windows build is a GUI program. When it is run from a terminal to
+    // perform a CLI action, such as `ghostty +version`, its output has to be
+    // connected to that terminal or nothing would be printed.
+    if (comptime builtin.os.tag == .windows and build_config.artifact == .exe) {
+        const windows = @import("os/main.zig").windows;
+        if (windows.commandLineHasAction()) windows.attachParentConsole();
+    }
+
     // We first start by initializing our global state. This will setup
     // process-level state we need to run the terminal. The reason we use
     // a global is because the C API needs to be able to access this state;

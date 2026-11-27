@@ -715,7 +715,7 @@ pub fn init(
             .backend = .{ .exec = io_exec },
             .mailbox = io_mailbox,
             .renderer_state = &self.renderer_state,
-            .renderer_wakeup = render_thread.wakeup,
+            .renderer_wakeup = &self.renderer_thread.wakeup,
             .renderer_mailbox = render_thread.mailbox,
             .surface_mailbox = .{ .surface = self, .app = app_mailbox },
         });
@@ -2183,10 +2183,33 @@ pub fn pwd(
     self: *const Surface,
     alloc: Allocator,
 ) Allocator.Error!?[]const u8 {
+    // The folder a shell program is really in is more trustworthy than what
+    // the terminal was told. Windows shells such as cmd and PowerShell do
+    // not report it, and the terminal's own value there is only the folder
+    // the shell started in.
+    if (comptime builtin.target.os.tag == .windows) {
+        if (try self.shellDirectoryWindows(alloc)) |folder| return folder;
+    }
+
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
     const terminal_pwd = self.io.terminal.getPwd() orelse return null;
     return try alloc.dupe(u8, terminal_pwd);
+}
+/// The folder the shell process is in, which is what a new tab or split
+/// should start in when the shell has not said so itself.
+fn shellDirectoryWindows(self: *const Surface, alloc: Allocator) Allocator.Error!?[]const u8 {
+    // Once the shell has exited its process handle is no longer meaningful.
+    if (self.child_exited) return null;
+    if (self.io.backend != .exec) return null;
+    const process = self.io.backend.exec.subprocess.process orelse return null;
+    switch (process) {
+        .fork_exec => |command| {
+            const handle = command.pid orelse return null;
+            return try internal_os.windows.currentDirectoryOfProcess(alloc, handle);
+        },
+        else => return null,
+    }
 }
 
 /// Resolves a relative file path to an absolute path using the terminal's pwd.

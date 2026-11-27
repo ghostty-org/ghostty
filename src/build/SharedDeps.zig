@@ -224,8 +224,14 @@ pub fn add(
     // POSIX C imports that are used throughout Ghostty on a general basis.
     // (note: errno is C stdlib but we just include it here because that's
     // where it's generally included otherwise)
+    // Windows has no pwd.h or unistd.h, so only the portable headers are
+    // included there. Code that needs the POSIX-only declarations must be
+    // gated on the OS, which Zig's lazy analysis already requires.
     try translate_c.addImportToModule(b, "posix_c", step.root_module, .{
-        .source = .{ .includes = .{ .files = &.{
+        .source = .{ .includes = .{ .files = if (target.result.os.tag == .windows) &.{
+            .{ .path = "errno.h" },
+            .{ .path = "signal.h" },
+        } else &.{
             .{ .path = "errno.h" },
             .{ .path = "pwd.h" },
             .{ .path = "signal.h" },
@@ -697,7 +703,7 @@ pub fn add(
         }
 
         switch (self.config.app_runtime) {
-            .none => {},
+            .none, .win32 => {},
             .gtk => try self.addGtk(step),
         }
     }

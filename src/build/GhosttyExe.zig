@@ -44,6 +44,12 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     switch (cfg.target.result.os.tag) {
         .windows => {
             exe.subsystem = .windows;
+
+            // The windows subsystem makes the C runtime look for WinMain,
+            // but our entry point is a plain main. Starting from the
+            // console-style entry avoids a console window all the same,
+            // because the subsystem is what decides that.
+            exe.entry = .{ .symbol_name = "mainCRTStartup" };
             exe.root_module.addWin32ResourceFile(.{
                 .file = b.path("dist/windows/ghostty.rc"),
             });

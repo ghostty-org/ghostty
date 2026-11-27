@@ -11,6 +11,11 @@ pub const Runtime = enum {
     /// approach to building the application.
     gtk,
 
+    /// Native Win32 application. Draws the frames the OpenGL renderer
+    /// exports into a window and runs the shell through ConPTY. It is never
+    /// the default, so it must be requested with `-Dapp-runtime=win32`.
+    win32,
+
     pub fn default(target: std.Target) Runtime {
         return switch (target.os.tag) {
             // The Linux and FreeBSD default is GTK because it is a full

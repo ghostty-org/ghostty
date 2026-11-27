@@ -150,6 +150,10 @@ pub fn exportDmabuf(
     display: *egl.Display,
     context: *egl.Context,
 ) !Dmabuf {
+    // DMABUF export is a Linux (EGL + GBM) mechanism. Other platforms
+    // present the framebuffer directly and never reach this function.
+    if (comptime @import("builtin").os.tag == .windows) return error.DmabufUnsupported;
+
     // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise
     // the values may be linearized as they're copied, but even though
     // the draw framebuffer has a linear internal format, the values in

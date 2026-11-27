@@ -14,6 +14,29 @@ pub const std = @import("std");
 /// This matches the maximum found in apprts such as GTK.
 pub const max_planes = 4;
 
+/// Marker for a plane without a file descriptor. Windows file handles are
+/// pointers rather than integers, so a plain -1 does not type check there.
+/// DMABUFs are only produced on Linux, but this file must still compile.
+const invalid_fd: std.posix.fd_t = switch (@typeInfo(std.posix.fd_t)) {
+    .pointer => @ptrFromInt(std.math.maxInt(usize)),
+    else => -1,
+};
+
+fn closeFd(fd: std.posix.fd_t) void {
+    if (comptime @typeInfo(std.posix.fd_t) == .pointer) {
+        // DMABUFs never exist on Windows, so there is nothing to close.
+        return;
+    }
+    _ = std.posix.system.close(fd);
+}
+
+fn isValidFd(fd: std.posix.fd_t) bool {
+    return fd != invalid_fd and switch (@typeInfo(std.posix.fd_t)) {
+        .pointer => true,
+        else => fd >= 0,
+    };
+}
+
 /// Width of the texture in device pixels.
 width: u32,
 
@@ -41,7 +64,7 @@ pub const Planes = struct {
     count: u8,
 
     /// File descriptor for each plane.
-    fds: [max_planes]std.posix.fd_t = @splat(-1),
+    fds: [max_planes]std.posix.fd_t = @splat(invalid_fd),
 
     /// Offset into the DMABUF where each plane starts, in bytes.
     offsets: [max_planes]c_int = @splat(0),
@@ -52,7 +75,7 @@ pub const Planes = struct {
     /// Close all valid fds.
     pub fn deinit(self: Planes) void {
         for (self.fds[0..self.count]) |fd| {
-            if (fd >= 0) _ = std.posix.system.close(fd);
+            if (isValidFd(fd)) closeFd(fd);
         }
     }
 
@@ -62,8 +85,8 @@ pub const Planes = struct {
     pub fn validate(self: Planes) error{BadDmabuf}!void {
         var n_valid: usize = 0;
         while (n_valid < self.count) : (n_valid += 1) {
-            if (self.fds[n_valid] < 0) {
-                for (self.fds[0..n_valid]) |bad| _ = std.posix.system.close(bad);
+            if (!isValidFd(self.fds[n_valid])) {
+                for (self.fds[0..n_valid]) |bad| closeFd(bad);
                 return error.BadDmabuf;
             }
         }

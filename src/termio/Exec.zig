@@ -123,8 +123,8 @@ pub fn threadEnter(
     // Create our pipe that we'll use to kill our read thread.
     // pipe[0] is the read end, pipe[1] is the write end.
     const pipe = try internal_os.pipe();
-    errdefer _ = posix.system.close(pipe[0]);
-    errdefer _ = posix.system.close(pipe[1]);
+    errdefer closeFd(pipe[0]);
+    errdefer closeFd(pipe[1]);
 
     // Setup our stream so that we can write.
     var stream = xev.Stream.initFd(pty_fds.write);
@@ -193,6 +193,16 @@ pub fn threadEnter(
     }
 }
 
+/// Close a pipe end. On Windows these are HANDLEs, which the C runtime's
+/// close() does not understand.
+fn closeFd(fd: posix.fd_t) void {
+    if (comptime builtin.target.os.tag == .windows) {
+        _ = windows.exp.kernel32.CloseHandle(fd);
+        return;
+    }
+    _ = posix.system.close(fd);
+}
+
 pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     assert(td.backend == .exec);
     const exec = &td.backend.exec;
@@ -203,7 +213,13 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     // Quit our read thread after exiting the subprocess so that
     // we don't get stuck waiting for data to stop flowing if it is
     // a particularly noisy process.
-    switch (posix.errno(posix.system.write(exec.read_thread_pipe, "x", 1))) {
+    if (comptime builtin.target.os.tag == .windows) {
+        // The pipe is a HANDLE here, so it is written with WriteFile.
+        // A failure means the read thread already closed its end, which
+        // is what we were trying to achieve anyway.
+        var written: windows.DWORD = 0;
+        _ = windows.exp.kernel32.WriteFile(exec.read_thread_pipe, "x", 1, &written, null);
+    } else switch (posix.errno(posix.system.write(exec.read_thread_pipe, "x", 1))) {
         .SUCCESS => {},
 
         // EPIPE means that our read thread is closed already, which is
@@ -547,7 +563,7 @@ pub const ThreadData = struct {
     termios_mode: ptypkg.Mode = .{},
 
     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
-        _ = posix.system.close(self.read_thread_pipe);
+        closeFd(self.read_thread_pipe);
 
         // Clear our write pool. We know we aren't ever going to do
         // any more IO since we stop our data stream below so we can just
@@ -787,9 +803,11 @@ const Subprocess = struct {
 
                 .detect => null,
                 .bash => .bash,
+                .cmd => .cmd,
                 .elvish => .elvish,
                 .fish => .fish,
                 .nushell => .nushell,
+                .powershell => .powershell,
                 .zsh => .zsh,
             };
 
@@ -1411,7 +1429,7 @@ pub const ReadThread = struct {
 
     fn threadMainPosix(fd: posix.fd_t, io: *termio.Termio, quit: posix.fd_t) void {
         // Always close our end of the pipe when we exit.
-        defer _ = posix.system.close(quit);
+        defer closeFd(quit);
 
         // Right now, on Darwin, `std.Thread.setName` can only name the current
         // thread, and we have no way to get the current thread from within it,
@@ -1777,7 +1795,7 @@ pub const ReadThread = struct {
 
     fn threadMainWindows(fd: posix.fd_t, io: *termio.Termio, quit: posix.fd_t) void {
         // Always close our end of the pipe when we exit.
-        defer _ = posix.system.close(quit);
+        defer closeFd(quit);
 
         // Setup our crash metadata
         crash.sentry.thread_state = .{
@@ -2000,11 +2018,11 @@ fn execCommand(
                             try alloc.dupe(u8, v)
                     else
                         try alloc.dupe(u8, v);
-                    try args.append(alloc, try alloc.dupeSentinel(u8, argv0), 0);
+                    try args.append(alloc, try alloc.dupeSentinel(u8, argv0, 0));
                 } else {
                     var it = std.mem.tokenizeAny(u8, v, " \t");
                     while (it.next()) |tok| {
-                        try args.append(alloc, try alloc.dupeSentinel(u8, tok), 0);
+                        try args.append(alloc, try alloc.dupeSentinel(u8, tok, 0));
                     }
                 }
                 break :shell try args.toOwnedSlice(alloc);

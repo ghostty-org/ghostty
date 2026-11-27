@@ -13,9 +13,11 @@ const log = std.log.scoped(.shell_integration);
 /// Shell types we support
 pub const Shell = enum {
     bash,
+    cmd,
     elvish,
     fish,
     nushell,
+    powershell,
     zsh,
 };
 
@@ -72,6 +74,10 @@ pub fn setup(
             resource_dir,
             env,
         ),
+
+        .powershell => try setupPowerShell(alloc_arena, command, resource_dir),
+
+        .cmd => try setupCmd(alloc_arena, command, env),
 
         .elvish, .fish => xdg: {
             if (!try setupXdgDataDirs(alloc_arena, resource_dir, env)) return null;
@@ -156,6 +162,13 @@ fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
             }
         }
         return .bash;
+    }
+
+    // On Windows programs are named with an extension and in any case.
+    if (comptime builtin.target.os.tag == .windows) {
+        const name = if (std.ascii.endsWithIgnoreCase(exe, ".exe")) exe[0 .. exe.len - 4] else exe;
+        if (std.ascii.eqlIgnoreCase(name, "pwsh") or std.ascii.eqlIgnoreCase(name, "powershell")) return .powershell;
+        if (std.ascii.eqlIgnoreCase(name, "cmd")) return .cmd;
     }
 
     if (std.mem.eql(u8, "elvish", exe)) return .elvish;
@@ -284,6 +297,95 @@ test "setup features" {
         try setupFeatures(&env, .{ .cursor = true, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false }, false);
         try testing.expectEqualStrings("cursor:steady", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
+}
+
+/// Set up PowerShell's integration. PowerShell has no startup file that can
+/// be pointed at ours, so it is started with a command that loads the
+/// integration script and then stays open for the user. The script is read
+/// and run as text rather than as a file, so the system's script execution
+/// policy does not get in the way and is not weakened for the session.
+///
+/// Returns null when the integration cannot be set up, including when the
+/// command has arguments of its own, since those would conflict with ours.
+fn setupPowerShell(
+    alloc: Allocator,
+    command: config.Command,
+    resource_dir: []const u8,
+) !?config.Command {
+    var iter = try command.argIterator(alloc);
+    defer iter.deinit();
+
+    const exe = iter.next() orelse return null;
+    if (iter.next() != null) return null;
+
+    var script_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const script_path = try std.mem.print(
+        &script_path_buf,
+        "{s}/shell-integration/powershell/ghostty-integration.ps1",
+        .{resource_dir},
+    );
+    if (std.Io.Dir.openFileAbsolute(global.io(), script_path, .{})) |file| {
+        file.close(global.io());
+    } else |err| {
+        log.warn("unable to open {s}: {}", .{ script_path, err });
+        return null;
+    }
+
+    // The path sits inside single quotes in the startup command, so any
+    // single quote in it is doubled.
+    var quoted_buf: std.Io.Writer.Allocating = .init(alloc);
+    defer quoted_buf.deinit();
+    for (script_path) |ch| {
+        if (ch == '\'') try quoted_buf.writer.writeByte('\'');
+        try quoted_buf.writer.writeByte(ch);
+    }
+
+    const startup = try std.mem.concat(alloc, u8, &.{
+        ". ([scriptblock]::Create([IO.File]::ReadAllText('",
+        quoted_buf.written(),
+        "')))",
+    });
+    defer alloc.free(startup);
+
+    const args = try alloc.alloc([:0]const u8, 5);
+    args[0] = try alloc.dupeSentinel(u8, exe, 0);
+    args[1] = try alloc.dupeSentinel(u8, "-NoLogo", 0);
+    args[2] = try alloc.dupeSentinel(u8, "-NoExit", 0);
+    args[3] = try alloc.dupeSentinel(u8, "-Command", 0);
+    args[4] = try alloc.dupeSentinel(u8, startup, 0);
+    return .{ .direct = args };
+}
+
+/// Set up the integration for cmd.exe. cmd has no hooks, but its prompt can
+/// carry escape sequences. Wrapping the prompt in the sequences that mark
+/// where a prompt starts and ends is all that can be done, and it is enough
+/// for Ghostty to jump between prompts.
+fn setupCmd(
+    alloc: Allocator,
+    command: config.Command,
+    env: *EnvMap,
+) !?config.Command {
+    // Running a single command with /c is not an interactive prompt.
+    var iter = try command.argIterator(alloc);
+    defer iter.deinit();
+    _ = iter.next() orelse return null;
+    while (iter.next()) |arg| {
+        if (std.ascii.eqlIgnoreCase(arg, "/c") or std.ascii.eqlIgnoreCase(arg, "/r")) return null;
+    }
+
+    // In a prompt string, $E is the escape character, and the escape
+    // character followed by a backslash ends an operating system command.
+    const terminator = "$E" ++ [_]u8{0x5C};
+    const start = "$E]133;A" ++ terminator;
+    const end = "$E]133;B" ++ terminator;
+
+    // Keep whatever prompt the user has set. cmd's own default is $P$G.
+    const base = env.get("PROMPT") orelse "$P$G";
+    const prompt = try std.mem.concat(alloc, u8, &.{ start, base, end });
+    defer alloc.free(prompt);
+    try env.put("PROMPT", prompt);
+
+    return try command.clone(alloc);
 }
 
 /// Setup the bash automatic shell integration. This works by
@@ -1039,6 +1141,10 @@ const TmpResourcesDir = struct {
         switch (shell) {
             .bash => try tmp_dir.dir.writeFile(std.testing.io, .{
                 .sub_path = "shell-integration/bash/ghostty.bash",
+                .data = "",
+            }),
+            .powershell => try tmp_dir.dir.writeFile(std.testing.io, .{
+                .sub_path = "shell-integration/powershell/ghostty-integration.ps1",
                 .data = "",
             }),
             else => {},

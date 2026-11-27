@@ -39,7 +39,7 @@ pub const StreamHandler = struct {
 
     /// A handle to wake up the renderer. This hints to the renderer that
     /// a repaint should happen.
-    renderer_wakeup: xev.Async,
+    renderer_wakeup: *xev.Async,
 
     /// The response to use for ENQ requests. The memory is owned by
     /// whoever owns StreamHandler.
@@ -1539,11 +1539,6 @@ pub const StreamHandler = struct {
             return;
         }
 
-        if (builtin.target.os.tag == .windows) {
-            log.warn("reportPwd unimplemented on windows", .{});
-            return;
-        }
-
         // Attempt to parse this file-style URI using options appropriate
         // for this OSC 7 context (e.g. kitty-shell-cwd expects the full,
         // unencoded path).
@@ -1596,7 +1591,14 @@ pub const StreamHandler = struct {
         var stack_alloc_buf: [1024]u8 = undefined;
         var stack_alloc: std.heap.BufferFirstAllocator = .init(&stack_alloc_buf, arena_alloc.allocator());
         defer arena_alloc.deinit();
-        const path = try uri.path.toRawMaybeAlloc(stack_alloc.allocator());
+        var path = try uri.path.toRawMaybeAlloc(stack_alloc.allocator());
+
+        // A Windows folder arrives as "/C:/Users/me". Everything else in
+        // Ghostty expects the native form, "C:\Users\me".
+        if (comptime builtin.target.os.tag == .windows) {
+            const native = try stack_alloc.allocator().dupe(u8, path);
+            path = windowsPathFromUriPath(native);
+        }
 
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);
@@ -2152,4 +2154,29 @@ test "tmux active_window notification is handled" {
     try handler.dcsCommand(&pane);
     try testing.expect(!handler.termio_messaged);
     try testing.expect(mailbox.spsc.queue.pop(global.io()) == null);
+}
+
+/// Turn the path of a file URI into a Windows path, in place. The URI form
+/// puts a slash before the drive letter and uses slashes between folders.
+fn windowsPathFromUriPath(path: []u8) []u8 {
+    var result = path;
+    if (result.len >= 3 and result[0] == '/' and std.ascii.isAlphabetic(result[1]) and result[2] == ':') {
+        result = result[1..];
+    }
+    for (result) |*ch| {
+        if (ch.* == '/') ch.* = '\\';
+    }
+    return result;
+}
+
+test "windowsPathFromUriPath drops the leading slash and flips separators" {
+    var drive = "/C:/Users/me/work".*;
+    try std.testing.expectEqualStrings("C:\\Users\\me\\work", windowsPathFromUriPath(&drive));
+
+    var root = "/D:/".*;
+    try std.testing.expectEqualStrings("D:\\", windowsPathFromUriPath(&root));
+
+    // A path without a drive keeps its shape, apart from the separators.
+    var plain = "/tmp/x".*;
+    try std.testing.expectEqualStrings("\\tmp\\x", windowsPathFromUriPath(&plain));
 }

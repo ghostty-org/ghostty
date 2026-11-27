@@ -27,6 +27,7 @@ pub const LARGE_INTEGER = windows.LARGE_INTEGER;
 pub const LPCWSTR = windows.LPCWSTR;
 pub const LPSTR = windows.LPSTR;
 pub const LPVOID = windows.LPVOID;
+pub const LPCVOID = *const anyopaque;
 pub const LPWSTR = windows.LPWSTR;
 pub const PVOID = windows.PVOID;
 pub const SIZE_T = windows.SIZE_T;
@@ -267,6 +268,13 @@ pub const exp = struct {
             lpNumberOfBytesRead: ?*DWORD,
             lpOverlapped: ?*OVERLAPPED,
         ) callconv(.winapi) BOOL;
+        pub extern "kernel32" fn WriteFile(
+            hFile: HANDLE,
+            lpBuffer: LPCVOID,
+            nNumberOfBytesToWrite: DWORD,
+            lpNumberOfBytesWritten: ?*DWORD,
+            lpOverlapped: ?*OVERLAPPED,
+        ) callconv(.winapi) BOOL;
         /// https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew
         pub extern "kernel32" fn GetFinalPathNameByHandleW(
             hFile: HANDLE,
@@ -375,4 +383,140 @@ pub fn ProcThreadAttributeValue(
         (if (thread) PROC_THREAD_ATTRIBUTE_THREAD else 0) |
         (if (input) PROC_THREAD_ATTRIBUTE_INPUT else 0) |
         (if (additive) PROC_THREAD_ATTRIBUTE_ADDITIVE else 0);
+}
+
+/// Ghostty is a Windows GUI program, so a console it was started from is
+/// not connected to it by default and `ghostty +version` would print
+/// nothing. This connects the program's output to the console it was
+/// started from, when there is one and output has not been redirected.
+pub fn attachParentConsole() void {
+    const attach_parent_process: u32 = 0xFFFFFFFF;
+    const std_input_handle: u32 = @bitCast(@as(i32, -10));
+    const std_output_handle: u32 = @bitCast(@as(i32, -11));
+    const std_error_handle: u32 = @bitCast(@as(i32, -12));
+
+    const k = struct {
+        extern "kernel32" fn AttachConsole(pid: u32) callconv(.winapi) i32;
+        extern "kernel32" fn GetStdHandle(which: u32) callconv(.winapi) ?*anyopaque;
+        extern "kernel32" fn SetStdHandle(which: u32, handle: ?*anyopaque) callconv(.winapi) i32;
+        extern "kernel32" fn GetConsoleMode(handle: ?*anyopaque, mode: *u32) callconv(.winapi) i32;
+        extern "kernel32" fn SetConsoleMode(handle: ?*anyopaque, mode: u32) callconv(.winapi) i32;
+        extern "kernel32" fn CreateFileW(
+            name: [*:0]const u16,
+            access: u32,
+            share: u32,
+            security: ?*anyopaque,
+            disposition: u32,
+            flags: u32,
+            template: ?*anyopaque,
+        ) callconv(.winapi) ?*anyopaque;
+    };
+
+    // Output that was redirected to a file or pipe already works.
+    const invalid: usize = std.math.maxInt(usize);
+    const existing = k.GetStdHandle(std_output_handle);
+    if (existing != null and @intFromPtr(existing.?) != invalid) return;
+
+    if (k.AttachConsole(attach_parent_process) == 0) return;
+
+    const generic_read: u32 = 0x80000000;
+    const generic_write: u32 = 0x40000000;
+    const share_read_write: u32 = 3;
+    const open_existing: u32 = 3;
+
+    const out = k.CreateFileW(std.unicode.utf8ToUtf16LeStringLiteral("CONOUT$"), generic_read | generic_write, share_read_write, null, open_existing, 0, null);
+    if (out != null and @intFromPtr(out.?) != invalid) {
+        _ = k.SetStdHandle(std_output_handle, out);
+        _ = k.SetStdHandle(std_error_handle, out);
+
+        // Older consoles print escape sequences, like the ones that make
+        // links clickable, as text unless they are asked to interpret them.
+        var mode: u32 = 0;
+        if (k.GetConsoleMode(out, &mode) != 0) {
+            const processed_output: u32 = 0x1;
+            const virtual_terminal_processing: u32 = 0x4;
+            _ = k.SetConsoleMode(out, mode | processed_output | virtual_terminal_processing);
+        }
+    }
+    const in = k.CreateFileW(std.unicode.utf8ToUtf16LeStringLiteral("CONIN$"), generic_read | generic_write, share_read_write, null, open_existing, 0, null);
+    if (in != null and @intFromPtr(in.?) != invalid) _ = k.SetStdHandle(std_input_handle, in);
+}
+
+/// True when the command line has a Ghostty CLI action, which is an
+/// argument starting with a plus sign such as `+version`.
+pub fn commandLineHasAction() bool {
+    const get_command_line = struct {
+        extern "kernel32" fn GetCommandLineW() callconv(.winapi) [*:0]const u16;
+    }.GetCommandLineW;
+    const text = std.mem.span(get_command_line());
+    var i: usize = 0;
+    while (i + 1 < text.len) : (i += 1) {
+        if (text[i] == ' ' and text[i + 1] == '+') return true;
+    }
+    return false;
+}
+
+/// The current directory of another process, or null when it cannot be
+/// read. Windows does not report a program's folder to anyone else, so this
+/// reads it out of the process's own memory: the process environment block
+/// points to its startup parameters, and those hold the folder.
+///
+/// The handle needs query and read-memory access, which the handle returned
+/// when the process was created already has.
+pub fn currentDirectoryOfProcess(alloc: std.mem.Allocator, process: HANDLE) std.mem.Allocator.Error!?[]u8 {
+    const k = struct {
+        const BasicInformation = extern struct {
+            exit_status: isize,
+            peb_base_address: ?*anyopaque,
+            affinity_mask: usize,
+            base_priority: isize,
+            unique_process_id: usize,
+            inherited_from: usize,
+        };
+        extern "ntdll" fn NtQueryInformationProcess(
+            process: ?*anyopaque,
+            class: u32,
+            info: *anyopaque,
+            len: u32,
+            returned: ?*u32,
+        ) callconv(.winapi) i32;
+        extern "kernel32" fn ReadProcessMemory(
+            process: ?*anyopaque,
+            address: ?*const anyopaque,
+            buffer: *anyopaque,
+            size: usize,
+            read: ?*usize,
+        ) callconv(.winapi) i32;
+    };
+
+    // These offsets are for 64-bit Windows.
+    const peb_process_parameters_offset = 0x20;
+    const parameters_current_directory_offset = 0x38;
+
+    var info: k.BasicInformation = undefined;
+    if (k.NtQueryInformationProcess(process, 0, &info, @sizeOf(k.BasicInformation), null) != 0) return null;
+    const peb = info.peb_base_address orelse return null;
+
+    var parameters: ?*anyopaque = null;
+    if (k.ReadProcessMemory(process, @ptrFromInt(@intFromPtr(peb) + peb_process_parameters_offset), @ptrCast(&parameters), @sizeOf(usize), null) == 0) return null;
+    const params = parameters orelse return null;
+
+    // A UNICODE_STRING: a byte length, a capacity, then a pointer.
+    const UnicodeString = extern struct { length: u16, maximum_length: u16, buffer: ?*anyopaque };
+    var path: UnicodeString = undefined;
+    if (k.ReadProcessMemory(process, @ptrFromInt(@intFromPtr(params) + parameters_current_directory_offset), &path, @sizeOf(UnicodeString), null) == 0) return null;
+    const buffer = path.buffer orelse return null;
+    if (path.length == 0 or path.length % 2 != 0 or path.length > 32768) return null;
+
+    const wide = try alloc.alloc(u16, path.length / 2);
+    defer alloc.free(wide);
+    if (k.ReadProcessMemory(process, buffer, wide.ptr, path.length, null) == 0) return null;
+
+    // The folder ends with a backslash, except for a drive root like C:\.
+    var end = wide.len;
+    if (end > 3 and wide[end - 1] == '\\') end -= 1;
+    return std.unicode.utf16LeToUtf8Alloc(alloc, wide[0..end]) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
 }
