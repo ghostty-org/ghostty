@@ -89,6 +89,8 @@ pub fn FormatStruct(comptime vars: []const Variable) type {
 /// a subset of them here that are relevant to the use case of implementing
 /// control mode for terminal emulators.
 pub const Variable = enum {
+    /// iTerm2-compatible native window grouping stored in a session option.
+    @"@affinities",
     /// 1 if pane is in alternate screen.
     alternate_on,
     /// Saved cursor X in alternate screen.
@@ -203,6 +205,7 @@ pub const Variable = enum {
                 return error.FormatError,
             .window_width => try std.fmt.parseInt(usize, value, 10),
             .window_height => try std.fmt.parseInt(usize, value, 10),
+            .@"@affinities",
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
@@ -243,6 +246,7 @@ pub const Variable = enum {
             .window_width,
             .window_height,
             => usize,
+            .@"@affinities",
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
@@ -456,6 +460,11 @@ test "parse cursor_colour" {
     try testing.expectEqualStrings("", try Variable.parse(.cursor_colour, ""));
 }
 
+test "parse affinities" {
+    try testing.expectEqualStrings("0,1|2,3", try Variable.parse(.@"@affinities", "0,1|2,3"));
+    try testing.expectEqualStrings("", try Variable.parse(.@"@affinities", ""));
+}
+
 test "parse cursor_shape" {
     try testing.expectEqualStrings("block", try Variable.parse(.cursor_shape, "block"));
     try testing.expectEqualStrings("underline", try Variable.parse(.cursor_shape, "underline"));
@@ -550,6 +559,10 @@ fn testFormat(
 
 test "format single variable" {
     try testFormat(&.{.session_id}, ' ', "#{session_id}");
+}
+
+test "format affinities option" {
+    try testFormat(&.{.@"@affinities"}, ' ', "#{@affinities}");
 }
 
 test "format multiple variables" {
