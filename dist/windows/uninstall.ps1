@@ -21,11 +21,12 @@ if ($running) { throw "Ghostty is running from $installedExe. Close it and run t
 # install.ps1 records where it put the command and shortcut.
 $settings = @{}
 $configFile = Join-Path $InstallDir 'uninstall.config'
-if (Test-Path $configFile) {
-    Get-Content $configFile | ForEach-Object {
-        $name, $value = $_ -split '=', 2
-        if ($name) { $settings[$name] = $value }
-    }
+if (-not (Test-Path $configFile)) {
+    throw "$InstallDir is not a Ghostty install (uninstall.config is missing). Run the uninstall.ps1 inside the install folder, or pass -InstallDir."
+}
+Get-Content $configFile | ForEach-Object {
+    $name, $value = $_ -split '=', 2
+    if ($name) { $settings[$name] = $value }
 }
 
 if ($settings.ShimDir) {
