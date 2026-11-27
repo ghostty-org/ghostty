@@ -89,7 +89,7 @@ jobs:
             /nix
             /zig
 
-      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
