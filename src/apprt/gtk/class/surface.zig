@@ -647,6 +647,7 @@ pub const Surface = extern struct {
 
         /// The RenderSurface that displays the rendered output of the surface.
         render_surface: *RenderSurface,
+        graphics_offload: *gtk.GraphicsOffload,
 
         /// The labels for the left/right sides of the URL hover tooltip.
         url_left: *gtk.Label,
@@ -2438,6 +2439,9 @@ pub const Surface = extern struct {
         const priv = self.private();
         const config = if (priv.config) |c| c.get() else return;
 
+        // A black offload background would hide content behind transparent terminals.
+        priv.graphics_offload.setBlackBackground(@intFromBool(config.@"background-opacity" >= 1));
+
         // window-padding-x, window-padding-y
         self.syncSplitMinSize();
 
@@ -3980,6 +3984,7 @@ pub const Surface = extern struct {
 
             // Bindings
             class.bindTemplateChildPrivate("render_surface", .{});
+            class.bindTemplateChildPrivate("graphics_offload", .{});
             class.bindTemplateChildPrivate("url_left", .{});
             class.bindTemplateChildPrivate("url_right", .{});
             class.bindTemplateChildPrivate("child_exited_overlay", .{});

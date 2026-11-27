@@ -20,16 +20,22 @@ Overlay terminal_page {
     hexpand: true;
     vexpand: true;
 
-    $GhosttyRenderSurface render_surface {
-      realize => $render_surface_realize();
-      unrealize => $render_surface_unrealize();
-      map => $render_surface_map();
-      unmap => $render_surface_unmap();
-      resize => $render_surface_resize();
+    GraphicsOffload graphics_offload {
       hexpand: true;
       vexpand: true;
-      focusable: true;
-      focus-on-click: true;
+      enabled: enabled;
+
+      child: $GhosttyRenderSurface render_surface {
+        realize => $render_surface_realize();
+        unrealize => $render_surface_unrealize();
+        map => $render_surface_map();
+        unmap => $render_surface_unmap();
+        resize => $render_surface_resize();
+        hexpand: true;
+        vexpand: true;
+        focusable: true;
+        focus-on-click: true;
+      };
     }
 
     PopoverMenu context_menu {
