@@ -589,7 +589,8 @@ fn modesTable(t: *Terminal) void {
         cimgui.c.ImGui_TableHeadersRow();
     }
 
-    inline for (@typeInfo(terminal.Mode).@"enum".field_names, @typeInfo(terminal.Mode).@"enum".field_values) |field, field_value| {
+    const info = @typeInfo(terminal.Mode).@"enum";
+    inline for (info.field_names, info.field_values) |field, field_value| {
         @setEvalBranchQuota(6000);
         const tag: modes.ModeTag = @bitCast(@as(modes.ModeTag.Backing, field_value));
 
@@ -598,7 +599,7 @@ fn modesTable(t: *Terminal) void {
         defer cimgui.c.ImGui_PopID();
         {
             _ = cimgui.c.ImGui_TableSetColumnIndex(0);
-            var value: bool = t.modes.get(@field(terminal.Mode, field));
+            var value: bool = t.getMode(@field(terminal.Mode, field));
             _ = cimgui.c.ImGui_Checkbox("##checkbox", &value);
         }
         {
