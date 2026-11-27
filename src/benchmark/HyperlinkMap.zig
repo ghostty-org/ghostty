@@ -82,6 +82,7 @@ pub fn create(alloc: Allocator, opts: Options) !*HyperlinkMap {
     );
     for (0..entry_count) |x| {
         const rac = page.getRowAndCell(x, 0);
+        rac.row.markWritten(x + 1);
         page.hyperlink_set.use(page.memory, link_id);
         try page.setHyperlink(rac.row, rac.cell, link_id);
     }

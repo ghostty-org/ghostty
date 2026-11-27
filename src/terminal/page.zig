@@ -332,10 +332,41 @@ pub const Page = struct {
 
     /// Reinitialize the page with the same capacity.
     pub inline fn reinit(self: *Page) void {
-        // We zero the page memory as u64 instead of u8 because
-        // we can and it's empirically quite a bit faster.
-        @memset(@as([*]u64, @ptrCast(self.memory))[0 .. self.memory.len / 8], 0);
+        self.zeroMemory();
         self.* = initBuf(.init(self.memory), layout(self.capacity));
+    }
+
+    /// Zero the backing memory for reuse. The page must be reinitialized
+    /// with `initBuf` before it is used again. This skips cells that are
+    /// already known to be zero (see `Row.extent`).
+    ///
+    /// Cells outside `size` must be zeroed when removed (see `resetRow`),
+    /// since growing the page can expose them again without clearing them.
+    pub fn zeroMemory(self: *Page) void {
+        const rows = self.rows.ptr(self.memory)[0..self.size.rows];
+        const cells_len = @as(usize, self.capacity.rows) * self.capacity.cols;
+
+        // Zeroing row by row only pays off when most of the grid is still
+        // zero. For a page that is a quarter full or more, one memset over
+        // all of the memory is faster.
+        const dense = cells_len / 4;
+        var written: usize = 0;
+        for (rows) |row| {
+            written += row.extent;
+            if (written >= dense) {
+                @memset(@as([]u64, @ptrCast(self.memory)), 0);
+                return;
+            }
+        }
+
+        for (rows) |*row| {
+            Cell.zeroAll(self.getContentCells(row));
+        }
+
+        // The row headers, then the metadata after the grid (see `layout`).
+        const all_rows = self.rows.ptr(self.memory)[0..self.capacity.rows];
+        @memset(std.mem.sliceAsBytes(all_rows), 0);
+        @memset(self.memory[self.cells.offset + cells_len * @sizeOf(Cell) ..], 0);
     }
 
     pub const IntegrityError = error{
@@ -356,7 +387,9 @@ pub const Page = struct {
         InvalidSpacerTailLocation,
         InvalidSpacerHeadLocation,
         UnwrappedSpacerHead,
-        BlankRowHasContent,
+        BlankRowHasManagedMemory,
+        ExtentBeyondCols,
+        ContentBeyondExtent,
     };
 
     /// Temporarily pause integrity checks. This is useful when you are
@@ -440,24 +473,29 @@ pub const Page = struct {
             const graphemes_start = graphemes_seen;
             const cells = row.cells.ptr(self.memory)[0..self.size.cols];
 
-            // A row marked blank must contain only zero cells and must
-            // not use any managed memory. See Row.blank.
-            if (row.blank) {
-                if (row.managedMemory()) {
+            // A blank row must not use any managed memory, and no row may
+            // have content at or right of its extent. See Row.extent.
+            if (row.isBlank() and row.managedMemory()) {
+                log.warn(
+                    "page integrity violation y={} blank row has managed memory",
+                    .{y},
+                );
+                return IntegrityError.BlankRowHasManagedMemory;
+            }
+            if (row.extent > cells.len) {
+                log.warn(
+                    "page integrity violation y={} extent={} beyond cols",
+                    .{ y, row.extent },
+                );
+                return IntegrityError.ExtentBeyondCols;
+            }
+            for (cells[row.extent..], row.extent..) |*cell, x| {
+                if (!cell.isZero()) {
                     log.warn(
-                        "page integrity violation y={} blank row has managed memory",
-                        .{y},
+                        "page integrity violation y={} x={} content beyond row extent={}",
+                        .{ y, x, row.extent },
                     );
-                    return IntegrityError.BlankRowHasContent;
-                }
-                for (cells, 0..) |*cell, x| {
-                    if (!cell.isZero()) {
-                        log.warn(
-                            "page integrity violation y={} x={} blank row has content",
-                            .{ y, x },
-                        );
-                        return IntegrityError.BlankRowHasContent;
-                    }
+                    return IntegrityError.ContentBeyondExtent;
                 }
             }
 
@@ -926,9 +964,17 @@ pub const Page = struct {
         // clear some state. This will free up the managed memory as well.
         if (dst_row.managedMemory()) self.clearCells(dst_row, x_start, x_end, .{});
 
+        // The copied cells have content only left of the source extent.
+        // A copy starting at or past the source extent adds no content.
+        const copied_end: usize = if (src_row.extent <= x_start) 0 else @min(x_end, src_row.extent);
+
         // Copy all the row metadata but keep our cells offset
         dst_row.* = copy: {
             var copy = src_row.*;
+
+            // Until the copy succeeds, the extent also covers our old
+            // cells, since a failed copy leaves some of them.
+            copy.extent = @max(@as(u16, @intCast(copied_end)), dst_row.extent);
 
             // If we're not copying the full row then we want to preserve
             // some original state from our dst row.
@@ -938,9 +984,6 @@ pub const Page = struct {
                 copy.grapheme = dst_row.grapheme;
                 copy.hyperlink = dst_row.hyperlink;
                 copy.styled = dst_row.styled;
-
-                // Empty only if both the copied and kept parts were.
-                copy.blank = dst_row.blank and src_row.blank;
                 copy.dirty |= dst_row.dirty;
 
                 // The kept part may have placeholders. Like styled, this
@@ -1106,6 +1149,9 @@ pub const Page = struct {
                 last.wide = .narrow;
             }
         }
+
+        // A full copy replaced all of our old cells.
+        if ((x_end - x_start) == self.size.cols) dst_row.markZeroFrom(copied_end);
     }
 
     /// Get a single row. y must be valid.
@@ -1115,7 +1161,7 @@ pub const Page = struct {
     }
 
     /// Get the cells for a row.
-    pub inline fn getCells(self: *const Page, row: *Row) []Cell {
+    pub inline fn getCells(self: *const Page, row: *const Row) []Cell {
         if (build_options.slow_runtime_safety) {
             const rows = self.rows.ptr(self.memory);
             const cells = self.cells.ptr(self.memory);
@@ -1125,6 +1171,11 @@ pub const Page = struct {
 
         const cells = row.cells.ptr(self.memory);
         return cells[0..self.size.cols];
+    }
+
+    /// Get the prefix of a row that may contain nonzero cells.
+    pub inline fn getContentCells(self: *const Page, row: *const Row) []Cell {
+        return self.getCells(row)[0..row.extent];
     }
 
     /// Get the row and cell for the given X/Y within this page.
@@ -1162,7 +1213,7 @@ pub const Page = struct {
         self.clearCells(dst_row, dst_left, dst_left + len, .{});
 
         // The source cells may have content.
-        dst_row.blank = false;
+        dst_row.markWritten(dst_left + len);
 
         // A partial move keeps the destination's other cells, so the row
         // needs a mark that covers both.
@@ -1291,14 +1342,14 @@ pub const Page = struct {
     /// and it will still be ref counted down. The best solution for this is
     /// to artificially increment the ref count prior to calling this function.
     ///
-    /// This also updates `Row.blank`. A full-row clear with a zero blank cell
-    /// sets it, a colored blank cell clears it, and a partial clear with a
-    /// zero blank cell leaves it unchanged.
+    /// This also updates the row's extent (see `Row.extent`). A clear with a
+    /// zero blank cell that reaches the extent lowers it to `left`, and a
+    /// colored blank cell raises it to `end`.
     ///
-    /// Clearing any part of a row marked blank with a zero blank cell does
+    /// Clearing cells at or right of the extent with a zero blank cell does
     /// nothing, since the cells are already zero and there is no managed
     /// memory to release. Full-screen programs often erase lines (EL, ECH)
-    /// that are already empty when they redraw.
+    /// that are already empty, or their empty ends, when they redraw.
     pub inline fn clearCells(
         self: *Page,
         row: *Row,
@@ -1313,9 +1364,10 @@ pub const Page = struct {
             assert(@intFromPtr(row) <= @intFromPtr(&rows[self.size.rows - 1]));
         }
         const blank_zero = blank.isZero();
-        const cells = row.cells.ptr(self.memory)[left..end];
-        const full_row = cells.len == self.size.cols;
-        if (cells.len == 0 or (blank_zero and row.blank)) return;
+        const row_cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const range = row_cells[left..end];
+        const cells = row_cells[left..std.math.clamp(row.extent, left, end)];
+        if (blank_zero and cells.len == 0) return;
 
         // This whole operation does unsafe things, so we just want to assert
         // the end state.
@@ -1325,28 +1377,39 @@ pub const Page = struct {
             self.assertIntegrity();
         }
 
-        if (row.managedMemory()) self.releaseCells(row, cells, full_row);
+        // Clearing from the start of the row through its extent leaves the
+        // row without managed memory. Blank cells never have any.
+        const reaches_extent = end >= row.extent;
+        const emptied = left == 0 and reaches_extent;
+        if (cells.len > 0 and row.managedMemory()) self.releaseCells(
+            row,
+            cells,
+            emptied,
+        );
 
         if (comptime build_options.kitty_graphics) {
-            if (full_row) {
+            if (emptied) {
                 row.kitty_virtual_placeholder = false;
             }
         }
 
-        @memset(cells, blank);
-
-        // Update Row.blank as described in the doc comment above.
-        if (full_row) {
-            row.blank = blank_zero;
-        } else if (!blank_zero) {
-            row.blank = false;
+        // Update the extent before writing the cells. The writes could
+        // alias the row as far as the compiler knows, so updating it
+        // after them would reload the row.
+        if (blank_zero) {
+            if (reaches_extent) row.markZeroFrom(left);
+            Cell.zeroAll(cells);
+        } else {
+            row.markWritten(end);
+            @memset(range, blank);
         }
     }
 
     /// Release the graphemes, hyperlinks, and styles of `cells` and update
-    /// the row's flags. This is out of line so that clearCells stays small
-    /// for rows without managed memory.
-    fn releaseCells(self: *Page, row: *Row, cells: []Cell, full_row: bool) void {
+    /// the row's flags. If `emptied`, the clear leaves no managed memory in
+    /// the row. This is out of line so that clearCells stays small for rows
+    /// without managed memory.
+    fn releaseCells(self: *Page, row: *Row, cells: []Cell, emptied: bool) void {
         // Clearing a grapheme or hyperlink also clears the cell's flag,
         // so the scans see the cleared cells as empty.
         if (row.grapheme) {
@@ -1354,7 +1417,7 @@ pub const Page = struct {
                 if (cell.hasGrapheme())
                     @call(.always_inline, clearGrapheme, .{ self, cell });
             }
-            if (full_row) row.grapheme = false else self.updateRowGraphemeFlag(row);
+            if (emptied) row.grapheme = false else self.updateRowGraphemeFlag(row);
         }
 
         if (row.hyperlink) {
@@ -1362,7 +1425,7 @@ pub const Page = struct {
                 if (cell.hyperlink)
                     @call(.always_inline, clearHyperlink, .{ self, cell });
             }
-            if (full_row) row.hyperlink = false else self.updateRowHyperlinkFlag(row);
+            if (emptied) row.hyperlink = false else self.updateRowHyperlinkFlag(row);
         }
 
         if (row.styled) {
@@ -1386,7 +1449,7 @@ pub const Page = struct {
             // The cleared cells keep their style IDs until the fill, so a
             // scan would find any we released and keep the flag set. Skip
             // it then. A later clear of unstyled cells clears the flag.
-            if (full_row) {
+            if (emptied) {
                 row.styled = false;
             } else if (!released) {
                 self.updateRowStyledFlag(row);
@@ -1402,11 +1465,9 @@ pub const Page = struct {
     /// is recycled. Clearing the cells alone is not enough because row
     /// metadata such as the wrap state and semantic prompt remain.
     pub inline fn resetRow(self: *Page, row: *Row) void {
+        // The clear leaves the row blank, and the reset keeps that.
         self.clearCells(row, 0, self.size.cols, .{});
-
-        // Same as row.reset() but also marks the now zeroed row blank.
-        assert(!row.managedMemory());
-        row.* = .{ .cells = row.cells, .blank = true, .dirty = true };
+        row.reset();
     }
 
     /// Returns the hyperlink ID for the given cell.
@@ -1440,7 +1501,7 @@ pub const Page = struct {
     ///
     /// Call after removing hyperlinks in a row.
     pub inline fn updateRowHyperlinkFlag(self: *Page, row: *Row) void {
-        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const cells = self.getContentCells(row);
         for (cells) |c| if (c.hyperlink) return;
         row.hyperlink = false;
     }
@@ -1821,7 +1882,7 @@ pub const Page = struct {
     ///
     /// Call after removing graphemes in a row.
     pub inline fn updateRowGraphemeFlag(self: *Page, row: *Row) void {
-        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const cells = self.getContentCells(row);
         for (cells) |c| if (c.hasGrapheme()) return;
         row.grapheme = false;
     }
@@ -1843,7 +1904,7 @@ pub const Page = struct {
     ///
     /// Call after removing styles in a row.
     pub inline fn updateRowStyledFlag(self: *Page, row: *Row) void {
-        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        const cells = self.getContentCells(row);
         const StyleMask = Mask(Cell, &.{"style_id"}, 4);
         if (StyleMask.eqlEnd(cells, 0, 0) == cells.len) row.styled = false;
     }
@@ -2334,33 +2395,36 @@ pub const Row = packed struct(u64) {
     /// screen.
     dirty: bool = false,
 
-    /// True if every cell in the row is the zero cell (no text, style,
-    /// or background color) and the row has no managed memory.
+    /// Exclusive upper bound on the row's nonzero cells.
+    /// Every cell at or right of the extent is the zero cell (no text,
+    /// style, or background color). A row whose extent is 0 is blank (see
+    /// `isBlank`) and also has no managed memory.
     ///
-    /// This may be false for an empty row, but must never be true for
-    /// a row with content. `Page.verifyIntegrity` checks this. It is set
-    /// only by code that zeroes the whole row (`Page.resetRow`, or
-    /// `Page.clearCells` with a zero blank cell) or by copying a row
-    /// that has it set.
+    /// The extent may be larger than needed, up to the column count, but
+    /// must never be smaller. `Page.verifyIntegrity` checks this. The
+    /// default of 0 matches zeroed memory, so a row in a new page starts
+    /// blank. It is lowered only by code that zeroes the cells it
+    /// excludes (`Page.resetRow`, or `Page.clearCells` with a zero blank
+    /// cell) or by copying a row.
     ///
-    /// Any code that writes cells must clear it, usually with
-    /// `markWritten`. Otherwise `Screen.clearRows` will skip the row
+    /// Any code that writes cells must raise it to cover them, usually
+    /// with `markWritten`. Otherwise `Screen.clearRows` may skip the row
     /// and leave the old content on screen.
     ///
     /// ```zig
     /// cells[x] = new_cell;
-    /// row.markWritten(); // dirty = true, blank = false
+    /// row.markWritten(x + 1); // dirty = true, extent >= x + 1
     /// ```
     ///
-    /// `Screen.clearRows` skips rows with this set and does not mark them
-    /// dirty. Their cells don't change, and the metadata it resets (wrap
-    /// and semantic prompt state) doesn't change how the row looks.
-    /// `Screen.clearCells` (and so EL and ECH) also leaves their cells
-    /// alone, and the emptiness scans in `PageList.scrollClear` and
-    /// `PageList.trimTrailingBlankRows` don't read them.
-    blank: bool = false,
+    /// `Screen.clearRows` skips blank rows and does not mark them dirty.
+    /// Their cells don't change, and the metadata it resets (wrap and
+    /// semantic prompt state) doesn't change how the row looks.
+    /// `Screen.clearCells` (and so EL and ECH) leaves cells at or right of
+    /// the extent alone, and the emptiness scans in `PageList.scrollClear`
+    /// and `PageList.trimTrailingBlankRows` don't read them.
+    extent: u16 = 0,
 
-    _padding: u22 = 0,
+    _padding: u7 = 0,
 
     /// The semantic prompt state of the row. See `semantic_prompt`.
     pub const SemanticPrompt = enum(u2) {
@@ -2414,26 +2478,30 @@ pub const Row = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// Mark the row dirty and not blank. Call this after writing cells.
+    /// Mark the row dirty and raise its extent to at least `end`. Call
+    /// this after writing cells left of `end`.
     ///
-    /// This is equivalent to `dirty = true` and `blank = false`, but does
-    /// a single load and store of the row instead of two. The difference
-    /// is measurable when printing text.
-    pub inline fn markWritten(self: *Row) void {
-        const set: Backing = comptime fieldMask(Row, &.{"dirty"});
-        const clear: Backing = comptime fieldMask(Row, &.{"blank"});
-        const v: Backing = @bitCast(self.*);
-        self.* = @bitCast((v | set) & ~clear);
+    /// This is equivalent to `dirty = true` and raising `extent`, but
+    /// does a single load and store of the row instead of two. The
+    /// difference is measurable when printing text.
+    pub inline fn markWritten(self: *Row, end: usize) void {
+        var row = self.*;
+        row.dirty = true;
+        row.extent = @max(row.extent, @as(u16, @intCast(end)));
+        self.* = row;
     }
 
-    /// Mark a cleared row dirty and blank in one write. This only records
-    /// the clear: the caller guarantees the row's cells and metadata are
-    /// already in the zero state, such as a row just exposed by
-    /// `PageList.grow`. Other header fields are left as they are.
-    pub inline fn markCleared(self: *Row) void {
-        const set: Backing = comptime fieldMask(Row, &.{ "dirty", "blank" });
-        const v: Backing = @bitCast(self.*);
-        self.* = @bitCast(v | set);
+    /// Lower the extent to `x`, which must not be above it. Call this
+    /// when zeroing every cell from `x` to the extent.
+    pub inline fn markZeroFrom(self: *Row, x: usize) void {
+        assert(x <= self.extent);
+        self.extent = @intCast(x);
+    }
+
+    /// True if the row is known to contain only zero cells and no
+    /// managed memory.
+    pub inline fn isBlank(self: Row) bool {
+        return self.extent == 0;
     }
 
     /// Returns true if this row has any managed memory outside of the
@@ -2444,12 +2512,8 @@ pub const Row = packed struct(u64) {
     }
 
     /// Reset all row metadata to the default state, preserving only
-    /// the cells offset, and mark the row dirty. This is a single
-    /// 8-byte store.
-    ///
-    /// This also clears `blank`, which is always safe. Keeping it would
-    /// need a load of the old header, which is measurable on the scroll
-    /// region path that calls this for every scrolled line.
+    /// the cells offset and extent, and mark the row dirty. This is a
+    /// single 8-byte store.
     ///
     /// This must be applied to any row whose storage is recycled as a
     /// blank row or retired into unused page capacity, in addition to
@@ -2464,7 +2528,11 @@ pub const Row = packed struct(u64) {
     /// are still accurate.
     pub inline fn reset(self: *Row) void {
         assert(!self.managedMemory());
-        self.* = .{ .cells = self.cells, .dirty = true };
+        self.* = .{
+            .cells = self.cells,
+            .dirty = true,
+            .extent = self.extent,
+        };
     }
 };
 
@@ -2641,6 +2709,27 @@ pub const Cell = packed struct(u64) {
 
     pub inline fn isZero(self: Cell) bool {
         return @as(u64, @bitCast(self)) == 0;
+    }
+
+    /// Set every cell to the zero cell. Most clears are short, and a few
+    /// stores are quicker than a call to memset for those.
+    pub inline fn zeroAll(cells: []Cell) void {
+        const words: []u64 = @ptrCast(cells);
+        switch (words.len) {
+            0 => {},
+            1 => words[0] = 0,
+            // Two 16-byte stores, overlapping for 2 or 3 cells.
+            2...4 => {
+                words[0..2].* = @splat(0);
+                words[words.len - 2 ..][0..2].* = @splat(0);
+            },
+            // Two 32-byte stores, overlapping for 5 to 7 cells.
+            5...8 => {
+                words[0..4].* = @splat(0);
+                words[words.len - 4 ..][0..4].* = @splat(0);
+            },
+            else => @memset(words, 0),
+        }
     }
 
     /// Returns true if this cell represents a cell with text to render.
@@ -3457,6 +3546,7 @@ test "Page usage" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 'X' } },
         };
+        rac.row.markWritten(1);
         page.hyperlink_set.use(page.memory, id);
         try page.setHyperlink(rac.row, rac.cell, id);
     }
@@ -3476,6 +3566,7 @@ test "Page usage" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 'X' } },
         };
+        rac.row.markWritten(i % page.size.cols + 1);
         page.hyperlink_set.use(page.memory, id);
         try page.setHyperlink(rac.row, rac.cell, id);
     }
@@ -3509,6 +3600,7 @@ test "Page read and write cells" {
                 .codepoint = .{ .data = @intCast(y) },
             },
         };
+        rac.row.markWritten(2);
     }
 
     // Read it again
@@ -3528,6 +3620,7 @@ test "Page appendGrapheme small" {
 
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init(0x09);
+    rac.row.markWritten(1);
 
     // One
     try page.appendGrapheme(rac.row, rac.cell, 0x0A);
@@ -3558,6 +3651,7 @@ test "Page appendGrapheme larger than chunk" {
 
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init(0x09);
+    rac.row.markWritten(1);
 
     const count = grapheme_chunk_len * 10;
     for (0..count) |i| {
@@ -3581,6 +3675,7 @@ test "Page appendGrapheme caps codepoints per cell" {
 
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init('A');
+    rac.row.markWritten(1);
 
     for (0..grapheme_max_len + 16) |i| {
         try page.appendGrapheme(rac.row, rac.cell, @intCast(0x0300 + i));
@@ -3606,6 +3701,7 @@ test "Page setGraphemes caps codepoints per cell" {
 
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init('A');
+    rac.row.markWritten(1);
     try page.setGraphemes(rac.row, rac.cell, &input);
 
     try testing.expectEqual(
@@ -3624,10 +3720,12 @@ test "Page clearGrapheme not all cells" {
 
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init(0x09);
+    rac.row.markWritten(1);
     try page.appendGrapheme(rac.row, rac.cell, 0x0A);
 
     const rac2 = page.getRowAndCell(1, 0);
     rac2.cell.* = .init(0x09);
+    rac2.row.markWritten(2);
     try page.appendGrapheme(rac2.row, rac2.cell, 0x0A);
 
     // Clear it
@@ -3650,6 +3748,7 @@ test "Page clearCells full row clears kitty placeholder flag" {
 
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init(kitty.graphics.unicode.placeholder);
+    rac.row.markWritten(1);
     rac.row.kitty_virtual_placeholder = true;
 
     page.clearCells(rac.row, 0, page.size.cols, .{});
@@ -3671,6 +3770,7 @@ test "Page clone" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y) } },
         };
+        rac.row.markWritten(2);
     }
 
     // Clone
@@ -3718,6 +3818,7 @@ test "Page clone graphemes" {
     {
         const rac = page.getRowAndCell(0, 0);
         rac.cell.* = .init(0x09);
+        rac.row.markWritten(1);
         try page.appendGrapheme(rac.row, rac.cell, 0x0A);
         try page.appendGrapheme(rac.row, rac.cell, 0x0B);
     }
@@ -3755,6 +3856,7 @@ test "Page clone styles" {
                 .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
                 .style_id = id,
             };
+            rac.row.markWritten(x + 1);
             page.styles.use(page.memory, id);
         }
     }
@@ -3799,6 +3901,7 @@ test "Page cloneFrom" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y) } },
         };
+        rac.row.markWritten(2);
     }
 
     // Clone
@@ -3823,6 +3926,7 @@ test "Page cloneFrom" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 0 } },
         };
+        rac.row.markWritten(2);
     }
 
     // Read it again, should be unchanged
@@ -3853,6 +3957,7 @@ test "Page cloneFrom shrink columns" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y) } },
         };
+        rac.row.markWritten(2);
     }
 
     // Clone
@@ -3887,6 +3992,7 @@ test "Page cloneFrom partial" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y) } },
         };
+        rac.row.markWritten(2);
     }
 
     // Clone
@@ -3934,6 +4040,7 @@ test "Page cloneFrom hyperlinks exact capacity" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = 42 } },
             };
+            rac.row.markWritten(x + 1);
             try page.setHyperlink(rac.row, rac.cell, hyperlink_id);
             page.hyperlink_set.use(page.memory, hyperlink_id);
 
@@ -3974,6 +4081,7 @@ test "Page insertHyperlink reclaims dead IDs once IDs run out" {
         const link_id = try std.fmt.bufPrint(&id_buf, "a{d:0>2}", .{x});
         ids[x] = try page.insertHyperlink(.{ .id = .{ .explicit = link_id }, .uri = uri });
         const rac = page.getRowAndCell(x, 0);
+        rac.row.markWritten(x + 1);
         try page.setHyperlink(rac.row, rac.cell, ids[x]);
     }
     try testing.expectEqual(n + 1, page.hyperlink_set.next_id);
@@ -3995,6 +4103,7 @@ test "Page insertHyperlink reclaims dead IDs once IDs run out" {
         const link_id = try std.fmt.bufPrint(&id_buf, "b{d:0>2}", .{x});
         const id = try page.insertHyperlink(.{ .id = .{ .explicit = link_id }, .uri = uri });
         const rac = page.getRowAndCell(x, 0);
+        rac.row.markWritten(x + 1);
         try page.setHyperlink(rac.row, rac.cell, id);
         try testing.expectEqualStrings(
             uri,
@@ -4034,6 +4143,7 @@ test "Page cloneFrom graphemes" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y + 1) } },
         };
+        rac.row.markWritten(2);
         try page.appendGrapheme(rac.row, rac.cell, 0x0A);
     }
 
@@ -4064,6 +4174,7 @@ test "Page cloneFrom graphemes" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = 0 } },
         };
+        rac.row.markWritten(2);
     }
 
     // Read it again, should be unchanged
@@ -4095,6 +4206,7 @@ test "Page cloneFrom frees dst graphemes" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y + 1) } },
         };
+        rac.row.markWritten(2);
     }
 
     // Clone
@@ -4110,6 +4222,7 @@ test "Page cloneFrom frees dst graphemes" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(y + 1) } },
         };
+        rac.row.markWritten(2);
         try page2.appendGrapheme(rac.row, rac.cell, 0x0A);
     }
 
@@ -4143,6 +4256,7 @@ test "Page cloneRowFrom partial" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             };
+            rac.row.markWritten(x + 1);
         }
     }
 
@@ -4189,6 +4303,7 @@ test "Page cloneRowFrom partial grapheme in non-copied source region" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             };
+            rac.row.markWritten(x + 1);
         }
         {
             const rac = page.getRowAndCell(0, y);
@@ -4250,6 +4365,7 @@ test "Page cloneRowFrom partial grapheme in non-copied dest region" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             };
+            rac.row.markWritten(x + 1);
         }
     }
     try testing.expectEqual(@as(usize, 0), page.graphemeCount());
@@ -4269,6 +4385,7 @@ test "Page cloneRowFrom partial grapheme in non-copied dest region" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = 0xBB } },
             };
+            rac.row.markWritten(x + 1);
         }
         {
             const rac = page2.getRowAndCell(0, y);
@@ -4323,6 +4440,7 @@ test "Page cloneRowFrom partial hyperlink in same page copy" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             };
+            rac.row.markWritten(x + 1);
         }
 
         // Hyperlink in a single cell
@@ -4379,6 +4497,7 @@ test "Page cloneRowFrom partial hyperlink in same page omit" {
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             };
+            rac.row.markWritten(x + 1);
         }
 
         // Hyperlink in a single cell
@@ -4433,6 +4552,7 @@ test "Page moveCells text-only" {
     }
 
     const src = page.getRow(0);
+    src.markWritten(page.capacity.cols);
     const dst = page.getRow(1);
     page.moveCells(src, 0, dst, 0, page.capacity.cols);
 
@@ -4476,6 +4596,7 @@ test "Page moveCells styled" {
             .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             .style_id = id,
         };
+        rac.row.markWritten(x + 1);
         page.styles.use(page.memory, id);
     }
 
@@ -4520,6 +4641,7 @@ test "Page moveCells kitty placeholder" {
 
     const rac = page.getRowAndCell(3, 0);
     rac.cell.* = .init(kitty.graphics.unicode.placeholder);
+    rac.row.markWritten(4);
     rac.row.kitty_virtual_placeholder = true;
 
     const src = page.getRow(0);
@@ -4545,6 +4667,7 @@ test "Page moveCells graphemes" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
         };
+        rac.row.markWritten(x + 1);
         try page.appendGrapheme(rac.row, rac.cell, 0x0A);
     }
     const original_count = page.graphemeCount();
@@ -4597,6 +4720,7 @@ test "Page verifyIntegrity graphemes good" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
         };
+        rac.row.markWritten(x + 1);
         try page.appendGrapheme(rac.row, rac.cell, 0x0A);
     }
 
@@ -4622,6 +4746,7 @@ test "Page verifyIntegrity grapheme row not marked" {
             .content_tag = .codepoint,
             .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
         };
+        rac.row.markWritten(x + 1);
         try page.appendGrapheme(rac.row, rac.cell, 0x0A);
     }
 
@@ -4660,6 +4785,7 @@ test "Page verifyIntegrity styles good" {
             .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             .style_id = id,
         };
+        rac.row.markWritten(x + 1);
         page.styles.use(page.memory, id);
     }
 
@@ -4696,6 +4822,7 @@ test "Page verifyIntegrity styles ref count mismatch" {
             .content = .{ .codepoint = .{ .data = @intCast(x + 1) } },
             .style_id = id,
         };
+        rac.row.markWritten(x + 1);
         page.styles.use(page.memory, id);
     }
 
@@ -4748,7 +4875,7 @@ test "Page verifyIntegrity zero cols" {
     );
 }
 
-test "Page verifyIntegrity blank row with content" {
+test "Page verifyIntegrity content beyond row extent" {
     // Too slow, and not really necessary because the integrity tests are
     // only run in debug builds and unit tests verify they work well enough.
     if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
@@ -4760,18 +4887,28 @@ test "Page verifyIntegrity blank row with content" {
     });
     defer page.deinit();
 
-    // An empty row may be marked blank.
-    page.getRow(0).blank = true;
+    // A new row is blank.
+    const row = page.getRow(0);
+    try testing.expect(row.isBlank());
     try page.verifyIntegrity(testing.allocator);
 
-    // A row with content may not.
-    const rac = page.getRowAndCell(3, 0);
-    rac.cell.* = .{
-        .content_tag = .codepoint,
-        .content = .{ .codepoint = .{ .data = 'A' } },
-    };
+    // Content left of the extent is fine.
+    page.getRowAndCell(2, 0).cell.* = .init('B');
+    row.markWritten(3);
+    try testing.expectEqual(3, row.extent);
+    try page.verifyIntegrity(testing.allocator);
+
+    // Content at the extent is not.
+    page.getRowAndCell(3, 0).cell.* = .init('C');
     try testing.expectError(
-        Page.IntegrityError.BlankRowHasContent,
+        Page.IntegrityError.ContentBeyondExtent,
+        page.verifyIntegrity(testing.allocator),
+    );
+
+    // Neither is an extent past the last column.
+    row.markWritten(11);
+    try testing.expectError(
+        Page.IntegrityError.ExtentBeyondCols,
         page.verifyIntegrity(testing.allocator),
     );
 }
@@ -4792,16 +4929,121 @@ test "Page resetRow marks the row blank" {
     rac.row.wrap = true;
 
     page.resetRow(rac.row);
-    try testing.expect(rac.row.blank);
+    try testing.expect(rac.row.isBlank());
     try testing.expect(rac.row.dirty);
     try testing.expect(!rac.row.wrap);
 
-    // Row.reset is a single store and clears the flag, which is safe.
+    // Row.reset resets the metadata but keeps the extent.
+    rac.row.markWritten(5);
+    rac.row.wrap = true;
     rac.row.reset();
-    try testing.expect(!rac.row.blank);
+    try testing.expectEqual(5, rac.row.extent);
+    try testing.expect(!rac.row.wrap);
 }
 
-test "Page moveCells clears blank on the destination row" {
+test "Page clearCells lowers the extent only when it reaches it" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const row = page.getRow(0);
+    for (page.getCells(row)[0..6], "ABCDEF") |*cell, c| cell.* = .init(c);
+    row.markWritten(6);
+
+    // A clear that stops short of the extent leaves it.
+    page.clearCells(row, 1, 3, .{});
+    try testing.expectEqual(6, row.extent);
+
+    // A clear that reaches the extent lowers it to the clear's start.
+    page.clearCells(row, 4, 10, .{});
+    try testing.expectEqual(4, row.extent);
+    try testing.expectEqual('A', page.getCells(row)[0].codepoint());
+    try testing.expectEqual('D', page.getCells(row)[3].codepoint());
+    try page.verifyIntegrity(testing.allocator);
+
+    // Clearing only cells past the extent changes nothing.
+    page.clearCells(row, 5, 10, .{});
+    try testing.expectEqual(4, row.extent);
+
+    // A clear from the start of the row makes it blank.
+    page.clearCells(row, 0, 4, .{});
+    try testing.expect(row.isBlank());
+    try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page clearCells of part of a row clears its styled flag" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    const row = page.getRow(0);
+    for (page.getCells(row)[0..3], "ABC") |*cell, c| {
+        cell.* = .init(c);
+        cell.style_id = id;
+        page.styles.use(page.memory, id);
+    }
+
+    // Each cell holds a reference now, so drop the one from add.
+    page.styles.release(page.memory, id);
+    row.styled = true;
+    row.markWritten(3);
+
+    // The clear covers every styled cell but not the whole row. It still
+    // empties the row, so it must reset the flag even though it released
+    // a style. A blank row with the flag still set would fail the
+    // integrity check.
+    page.clearCells(row, 0, 5, .{});
+    try testing.expect(row.isBlank());
+    try testing.expect(!row.styled);
+    try page.verifyIntegrity(testing.allocator);
+}
+
+test "Page zeroMemory zeroes all of the memory" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // One styled cell, so the style set has data.
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .init('A');
+        rac.cell.style_id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+        rac.row.styled = true;
+        rac.row.markWritten(1);
+    }
+
+    // Three cells, which take the overlapping stores in Cell.zeroAll.
+    {
+        const rac = page.getRowAndCell(0, 1);
+        for (page.getCells(rac.row)[0..3], "ABC") |*cell, c| cell.* = .init(c);
+        rac.row.markWritten(3);
+    }
+
+    // A full row with a grapheme, so the grapheme storage has data.
+    {
+        const rac = page.getRowAndCell(0, 2);
+        for (page.getCells(rac.row)) |*cell| cell.* = .init('A');
+        rac.row.markWritten(page.size.cols);
+        try page.appendGrapheme(rac.row, rac.cell, 0x301);
+    }
+
+    try page.verifyIntegrity(testing.allocator);
+
+    page.zeroMemory();
+    try testing.expect(std.mem.allEqual(u8, page.memory, 0));
+}
+
+test "Page moveCells widens the destination extent" {
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -4814,15 +5056,17 @@ test "Page moveCells clears blank on the destination row" {
         .content_tag = .codepoint,
         .content = .{ .codepoint = .{ .data = 'A' } },
     };
+    src.row.markWritten(1);
     const dst = page.getRow(1);
-    dst.blank = true;
 
+    // The extent may be larger than needed, but must cover the moved cells.
     page.moveCells(src.row, 0, dst, 2, 3);
-    try testing.expect(!dst.blank);
+    try testing.expect(dst.extent >= 5);
+    try testing.expectEqual('A', page.getCells(dst)[2].codepoint());
     try page.verifyIntegrity(testing.allocator);
 }
 
-test "Page cloneRowFrom partial keeps blank only if both parts are blank" {
+test "Page clonePartialRowFrom keeps the extent of both parts" {
     var src = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -4837,25 +5081,22 @@ test "Page cloneRowFrom partial keeps blank only if both parts are blank" {
     defer dst.deinit();
 
     // Both blank: the result is blank.
-    src.getRow(0).blank = true;
-    dst.getRow(0).blank = true;
     try dst.clonePartialRowFrom(&src, dst.getRow(0), src.getRow(0), 2, 8);
-    try testing.expect(dst.getRow(0).blank);
+    try testing.expect(dst.getRow(0).isBlank());
 
-    // The copied part has content: the result is not blank.
-    const rac = src.getRowAndCell(4, 1);
-    rac.cell.* = .{
-        .content_tag = .codepoint,
-        .content = .{ .codepoint = .{ .data = 'A' } },
-    };
-    dst.getRow(1).blank = true;
+    // The copied part has content: the result covers it, and no more.
+    src.getRowAndCell(4, 1).cell.* = .init('A');
+    src.getRow(1).markWritten(5);
     try dst.clonePartialRowFrom(&src, dst.getRow(1), src.getRow(1), 2, 8);
-    try testing.expect(!dst.getRow(1).blank);
+    try testing.expectEqual(5, dst.getRow(1).extent);
+    try dst.verifyIntegrity(testing.allocator);
 
-    // The kept part may have content: the result is not blank.
-    src.getRow(2).blank = true;
+    // The kept part has content: the result keeps covering it.
+    dst.getRowAndCell(9, 2).cell.* = .init('B');
+    dst.getRow(2).markWritten(10);
     try dst.clonePartialRowFrom(&src, dst.getRow(2), src.getRow(2), 2, 8);
-    try testing.expect(!dst.getRow(2).blank);
+    try testing.expectEqual(10, dst.getRow(2).extent);
+    try dst.verifyIntegrity(testing.allocator);
 }
 
 test "Page cloneRowFrom partial keeps kitty placeholder flag" {
@@ -4878,6 +5119,7 @@ test "Page cloneRowFrom partial keeps kitty placeholder flag" {
     {
         const rac = dst.getRowAndCell(0, 0);
         rac.cell.* = .init(kitty.graphics.unicode.placeholder);
+        rac.row.markWritten(1);
         rac.row.kitty_virtual_placeholder = true;
     }
     try dst.clonePartialRowFrom(&src, dst.getRow(0), src.getRow(0), 2, 8);
@@ -4891,6 +5133,7 @@ test "Page cloneRowFrom partial keeps kitty placeholder flag" {
     {
         const rac = src.getRowAndCell(4, 1);
         rac.cell.* = .init(kitty.graphics.unicode.placeholder);
+        rac.row.markWritten(5);
         rac.row.kitty_virtual_placeholder = true;
     }
     try dst.clonePartialRowFrom(&src, dst.getRow(1), src.getRow(1), 2, 8);
@@ -5015,6 +5258,7 @@ test "Page exactRowCapacity styles" {
         const rac = page.getRowAndCell(0, 0);
         rac.row.styled = true;
         rac.cell.style_id = style1_id;
+        rac.row.markWritten(1);
     }
 
     // One unique style - capacity accounts for load factor
@@ -5027,6 +5271,7 @@ test "Page exactRowCapacity styles" {
     {
         const rac = page.getRowAndCell(1, 0);
         rac.cell.style_id = style1_id;
+        rac.row.markWritten(2);
     }
     {
         const cap = page.exactRowCapacity(0, 5);
@@ -5038,6 +5283,7 @@ test "Page exactRowCapacity styles" {
     {
         const rac = page.getRowAndCell(2, 0);
         rac.cell.style_id = style2_id;
+        rac.row.markWritten(3);
     }
 
     // Two unique styles - capacity accounts for load factor
@@ -5052,6 +5298,7 @@ test "Page exactRowCapacity styles" {
         const rac = page.getRowAndCell(0, 7);
         rac.row.styled = true;
         rac.cell.style_id = try page.styles.add(page.memory, .{ .flags = .{ .underline = .single } });
+        rac.row.markWritten(1);
     }
     {
         const cap = page.exactRowCapacity(0, 5);
@@ -5095,6 +5342,7 @@ test "Page exactRowCapacity single style clone" {
         const rac = page.getRowAndCell(0, 0);
         rac.row.styled = true;
         rac.cell.style_id = style_id;
+        rac.row.markWritten(1);
     }
 
     // exactRowCapacity for just row 0 should give capacity for 1 style
@@ -5145,6 +5393,7 @@ test "Page exactRowCapacity styles max single row" {
         cell.style_id = style_id;
         count += 1;
     }
+    row.markWritten(count);
 
     // Verify we added a meaningful number of styles
     try testing.expect(count > 0);
@@ -5172,6 +5421,7 @@ test "Page exactRowCapacity grapheme_bytes" {
     {
         const rac = page.getRowAndCell(0, 0);
         rac.cell.* = .init('a');
+        rac.row.markWritten(1);
         try page.appendGrapheme(rac.row, rac.cell, 0x0301); // combining acute accent
     }
     {
@@ -5184,6 +5434,7 @@ test "Page exactRowCapacity grapheme_bytes" {
     {
         const rac = page.getRowAndCell(1, 0);
         rac.cell.* = .init('e');
+        rac.row.markWritten(2);
         try page.appendGrapheme(rac.row, rac.cell, 0x0300); // combining grave accent
     }
     {
@@ -5196,6 +5447,7 @@ test "Page exactRowCapacity grapheme_bytes" {
     {
         const rac = page.getRowAndCell(2, 0);
         rac.cell.* = .init('o');
+        rac.row.markWritten(3);
         try page.appendGrapheme(rac.row, rac.cell, 0x0301);
         try page.appendGrapheme(rac.row, rac.cell, 0x0302);
         try page.appendGrapheme(rac.row, rac.cell, 0x0303);
@@ -5211,6 +5463,7 @@ test "Page exactRowCapacity grapheme_bytes" {
     {
         const rac = page.getRowAndCell(0, 7);
         rac.cell.* = .init('x');
+        rac.row.markWritten(1);
         try page.appendGrapheme(rac.row, rac.cell, 0x0304);
     }
     {
@@ -5250,6 +5503,7 @@ test "Page exactRowCapacity grapheme_bytes larger than chunk" {
     // Add a grapheme larger than one chunk (grapheme_chunk_len = 4 codepoints)
     const rac = page.getRowAndCell(0, 0);
     rac.cell.* = .init('a');
+    rac.row.markWritten(1);
 
     // Add 6 codepoints - requires 2 chunks (6 * 4 = 24 bytes, rounds up to 32)
     for (0..6) |i| {
@@ -5297,6 +5551,7 @@ test "Page exactRowCapacity hyperlinks" {
             .id = .{ .implicit = 1 },
             .uri = uri1,
         });
+        rac.row.markWritten(1);
         try page.setHyperlink(rac.row, rac.cell, id);
         break :blk id;
     };
@@ -5314,6 +5569,7 @@ test "Page exactRowCapacity hyperlinks" {
 
         // Use the same hyperlink ID for another cell
         page.hyperlink_set.use(page.memory, id1);
+        rac.row.markWritten(2);
         try page.setHyperlink(rac.row, rac.cell, id1);
     }
     {
@@ -5332,6 +5588,7 @@ test "Page exactRowCapacity hyperlinks" {
             .id = .{ .explicit = explicit_id },
             .uri = uri2,
         });
+        rac.row.markWritten(3);
         try page.setHyperlink(rac.row, rac.cell, id);
     }
     // 2 hyperlinks - capacity accounts for load factor
@@ -5350,6 +5607,7 @@ test "Page exactRowCapacity hyperlinks" {
             .id = .{ .implicit = 99 },
             .uri = "https://outside.example.com",
         });
+        rac.row.markWritten(1);
         try page.setHyperlink(rac.row, rac.cell, id);
     }
     {
@@ -5401,6 +5659,7 @@ test "Page exactRowCapacity single hyperlink clone" {
             .id = .{ .implicit = 1 },
             .uri = uri,
         });
+        rac.row.markWritten(1);
         try page.setHyperlink(rac.row, rac.cell, link_id);
         break :blk link_id;
     };
@@ -5446,6 +5705,7 @@ test "Page exactRowCapacity hyperlink map capacity for many cells" {
             .id = .{ .implicit = 1 },
             .uri = uri,
         });
+        rac.row.markWritten(1);
         try page.setHyperlink(rac.row, rac.cell, link_id);
         break :blk link_id;
     };
@@ -5454,6 +5714,7 @@ test "Page exactRowCapacity hyperlink map capacity for many cells" {
     for (1..cols) |x| {
         const rac = page.getRowAndCell(@intCast(x), 0);
         page.hyperlink_set.use(page.memory, id);
+        rac.row.markWritten(x + 1);
         try page.setHyperlink(rac.row, rac.cell, id);
     }
 

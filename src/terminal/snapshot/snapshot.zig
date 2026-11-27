@@ -1024,12 +1024,14 @@ fn testHistoryTerminal(history_pages: u8) !Terminal {
             built.getRowAndCell(0, 0).cell.* = .init(
                 @intCast('A' + index),
             );
+            built.getRow(0).markWritten(1);
         }
         const active = try builder.allocatePage(.{ .cols = 2, .rows = 3 });
         active.size.rows = 3;
         active.getRowAndCell(0, 0).cell.* = .init(
             @intCast('A' + @as(usize, history_pages)),
         );
+        active.getRow(0).markWritten(1);
 
         var pages = try builder.finish();
         errdefer pages.deinit();
@@ -1099,16 +1101,19 @@ test "complete snapshot round trip with history and alternate screen" {
         const oldest = try builder.allocatePage(.{ .cols = 2, .rows = 2 });
         oldest.size.rows = 2;
         oldest.getRowAndCell(0, 0).cell.* = .init('A');
+        oldest.getRow(0).markWritten(1);
 
         const recent = try builder.allocatePage(.{ .cols = 2, .rows = 2 });
         recent.size.rows = 2;
         recent.getRowAndCell(0, 0).cell.* = .init('B');
+        recent.getRow(0).markWritten(1);
 
         const active = try builder.allocatePage(.{ .cols = 2, .rows = 3 });
         active.size.rows = 3;
         active.getRowAndCell(0, 0).cell.* = .init('C');
         active.getRowAndCell(0, 1).cell.* = .init('D');
         active.getRowAndCell(0, 2).cell.* = .init('E');
+        for (0..3) |y| active.getRow(y).markWritten(1);
 
         var pages = try builder.finish();
         errdefer pages.deinit();

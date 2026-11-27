@@ -779,11 +779,13 @@ test "framed PAGE encode and decode a sparse native page" {
 
     const second = page.getRowAndCell(1, 0);
     second.cell.style_id = style_b;
+    second.row.markWritten(2);
     second.row.styled = true;
 
     const third = page.getRowAndCell(2, 0);
     page.styles.use(page.memory, style_a);
     third.cell.style_id = style_a;
+    third.row.markWritten(3);
     third.row.styled = true;
 
     const hyperlink_a = try page.insertHyperlink(.{
@@ -809,6 +811,7 @@ test "framed PAGE encode and decode a sparse native page" {
     // metadata in one compact two-row page.
     const grapheme = page.getRowAndCell(0, 1);
     grapheme.cell.* = .init('x');
+    grapheme.row.markWritten(1);
     try page.setGraphemes(
         grapheme.row,
         grapheme.cell,
@@ -841,6 +844,7 @@ test "framed PAGE encode and decode a sparse native page" {
     spacer_head.row.wrap = true;
     spacer_head.row.wrap_continuation = true;
     spacer_head.row.semantic_prompt = .prompt_continuation;
+    spacer_head.row.markWritten(3);
 
     const header: Header = .{
         .columns = 3,
@@ -1041,6 +1045,7 @@ test "framed PAGE keeps every link of a map larger than the hint" {
                     .content_tag = .codepoint,
                     .content = .{ .codepoint = .{ .data = 'L' } },
                 };
+                rac.row.markWritten(x + 1);
                 if (count > 0) page.hyperlink_set.use(page.memory, id);
                 try page.setHyperlink(rac.row, rac.cell, id);
                 count += 1;
@@ -1121,6 +1126,7 @@ test "framed PAGE rejects incomplete wide cells transactionally" {
         if (columns > 1) {
             page.getRowAndCell(1, 0).cell.* = .init('B');
         }
+        page.getRow(0).markWritten(columns);
 
         var destination: std.Io.Writer.Allocating = .init(testing.allocator);
         defer destination.deinit();
@@ -1716,6 +1722,7 @@ test "decode normalizes duplicate default and invalid style entries" {
     grid_page.styles.release(grid_page.memory, released_style_b);
     const grid_cell = grid_page.getRowAndCell(0, 0);
     grid_cell.cell.* = .init('A');
+    grid_cell.row.markWritten(1);
     grid_cell.cell.style_id = encoded_style_id;
     grid_cell.row.styled = true;
 
@@ -1899,6 +1906,7 @@ test "decode reuses duplicate hyperlinks" {
     );
     const grid_cell = grid_page.getRowAndCell(0, 0);
     grid_cell.cell.* = .init('A');
+    grid_cell.row.markWritten(1);
     try grid_page.setHyperlink(
         grid_cell.row,
         grid_cell.cell,
@@ -2051,6 +2059,7 @@ test "decode ignores empty hyperlink strings" {
     });
     const grid_cell = grid_page.getRowAndCell(0, 0);
     grid_cell.cell.* = .init('A');
+    grid_cell.row.markWritten(1);
     try grid_page.setHyperlink(
         grid_cell.row,
         grid_cell.cell,

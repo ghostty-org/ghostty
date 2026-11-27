@@ -201,6 +201,7 @@ test "compressed Page retained mapping round trip" {
     // the style and hyperlink sets retain live counters outside Page.memory.
     const rac = resident.getRowAndCell(2, 3);
     rac.cell.* = .init('A');
+    rac.row.markWritten(3);
     try resident.appendGrapheme(rac.row, rac.cell, 0x0301);
 
     const style_id = try resident.styles.add(resident.memory, .{ .flags = .{

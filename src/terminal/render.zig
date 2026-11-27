@@ -2693,14 +2693,6 @@ const RowBuilder = struct {
         }
         b.dirties[vy] = true;
 
-        // Get all our cells in the page.
-        const page_cells: []const page.Cell = page_row.cells.ptr(p.memory)[0..b.cols];
-
-        // Copy our raw row data. The terminal row stays dirty until the
-        // build succeeds, but the render-state snapshot is always rebuilt.
-        b.raws[vy] = page_row.*;
-        b.raws[vy].dirty = false;
-
         // Note: our cells MultiArrayList uses our general allocator.
         // We do this on purpose because as rows become dirty, we do
         // not want to reallocate space for cells (which are large). This
@@ -2709,14 +2701,29 @@ const RowBuilder = struct {
         // Our per-row arena is only used for temporary allocations
         // pertaining to cells directly (e.g. graphemes, hyperlinks).
         const cells: *std.MultiArrayList(RenderState.Cell) = &b.cells[vy];
-        if (cells.len != b.cols) {
-            // The cell storage (including the per-cell style data) is
-            // being reallocated, so the applied style cache no longer
-            // describes it. Clear it before the resize so an error
-            // can't leave it stale.
-            b.applied_styles[vy].clearRetainingCapacity();
-            try cells.resize(b.alloc, b.cols);
-        }
+
+        // We copy through the old extent too, to erase stale cells.
+        // New or resized storage needs a full copy.
+        const copy_end: usize = copy: {
+            if (cells.len != b.cols) {
+                @branchHint(.unlikely);
+                // The cell storage (including the per-cell style data) is
+                // being reallocated, so the applied style cache no longer
+                // describes it. Clear it before the resize so an error
+                // can't leave it stale.
+                b.applied_styles[vy].clearRetainingCapacity();
+                try cells.resize(b.alloc, b.cols);
+                break :copy b.cols;
+            }
+
+            break :copy @min(b.cols, @max(b.raws[vy].extent, page_row.extent));
+        };
+
+        // Copy our raw row data. The terminal row stays dirty until the
+        // build succeeds, but the render-state snapshot is always rebuilt.
+        var raw = page_row.*;
+        raw.dirty = false;
+        b.raws[vy] = raw;
 
         // We always copy our raw cell data. In the case we have no
         // managed memory, we can skip setting any other fields.
@@ -2724,11 +2731,12 @@ const RowBuilder = struct {
         // This is an important optimization. For plain-text screens
         // this ends up being something around 300% faster based on
         // the `screen-clone` benchmark.
+        const all_cells = page_row.cells.ptr(p.memory);
         const cells_slice = cells.slice();
         fastmem.copy(
             page.Cell,
-            cells_slice.items(.raw),
-            page_cells,
+            cells_slice.items(.raw)[0..copy_end],
+            all_cells[0..copy_end],
         );
         // Rows with Kitty placeholders are rare. They get their own copy
         // of the scan below, so other rows pay nothing for them. These
@@ -2738,6 +2746,8 @@ const RowBuilder = struct {
             page_row.kitty_virtual_placeholder;
         if (!page_row.managedMemory() and !placeholder_row) return;
 
+        // Get the cells in the page that may be nonzero.
+        const page_cells: []const page.Cell = p.getContentCells(page_row);
         const arena_alloc = arena.allocator();
         if (placeholder_row) {
             @branchHint(.unlikely);
@@ -3025,8 +3035,8 @@ fn testCompareStates(
     // implementation; it is present in the row-iterator implementation
     // as well.
     //
-    // `blank` is left out on purpose. Every change to it comes with a
-    // dirty mark, so checking it here catches a writer that forgets one.
+    // `extent` is left out on purpose. Every change to it comes with
+    // a dirty mark, so checking it here catches a writer that forgets one.
     const StaleOkMask = page.Mask(page.Row, &.{
         "wrap",
         "wrap_continuation",

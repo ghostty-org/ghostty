@@ -470,7 +470,9 @@ test "HISTORY encodes newest first and restores complete history" {
         0,
         0,
     ).cell.semantic_content = .prompt;
+    oldest_history.page().getRow(0).markWritten(1);
     newest_history.page().getRowAndCell(0, 0).cell.* = .init('B');
+    newest_history.page().getRow(0).markWritten(1);
 
     // Encode SCREEN before history compression, then compress eligible history
     // and require HISTORY encoding to preserve each source storage state.

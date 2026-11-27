@@ -1104,11 +1104,8 @@ pub fn cursorDownScroll(self: *Screen) !void {
             self.cursor.page_cell = page_rac.cell;
         }
 
-        // Our new row is always dirty. It is also always in the zero
-        // state: from unused page capacity, a fresh page, or a recycled
-        // page that grow() zeroed. Marking it blank too, in the same
-        // write, lets printing into it skip checking its old cells.
-        self.cursor.page_row.markCleared();
+        // Our new row is always dirty
+        self.cursorMarkDirty();
     }
 
     self.cursorRowFillBackground();
@@ -1350,8 +1347,7 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
             // graphemes, hyperlinks) and our blank is zero so this is
             // a straight zero fill. This is the overwhelmingly common
             // case for scroll region usage.
-            const cells = page.getCells(row);
-            @memset(@as([]u64, @ptrCast(cells)), 0);
+            Cell.zeroAll(page.getContentCells(row));
         } else {
             // The generic clear handles managed memory and fills the
             // row with our blank cell, preserving the background color.
@@ -1360,9 +1356,13 @@ pub fn cursorScrollRegionUp(self: *Screen, limit: usize) !void {
 
         // The row becomes the new blank cursor row after the rotation
         // below and must not retain metadata (wrap state, semantic
-        // prompt) from the discarded content. This is Row.reset.
+        // prompt) from the discarded content.
         assert(!row.managedMemory());
-        break :reset .{ .cells = row.cells, .dirty = true };
+        break :reset .{
+            .cells = row.cells,
+            .dirty = true,
+            .extent = if (blank_is_zero) 0 else page.size.cols,
+        };
     };
 
     // Rotate the region rows so the now-blank top row moves to the
@@ -1829,7 +1829,7 @@ pub inline fn eraseActive(
 /// screen.clearRows(.{ .active = .{} }, null, false);
 /// ```
 ///
-/// Rows that are already empty (see `Row.blank`) are skipped and not
+/// Rows that are already empty (see `Row.isBlank`) are skipped and not
 /// marked dirty, which makes clearing a mostly empty screen cheap.
 pub fn clearRows(
     self: *Screen,
@@ -1847,18 +1847,15 @@ pub fn clearRows(
     while (it.next()) |chunk| {
         const page = chunk.node.page();
         for (chunk.rows()) |*row| {
-            const cells_offset = row.cells;
-
             // Already empty: only reset metadata. The cells don't
             // change, so the dirty state is kept as is.
-            if (row.blank and blank_zero) {
+            if (row.isBlank() and blank_zero) {
                 // Most rows are empty when shells and `clear` redraw.
                 @branchHint(.likely);
 
                 // A protected clear keeps metadata, so it has nothing to do.
                 if (!protected) row.* = .{
-                    .cells = cells_offset,
-                    .blank = true,
+                    .cells = row.cells,
                     .dirty = row.dirty,
                 };
                 continue;
@@ -1871,17 +1868,12 @@ pub fn clearRows(
                 self.clearUnprotectedCells(page, row, cells);
                 // We need to preserve other row attributes since we only
                 // cleared unprotected cells.
-                row.cells = cells_offset;
                 row.dirty = true;
             } else {
                 self.clearCells(page, row, cells);
-                // Reset the metadata but keep the blank flag that
+                // Reset the metadata but keep the extent that
                 // clearCells just set.
-                row.* = .{
-                    .cells = cells_offset,
-                    .blank = row.blank,
-                    .dirty = true,
-                };
+                row.reset();
             }
         }
     }
@@ -3855,7 +3847,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
         }
 
         assert(width == 1 or width == 2);
-        self.cursor.page_row.blank = false;
+        self.cursor.page_row.markWritten(@min(self.cursor.x + width, self.pages.cols));
         switch (width) {
             1 => {
                 self.cursor.page_cell.* = .{
@@ -3895,7 +3887,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     try self.cursorDownOrScroll();
                     self.cursorHorizontalAbsolute(0);
                     self.cursor.page_row.wrap_continuation = true;
-                    self.cursor.page_row.blank = false;
+                    self.cursor.page_row.markWritten(2);
                 }
 
                 // Write our wide char
@@ -4880,7 +4872,9 @@ test "Screen: cursorCellEndOfPrev across mixed-width pages" {
     try s.pages.split(.{ .node = first, .y = 1 });
     s.cursorReload();
     const second = first.next.?;
-    first.page().size.cols = 2;
+    const first_page = first.page();
+    first_page.clearCells(first_page.getRow(0), 2, first_page.size.cols, .{});
+    first_page.size.cols = 2;
 
     try testing.expectEqual(second, s.cursor.page_pin.node);
     const expected = (Pin{ .node = first, .x = 1 }).rowAndCell().cell;
@@ -7274,6 +7268,7 @@ test "Screen: resize (no reflow) less rows trims blank lines" {
             .content_tag = .bg_color_rgb,
             .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
         };
+        list_cell.row.markWritten(1);
     }
 
     const cursor = s.cursor;
@@ -7310,6 +7305,7 @@ test "Screen: resize (no reflow) more rows trims blank lines" {
             .content_tag = .bg_color_rgb,
             .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
         };
+        list_cell.row.markWritten(1);
     }
 
     const cursor = s.cursor;
@@ -8142,6 +8138,7 @@ test "Screen: resize more cols bounded scrollback keeps viewport valid" {
                     .content_tag = .codepoint,
                     .content = .{ .codepoint = @bitCast(@as(u24, 'A')) },
                 };
+                page.getRow(y).markWritten(x + 1);
             }
         }
     }
@@ -10287,7 +10284,10 @@ test "Screen: selectLine semantic boundary across mixed-width pages" {
     const first = s.pages.pages.first.?;
     try s.pages.split(.{ .node = first, .y = 1 });
     const second = first.next.?;
-    first.page().size.cols = 2;
+    const first_page = first.page();
+    first_page.clearCells(first_page.getRow(0), 2, first_page.size.cols, .{});
+    first_page.size.cols = 2;
+
     s.pages.pauseIntegrityChecks(true);
     defer s.pages.pauseIntegrityChecks(false);
 
@@ -11668,6 +11668,8 @@ test "Screen: cursorSetHyperlink OOM + URI too large for string alloc" {
     const base_capacity = s.cursor.page_pin.node.page().hyperlinkCapacity();
     const base_string_bytes = s.cursor.page_pin.node.capacity().string_bytes;
     for (0..base_capacity * 2) |_| {
+        // Like `Terminal.print`, cover the cell before linking it.
+        s.cursor.page_row.markWritten(s.cursor.x + 1);
         try s.cursorSetHyperlink();
         if (s.cursor.x >= s.pages.cols - 1) {
             try s.cursorDownOrScroll();
