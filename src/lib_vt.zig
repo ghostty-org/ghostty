@@ -276,6 +276,7 @@ comptime {
         @export(&c.sgr_attribute_tag, .{ .name = "ghostty_sgr_attribute_tag" });
         @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
         @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
+        @export(&c.formatter_screen_new, .{ .name = "ghostty_formatter_screen_new" });
         @export(&c.formatter_set, .{ .name = "ghostty_formatter_set" });
         @export(&c.formatter_get, .{ .name = "ghostty_formatter_get" });
         @export(&c.formatter_format, .{ .name = "ghostty_formatter_format" });
@@ -354,6 +355,7 @@ comptime {
         @export(&c.search_get, .{ .name = "ghostty_search_get" });
         @export(&c.search_get_multi, .{ .name = "ghostty_search_get_multi" });
         @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+        @export(&c.terminal_screen_grid_ref, .{ .name = "ghostty_terminal_screen_grid_ref" });
         @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });
         @export(&c.terminal_grid_ref_track, .{ .name = "ghostty_terminal_grid_ref_track" });
         @export(&c.snapshot_encode, .{ .name = "ghostty_snapshot_encode" });
