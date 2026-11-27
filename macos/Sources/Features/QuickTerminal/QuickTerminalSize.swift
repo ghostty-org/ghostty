@@ -6,9 +6,13 @@ import GhosttyKit
 ///
 /// The size determines the size of the quick terminal along the primary and secondary axis. The primary and
 /// secondary axis is defined by the `quick-terminal-position`.
-struct QuickTerminalSize {
+struct QuickTerminalSize: Equatable {
     let primary: Size?
     let secondary: Size?
+
+    var isConfigured: Bool {
+        primary != nil || secondary != nil
+    }
 
     init(primary: Size? = nil, secondary: Size? = nil) {
         self.primary = primary
@@ -20,7 +24,7 @@ struct QuickTerminalSize {
         self.secondary = Size(from: cStruct.secondary)
     }
 
-    enum Size {
+    enum Size: Equatable {
         case percentage(Float)
         case pixels(UInt32)
 
