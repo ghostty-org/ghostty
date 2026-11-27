@@ -530,11 +530,9 @@ pub fn adjust(
 }
 
 /// Move the selection end one word in the given direction. A word is a
-/// run of codepoints that aren't in `codepoints`, the word-boundary
-/// codepoints. Empty cells and hard line breaks (the end of a non-wrapped
-/// row) always stop the walk, matching Screen.selectWord. The walk also
-/// never crosses a shell-integration prompt boundary, so a selection
-/// can't be extended into or out of a prompt.
+/// run of nonempty cells whose codepoints aren't in `codepoints`. Empty
+/// cells (such as those skipped by tabs) are separators. The walk never
+/// crosses a hard line break or a shell-integration prompt boundary.
 fn adjustWord(
     end_pin: *Pin,
     dir: PageList.Direction,
@@ -543,14 +541,15 @@ fn adjustWord(
     var it = end_pin.cellIterator(dir, null);
     var prev = it.next() orelse return; // Consume one, our start
 
-    // Walk past boundary codepoints to the near edge of a word, then
-    // through its body; the next boundary codepoint ends the walk.
+    // Skip separators to reach a word, then scan to its far edge.
     var edge: ?Pin = null;
     while (it.next()) |next| {
         if (Screen.crossesHardBreak(dir, prev, next) or crossesPrompt(prev, next)) break;
-        const codepoint = Screen.selectWordCodepoint(next) orelse break;
-        if (std.mem.indexOfScalar(u21, codepoints, codepoint) != null) {
-            // A boundary only ends the walk once we're in a word.
+        const separator = if (Screen.selectWordCodepoint(next)) |codepoint|
+            std.mem.indexOfScalar(u21, codepoints, codepoint) != null
+        else
+            true;
+        if (separator) {
             if (edge != null) break;
         } else {
             edge = next;
@@ -1229,6 +1228,33 @@ test "Selection: adjust word_left with multiple spaces" {
             .x = 0,
             .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Selection: adjust word across a tab stop" {
+    const testing = std.testing;
+    const Terminal = @import("Terminal.zig");
+    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(testing.allocator);
+    var stream = t.vtStream();
+    defer stream.deinit();
+    stream.nextSlice("hello\tworld");
+
+    const s = t.screens.active;
+    const boundary = &[_]u21{ ' ', '\t' };
+    const Case = struct { dir: Adjustment, from: u16, near: u16, far: u16 };
+    const cases = [_]Case{
+        .{ .dir = .word_right, .from = 2, .near = 4, .far = 12 },
+        .{ .dir = .word_left, .from = 10, .near = 8, .far = 0 },
+    };
+    for (cases) |case| {
+        const initial_pin = s.pages.pin(.{ .screen = .{ .x = case.from, .y = 0 } }).?;
+        var sel = Selection.init(initial_pin, initial_pin, false);
+        defer sel.deinit(s);
+        sel.adjust(s, case.dir, boundary);
+        try testing.expectEqual(point.Point{ .screen = .{ .x = case.near, .y = 0 } }, s.pages.pointFromPin(.screen, sel.end()).?);
+        sel.adjust(s, case.dir, boundary);
+        try testing.expectEqual(point.Point{ .screen = .{ .x = case.far, .y = 0 } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
