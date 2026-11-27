@@ -4260,6 +4260,7 @@ const Clipboard = struct {
             self,
             .{ .osc_52_write = clipboard_type },
             &[_]terminal.clipboard.Content{.{ .mime = "text/plain", .data = text }},
+            false,
         );
     }
 
@@ -4379,6 +4380,7 @@ const Clipboard = struct {
                 self,
                 state,
                 kitty.contents,
+                false,
             ),
 
             else => log.warn(
@@ -4671,6 +4673,7 @@ const Clipboard = struct {
                     self,
                     op.state,
                     op.contents[0..op.contents_len],
+                    false,
                 );
                 return;
             },
@@ -4706,12 +4709,14 @@ const Clipboard = struct {
             .{ .contents = &.{.{ .mime = "text/plain", .data = text }} },
         ) catch |err| switch (err) {
             error.UnsafePaste,
+            error.UnsafePastePassword,
             error.UnauthorizedPaste,
             => {
                 showClipboardConfirmation(
                     self,
                     .{ .paste = .standard },
                     &[_]terminal.clipboard.Content{.{ .mime = "text/plain", .data = text }},
+                    err == error.UnsafePastePassword,
                 );
                 return;
             },
@@ -4747,11 +4752,13 @@ const Clipboard = struct {
         self: *Surface,
         req: apprt.ClipboardRequest,
         contents: anytype,
+        password_input: bool,
     ) void {
         const dialog = gobject.ext.newInstance(
             ClipboardConfirmationDialog,
             .{
                 .request = &req,
+                .blur = password_input,
                 .@"can-remember" = switch (req) {
                     .osc_52_read, .osc_52_write => true,
 
@@ -4943,12 +4950,14 @@ const Clipboard = struct {
             .{ .contents = &.{.{ .mime = "text/plain", .data = str }} },
         ) catch |err| switch (err) {
             error.UnsafePaste,
+            error.UnsafePastePassword,
             error.UnauthorizedPaste,
             => {
                 showClipboardConfirmation(
                     self,
                     req.state,
                     &[_]terminal.clipboard.Content{.{ .mime = "text/plain", .data = str }},
+                    err == error.UnsafePastePassword,
                 );
                 return;
             },

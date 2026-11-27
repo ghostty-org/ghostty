@@ -50,6 +50,9 @@ template $GhosttyClipboardConfirmationDialog: Adw.AlertDialog {
       }
 
       Overlay {
+        width-request: 500;
+        height-request: 200;
+
         styles [
           "osd",
           "clipboard-overlay",
@@ -59,9 +62,6 @@ template $GhosttyClipboardConfirmationDialog: Adw.AlertDialog {
           styles [
             "clipboard-contents",
           ]
-
-          width-request: 500;
-          height-request: 200;
         }
 
         [overlay]

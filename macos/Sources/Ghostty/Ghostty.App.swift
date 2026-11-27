@@ -394,6 +394,7 @@ extension Ghostty {
                 contents: display,
                 kind: kind,
                 canRemember: c.can_remember,
+                passwordInput: c.password_input,
                 previewImage: previewImage
             ) { surfaceView, confirmed, remember in
                 guard let surface = surfaceView.surface else { return }
