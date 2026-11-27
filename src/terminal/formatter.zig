@@ -487,6 +487,25 @@ pub const TerminalFormatter = struct {
         var screen_formatter: ScreenFormatter = .init(self.terminal.screens.active, self.opts);
         screen_formatter.content = self.content;
         screen_formatter.pin_map = self.pin_map;
+
+        // A wrap is pending at the right margin when the cursor is within
+        // the left and right margins, which the modes (DECLRMM) and the
+        // scrolling region below restore before the cursor is.
+        if (self.opts.emit == .vt and
+            self.extra.modes and
+            self.extra.scrolling_region and
+            self.terminal.screens.active.cursor.x <= self.terminal.scrolling_region.right)
+        {
+            screen_formatter.wrap_column = self.terminal.scrolling_region.right;
+        }
+
+        // The contents may save the cursor for the cursor extra, which is
+        // emitted by a separate format call below.
+        var cursor_saved = false;
+        if (self.opts.emit == .vt and self.extra.screen.cursor) {
+            screen_formatter.cursor_saved = &cursor_saved;
+        }
+
         try screen_formatter.format(writer);
 
         // Extra terminal state to emit after the screen contents so that
@@ -564,17 +583,6 @@ pub const TerminalFormatter = struct {
             };
         }
 
-        // A wrap is pending at the right margin when the cursor is within
-        // the left and right margins, which the modes (DECLRMM) and the
-        // scrolling region above restore before the cursor is.
-        if (self.opts.emit == .vt and
-            self.extra.modes and
-            self.extra.scrolling_region and
-            self.terminal.screens.active.cursor.x <= self.terminal.scrolling_region.right)
-        {
-            screen_formatter.wrap_column = self.terminal.scrolling_region.right;
-        }
-
         try screen_formatter.format(writer);
     }
 };
@@ -617,6 +625,13 @@ pub const ScreenFormatter = struct {
     /// that the cursor is within, where a wrap is pending at the right
     /// margin instead. Null means the last column.
     wrap_column: ?size.CellCountInt = null,
+
+    /// Whether the content saved the cursor (DECSC) for the cursor extra,
+    /// for callers that format the content and the extras in separate
+    /// calls: point it at the same bool, initially false, for both calls.
+    /// Without it, the cursor is only saved when the content and the cursor
+    /// extra are formatted in the same call. See `saveCursorPin`.
+    cursor_saved: ?*bool = null,
 
     pub const Content = union(enum) {
         /// Emit no content, only terminal state such as modes, palette, etc.
@@ -711,6 +726,9 @@ pub const ScreenFormatter = struct {
         self: ScreenFormatter,
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
+        var local_cursor_saved = false;
+        const cursor_saved = self.cursor_saved orelse &local_cursor_saved;
+
         switch (self.content) {
             .none => {},
 
@@ -723,6 +741,10 @@ pub const ScreenFormatter = struct {
                     list_formatter.bottom_right = sel.bottomRight(self.screen);
                     list_formatter.rectangle = sel.rectangle;
                 }
+                list_formatter.save_cursor = self.saveCursorPin(
+                    list_formatter.top_left orelse self.screen.pages.getTopLeft(.screen),
+                );
+                list_formatter.cursor_saved = cursor_saved;
                 try list_formatter.format(writer);
             },
         }
@@ -739,6 +761,32 @@ pub const ScreenFormatter = struct {
             .html => return,
         }
 
+        try self.formatExtra(writer, cursor_saved.*);
+
+        // If we have a pin_map, we need to count how many bytes the extras
+        // emitted so we can map them all to the same pin.
+        if (self.pin_map) |*m| {
+            var discarding: std.Io.Writer.Discarding = .init(&.{});
+            try self.formatExtra(&discarding.writer, cursor_saved.*);
+
+            // Map all those bytes to the same pin. Use the first page node
+            // to ensure the node pointer is always properly initialized.
+            m.map.append(
+                m.alloc,
+                m.map.getLastOrNull() orelse
+                    self.screen.pages.getTopLeft(.screen),
+                std.math.cast(usize, discarding.count) orelse return error.WriteFailed,
+            ) catch return error.WriteFailed;
+        }
+    }
+
+    /// Emits the extra screen state. `cursor_saved` is whether the content
+    /// saved the cursor for the cursor extra (see `saveCursorPin`).
+    fn formatExtra(
+        self: ScreenFormatter,
+        writer: *std.Io.Writer,
+        cursor_saved: bool,
+    ) std.Io.Writer.Error!void {
         // Emit cursor position before the other extras because restoring a
         // pending wrap requires reprinting the cell at the right edge. That
         // print uses and changes active screen state, so the requested style,
@@ -754,6 +802,14 @@ pub const ScreenFormatter = struct {
                     (cursor.y -| origin.y) + 1,
                     (cursor.x -| origin.x) + 1,
                 });
+                break :cursor;
+            }
+
+            // The content saved the cursor with the wrap pending, right
+            // after it printed the cell under the cursor. Restoring it
+            // (DECRC) restores the wrap and the position.
+            if (cursor_saved) {
+                try writer.writeAll("\x1b8");
                 break :cursor;
             }
 
@@ -882,26 +938,42 @@ pub const ScreenFormatter = struct {
                 try writer.print("{s}", .{seq});
             }
         }
+    }
 
-        // If we have a pin_map, we need to count how many bytes the extras
-        // will emit so we can map them all to the same pin. We do this by
-        // formatting to a discarding writer with content=none.
-        if (self.pin_map) |*m| {
-            var discarding: std.Io.Writer.Discarding = .init(&.{});
-            var extra_formatter: ScreenFormatter = self;
-            extra_formatter.content = .none;
-            extra_formatter.pin_map = null;
-            try extra_formatter.format(&discarding.writer);
+    /// The cursor's pin if the content should save the cursor (DECSC) for
+    /// the cursor extra, right after printing the cell under the cursor,
+    /// where the print leaves the cursor with the same pending wrap.
+    ///
+    /// Otherwise the cursor extra restores a pending wrap by printing that
+    /// cell again, which opens its hyperlink again. Each hyperlink without
+    /// an explicit id that is opened is a new one, so the last cell of the
+    /// link would become a hyperlink of its own.
+    ///
+    /// This replaces the saved cursor, which the formatter does not emit.
+    /// The contents only leave a wrap pending at the last column, so a wrap
+    /// pending at a right margin is restored by printing the cell again.
+    ///
+    /// The saved cursor stays on the screen row it was saved on while later
+    /// rows scroll the screen, so it is only saved if that is the cursor's
+    /// row. The contents start at the top-left (`top_left`) and each row
+    /// takes one screen row, so this is when they don't scroll before the
+    /// cursor's row, or reach it on the bottom row, where nothing follows.
+    fn saveCursorPin(self: ScreenFormatter, top_left: Pin) ?Pin {
+        if (self.opts.emit != .vt) return null;
+        if (self.cursor_saved == null and !self.extra.cursor) return null;
 
-            // Map all those bytes to the same pin. Use the first page node
-            // to ensure the node pointer is always properly initialized.
-            m.map.append(
-                m.alloc,
-                m.map.getLastOrNull() orelse
-                    self.screen.pages.getTopLeft(.screen),
-                std.math.cast(usize, discarding.count) orelse return error.WriteFailed,
-            ) catch return error.WriteFailed;
-        }
+        const cursor = &self.screen.cursor;
+        if (!cursor.pending_wrap or !cursor.page_cell.hyperlink) return null;
+        const last_column = self.screen.pages.cols - 1;
+        if (cursor.x != last_column) return null;
+        if ((self.wrap_column orelse last_column) != last_column) return null;
+
+        const pages = &self.screen.pages;
+        const top_y = (pages.pointFromPin(.screen, top_left) orelse return null).screen.y;
+        const cursor_y = (pages.pointFromPin(.screen, cursor.page_pin.*) orelse return null).screen.y;
+        if (cursor_y < top_y) return null;
+        if (@min(cursor_y - top_y, pages.rows - 1) != cursor.y) return null;
+        return cursor.page_pin.*;
     }
 };
 
@@ -928,6 +1000,12 @@ pub const PageListFormatter = struct {
     ///
     /// Warning: there is a significant performance hit to track this
     pin_map: ?PinMap,
+
+    /// In VT output, save the cursor (DECSC) right after the last cell of
+    /// this pin's row, if that cell is at the last column and printing it
+    /// left a pending wrap, and set `cursor_saved` to true.
+    save_cursor: ?Pin = null,
+    cursor_saved: ?*bool = null,
 
     pub fn init(
         list: *const PageList,
@@ -969,6 +1047,15 @@ pub const PageListFormatter = struct {
             formatter.end_y = chunk.end - 1;
             formatter.trailing_state = page_state;
             formatter.rectangle = self.rectangle;
+            if (self.save_cursor) |pin| {
+                if (pin.node == chunk.node and
+                    pin.y >= chunk.start and
+                    pin.y < chunk.end)
+                {
+                    formatter.save_cursor_y = pin.y;
+                    formatter.cursor_saved = self.cursor_saved;
+                }
+            }
 
             // For rectangle selection, apply start_x and end_x to all chunks
             if (self.rectangle) {
@@ -1075,6 +1162,12 @@ pub const PageFormatter = struct {
     /// over multiple pages this helps ensure that unwrapping and other
     /// accounting works properly.
     trailing_state: ?TrailingState,
+
+    /// In VT output, save the cursor (DECSC) right after the last cell of
+    /// this row, if that cell is at the last column and printing it left a
+    /// pending wrap, and set `cursor_saved` to true.
+    save_cursor_y: ?size.CellCountInt = null,
+    cursor_saved: ?*bool = null,
 
     /// See point_map.
     pub const PointMap = struct {
@@ -1703,6 +1796,16 @@ pub const PageFormatter = struct {
                     },
                 }
             }
+
+            if (comptime emit == .vt) {
+                if (self.save_cursor_y == y) try self.saveCursorAfterRow(
+                    writer,
+                    cells_subset,
+                    row_start_x,
+                    y,
+                    blank_cells,
+                );
+            }
         }
 
         // If the style is non-default, we need to close our style tag.
@@ -2025,6 +2128,40 @@ pub const PageFormatter = struct {
             .{ .x = x - @as(size.CellCountInt, @intCast(count)), .y = y },
             seq.len,
         ) catch return error.WriteFailed;
+    }
+
+    /// Save the cursor (DECSC) after the cells of row y (see
+    /// `save_cursor_y`), if they were all printed up to a last cell with
+    /// text at the last column, which leaves a pending wrap. `blank_cells`
+    /// is the count of blank cells at the end that weren't printed.
+    fn saveCursorAfterRow(
+        self: *const PageFormatter,
+        writer: *std.Io.Writer,
+        cells: []const Cell,
+        start_x: size.CellCountInt,
+        y: size.CellCountInt,
+        blank_cells: usize,
+    ) std.Io.Writer.Error!void {
+        if (blank_cells > 0 or cells.len == 0) return;
+        if (start_x + cells.len != self.page.size.cols) return;
+
+        // A wide character ends with its spacer tail. A spacer head is
+        // skipped, so it leaves no wrap.
+        const last = &cells[cells.len - 1];
+        const printed = switch (last.wide) {
+            .narrow, .wide => last,
+            .spacer_tail => if (cells.len > 1) &cells[cells.len - 2] else return,
+            .spacer_head => return,
+        };
+        if (!printed.hasText()) return;
+
+        try writer.writeAll("\x1b7");
+        if (self.point_map) |*map| map.map.appendNTimes(
+            map.alloc,
+            .{ .x = self.page.size.cols - 1, .y = y },
+            2,
+        ) catch return error.WriteFailed;
+        if (self.cursor_saved) |saved| saved.* = true;
     }
 
     /// Whether any of the cells only carries a background color.
@@ -5830,6 +5967,210 @@ test "Terminal vt cursor preserves pending wrap over a blank cell" {
     try testing.expectEqualStrings(source_contents, target_contents);
 }
 
+test "Terminal vt cursor preserves pending wrap in a hyperlink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer source.deinit(alloc);
+
+    // A hyperlink without an explicit id fills the first row, leaving a
+    // pending wrap on its last cell, with more text on the row below.
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("\x1b[2;1Hbelow\x1b[1;1H" ++
+        "\x1b]8;;https://example.com\x1b\\abcdef\x1b]8;;\x1b\\");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, source.screens.active.cursor.x);
+
+    var pin_map: PinMap.Map = .empty;
+    defer pin_map.deinit(alloc);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+    try formatter.format(&builder.writer);
+    try testing.expectEqual(builder.writer.buffered().len, pin_map.count());
+    // The cursor is saved (DECSC) right after the last cell, with the wrap
+    // pending, and restored (DECRC) instead of printing the cell again.
+    try testing.expectEqualStrings(
+        "\x1b]8;;https://example.com\x1b\\abcdef\x1b7\r\n" ++
+            "\x1b]8;;\x1b\\below\x1b8",
+        builder.writer.buffered(),
+    );
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expect(target.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, target.screens.active.cursor.x);
+    try testing.expectEqual(0, target.screens.active.cursor.y);
+
+    // The whole row is still one hyperlink: restoring the pending wrap
+    // didn't start another link for the last cell.
+    const pages = &target.screens.active.pages;
+    const first = pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+    const last = pages.getCell(.{ .active = .{ .x = 5, .y = 0 } }).?;
+    try testing.expect(last.cell.hyperlink);
+    try testing.expectEqual(
+        first.node.page().lookupHyperlink(first.cell).?,
+        last.node.page().lookupHyperlink(last.cell).?,
+    );
+
+    // Formatting the restored terminal gives the same output.
+    var target_builder: std.Io.Writer.Allocating = .init(alloc);
+    defer target_builder.deinit();
+    var target_formatter: TerminalFormatter = .init(&target, .vt);
+    target_formatter.extra = .none;
+    target_formatter.extra.screen.cursor = true;
+    try target_formatter.format(&target_builder.writer);
+    try testing.expectEqualStrings(
+        builder.writer.buffered(),
+        target_builder.writer.buffered(),
+    );
+
+    // The next character goes on the next row.
+    source_stream.nextSlice("X");
+    target_stream.nextSlice("X");
+    const source_contents = try source.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(source_contents);
+    const target_contents = try target.screens.active.dumpStringAlloc(
+        alloc,
+        .{ .screen = .{} },
+    );
+    defer alloc.free(target_contents);
+    try testing.expectEqualStrings(source_contents, target_contents);
+}
+test "Terminal vt cursor restores pending wrap in a hyperlink above scrolled rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer source.deinit(alloc);
+
+    // A row of scrollback, then a hyperlink without an explicit id fills
+    // the first row of the screen, leaving a pending wrap on its last
+    // cell, with text on the rows below.
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("1\r\n2\r\n3\r\nend\x1b[2;1Hbelow\x1b[1;1H" ++
+        "\x1b]8;;https://example.com\x1b\\abcdef\x1b]8;;\x1b\\");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, source.screens.active.cursor.x);
+    try testing.expectEqual(0, source.screens.active.cursor.y);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    try formatter.format(&builder.writer);
+
+    // The rows after the cursor's scroll the screen, which would leave a
+    // cursor saved on its row one row too low, so the cell is printed
+    // again instead.
+    try testing.expect(std.mem.indexOf(u8, builder.writer.buffered(), "\x1b7") == null);
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expect(target.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, target.screens.active.cursor.x);
+    try testing.expectEqual(0, target.screens.active.cursor.y);
+}
+
+test "Terminal vt cursor preserves pending wrap in a hyperlink on the bottom row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var source = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer source.deinit(alloc);
+
+    // A row of scrollback, then a hyperlink without an explicit id fills
+    // the bottom row, leaving a pending wrap on its last cell.
+    var source_stream = source.vtStream();
+    defer source_stream.deinit();
+    source_stream.nextSlice("1\r\n2\r\n3\r\n" ++
+        "\x1b]8;;https://example.com\x1b\\abcdef\x1b]8;;\x1b\\");
+    try testing.expect(source.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, source.screens.active.cursor.x);
+    try testing.expectEqual(2, source.screens.active.cursor.y);
+
+    var formatter: TerminalFormatter = .init(&source, .vt);
+    formatter.extra = .none;
+    formatter.extra.screen.cursor = true;
+    try formatter.format(&builder.writer);
+
+    // The contents scroll before they reach the bottom row and nothing
+    // follows it, so the cursor saved there stays on its row.
+    try testing.expectEqualStrings(
+        "1\r\n2\r\n3\r\n\x1b]8;;https://example.com\x1b\\abcdef\x1b7" ++
+            "\x1b]8;;\x1b\\\x1b8",
+        builder.writer.buffered(),
+    );
+
+    var target = try Terminal.init(io, alloc, .{
+        .cols = 6,
+        .rows = 3,
+    });
+    defer target.deinit(alloc);
+
+    var target_stream = target.vtStream();
+    defer target_stream.deinit();
+    target_stream.nextSlice(builder.writer.buffered());
+
+    try testing.expect(target.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(5, target.screens.active.cursor.x);
+    try testing.expectEqual(2, target.screens.active.cursor.y);
+
+    // The whole row is still one hyperlink.
+    const pages = &target.screens.active.pages;
+    const first = pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
+    const last = pages.getCell(.{ .active = .{ .x = 5, .y = 2 } }).?;
+    try testing.expect(last.cell.hyperlink);
+    try testing.expectEqual(
+        first.node.page().lookupHyperlink(first.cell).?,
+        last.node.page().lookupHyperlink(last.cell).?,
+    );
+}
+
 test "Terminal vt cursor preserves pending wrap after a wide character" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5936,6 +6277,62 @@ test "Screen vt with style" {
     for (0..output.len) |i| {
         try testing.expectEqual(node, pin_map.get(i).?.node);
     }
+}
+
+test "Screen vt cursor preserves pending wrap in a hyperlink after a wide character" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b]8;;https://example.com\x1b\\ab\u{1F600}\x1b]8;;\x1b\\");
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(.spacer_tail, t.screens.active.cursor.page_cell.wide);
+
+    // The contents and the cursor in one format call.
+    var pin_map: PinMap.Map = .empty;
+    defer pin_map.deinit(alloc);
+    var formatter: ScreenFormatter = .init(t.screens.active, .vt);
+    formatter.extra.cursor = true;
+    formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqual(output.len, pin_map.count());
+    try testing.expectEqualStrings(
+        "\x1b]8;;https://example.com\x1b\\ab\u{1F600}\x1b7\x1b]8;;\x1b\\\x1b8",
+        output,
+    );
+
+    var t2 = try Terminal.init(io, alloc, .{
+        .cols = 4,
+        .rows = 2,
+    });
+    defer t2.deinit(alloc);
+
+    var s2 = t2.vtStream();
+    defer s2.deinit();
+    s2.nextSlice(output);
+    try testing.expect(t2.screens.active.cursor.pending_wrap);
+    try testing.expectEqual(3, t2.screens.active.cursor.x);
+
+    const pages = &t2.screens.active.pages;
+    const first = pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+    const wide = pages.getCell(.{ .active = .{ .x = 2, .y = 0 } }).?;
+    try testing.expect(wide.cell.hyperlink);
+    try testing.expectEqual(
+        first.node.page().lookupHyperlink(first.cell).?,
+        wide.node.page().lookupHyperlink(wide.cell).?,
+    );
 }
 
 test "Screen vt with hyperlink" {
