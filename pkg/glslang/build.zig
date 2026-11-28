@@ -80,7 +80,7 @@ fn buildGlslang(
     // guarded behind _HAS_CXX17.
     try flags.append(b.allocator, "-std=c++17");
 
-    if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
+    if (target.result.os.tag == .freebsd or target.result.abi.isMusl()) {
         try flags.append(b.allocator, "-fPIC");
     }
 
