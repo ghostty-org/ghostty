@@ -443,11 +443,6 @@ extension Ghostty {
         }
 
         private func updateMenuShortcutsAfterFocusChange() {
-            // Only the key window owns the global application menu shortcuts;
-            // ignore focus changes from background windows (window activation
-            // is handled separately by windowDidBecomeKey).
-            guard window?.isKeyWindow == true else { return }
-
             // AppKit updates window.firstResponder after these callbacks return.
             DispatchQueue.main.async {
                 (NSApp.delegate as? AppDelegate)?.syncMenuShortcutsForFocus()
