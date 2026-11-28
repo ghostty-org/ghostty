@@ -639,8 +639,6 @@ class AppDelegate: NSObject,
     }
 
     @MainActor private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
-        syncMenuShortcutsForFocus()
-
         // If the tab overview is visible and escape is pressed, close it.
         // This can't POSSIBLY be right and is probably a FirstResponder problem
         // that we should handle elsewhere in our program. But this works and it
