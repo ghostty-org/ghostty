@@ -88,10 +88,14 @@ pub const RunIterator = struct {
         layout: itijah.VisualLayoutScratch = .{},
         fonts: std.ArrayList(FontInfo) = .empty,
         ltr_run: [1]VisualRun = undefined,
+        runs: std.ArrayList(VisualRun) = .empty,
+        codepoints: std.ArrayList(u21) = .empty,
 
         pub fn deinit(self: *Scratch, alloc: Allocator) void {
             self.layout.deinit(alloc);
             self.fonts.deinit(alloc);
+            self.runs.deinit(alloc);
+            self.codepoints.deinit(alloc);
         }
     };
 
@@ -154,7 +158,7 @@ pub const RunIterator = struct {
                 // If we have a selection and we're at a boundary point, then
                 // we break the run here.
                 if (self.opts.selection) |bounds| {
-                    if (j > self.i) {
+                    if (!rtl and j > self.i) {
                         if (bounds[0] > 0 and j == bounds[0]) break;
                         if (bounds[1] > 0 and j == bounds[1] + 1) break;
                     }
@@ -215,7 +219,9 @@ pub const RunIterator = struct {
 
                 // If our cursor is on this line then we break the run around
                 // the cursor.
-                if (!cell.hasGrapheme()) {
+                // Inside an RTL run the cursor column is logical, and splitting
+                // there would break Arabic-script joining, so we don't.
+                if (!rtl and !cell.hasGrapheme()) {
                     if (self.opts.cursor_x) |cursor_x| {
                         if (self.i == cursor_x and j == self.i + 1) break;
                         if (self.i < cursor_x and j == cursor_x) {
@@ -244,10 +250,20 @@ pub const RunIterator = struct {
                 // the current run's font also supports it.
                 if (font_info.idx != current_font) {
                     const cp = cell.codepoint();
-                    const is_neutral_in_current_font = cp != 0 and
+                    const is_neutral_in_current_font = rtl and cp != 0 and
                         codepointIsRtl(cp) == null and
                         self.opts.grid.hasCodepoint(current_font, cp, presentation);
-                    if (!is_neutral_in_current_font) break;
+                    if (!is_neutral_in_current_font) {
+                        // Reversed, a wide cell's spacer tail sits on its
+                        // left; start the next run there so the glyph keeps
+                        // both of its cells.
+                        if (rtl and cell.wide == .wide and j - 1 > self.i and
+                            cells[@intCast(itijah.logicalIndexForVisual(bidi_run, @intCast(j - 1)))].wide == .spacer_tail)
+                        {
+                            j -= 1;
+                        }
+                        break;
+                    }
                 }
             }
 
@@ -279,8 +295,11 @@ pub const RunIterator = struct {
             var hasher = Hasher.init(0);
             for (logical_start..logical_end) |logical_j| {
                 const visual_idx = itijah.visualIndexForLogical(bidi_run, @intCast(logical_j));
-                const cluster: u32 = visual_idx - @as(u32, @intCast(self.i));
                 const cell: *const terminal.page.Cell = &cells[logical_j];
+                // Reversed, a wide cell's spacer tail lands on its left, so
+                // the glyph starts there and covers both cells.
+                const cluster: u32 = visual_idx - @as(u32, @intCast(self.i)) -
+                    @intFromBool(rtl and cell.wide == .wide and visual_idx > self.i);
 
                 switch (cell.wide) {
                     .narrow, .wide => {},
@@ -292,7 +311,7 @@ pub const RunIterator = struct {
 
                 if (font_info.idx != current_font) {
                     const cp = cell.codepoint();
-                    const is_neutral_in_current_font = cp != 0 and
+                    const is_neutral_in_current_font = rtl and cp != 0 and
                         codepointIsRtl(cp) == null and
                         self.opts.grid.hasCodepoint(current_font, cp, presentation);
                     if (!is_neutral_in_current_font) continue;
@@ -374,21 +393,90 @@ pub const RunIterator = struct {
             return;
         }
 
-        // Build bidi inputs from logical cells and derive visual runs in a
-        // paragraph that is always anchored LTR (terminal line model).
-        var bidi_codepoints = try alloc.alloc(u21, self.max);
-        defer alloc.free(bidi_codepoints);
-        for (cells[0..self.max], 0..) |cell, i| {
-            bidi_codepoints[i] = bidiCodepoint(cell);
-        }
+        // Build bidi inputs from logical cells. Each stretch between vertical
+        // borders (tmux/vim splits, TUI tables) is its own paragraph, so RTL
+        // text never swaps across a border.
+        scratch.codepoints.clearRetainingCapacity();
+        try scratch.codepoints.ensureTotalCapacity(alloc, self.max);
+        for (cells[0..self.max]) |cell| scratch.codepoints.appendAssumeCapacity(bidiCodepoint(cell));
+        const codepoints = scratch.codepoints.items;
 
+        scratch.runs.clearRetainingCapacity();
+        var start: usize = 0;
+        while (start < self.max) {
+            var end = start;
+            while (end < self.max and !isSegmentBorder(codepoints[end])) end += 1;
+
+            // Spaces at a segment's edges stay put, next to their border.
+            var a = start;
+            while (a < end and codepoints[a] == ' ') a += 1;
+            var b = end;
+            while (b > a and codepoints[b - 1] == ' ') b -= 1;
+            if (a > start) try appendIdentityRun(alloc, scratch, start, a);
+            if (b > a) try self.appendSegmentRuns(alloc, codepoints[a..b], a);
+            if (end > b) try appendIdentityRun(alloc, scratch, b, end);
+            if (end < self.max) try scratch.runs.append(alloc, .{
+                .visual_start = @intCast(end),
+                .logical_start = @intCast(end),
+                .len = 1,
+                .is_rtl = false,
+            });
+            start = end + 1;
+        }
+        self.visual_runs = scratch.runs.items;
+    }
+
+    fn appendIdentityRun(alloc: Allocator, scratch: *Scratch, start: usize, end: usize) !void {
+        try scratch.runs.append(alloc, .{
+            .visual_start = @intCast(start),
+            .logical_start = @intCast(start),
+            .len = @intCast(end - start),
+            .is_rtl = false,
+        });
+    }
+
+    fn appendSegmentRuns(
+        self: *RunIterator,
+        alloc: Allocator,
+        codepoints: []const u21,
+        offset: usize,
+    ) !void {
+        const scratch = self.hooks.scratch();
         const layout = try itijah.resolveVisualLayoutScratch(
             alloc,
             &scratch.layout,
-            bidi_codepoints,
-            .{ .base_dir = .ltr },
+            codepoints,
+            .{ .base_dir = switch (self.opts.bidi_direction) {
+                // Take the direction from the first strong letter (UAX #9
+                // P2), so a Farsi sentence keeps its trailing punctuation at
+                // its end; text with no strong letter stays LTR.
+                .auto => .auto_ltr,
+                .ltr => .ltr,
+            } },
         );
-        self.visual_runs = layout.runs;
+        try scratch.runs.ensureUnusedCapacity(alloc, layout.runs.len);
+        for (layout.runs) |run| {
+            var r = run;
+            r.visual_start += @intCast(offset);
+            r.logical_start += @intCast(offset);
+            scratch.runs.appendAssumeCapacity(r);
+        }
+    }
+
+    /// Logical column drawn at visual column `visual`.
+    pub fn logicalIndex(self: *const RunIterator, visual: usize) usize {
+        const vr = findVisualRun(self.visual_runs, visual) orelse return visual;
+        return @intCast(itijah.logicalIndexForVisual(vr, @intCast(visual)));
+    }
+
+    /// Visual column where logical column `logical` is drawn.
+    pub fn visualIndex(self: *RunIterator, alloc: Allocator, logical: usize) !usize {
+        if (!self.layout_ready) try self.resolveRowLayout(alloc, self.opts.cells.items(.raw));
+        for (self.visual_runs) |run| {
+            if (logical >= run.logical_start and logical < run.logicalEnd())
+                return @intCast(itijah.visualIndexForLogical(run, @intCast(logical)));
+        }
+        return logical;
     }
 
     fn addCodepoint(self: *RunIterator, hasher: anytype, cp: u32, cluster: u32) !void {
@@ -449,7 +537,7 @@ pub const RunIterator = struct {
                     const cp = graphemes[i - 1];
 
                     // Ignore Emoji ZWJs
-                    if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue :candidate;
+                    if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D or cp == 0x200C) continue :candidate;
 
                     // We explicitly do not require the additional grapheme components
                     // to support the base presentation, since it is common for emoji
@@ -466,7 +554,7 @@ pub const RunIterator = struct {
                 if (!self.opts.grid.hasCodepoint(idx, primary_cp, search_presentation)) continue;
                 for (graphemes) |cp| {
                     // Ignore Emoji ZWJs
-                    if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
+                    if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D or cp == 0x200C) continue;
                     if (!self.opts.grid.hasCodepoint(idx, cp, null)) continue :candidate;
                 }
                 return idx;
@@ -569,6 +657,14 @@ fn presentationForCell(cell: *const terminal.page.Cell, grapheme: []const u21) ?
         // base (UTS #51, section 2.4).
         0x1F3FB...0x1F3FF => .emoji,
         else => null,
+    };
+}
+
+/// Box-drawing verticals that split a row into panes or table columns.
+fn isSegmentBorder(cp: u21) bool {
+    return switch (cp) {
+        0x2502, 0x2503, 0x2506, 0x2507, 0x250A, 0x250B, 0x2551, 0x23B8, 0x23B9 => true,
+        else => false,
     };
 }
 

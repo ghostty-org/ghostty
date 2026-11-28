@@ -593,6 +593,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             font_features: std.ArrayList([:0]const u8),
             font_styles: font.CodepointResolver.StyleStatus,
             font_shaping_break: configpkg.FontShapingBreak,
+            bidi_direction: configpkg.BidiDirection,
             cursor_color: ?configpkg.Config.TerminalColor,
             cursor_opacity: f64,
             cursor_text: ?configpkg.Config.TerminalColor,
@@ -665,6 +666,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .font_features = font_features.list,
                     .font_styles = font_styles,
                     .font_shaping_break = config.@"font-shaping-break",
+                    .bidi_direction = config.@"bidi-direction",
 
                     .cursor_color = config.@"cursor-color",
                     .cursor_text = config.@"cursor-text",
@@ -2770,6 +2772,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // a cursor. Otherwise, get our cursor cell, because we may
                 // need it for styling.
                 const cursor_vp = state.cursor.viewport orelse break :cursor;
+
+                // The column the cursor's cell is drawn at after bidi
+                // reordering.
+                const cursor_vx: terminal.size.CellCountInt = vx: {
+                    var opts: font.shape.RunOptions = .{
+                        .grid = self.font_grid,
+                        .cells = state.row_data.items(.cells)[cursor_vp.y].slice(),
+                    };
+                    opts.bidi_direction = self.config.bidi_direction;
+                    var it = self.font_shaper.runIterator(opts);
+                    const v = it.visualIndex(self.alloc, cursor_vp.x) catch cursor_vp.x;
+                    break :vx @intCast(@min(v, state.cols -| 1));
+                };
+
                 const cursor_style: terminal.Style = cursor_style: {
                     const cells = state.row_data.items(.cells);
                     const cell = cells[cursor_vp.y].get(cursor_vp.x);
@@ -2827,6 +2843,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 self.addCursor(
                     &state.cursor,
+                    cursor_vx,
                     style,
                     cursor_color,
                 );
@@ -2840,8 +2857,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // to move back one cell. The saturate is to ensure we don't
                         // overflow but this shouldn't happen with well-formed input.
                         switch (wide) {
-                            .narrow, .spacer_head, .wide => cursor_vp.x,
-                            .spacer_tail => cursor_vp.x -| 1,
+                            .narrow, .spacer_head, .wide => cursor_vx,
+                            .spacer_tail => cursor_vx -| 1,
                         },
                         @intCast(cursor_vp.y),
                     };
@@ -2985,16 +3002,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 },
             };
             run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
+            run_iter_opts.bidi_direction = self.config.bidi_direction;
             var run_iter = self.font_shaper.runIterator(run_iter_opts);
             var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
             var shaper_cells: ?[]const font.shape.Cell = null;
             var shaper_cells_i: usize = 0;
 
-            for (
-                0..,
-                cells_raw[0..cells_len],
-                cells_style[0..cells_len],
-            ) |x, *cell, *managed_style| {
+            for (0..cells_len) |x| {
+                // x is the visual column. With bidi reordering the cell drawn
+                // here is a different logical cell, and its style, selection,
+                // links and width belong to that logical cell.
+                const lx = @min(run_iter.logicalIndex(x), cells_len - 1);
+                const cell = &cells_raw[lx];
+                const managed_style = &cells_style[lx];
                 // If this cell falls within our preedit range then we
                 // skip this because preedits are setup separately.
                 if (preedit_range) |range| preedit: {
@@ -3074,9 +3094,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Selection should take the highest precedence.
                     const x_compare = if (wide == .spacer_tail)
-                        x -| 1
+                        lx -| 1
                     else
-                        x;
+                        lx;
                     if (selection) |sel| {
                         if (x_compare >= sel[0] and
                             x_compare <= sel[1]) break :selected .selection;
@@ -3247,7 +3267,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // distinguish them.
                 const underline: terminal.Attribute.Underline = underline: {
                     if (links.contains(.{
-                        .x = @intCast(x),
+                        .x = @intCast(lx),
                         .y = @intCast(y),
                     })) {
                         break :underline if (style.flags.underline == .single)
@@ -3339,6 +3359,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     }) {
                         self.addGlyph(
                             @intCast(x),
+                            lx,
                             @intCast(y),
                             state.cols,
                             cells_raw,
@@ -3477,6 +3498,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         fn addGlyph(
             self: *Self,
             x: terminal.size.CellCountInt,
+            lx_: usize,
             y: terminal.size.CellCountInt,
             cols: usize,
             cell_raws: []const terminal.page.Cell,
@@ -3485,7 +3507,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             color: terminal.color.RGB,
             alpha: u8,
         ) !void {
-            const cell = cell_raws[x];
+            // The glyph's own logical cell. In an RTL run a wide glyph is
+            // drawn from its spacer tail, so step back to the wide cell.
+            const lx = if (lx_ > 0 and cell_raws[lx_].wide == .spacer_tail) lx_ - 1 else lx_;
+            const cell = cell_raws[lx];
             const cp = cell.codepoint();
 
             // Render
@@ -3507,7 +3532,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         } else .none,
                     .constraint_width = constraintWidth(
                         cell_raws,
-                        x,
+                        lx,
                         cols,
                     ),
                 },
@@ -3539,6 +3564,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         fn addCursor(
             self: *Self,
             cursor_state: *const terminal.RenderState.Cursor,
+            cursor_vx: terminal.size.CellCountInt,
             cursor_style: renderer.CursorStyle,
             cursor_color: terminal.color.RGB,
         ) void {
@@ -3550,12 +3576,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // The cursor goes over the screen cursor position.
                 if (!cursor_vp.wide_tail) break :cell .{
                     cursor_state.cell.wide == .wide,
-                    cursor_vp.x,
+                    cursor_vx,
                 };
 
                 // If we're part of a wide character, we move the cursor back
                 // to the actual character.
-                break :cell .{ true, cursor_vp.x - 1 };
+                break :cell .{ true, cursor_vx -| 1 };
             };
 
             const alpha: u8 = if (!self.focused) 255 else alpha: {

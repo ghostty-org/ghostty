@@ -381,6 +381,16 @@ language: ?[:0]const u8 = null,
 /// Available since: 1.2.0
 @"font-shaping-break": FontShapingBreak = .{},
 
+/// How the direction of each line is chosen for right-to-left text such as
+/// Persian, Arabic or Hebrew.
+///
+///   * `auto` - A line (or a pane between vertical borders) takes its
+///     direction from its first strong letter, so an RTL sentence keeps its
+///     trailing punctuation at its end.
+///   * `ltr` - Every line is left-to-right. RTL words are still reordered,
+///     which keeps paths and URLs in RTL-first lines intact.
+@"bidi-direction": BidiDirection = .auto,
+
 /// What color space to use when performing alpha blending.
 ///
 /// This affects the appearance of text and of any images with transparency.
@@ -8799,6 +8809,8 @@ pub const FontSyntheticStyle = packed struct {
 };
 
 /// See "font-shaping-break" for documentation
+pub const BidiDirection = enum { auto, ltr };
+
 pub const FontShapingBreak = packed struct {
     cursor: bool = true,
 };
