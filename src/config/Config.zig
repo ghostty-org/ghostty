@@ -1041,6 +1041,11 @@ palette: Palette = .{},
 ///
 ///   * `macos-glass-regular` - Standard glass effect with some opacity
 ///   * `macos-glass-clear` - Highly transparent glass effect
+///   * `macos-glass-sidebar` - The same glass style used in
+///     macOS sidebars. `background-color` doesn't participate in
+///     the tinting. `background-opacity` controls the opacity of
+///     glass. With Reduce Transparency, `macos-glass-regular` will
+///     be used instead. (Available since: 1.5.0)
 ///
 /// If the macOS values are set, then this implies `background-blur = true`
 /// on non-macOS platforms.
@@ -9975,6 +9980,7 @@ pub const BackgroundBlur = union(enum) {
     true,
     @"macos-glass-regular",
     @"macos-glass-clear",
+    @"macos-glass-sidebar",
     radius: u8,
 
     pub fn parseCLI(self: *BackgroundBlur, input: ?[]const u8) !void {
@@ -10021,10 +10027,13 @@ pub const BackgroundBlur = union(enum) {
             .true => true,
             .radius => |v| v > 0,
 
-            // We treat these as true because they both imply some blur!
+            // We treat these as true because they all imply some blur!
             // This has the effect of making the standard blur happen on
             // Linux.
-            .@"macos-glass-regular", .@"macos-glass-clear" => true,
+            .@"macos-glass-regular",
+            .@"macos-glass-clear",
+            .@"macos-glass-sidebar",
+            => true,
         };
     }
 
@@ -10038,6 +10047,7 @@ pub const BackgroundBlur = union(enum) {
             // tagged union if we ever need to.
             .@"macos-glass-regular" => -1,
             .@"macos-glass-clear" => -2,
+            .@"macos-glass-sidebar" => -3,
         };
     }
 
@@ -10051,6 +10061,7 @@ pub const BackgroundBlur = union(enum) {
             .radius => |v| try formatter.formatEntry(u8, v),
             .@"macos-glass-regular" => try formatter.formatEntry([]const u8, "macos-glass-regular"),
             .@"macos-glass-clear" => try formatter.formatEntry([]const u8, "macos-glass-clear"),
+            .@"macos-glass-sidebar" => try formatter.formatEntry([]const u8, "macos-glass-sidebar"),
         }
     }
 
@@ -10076,9 +10087,22 @@ pub const BackgroundBlur = union(enum) {
         try v.parseCLI("macos-glass-clear");
         try testing.expectEqual(.@"macos-glass-clear", v);
 
+        try v.parseCLI("macos-glass-sidebar");
+        try testing.expectEqual(.@"macos-glass-sidebar", v);
+
         try testing.expectError(error.InvalidValue, v.parseCLI(""));
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));
         try testing.expectError(error.InvalidValue, v.parseCLI("420"));
+    }
+
+    test "format BackgroundBlur" {
+        const testing = std.testing;
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+
+        const v: BackgroundBlur = .@"macos-glass-sidebar";
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try testing.expectEqualStrings("a = macos-glass-sidebar\n", buf.written());
     }
 };
 

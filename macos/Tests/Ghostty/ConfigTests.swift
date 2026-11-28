@@ -106,6 +106,21 @@ struct ConfigTests {
         #expect(config.macosTitlebarStyle == expected)
     }
 
+    @Test(arguments: [
+        ("macos-glass-regular", Ghostty.Config.BackgroundBlur.macosGlassRegular),
+        ("macos-glass-clear", Ghostty.Config.BackgroundBlur.macosGlassClear),
+        ("macos-glass-sidebar", Ghostty.Config.BackgroundBlur.macosGlassSidebar),
+    ])
+    func backgroundBlurGlass(raw: String, expected: Ghostty.Config.BackgroundBlur) throws {
+        let config = try TemporaryConfig("background-blur = \(raw)")
+        if #available(macOS 26.0, *) {
+            #expect(config.backgroundBlur == expected)
+            #expect(config.backgroundBlur.isGlassStyle)
+        } else {
+            #expect(config.backgroundBlur == .disabled)
+        }
+    }
+
     @Test func resizeOverlayDefaultsToAfterFirst() throws {
         let config = try TemporaryConfig("")
         #expect(config.resizeOverlay == .after_first)

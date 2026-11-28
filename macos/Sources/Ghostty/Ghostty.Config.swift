@@ -749,6 +749,7 @@ extension Ghostty.Config {
         case radius(Int)
         case macosGlassRegular
         case macosGlassClear
+        case macosGlassSidebar
 
         init(fromCValue value: Int16) {
             switch value {
@@ -766,6 +767,12 @@ extension Ghostty.Config {
                 } else {
                     self = .disabled
                 }
+            case -3:
+                if #available(macOS 26.0, *) {
+                    self = .macosGlassSidebar
+                } else {
+                    self = .disabled
+                }
             default:
                 self = .radius(Int(value))
             }
@@ -780,10 +787,10 @@ extension Ghostty.Config {
             }
         }
 
-        /// Returns true if this is a macOS glass style (regular or clear).
+        /// Returns true if this is a macOS glass style (regular, clear, or sidebar).
         var isGlassStyle: Bool {
             switch self {
-            case .macosGlassRegular, .macosGlassClear:
+            case .macosGlassRegular, .macosGlassClear, .macosGlassSidebar:
                 return true
             default:
                 return false
@@ -797,7 +804,7 @@ extension Ghostty.Config {
                 return nil
             case .radius(let r):
                 return r
-            case .macosGlassRegular, .macosGlassClear:
+            case .macosGlassRegular, .macosGlassClear, .macosGlassSidebar:
                 return nil
             }
         }

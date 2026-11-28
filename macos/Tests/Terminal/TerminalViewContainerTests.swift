@@ -18,6 +18,11 @@ class MockTerminalViewContainer: TerminalViewContainer {
     override var windowCornerRadius: CGFloat? {
         _windowCornerRadius
     }
+
+    var _reduceTransparency = false
+    override var reduceTransparency: Bool {
+        _reduceTransparency
+    }
 }
 
 class MockConfig: Ghostty.Config {
@@ -60,4 +65,69 @@ struct TerminalViewContainerTests {
             #expect(view.glassEffectView == nil)
         }
     }
+
+    /// The sidebar glass is AppKit's sidebar split view, added only for its style.
+    @MainActor
+    @Test func sidebarGlassSplitView() async throws {
+        guard #available(macOS 26.0, *) else { return }
+        let view = MockTerminalViewContainer {
+            EmptyView()
+        }
+
+        let sidebar = MockConfig(backgroundBlur: .macosGlassSidebar, backgroundColor: .clear, backgroundOpacity: 0.5)
+        view.ghosttyConfigDidChange(sidebar, preferredBackgroundColor: nil)
+        try await Task.sleep(nanoseconds: UInt64(1e8)) // wait for the view to be setup if needed
+        #expect(containsSplitView(view.glassEffectView))
+        // background-opacity applies to the glass itself.
+        #expect(sidebarGlassView(in: view.glassEffectView)?.alphaValue == 0.5)
+
+        let regular = MockConfig(backgroundBlur: .macosGlassRegular, backgroundColor: .clear, backgroundOpacity: 1)
+        view.ghosttyConfigDidChange(regular, preferredBackgroundColor: nil)
+        try await Task.sleep(nanoseconds: UInt64(1e8))
+        #expect(!containsSplitView(view.glassEffectView))
+    }
+
+    /// With Reduce Transparency the sidebar style uses the regular glass, and
+    /// it follows the setting when it changes.
+    @MainActor
+    @Test func sidebarGlassReduceTransparency() async throws {
+        guard #available(macOS 26.0, *) else { return }
+        let view = MockTerminalViewContainer {
+            EmptyView()
+        }
+        view._reduceTransparency = true
+
+        let sidebar = MockConfig(backgroundBlur: .macosGlassSidebar, backgroundColor: .clear, backgroundOpacity: 1)
+        view.ghosttyConfigDidChange(sidebar, preferredBackgroundColor: nil)
+        try await Task.sleep(nanoseconds: UInt64(1e8)) // wait for the view to be setup if needed
+        #expect(view.glassEffectView != nil)
+        #expect(!containsSplitView(view.glassEffectView))
+
+        view._reduceTransparency = false
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+        try await Task.sleep(nanoseconds: UInt64(1e8))
+        #expect(containsSplitView(view.glassEffectView))
+    }
+}
+
+private func containsSplitView(_ view: NSView?) -> Bool {
+    splitView(in: view) != nil
+}
+
+private func splitView(in view: NSView?) -> NSSplitView? {
+    guard let view else { return nil }
+    if let splitView = view as? NSSplitView { return splitView }
+    return view.subviews.lazy.compactMap(splitView(in:)).first
+}
+
+/// The subview of the glass view that hosts the split view.
+private func sidebarGlassView(in glassView: NSView?) -> NSView? {
+    var view: NSView? = splitView(in: glassView)
+    while let current = view, current.superview !== glassView {
+        view = current.superview
+    }
+    return view
 }
