@@ -2089,10 +2089,7 @@ fn getTyped(
         .kitty_keyboard_flags => out.* = @as(u8, t.screens.active.kitty_keyboard.current().int()),
         .scrollbar => out.* = t.screens.active.pages.scrollbar().cval(),
         .cursor_sgr_style => out.* = .fromStyle(t.screens.active.cursor.style),
-        .mouse_tracking => out.* = t.modes.get(.mouse_event_x10) or
-            t.modes.get(.mouse_event_normal) or
-            t.modes.get(.mouse_event_button) or
-            t.modes.get(.mouse_event_any),
+        .mouse_tracking => out.* = t.modes.mouse_event != .none,
         .mouse_shape => out.* = t.mouse_shape,
         .title => {
             const title = t.getTitle() orelse "";

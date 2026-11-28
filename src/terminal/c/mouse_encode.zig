@@ -234,14 +234,14 @@ pub fn set_from_terminal(
     // Forget the last cell only if the mode or format changed. A host
     // may sync before every event and still expects repeated motion in
     // one cell to be skipped.
-    if (wrapper.opts.event != t.flags.mouse_event or
-        wrapper.opts.format != t.flags.mouse_format)
+    if (wrapper.opts.event != t.modes.mouse_event or
+        wrapper.opts.format != t.modes.mouse_format)
     {
         wrapper.last_cell = null;
     }
 
-    wrapper.opts.event = t.flags.mouse_event;
-    wrapper.opts.format = t.flags.mouse_format;
+    wrapper.opts.event = t.modes.mouse_event;
+    wrapper.opts.format = t.modes.mouse_format;
     return .success;
 }
 
