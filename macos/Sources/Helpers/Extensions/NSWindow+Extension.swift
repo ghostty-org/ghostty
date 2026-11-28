@@ -29,6 +29,14 @@ extension NSWindow {
             setFrame(windowFrame, display: true)
         }
     }
+
+    /// The titlebar, including any tab bar in it, in screen coordinates. Empty
+    /// without a titlebar. contentLayoutRect leaves the titlebar out even with
+    /// a full size content view.
+    var titlebarFrame: NSRect {
+        let content = convertToScreen(contentLayoutRect)
+        return NSRect(x: frame.minX, y: content.maxY, width: frame.width, height: frame.maxY - content.maxY)
+    }
 }
 
 // MARK: Native Tabbing

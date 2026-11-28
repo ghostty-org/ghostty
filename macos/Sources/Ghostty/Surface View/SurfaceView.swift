@@ -165,6 +165,7 @@ extension Ghostty {
                 // top Z-index os it isn't faded by the unfocused overlay.
                 SurfaceGrabHandle(
                     surfaceView: surfaceView,
+                    isSplit: isSplit,
                     dragHandle: ghostty.config.dragHandle,
                 )
             }

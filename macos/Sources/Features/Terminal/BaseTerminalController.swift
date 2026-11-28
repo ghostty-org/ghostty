@@ -218,8 +218,13 @@ class BaseTerminalController: NSWindowController,
             object: nil)
         center.addObserver(
             self,
-            selector: #selector(ghosttySurfaceDragEndedNoTarget(_:)),
+            selector: #selector(ghosttySurfaceDragEnded(_:)),
             name: .ghosttySurfaceDragEndedNoTarget,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttySurfaceDragEnded(_:)),
+            name: .ghosttySurfaceDragEndedOnTitlebar,
             object: nil)
 
         // Listen for local events that we need to know of outside of
@@ -806,12 +811,12 @@ class BaseTerminalController: NSWindowController,
         target.highlight()
     }
 
-    @objc private func ghosttySurfaceDragEndedNoTarget(_ notification: Notification) {
+    @objc private func ghosttySurfaceDragEnded(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
 
-        // If our tree isn't split, then we never create a new window, because
-        // it is already a single split.
+        // If our tree isn't split, then we never create a new window or tab,
+        // because it is already a single split.
         guard surfaceTree.isSplit else { return }
 
         // If we are removing our focused surface then we move it. We need to
@@ -835,6 +840,15 @@ class BaseTerminalController: NSWindowController,
         }
 
         replaceSurfaceTree(removedTree, moveFocusFrom: oldFocusedSurface)
+
+        // A drag that ended on a window's titlebar or tab bar becomes a tab
+        // there. If the tab can't be made, the surface still needs a window.
+        if notification.name == .ghosttySurfaceDragEndedOnTitlebar,
+           let parent = notification.userInfo?[Notification.Name.ghosttySurfaceDragNewTabWindowKey] as? NSWindow,
+           TerminalController.newTab(ghostty, from: parent, tree: newTree) != nil {
+            return
+        }
+
         _ = TerminalController.newWindow(
             ghostty,
             tree: newTree,

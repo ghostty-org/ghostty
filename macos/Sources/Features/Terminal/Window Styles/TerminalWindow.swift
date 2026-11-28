@@ -904,3 +904,15 @@ extension TerminalWindow: TabTitleEditorDelegate {
         makeFirstResponder(focusedSurface)
     }
 }
+
+// MARK: Surface Tab Drop
+
+extension TerminalWindow: Ghostty.SurfaceTabDropTarget {
+    func acceptsSurfaceTabDrop(at screenPoint: NSPoint) -> Bool {
+        // In native fullscreen the titlebar is shown in AppKit's separate
+        // fullscreen toolbar window, so a drop never lands on this one.
+        guard terminalController?.canAcceptNewTab == true,
+              !styleMask.contains(.fullScreen) else { return false }
+        return titlebarFrame.contains(screenPoint)
+    }
+}
