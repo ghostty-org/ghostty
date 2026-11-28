@@ -106,10 +106,10 @@ export fn ghostty_config_trigger(
     str: [*]const u8,
     len: usize,
 ) inputpkg.Binding.Trigger.C {
-    return ghostty_config_trigger_with_options(self, str, len, false);
+    return ghostty_config_trigger_with_performable(self, str, len, false);
 }
 
-export fn ghostty_config_trigger_with_options(
+export fn ghostty_config_trigger_with_performable(
     self: *Config,
     str: [*]const u8,
     len: usize,
@@ -299,7 +299,7 @@ test "ghostty_config_trigger: default keybind" {
     }
 }
 
-test "ghostty_config_trigger_with_options: performable" {
+test "ghostty_config_trigger_with_performable: performable" {
     const testing = std.testing;
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
@@ -307,7 +307,7 @@ test "ghostty_config_trigger_with_options: performable" {
     cfg.keybind.set = .{};
     try cfg.keybind.set.parseAndPut(cfg._arena.?.allocator(), "performable:ctrl+q=new_window");
     const without = ghostty_config_trigger(&cfg, "new_window", "new_window".len);
-    const with = ghostty_config_trigger_with_options(&cfg, "new_window", "new_window".len, true);
+    const with = ghostty_config_trigger_with_performable(&cfg, "new_window", "new_window".len, true);
     try testing.expectEqual(.physical, without.tag);
     try testing.expectEqual(.unidentified, without.key.physical);
     try testing.expectEqual(.unicode, with.tag);

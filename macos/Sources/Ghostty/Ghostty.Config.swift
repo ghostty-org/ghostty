@@ -118,7 +118,7 @@ extension Ghostty {
 
         func keybindTrigger(for action: String, includePerformable: Bool = false) -> ghostty_input_trigger_s? {
             guard let config else { return nil }
-            return ghostty_config_trigger_with_options(
+            return ghostty_config_trigger_with_performable(
                 config, action, UInt(action.lengthOfBytes(using: .utf8)), includePerformable)
         }
 
