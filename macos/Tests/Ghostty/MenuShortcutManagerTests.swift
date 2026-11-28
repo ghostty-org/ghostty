@@ -4,6 +4,42 @@ import Testing
 @testable import Ghostty
 
 struct MenuShortcutManagerTests {
+    @MainActor @Test func performableClipboardShortcutsDependOnFocus() throws {
+        let config = try TemporaryConfig("")
+        let manager = Ghostty.MenuShortcutManager()
+        let copy = NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "")
+
+        for includePerformable in [false, true, false] {
+            manager.reset()
+            manager.syncMenuShortcut(
+                config, action: "copy_to_clipboard", menuItem: copy, includePerformable: includePerformable)
+            manager.syncMenuShortcut(
+                config, action: "paste_from_clipboard", menuItem: paste, includePerformable: includePerformable)
+            #expect(copy.keyEquivalent == (includePerformable ? "c" : ""))
+            #expect(paste.keyEquivalent == (includePerformable ? "v" : ""))
+        }
+    }
+
+    @MainActor @Test func performableUndoRedoShortcutsDependOnFocus() throws {
+        let config = try TemporaryConfig("")
+        let manager = Ghostty.MenuShortcutManager()
+        let undo = NSMenuItem(title: "Undo", action: nil, keyEquivalent: "")
+        let redo = NSMenuItem(title: "Redo", action: nil, keyEquivalent: "")
+
+        for includePerformable in [false, true, false] {
+            manager.reset()
+            manager.syncMenuShortcut(
+                config, action: "undo", menuItem: undo, includePerformable: includePerformable)
+            manager.syncMenuShortcut(
+                config, action: "redo", menuItem: redo, includePerformable: includePerformable)
+            #expect(undo.keyEquivalent == (includePerformable ? "z" : ""))
+            #expect(undo.keyEquivalentModifierMask == (includePerformable ? .command : []))
+            #expect(redo.keyEquivalent == (includePerformable ? "z" : ""))
+            #expect(redo.keyEquivalentModifierMask == (includePerformable ? [.command, .shift] : []))
+        }
+    }
+
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/779", id: 779))
     func unbindShouldDiscardDefault() async throws {
         let config = try TemporaryConfig("keybind = super+d=unbind")

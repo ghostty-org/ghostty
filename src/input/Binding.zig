@@ -2611,14 +2611,10 @@ pub const Set = struct {
 
             // If we have an existing binding for this trigger, we have to
             // update the reverse mapping to remove the old action.
-            .leaf => if (track_reverse) {
-                const t_hash = t.hash();
-                for (0.., self.reverse.values()) |i, *value| {
-                    if (t_hash == value.hash()) {
-                        self.reverse.swapRemoveAt(i);
-                        break;
-                    }
-                }
+            .leaf => |leaf| {
+                // Remove the old entry before searching for a replacement.
+                gop.value_ptr.* = .{ .leaf = .{ .action = action, .flags = flags } };
+                self.fixupReverseForAction(leaf.action, t);
             },
 
             // Chained leaves aren't in the reverse mapping so we just
@@ -2707,10 +2703,31 @@ pub const Set = struct {
         return self.bindings.getEntry(t);
     }
 
-    /// Get a trigger for the given action. An action can have multiple
-    /// triggers so this will return the first one found.
+    /// Get a non-performable trigger for the given action.
     pub fn getTrigger(self: Set, a: Action) ?Trigger {
-        return self.reverse.get(a);
+        return self.getTriggerWithPerformable(a, .{});
+    }
+
+    /// Optionally search for performable bindings as well. Sequences and chains
+    /// are excluded; the last matching leaf in the binding map is preferred.
+    pub fn getTriggerWithPerformable(
+        self: Set,
+        a: Action,
+        opts: struct { include_performable: bool = false },
+    ) ?Trigger {
+        if (!opts.include_performable) return self.reverse.get(a);
+
+        var i = self.bindings.count();
+        while (i > 0) {
+            i -= 1;
+            switch (self.bindings.values()[i]) {
+                .leaf => |leaf| if (leaf.action.hash() == a.hash()) {
+                    return self.bindings.keys()[i];
+                },
+                .leader, .leaf_chained => {},
+            }
+        }
+        return null;
     }
 
     /// Get an entry for the given key event. This will attempt to find
@@ -2831,7 +2848,7 @@ pub const Set = struct {
             switch (it_entry.value_ptr.*) {
                 .leader, .leaf_chained => {},
                 .leaf => |leaf_search| {
-                    if (leaf_search.action.hash() == action_hash) {
+                    if (!leaf_search.flags.performable and leaf_search.action.hash() == action_hash) {
                         entry.value_ptr.* = it_entry.key_ptr.*;
                         return;
                     }
@@ -4158,6 +4175,41 @@ test "set: performable is not part of reverse mappings" {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
         try testing.expect(trigger.key.unicode == 'a');
     }
+}
+
+test "set: optionally resolve performable triggers" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    const action: Action = .{ .new_window = {} };
+    const a: Trigger = .{ .key = .{ .unicode = 'a' } };
+    const b: Trigger = .{ .key = .{ .unicode = 'b' } };
+    try s.putFlags(alloc, a, action, .{ .performable = true });
+    try testing.expect(s.getTriggerWithPerformable(action, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(a));
+
+    // A later non-performable binding is returned in either mode.
+    try s.put(alloc, b, action);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(b));
+    s.remove(alloc, b);
+    try testing.expect(s.getTriggerWithPerformable(action, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(a));
+
+    // Overriding a non-performable trigger must not leave a stale reverse entry.
+    try s.put(alloc, b, action);
+    try s.putFlags(alloc, b, .{ .new_tab = {} }, .{ .performable = true });
+    try testing.expect(s.getTriggerWithPerformable(action, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(a));
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{ .include_performable = true }).?.equal(b));
+
+    // Chained and sequenced bindings cannot be represented by a menu shortcut.
+    try s.appendChain(alloc, .{ .close_surface = {} });
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{ .include_performable = true }) == null);
+    try s.parseAndPut(alloc, "performable:a>b=new_tab");
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{ .include_performable = true }) == null);
 }
 
 test "set: overriding a mapping updates reverse" {

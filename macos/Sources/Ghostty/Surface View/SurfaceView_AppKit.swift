@@ -442,10 +442,19 @@ extension Ghostty {
             super.endSearch()
         }
 
+        private func updateMenuShortcutsAfterFocusChange() {
+            // AppKit updates window.firstResponder after these callbacks return.
+            DispatchQueue.main.async {
+                (NSApp.delegate as? AppDelegate)?.syncMenuShortcutsForFocus()
+            }
+        }
+
         override func focusDidChange(_ focused: Bool) {
-            guard let surface = self.surface else { return }
             guard self.focused != focused else { return }
             self.focused = focused
+            updateMenuShortcutsAfterFocusChange()
+
+            guard let surface = self.surface else { return }
 
             // If we lost our focus then remove the mouse event suppression so
             // our mouse release event leaving the surface can properly be
