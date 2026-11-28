@@ -446,13 +446,15 @@ pub const RunIterator = struct {
             alloc,
             &scratch.layout,
             codepoints,
-            .{ .base_dir = switch (self.opts.bidi_direction) {
-                // Take the direction from the first strong letter (UAX #9
-                // P2), so a Farsi sentence keeps its trailing punctuation at
-                // its end; text with no strong letter stays LTR.
-                .auto => .auto_ltr,
-                .ltr => .ltr,
-            } },
+            .{
+                .base_dir = switch (self.opts.bidi_direction) {
+                    // Take the direction from the first strong letter (UAX #9
+                    // P2), so a Farsi sentence keeps its trailing punctuation at
+                    // its end; text with no strong letter stays LTR.
+                    .auto => .auto_ltr,
+                    .ltr => .ltr,
+                },
+            },
         );
         try scratch.runs.ensureUnusedCapacity(alloc, layout.runs.len);
         for (layout.runs) |run| {
