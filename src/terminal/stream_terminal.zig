@@ -189,9 +189,20 @@ pub const Handler = struct {
         /// done from within this callback.
         ///
         /// When null, drops need an embedder to connect them to the OS,
-        /// so OSC 72 is ignored entirely (including queries) and programs
-        /// fall back to their behavior without the protocol.
+        /// so programs can't register to accept them and fall back to
+        /// their behavior without the protocol. With neither this nor
+        /// `drag`, OSC 72 is ignored entirely (including queries).
         drop: ?*const fn (*Handler, dnd.DropEvent) void,
+
+        /// Called when the running program changes the drag it offers
+        /// out of the terminal in a way the embedder may need to act on,
+        /// such as enabling offering drags, asking to start one, or
+        /// providing data a drop target wanted. As with `drop`, native
+        /// drag events flow the other way through `kitty.dnd.State`.
+        ///
+        /// When null, drags out of the terminal need an embedder to
+        /// connect them to the OS, so programs' drag offers are refused.
+        drag: ?*const fn (*Handler, dnd.DragEvent) void,
 
         /// Called in response to a color scheme DSR query (CSI ? 996 n).
         /// Returns the current color scheme. Return null to silently
@@ -349,6 +360,7 @@ pub const Handler = struct {
             .desktop_notification = null,
             .device_attributes = null,
             .drop = null,
+            .drag = null,
             .enquiry = null,
             .progress_report = null,
             .program_status = null,
@@ -1695,7 +1707,7 @@ pub const Handler = struct {
         self: *Handler,
         v: Action.KittyDnd,
     ) (Allocator.Error || std.Io.Writer.Error)!void {
-        if (self.effects.drop == null) return;
+        if (self.effects.drop == null and self.effects.drag == null) return;
 
         // Responses are usually small (queries, errors), so fall back
         // to the heap only when needed.
@@ -1712,6 +1724,10 @@ pub const Handler = struct {
             &self.terminal.kitty_dnd,
             self.terminal.gpa(),
             &aw.writer,
+            .{
+                .drop = self.effects.drop != null,
+                .drag = self.effects.drag != null,
+            },
             v,
         );
 
@@ -1726,10 +1742,28 @@ pub const Handler = struct {
         // details are read from the state as each is delivered, since
         // an earlier effect call may have changed it.
         for (events.slice()) |ev| {
-            const func = self.effects.drop orelse continue;
-            const drop_ev = kitty_dnd.dropEvent(self.terminal.kitty_dnd, ev) orelse continue;
-            func(self, drop_ev);
+            if (kitty_dnd.isDrop(ev)) {
+                const func = self.effects.drop orelse continue;
+                const drop_ev = kitty_dnd.dropEvent(self.terminal.kitty_dnd, ev) orelse continue;
+                func(self, drop_ev);
+            } else {
+                if (self.effects.drag == null) continue;
+                var drag_stack_buf: [1024]u8 = undefined;
+                var drag_stack: std.heap.BufferFirstAllocator = .init(&drag_stack_buf, self.terminal.gpa());
+                try kitty_dnd.dragEvents(
+                    &self.terminal.kitty_dnd,
+                    drag_stack.allocator(),
+                    ev,
+                    self,
+                    emitDrag,
+                );
+            }
         }
+    }
+
+    fn emitDrag(self: *Handler, ev: dnd.DragEvent) void {
+        const func = self.effects.drag orelse return;
+        func(self, ev);
     }
 
     fn reportDeviceAttributes(self: *Handler, req: device_attributes.Req) void {
@@ -7305,6 +7339,138 @@ test "kitty dnd: effect reports registration, acceptance, and conclusion" {
     try testing.expect(S.events.items[3] == .registration);
     try testing.expect(t.kitty_dnd == null);
     try testing.expectEqualStrings("", S.mimes.items);
+}
+
+/// A drag effect for tests that only need OSC 72 processed.
+fn testIgnoreDrag(_: *Handler, _: dnd.DragEvent) void {}
+
+test "kitty dnd: drag offers refused without drag effect" {
+    const S = struct {
+        var pty: std.ArrayList(u8) = .empty;
+        fn writePty(_: *Handler, data: []const u8) void {
+            pty.appendSlice(testing.allocator, data) catch unreachable;
+        }
+    };
+    S.pty = .empty;
+    defer S.pty.deinit(testing.allocator);
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    handler.effects.drop = &testIgnoreDrop;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1B]72;t=o:x=1\x1B\\");
+    try testing.expect(t.kitty_dnd == null);
+    s.nextSlice("\x1B]72;t=P:x=-1\x1B\\");
+    try testing.expectEqualStrings(
+        "\x1b]72;t=E:m=0;EPERM:drag out is not supported by this terminal\x1b\\",
+        S.pty.items,
+    );
+}
+
+test "kitty dnd: drops ignored without drop effect" {
+    const S = struct {
+        var pty: std.ArrayList(u8) = .empty;
+        fn writePty(_: *Handler, data: []const u8) void {
+            pty.appendSlice(testing.allocator, data) catch unreachable;
+        }
+    };
+    S.pty = .empty;
+    defer S.pty.deinit(testing.allocator);
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    handler.effects.drag = &testIgnoreDrag;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Drags work, so queries are answered, but registering for drops
+    // does nothing.
+    s.nextSlice("\x1B]72;t=a;text/plain\x1B\\");
+    try testing.expect(t.kitty_dnd == null);
+    s.nextSlice("\x1B]72;t=q\x1B\\");
+    try testing.expectEqualStrings("\x1b]72;t=q\x1b\\", S.pty.items);
+}
+
+test "kitty dnd: effect reports drag start and data" {
+    const S = struct {
+        var events: std.ArrayList(std.meta.Tag(dnd.DragEvent)) = .empty;
+        var bytes: std.ArrayList(u8) = .empty;
+        var status: dnd.DragEvent.Data.Status = .pending;
+
+        fn clear() void {
+            events.deinit(testing.allocator);
+            events = .empty;
+            bytes.deinit(testing.allocator);
+            bytes = .empty;
+        }
+
+        fn drag(_: *Handler, ev: dnd.DragEvent) void {
+            events.append(testing.allocator, ev) catch unreachable;
+            switch (ev) {
+                .offers => |enabled| testing.expect(enabled) catch unreachable,
+                .start => |offer| {
+                    testing.expect(offer.operations.copy) catch unreachable;
+                    testing.expect(!offer.operations.move) catch unreachable;
+                    testing.expectEqual(@as(usize, 2), offer.items.len) catch unreachable;
+                    testing.expectEqualStrings("text/plain", offer.items[0].mime) catch unreachable;
+                    testing.expectEqualStrings("hello", offer.items[0].pre_sent.?) catch unreachable;
+                    testing.expectEqualStrings("text/html", offer.items[1].mime) catch unreachable;
+                    testing.expect(offer.items[1].pre_sent == null) catch unreachable;
+                    testing.expectEqual(@as(usize, 0), offer.images.len) catch unreachable;
+                },
+                .data => |data| {
+                    testing.expectEqual(@as(u32, 1), data.index) catch unreachable;
+                    bytes.appendSlice(testing.allocator, data.bytes) catch unreachable;
+                    status = data.status;
+                },
+                .image, .cancel => {},
+            }
+        }
+    };
+    S.clear();
+    defer S.clear();
+
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var handler: Handler = .init(&t);
+    handler.effects.drag = &S.drag;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // The program offers a drag with pre-sent data and starts it.
+    s.nextSlice("\x1B]72;t=o:x=1\x1B\\");
+    s.nextSlice("\x1B]72;t=o:o=1;text/plain text/html\x1B\\");
+    s.nextSlice("\x1B]72;t=p:x=0;aGVsbG8=\x1B\\");
+    s.nextSlice("\x1B]72;t=P:x=-1\x1B\\");
+    try testing.expectEqual(@as(usize, 2), S.events.items.len);
+    try testing.expect(S.events.items[1] == .start);
+
+    // The native drag started and a drop target wants the HTML, which
+    // the program sends in pieces.
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    try t.kitty_dnd.?.drag.startResult(testing.allocator, &aw.writer, null);
+    try t.kitty_dnd.?.drag.requestData(&aw.writer, 1);
+    s.nextSlice("\x1B]72;t=e:y=1:m=1;PGh0\x1B\\");
+    s.nextSlice("\x1B]72;t=e:y=1:m=1;bWw+\x1B\\");
+    try testing.expectEqual(dnd.DragEvent.Data.Status.pending, S.status);
+    s.nextSlice("\x1B]72;t=e:y=1:m=0\x1B\\");
+    try testing.expectEqualStrings("<html>", S.bytes.items);
+    try testing.expectEqual(dnd.DragEvent.Data.Status.complete, S.status);
+    try testing.expectEqual(@as(usize, 5), S.events.items.len);
+
+    // The program cancels the drag.
+    s.nextSlice("\x1B]72;t=E:y=-1\x1B\\");
+    try testing.expect(S.events.items[S.events.items.len - 1] == .cancel);
 }
 
 /// Capture state for the Handler.paste tests below: every pty write and

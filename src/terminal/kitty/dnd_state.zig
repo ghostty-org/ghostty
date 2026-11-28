@@ -1,5 +1,5 @@
 //! Kitty drag and drop protocol (OSC 72): per-terminal state and the
-//! dispatch of client commands to the drop target.
+//! dispatch of client commands to the drop target and drag source.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -9,6 +9,7 @@ const osc = @import("../osc.zig");
 const command = @import("dnd_command.zig");
 const response = @import("dnd_response.zig");
 const dnd_drop = @import("dnd_drop.zig");
+const dnd_drag = @import("dnd_drag.zig");
 
 const Metadata = command.Metadata;
 const Operation = command.Operation;
@@ -17,7 +18,8 @@ const log = std.log.scoped(.kitty_dnd);
 
 /// A protocol state change an embedder may need to act on, returned by
 /// `handleCommand`. The stream handler delivers each as a protocol
-/// independent `dnd.DropEvent`, with its details read from the state.
+/// independent `dnd.DropEvent` or `dnd.DragEvent`, with its details read
+/// from the state.
 pub const Event = enum {
     /// The client registered (t=a), re-registered, or unregistered
     /// (t=A) to accept drops. An embedder may want to use this
@@ -39,6 +41,27 @@ pub const Event = enum {
     concluded_none,
     concluded_copy,
     concluded_move,
+
+    /// The client enabled or disabled offering drags (t=o:x=1, x=2):
+    /// read `DragSource.enabled`.
+    offers,
+
+    /// The client asked to start its offered drag: the embedder starts
+    /// the native drag and reports the result with
+    /// `DragSource.startResult`.
+    drag_start,
+
+    /// The client changed the image of the started drag to
+    /// `DragSource.currentImage`.
+    drag_image,
+
+    /// Data the embedder requested for the started drag arrived or
+    /// failed: read it with `DragSource.takeData`.
+    drag_data,
+
+    /// A native drag in progress must be canceled: the client canceled
+    /// it, disabled offers, or made an error.
+    drag_cancel,
 
     /// The conclusion event for a performed operation.
     pub fn concluded(op: Operation) Event {
@@ -64,13 +87,35 @@ pub const Events = struct {
         self.buf[self.len] = ev;
         self.len += 1;
     }
+
+    fn addDrag(self: *Events, result: dnd_drag.DragSource.Result) void {
+        switch (result) {
+            .none => {},
+            .offers => self.add(.offers),
+            .start => self.add(.drag_start),
+            .image => self.add(.drag_image),
+            .data => self.add(.drag_data),
+            .cancel => self.add(.drag_cancel),
+        }
+    }
+};
+
+/// The sides of the protocol the embedder connects to the OS.
+pub const Sides = struct {
+    /// Drops onto the terminal. Without it, drop commands are ignored.
+    drop: bool = true,
+
+    /// Drags out of the terminal. Without it, drag commands are refused
+    /// as kitty refuses them when it can't start drags.
+    drag: bool = true,
 };
 
 /// The per-terminal drag and drop state.
 ///
 /// The primary entrypoint is `handleCommand` which takes a `*?*State`
 /// slot that it heap allocates into when the client registers to
-/// accept drops, and frees when it unregisters.
+/// accept drops or enables offering drags, and frees when it has done
+/// neither.
 ///
 /// All calls must use the allocator the state was created with (the
 /// terminal's) and require the same synchronization as any other
@@ -82,6 +127,9 @@ pub const State = struct {
 
     /// Drop target state for the client accepting drops.
     drop: dnd_drop.DropTarget = .{},
+
+    /// Drag source state for the client offering drags.
+    drag: dnd_drag.DragSource = .{},
 
     /// Allocate a fresh state. Done by `handleCommand` on registration.
     fn create(alloc: Allocator) Allocator.Error!*State {
@@ -98,11 +146,12 @@ pub const State = struct {
 
     fn deinit(self: *State, alloc: Allocator) void {
         self.drop.deinit(alloc);
+        self.drag.deinit(alloc);
     }
 
-    /// True when the client isn't registered, so the state can be freed.
+    /// True when neither side is active, so the state can be freed.
     fn idle(self: *const State) bool {
-        return !self.drop.registered;
+        return !self.drop.registered and !self.drag.enabled;
     }
 };
 
@@ -113,6 +162,7 @@ pub fn handleCommand(
     slot: *?*State,
     alloc: Allocator,
     writer: *std.Io.Writer,
+    sides: Sides,
     v: osc.Command.KittyDndProtocol,
 ) (Allocator.Error || std.Io.Writer.Error)!Events {
     var events: Events = .{};
@@ -121,13 +171,28 @@ pub fn handleCommand(
         return events;
     };
 
-    // Registration allocates the state. Everything else
+    // Commands for a side the embedder doesn't support never reach the
+    // state, so they can't activate it.
+    if (raw.type) |t| switch (t) {
+        .register, .unregister, .status, .request => if (!sides.drop) return events,
+        .offer, .present, .start_drag, .drag_event, .drag_error, .remote_data => if (!sides.drag) {
+            try refuseDrag(writer, t, raw, v.terminator);
+            return events;
+        },
+        .query, .drop, .request_error => {},
+    };
+
+    // Commands that activate a side allocate the state. Everything else
     // runs against the existing state or, before there is one, against
     // an empty one on the stack, which answers with the same errors
     // kitty sends from its zeroed state without allocating.
     const activates = activates: {
         const t = raw.type orelse break :activates false;
-        break :activates t == .register and raw.cell_x != 1;
+        break :activates switch (t) {
+            .register => raw.cell_x != 1,
+            .offer => raw.cell_x == 1,
+            else => false,
+        };
     };
     var scratch: State = .{};
     defer scratch.deinit(alloc);
@@ -137,10 +202,10 @@ pub fn handleCommand(
         break :state state;
     } else &scratch;
 
-    // Chunk reassembly lives in the state, so before registration each
-    // command stands alone. The only legitimately chunked command
-    // before registration is t=a itself, which seeds the reassembly on
-    // its first chunk.
+    // Chunk reassembly lives in the state, so before activation each
+    // command stands alone. The only legitimately chunked commands
+    // before activation are t=a and t=o:x=1 themselves, which seed the
+    // reassembly on their first chunk.
     const continuation = state.chunking.active;
     const meta = state.chunking.apply(raw);
     const payload = v.payload orelse "";
@@ -157,7 +222,7 @@ pub fn handleCommand(
         &events,
     );
 
-    // Free the state once the client unregisters.
+    // Free the state once neither side is active.
     if (slot.*) |s| if (s == state and state.idle()) {
         state.destroy(alloc);
         slot.* = null;
@@ -209,28 +274,56 @@ fn dispatch(
             .concluded => |op| events.add(.concluded(op)),
         },
 
-        // Drag source control. Enabling (x=1, with an optional
-        // machine ID payload) and disabling (x=2) offers are accepted
-        // and ignored since the terminal never requests a drag start.
-        // Offering a MIME list (x=0) for a new drag is refused since
-        // drag out is not implemented.
-        .offer => if (meta.cell_x == 0) try refuseDragOut(
+        .offer => switch (meta.cell_x) {
+            1 => events.addDrag(state.drag.enable()),
+            2 => {
+                if (!state.drag.enabled) return;
+                if (state.drag.disable(alloc)) events.add(.drag_cancel);
+                events.add(.offers);
+            },
+            0 => events.addDrag(try state.drag.offer(
+                alloc,
+                writer,
+                meta,
+                payload,
+                continuation,
+                terminator,
+            )),
+            else => {},
+        },
+
+        .present => events.addDrag(try state.drag.present(
+            alloc,
             writer,
             meta,
+            payload,
             terminator,
-        ),
+        )),
 
-        // Drag out data and start commands. A conforming client never
-        // sends these because the terminal never requests a drag
-        // start, but refuse them properly if one does.
-        .present, .start_drag => try refuseDragOut(
+        .start_drag => if (meta.cell_x >= 0)
+            events.addDrag(state.drag.changeImage(@intCast(meta.cell_x)))
+        else
+            events.addDrag(try state.drag.start(alloc, writer, terminator)),
+
+        .drag_event => events.addDrag(try state.drag.itemData(
+            alloc,
             writer,
             meta,
+            payload,
+            false,
             terminator,
-        ),
+        )),
 
-        // Responses to drag out requests the terminal never makes.
-        .drag_event, .drag_error, .remote_data => {},
+        .drag_error => if (meta.cell_y == -1) {
+            if (state.drag.cancel(alloc)) events.add(.drag_cancel);
+        } else events.addDrag(try state.drag.itemData(
+            alloc,
+            writer,
+            meta,
+            payload,
+            true,
+            terminator,
+        )),
 
         .query => try response.encode(
             writer,
@@ -241,16 +334,33 @@ fn dispatch(
             terminator,
         ),
 
+        // Remote drag data. We never advertise remote support, so a
+        // conforming client never sends it.
+        .remote_data => {},
+
         // Only ever sent by the terminal. Ignore.
         .drop, .request_error => {},
     }
 }
 
-fn refuseDragOut(
+/// Answer a drag command when the embedder can't start drags. Enabling
+/// (x=1, with an optional machine ID payload) and disabling (x=2) offers
+/// are accepted and ignored since the terminal never asks the client to
+/// offer a drag. Offering a MIME list (x=0), drag data, and starting a
+/// drag are refused, which a conforming client never sends since it was
+/// never asked. Replies to drag requests the terminal never makes are
+/// ignored.
+fn refuseDrag(
     writer: *std.Io.Writer,
+    t: command.EventType,
     meta: Metadata,
     terminator: osc.Terminator,
 ) std.Io.Writer.Error!void {
+    switch (t) {
+        .offer => if (meta.cell_x != 0) return,
+        .present, .start_drag => {},
+        else => return,
+    }
     try response.encodeError(
         writer,
         .drag,
