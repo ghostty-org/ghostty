@@ -84,7 +84,7 @@ fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
         });
     }
 
-    if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
+    if (target.result.os.tag == .freebsd or target.result.abi.isMusl()) {
         try flags.append(b.allocator, "-fPIC");
     }
 
