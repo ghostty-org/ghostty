@@ -13,7 +13,6 @@ const input = @import("input.zig");
 const configpkg = @import("config.zig");
 const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
-const QueueDrain = @import("datastruct/main.zig").QueueDrain;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const global = @import("global.zig");
@@ -646,8 +645,7 @@ pub const Mailbox = struct {
 ///
 /// Messages for the surface being torn down are dropped instead: by the
 /// next tick another surface may have been allocated at the same address.
-pub const TeardownDrain = QueueDrain(
-    Mailbox.Queue,
+pub const TeardownDrain = Mailbox.Queue.DrainThread(
     Teardown,
     Teardown.keep,
     "app-drain",

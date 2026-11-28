@@ -5,7 +5,6 @@ const xev = global.xev;
 const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
-const QueueDrain = @import("../datastruct/main.zig").QueueDrain;
 
 const log = std.log.scoped(.io_writer);
 
@@ -111,7 +110,7 @@ pub const Mailbox = union(enum) {
     /// Throws away messages once the IO thread has stopped processing
     /// them, so that threads still sending to it don't block on a full
     /// mailbox.
-    pub const Drain = QueueDrain(Queue, void, discard, "io-drain");
+    pub const Drain = Queue.DrainThread(void, discard, "io-drain");
 
     /// Return a `Drain` for this mailbox. It isn't started.
     pub fn drain(self: *Mailbox) Drain {
