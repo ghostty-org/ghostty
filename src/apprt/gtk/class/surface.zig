@@ -3670,6 +3670,10 @@ pub const Surface = extern struct {
         priv.core_surface = surface;
         priv.desktop_notifications = .init(surface.id);
 
+        if (app.isBackgroundOpaque()) surface.setBackgroundOpaque(true) catch |err| {
+            log.warn("error setting background opacity err={}", .{err});
+        };
+
         // Give the render surface a pointer to the core surface so it
         // can pull presents from the renderer in its snapshot handler.
         priv.render_surface.setCoreSurface(surface);
