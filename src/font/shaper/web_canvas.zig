@@ -36,6 +36,9 @@ pub const Shaper = struct {
     /// The shared memory used for storing information about a run.
     run_buf: RunBuf,
 
+    /// Buffers the run iterator reuses across rows.
+    run_scratch: font.shape.RunIterator.Scratch = .{},
+
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.
     pub fn init(alloc: Allocator, opts: font.shape.Options) !Shaper {
@@ -50,6 +53,7 @@ pub const Shaper = struct {
 
     pub fn deinit(self: *Shaper) void {
         self.run_buf.deinit(self.alloc);
+        self.run_scratch.deinit(self.alloc);
         self.* = undefined;
     }
 
@@ -221,6 +225,10 @@ pub const Shaper = struct {
 
         pub fn finalize(self: RunIteratorHook) !void {
             _ = self;
+        }
+
+        pub fn scratch(self: RunIteratorHook) *font.shape.RunIterator.Scratch {
+            return &self.shaper.run_scratch;
         }
     };
 };

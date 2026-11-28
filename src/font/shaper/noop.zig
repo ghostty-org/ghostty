@@ -26,6 +26,9 @@ pub const Shaper = struct {
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
 
+    /// Buffers the run iterator reuses across rows.
+    run_scratch: font.shape.RunIterator.Scratch = .{},
+
     const CellBuf = std.ArrayList(font.shape.Cell);
     const CodepointList = std.ArrayList(Codepoint);
     const Codepoint = struct {
@@ -60,6 +63,7 @@ pub const Shaper = struct {
     pub fn deinit(self: *Shaper) void {
         self.cell_buf.deinit(self.alloc);
         self.run_state.deinit(self.alloc);
+        self.run_scratch.deinit(self.alloc);
     }
 
     pub fn endFrame(self: *const Shaper) void {
@@ -131,6 +135,10 @@ pub const Shaper = struct {
 
         pub fn finalize(self: RunIteratorHook) !void {
             _ = self;
+        }
+
+        pub fn scratch(self: RunIteratorHook) *font.shape.RunIterator.Scratch {
+            return &self.shaper.run_scratch;
         }
     };
 };

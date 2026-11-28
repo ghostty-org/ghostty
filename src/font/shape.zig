@@ -84,6 +84,9 @@ pub const RunOptions = struct {
     /// null.
     cursor_x: ?usize = null,
 
+    /// How each line's bidi paragraph direction is chosen.
+    bidi_direction: configpkg.BidiDirection = .auto,
+
     /// Apply the font break configuration to the run.
     pub fn applyBreakConfig(
         self: *RunOptions,
