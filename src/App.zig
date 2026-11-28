@@ -289,7 +289,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
                 },
             ),
             .new_window => |msg| try self.newWindow(rt_app, msg),
-            .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
 
             // If we're quitting, then we set the quit flag and stop
@@ -303,11 +302,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             },
         }
     }
-}
-
-pub fn closeSurface(self: *App, surface: *Surface) void {
-    if (!self.hasSurface(surface)) return;
-    surface.close();
 }
 
 pub fn focusSurface(self: *App, surface: *Surface) void {
@@ -566,10 +560,6 @@ pub const Message = union(enum) {
 
     /// Create a new terminal window.
     new_window: NewWindow,
-
-    /// Close a surface. This notifies the runtime that a surface
-    /// should close.
-    close: *Surface,
 
     /// Quit
     quit: void,
