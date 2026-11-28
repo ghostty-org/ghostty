@@ -72,8 +72,7 @@ pub fn build(b: *std.Build) !void {
 
     if (target.result.os.tag == .freebsd or
         target.result.abi.isMusl() or
-        target.result.abi == .android or
-        target.result.abi == .androideabi)
+        target.result.abi.isAndroid())
     {
         try flags.append(b.allocator, "-fPIC");
     }
