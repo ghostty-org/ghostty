@@ -127,7 +127,7 @@ fn config_trigger_(
     include_performable: bool,
 ) !inputpkg.Binding.Trigger.C {
     const action = try inputpkg.Binding.Action.parse(str);
-    const trigger = self.keybind.set.getTriggerWithOptions(action, .{
+    const trigger = self.keybind.set.getTriggerWithPerformable(action, .{
         .include_performable = include_performable,
     }) orelse inputpkg.Binding.Trigger{};
     return trigger.cval();

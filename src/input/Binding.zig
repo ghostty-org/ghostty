@@ -2705,12 +2705,12 @@ pub const Set = struct {
 
     /// Get a non-performable trigger for the given action.
     pub fn getTrigger(self: Set, a: Action) ?Trigger {
-        return self.getTriggerWithOptions(a, .{});
+        return self.getTriggerWithPerformable(a, .{});
     }
 
     /// Optionally search for performable bindings as well. Sequences and chains
     /// are excluded; the last matching leaf in the binding map is preferred.
-    pub fn getTriggerWithOptions(
+    pub fn getTriggerWithPerformable(
         self: Set,
         a: Action,
         opts: struct { include_performable: bool = false },
@@ -4187,29 +4187,29 @@ test "set: optionally resolve performable triggers" {
     const a: Trigger = .{ .key = .{ .unicode = 'a' } };
     const b: Trigger = .{ .key = .{ .unicode = 'b' } };
     try s.putFlags(alloc, a, action, .{ .performable = true });
-    try testing.expect(s.getTriggerWithOptions(action, .{}) == null);
-    try testing.expect(s.getTriggerWithOptions(action, .{ .include_performable = true }).?.equal(a));
+    try testing.expect(s.getTriggerWithPerformable(action, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(a));
 
     // A later non-performable binding is returned in either mode.
     try s.put(alloc, b, action);
-    try testing.expect(s.getTriggerWithOptions(action, .{ .include_performable = true }).?.equal(b));
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(b));
     s.remove(alloc, b);
-    try testing.expect(s.getTriggerWithOptions(action, .{}) == null);
-    try testing.expect(s.getTriggerWithOptions(action, .{ .include_performable = true }).?.equal(a));
+    try testing.expect(s.getTriggerWithPerformable(action, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(a));
 
     // Overriding a non-performable trigger must not leave a stale reverse entry.
     try s.put(alloc, b, action);
     try s.putFlags(alloc, b, .{ .new_tab = {} }, .{ .performable = true });
-    try testing.expect(s.getTriggerWithOptions(action, .{}) == null);
-    try testing.expect(s.getTriggerWithOptions(action, .{ .include_performable = true }).?.equal(a));
-    try testing.expect(s.getTriggerWithOptions(.{ .new_tab = {} }, .{}) == null);
-    try testing.expect(s.getTriggerWithOptions(.{ .new_tab = {} }, .{ .include_performable = true }).?.equal(b));
+    try testing.expect(s.getTriggerWithPerformable(action, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(action, .{ .include_performable = true }).?.equal(a));
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{}) == null);
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{ .include_performable = true }).?.equal(b));
 
     // Chained and sequenced bindings cannot be represented by a menu shortcut.
     try s.appendChain(alloc, .{ .close_surface = {} });
-    try testing.expect(s.getTriggerWithOptions(.{ .new_tab = {} }, .{ .include_performable = true }) == null);
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{ .include_performable = true }) == null);
     try s.parseAndPut(alloc, "performable:a>b=new_tab");
-    try testing.expect(s.getTriggerWithOptions(.{ .new_tab = {} }, .{ .include_performable = true }) == null);
+    try testing.expect(s.getTriggerWithPerformable(.{ .new_tab = {} }, .{ .include_performable = true }) == null);
 }
 
 test "set: overriding a mapping updates reverse" {
