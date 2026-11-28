@@ -285,7 +285,10 @@ pub fn present(
         if (target.exportDmabuf(self.device.display, self.egl_context)) |dmabuf| {
             return .{ .dmabuf = dmabuf };
         } else |_| {
-            log.warn("failed to export DMABUF, falling back to CPU presentation", .{});
+            log.warn(
+                "failed to export DMABUF, falling back to CPU presentation for this surface",
+                .{},
+            );
         }
     }
 
