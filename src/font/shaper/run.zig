@@ -4,8 +4,21 @@ const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const shape = @import("../shape.zig");
 const terminal = @import("../../terminal/main.zig");
+const itijah = @import("itijah");
+const uucode = @import("uucode");
 const autoHash = std.hash.autoHash;
 const Hasher = std.hash.Wyhash;
+const VisualRun = itijah.VisualRun;
+
+/// Classify a codepoint by bidi strength.
+/// Returns null for neutrals (spaces/punctuation).
+fn codepointIsRtl(cp: u32) ?bool {
+    return switch (itijah.unicode.bidiClass(@intCast(cp))) {
+        .right_to_left, .right_to_left_arabic => true,
+        .left_to_right, .european_number, .arabic_number => false,
+        else => null,
+    };
+}
 
 /// A single text run. A text run is only valid for one Shaper instance and
 /// until the next run is created. A text run never goes across multiple
@@ -36,13 +49,22 @@ pub const TextRun = struct {
 
     /// The font index to use for the glyphs of this run.
     font_index: font.Collection.Index,
+
+    /// Whether this run is RTL according to visual runs from the bidi resolver.
+    rtl: bool = false,
 };
 
 /// RunIterator is an iterator that yields text runs.
 pub const RunIterator = struct {
     hooks: font.Shaper.RunIteratorHook,
     opts: shape.RunOptions,
+    // Visual cursor within the trimmed row.
     i: usize = 0,
+    // Cached row layout derived once per iterator.
+    // visual_runs is a slice owned by the shaper's Scratch;
+    // it remains valid as long as the scratch is not reused (i.e. within a single frame).
+    layout_ready: bool = false,
+    visual_runs: []const VisualRun = &.{},
 
     /// The end of the cells to shape. Trailing blank cells are skipped even
     /// with a background color, since the renderer draws backgrounds itself.
@@ -61,259 +83,312 @@ pub const RunIterator = struct {
         return .{ .hooks = hooks, .opts = opts, .max = max };
     }
 
+    /// Buffers the shaper keeps for the iterator and reuses across rows.
+    pub const Scratch = struct {
+        layout: itijah.VisualLayoutScratch = .{},
+        fonts: std.ArrayList(FontInfo) = .empty,
+        ltr_run: [1]VisualRun = undefined,
+
+        pub fn deinit(self: *Scratch, alloc: Allocator) void {
+            self.layout.deinit(alloc);
+            self.fonts.deinit(alloc);
+        }
+    };
+
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
         const cells: []const terminal.page.Cell = slice.items(.raw);
         const graphemes: []const []const u21 = slice.items(.grapheme);
         const styles: []const terminal.Style = slice.items(.style);
 
-        const max = self.max;
+        if (!self.layout_ready) try self.resolveRowLayout(alloc, cells);
+        if (self.max == 0) return null;
 
-        // Invisible cells don't have any glyphs rendered,
-        // so we explicitly skip them in the shaping process.
-        while (self.i < max and
-            (cells[self.i].hasStyling() and
-                styles[self.i].flags.invisible)) self.i += 1;
+        // We're over at the max.
+        if (self.i >= self.max) return null;
 
-        // We're over at the max
-        if (self.i >= max) return null;
+        // Invisible cells don't have any glyphs rendered, so we skip them.
+        while (self.i < self.max) {
+            const vr = findVisualRun(self.visual_runs, self.i) orelse break;
+            const logical_i: usize = @intCast(itijah.logicalIndexForVisual(vr, @intCast(self.i)));
+            if (!(cells[logical_i].hasStyling() and styles[logical_i].flags.invisible)) break;
+            self.i += 1;
+        }
+        if (self.i >= self.max) return null;
 
-        // Track the font for our current run
-        var current_font: font.Collection.Index = .{};
+        while (self.i < self.max) {
+            const bidi_run = findVisualRun(self.visual_runs, self.i) orelse return null;
+            const bidi_run_start: usize = @intCast(bidi_run.visual_start);
+            const bidi_run_end: usize = bidi_run_start + @as(usize, @intCast(bidi_run.len));
+            assert(self.i >= bidi_run_start and self.i < bidi_run_end);
 
-        // Allow the hook to prepare
-        self.hooks.prepare();
+            // Track the font for our current run.
+            var current_font: font.Collection.Index = .{};
+            var have_font = false;
 
-        // Initialize our hash for this run.
-        var hasher = Hasher.init(0);
+            const rtl = bidi_run.is_rtl;
 
-        // Let's get our style that we'll expect for the run.
-        const style: terminal.Style = if (cells[self.i].hasStyling()) styles[self.i] else .{};
+            // Style is anchored to the first visual cell in this candidate run.
+            const start_logical: usize = @intCast(itijah.logicalIndexForVisual(
+                bidi_run,
+                @intCast(self.i),
+            ));
+            const style: terminal.Style = if (cells[start_logical].hasStyling())
+                styles[start_logical]
+            else
+                .{};
+            const run_font_style = fontStyleForStyle(style);
 
-        // Go through cell by cell and accumulate while we build our run.
-        var j: usize = self.i;
-        while (j < max) : (j += 1) {
-            // Use relative cluster positions (offset from run start) to make
-            // the shaping cache position-independent. This ensures that runs
-            // with identical content but different starting positions in the
-            // row produce the same hash, enabling cache reuse.
-            const cluster = j - self.i;
-            const cell: *const terminal.page.Cell = &cells[j];
+            const resolved_fonts = &self.hooks.scratch().fonts;
+            try resolved_fonts.resize(alloc, self.max);
 
-            // If we have a selection and we're at a boundary point, then
-            // we break the run here.
-            if (self.opts.selection) |bounds| {
-                if (j > self.i) {
-                    if (bounds[0] > 0 and j == bounds[0]) break;
-                    if (bounds[1] > 0 and j == bounds[1] + 1) break;
-                }
-            }
+            // Find the run boundary in visual order.
+            var j: usize = self.i;
+            while (j < bidi_run_end) : (j += 1) {
+                const logical_j: usize = @intCast(itijah.logicalIndexForVisual(
+                    bidi_run,
+                    @intCast(j),
+                ));
+                const cell: *const terminal.page.Cell = &cells[logical_j];
 
-            // If we're a spacer, then we ignore it
-            switch (cell.wide) {
-                .narrow, .wide => {},
-                .spacer_head, .spacer_tail => continue,
-            }
-
-            // If our cell attributes are changing, then we split the run.
-            // This prevents a single glyph for ">=" to be rendered with
-            // one color when the two components have different styling.
-            if (j > self.i) style: {
-                const prev_cell = cells[j - 1];
-
-                // If the prev cell and this cell are both plain
-                // codepoints then we check if they are commonly "bad"
-                // ligatures and spit the run if they are.
-                if (prev_cell.content_tag == .codepoint and
-                    cell.content_tag == .codepoint)
-                {
-                    const prev_cp = prev_cell.codepoint();
-                    switch (prev_cp) {
-                        // fl, fi
-                        'f' => {
-                            const cp = cell.codepoint();
-                            if (cp == 'l' or cp == 'i') break;
-                        },
-
-                        // st
-                        's' => {
-                            const cp = cell.codepoint();
-                            if (cp == 't') break;
-                        },
-
-                        else => {},
+                // If we have a selection and we're at a boundary point, then
+                // we break the run here.
+                if (self.opts.selection) |bounds| {
+                    if (j > self.i) {
+                        if (bounds[0] > 0 and j == bounds[0]) break;
+                        if (bounds[1] > 0 and j == bounds[1] + 1) break;
                     }
                 }
 
-                // If the style is exactly the change then fast path out.
-                if (prev_cell.style_id == cell.style_id) break :style;
-
-                // The style is different. We allow differing background
-                // styles but any other change results in a new run.
-                const c1 = comparableStyle(style);
-                const c2 = comparableStyle(if (cell.hasStyling()) styles[j] else .{});
-                if (!c1.eql(c2)) break;
-            }
-
-            // Text runs break when font styles change so we need to get
-            // the proper style.
-            const font_style: font.Style = style: {
-                if (style.flags.bold) {
-                    if (style.flags.italic) break :style .bold_italic;
-                    break :style .bold;
+                // If we're a spacer, then we ignore it.
+                switch (cell.wide) {
+                    .narrow, .wide => {},
+                    .spacer_head, .spacer_tail => continue,
                 }
 
-                if (style.flags.italic) break :style .italic;
-                break :style .regular;
-            };
+                // If our cell attributes are changing, then we split the run.
+                // This prevents a single glyph for ">=" to be rendered with
+                // one color when the two components have different styling.
+                if (j > self.i) style_change: {
+                    const prev_logical: usize = @intCast(itijah.logicalIndexForVisual(
+                        bidi_run,
+                        @intCast(j - 1),
+                    ));
+                    const prev_cell = cells[prev_logical];
 
-            // Determine the presentation format for this glyph.
-            const presentation: ?font.Presentation = if (cell.hasGrapheme()) p: {
-                // We only check the FIRST codepoint because I believe the
-                // presentation format must be directly adjacent to the codepoint.
-                const cps = graphemes[j];
-                assert(cps.len > 0);
-                if (cps[0] == 0xFE0E) break :p .text;
-                if (cps[0] == 0xFE0F) break :p .emoji;
+                    // If the prev cell and this cell are both plain
+                    // codepoints then we check if they are commonly "bad"
+                    // ligatures and split the run if they are.
+                    if (prev_cell.content_tag == .codepoint and
+                        cell.content_tag == .codepoint)
+                    {
+                        const prev_cp = prev_cell.codepoint();
+                        switch (prev_cp) {
+                            // fl, fi
+                            'f' => {
+                                const cp = cell.codepoint();
+                                if (cp == 'l' or cp == 'i') break;
+                            },
 
-                // A skin tone modifier implies emoji presentation for its
-                // base (UTS #51, section 2.4).
-                if (cps[0] >= 0x1F3FB and cps[0] <= 0x1F3FF) break :p .emoji;
-                break :p null;
-            } else emoji: {
-                // If we're not a grapheme, our individual char could be
-                // an emoji so we want to check if we expect emoji presentation.
-                // The font grid indexForCodepoint we use below will do this
-                // automatically.
-                break :emoji null;
-            };
+                            // st
+                            's' => {
+                                const cp = cell.codepoint();
+                                if (cp == 't') break;
+                            },
 
-            // If our cursor is on this line then we break the run around the
-            // cursor. This means that any row with a cursor has at least
-            // three breaks: before, exactly the cursor, and after.
-            //
-            // We do not break a cell that is exactly the grapheme. If there
-            // are cells following that contain joiners, we allow those to
-            // break. This creates an effect where hovering over an emoji
-            // such as a skin-tone emoji is fine, but hovering over the
-            // joiners will show the joiners allowing you to modify the
-            // emoji.
-            if (!cell.hasGrapheme()) {
-                if (self.opts.cursor_x) |cursor_x| {
-                    // Exactly: self.i is the cursor and we iterated once. This
-                    // means that we started exactly at the cursor and did at
-                    // exactly one iteration. Why exactly one? Because we may
-                    // start at our cursor but do many if our cursor is exactly
-                    // on an emoji.
-                    if (self.i == cursor_x and j == self.i + 1) break;
-
-                    // Before: up to and not including the cursor. This means
-                    // that we started before the cursor (self.i < cursor_x)
-                    // and j is now at the cursor meaning we haven't yet processed
-                    // the cursor.
-                    if (self.i < cursor_x and j == cursor_x) {
-                        assert(j > 0);
-                        break;
+                            else => {},
+                        }
                     }
 
-                    // After: after the cursor. We don't need to do anything
-                    // special, we just let the run complete.
-                }
-            }
+                    // If the style is exactly the change then fast path out.
+                    if (prev_cell.style_id == cell.style_id) break :style_change;
 
-            // We need to find a font that supports this character. If
-            // there are additional zero-width codepoints (to form a single
-            // grapheme, i.e. combining characters), we need to find a font
-            // that supports all of them.
-            const font_info: struct {
-                idx: font.Collection.Index,
-                fallback: ?u32 = null,
-            } = font_info: {
-                // If we find a font that supports this entire grapheme
-                // then we use that.
-                if (try self.indexForCell(
+                    // The style is different. We allow differing background
+                    // styles but any other change results in a new run.
+                    const c1 = comparableStyle(style);
+                    const c2 = comparableStyle(if (cell.hasStyling()) styles[logical_j] else .{});
+                    if (!c1.eql(c2)) break;
+                }
+
+                // Determine the presentation format for this glyph.
+                const presentation = presentationForCell(cell, graphemes[logical_j]);
+
+                // If our cursor is on this line then we break the run around
+                // the cursor.
+                if (!cell.hasGrapheme()) {
+                    if (self.opts.cursor_x) |cursor_x| {
+                        if (self.i == cursor_x and j == self.i + 1) break;
+                        if (self.i < cursor_x and j == cursor_x) {
+                            assert(j > 0);
+                            break;
+                        }
+                    }
+                }
+
+                const font_info = try self.resolveFontInfo(
                     alloc,
                     cell,
-                    graphemes[j],
-                    font_style,
+                    graphemes[logical_j],
+                    run_font_style,
                     presentation,
-                )) |idx| break :font_info .{ .idx = idx };
+                );
+                resolved_fonts.items[j] = font_info;
 
-                // Otherwise we need a fallback character. Prefer the
-                // official replacement character.
-                if (try self.opts.grid.getIndex(
-                    alloc,
-                    0xFFFD, // replacement char
-                    font_style,
-                    presentation,
-                )) |idx| break :font_info .{ .idx = idx, .fallback = 0xFFFD };
+                if (!have_font) {
+                    current_font = font_info.idx;
+                    have_font = true;
+                }
 
-                // Fallback to space
-                if (try self.opts.grid.getIndex(
-                    alloc,
-                    ' ',
-                    font_style,
-                    presentation,
-                )) |idx| break :font_info .{ .idx = idx, .fallback = ' ' };
-
-                // We can't render at all. This is a bug, we should always
-                // have a font that can render a space.
-                unreachable;
-            };
-
-            //log.warn("char={x} info={}", .{ cell.char, font_info });
-            if (j == self.i) current_font = font_info.idx;
-
-            // If our fonts are not equal, then we're done with our run.
-            if (font_info.idx != current_font) break;
-
-            // If we're a fallback character, add that and continue; we
-            // don't want to add the entire grapheme.
-            if (font_info.fallback) |cp| {
-                try self.addCodepoint(&hasher, cp, @intCast(cluster));
-                continue;
-            }
-
-            // If we're a Kitty unicode placeholder then we add a blank.
-            if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
-                try self.addCodepoint(&hasher, ' ', @intCast(cluster));
-                continue;
-            }
-
-            // Add all the codepoints for our grapheme
-            try self.addCodepoint(
-                &hasher,
-                if (cell.codepoint() == 0) ' ' else cell.codepoint(),
-                @intCast(cluster),
-            );
-            if (cell.hasGrapheme()) {
-                for (graphemes[j]) |cp| {
-                    // Do not send presentation modifiers
-                    if (cp == 0xFE0E or cp == 0xFE0F) continue;
-                    try self.addCodepoint(&hasher, cp, @intCast(cluster));
+                // If our fonts are not equal, then we're done with our run —
+                // UNLESS the codepoint is neutral (space, punctuation) and
+                // the current run's font also supports it.
+                if (font_info.idx != current_font) {
+                    const cp = cell.codepoint();
+                    const is_neutral_in_current_font = cp != 0 and
+                        codepointIsRtl(cp) == null and
+                        self.opts.grid.hasCodepoint(current_font, cp, presentation);
+                    if (!is_neutral_in_current_font) break;
                 }
             }
+
+            // Defensive: ensure forward progress.
+            if (j == self.i) {
+                self.i += 1;
+                continue;
+            }
+
+            // A run with only spacer cells can occur in edge cases; skip it.
+            if (!have_font) {
+                self.i = j;
+                continue;
+            }
+
+            const logical_range = itijah.logicalRangeForVisualSlice(
+                bidi_run,
+                @intCast(self.i),
+                @intCast(j),
+            );
+            const logical_start: usize = @intCast(logical_range.start);
+            const logical_end: usize = @intCast(logical_range.end);
+
+            // Prepare the shaping backend and build the run contents in LOGICAL
+            // order for shaping correctness.
+            self.hooks.prepare();
+            defer self.hooks.finalize();
+
+            var hasher = Hasher.init(0);
+            for (logical_start..logical_end) |logical_j| {
+                const visual_idx = itijah.visualIndexForLogical(bidi_run, @intCast(logical_j));
+                const cluster: u32 = visual_idx - @as(u32, @intCast(self.i));
+                const cell: *const terminal.page.Cell = &cells[logical_j];
+
+                switch (cell.wide) {
+                    .narrow, .wide => {},
+                    .spacer_head, .spacer_tail => continue,
+                }
+
+                const presentation = presentationForCell(cell, graphemes[logical_j]);
+                const font_info = resolved_fonts.items[visual_idx];
+
+                if (font_info.idx != current_font) {
+                    const cp = cell.codepoint();
+                    const is_neutral_in_current_font = cp != 0 and
+                        codepointIsRtl(cp) == null and
+                        self.opts.grid.hasCodepoint(current_font, cp, presentation);
+                    if (!is_neutral_in_current_font) continue;
+                }
+
+                // If we're a fallback character and that fallback is in the
+                // current run font, add it directly.
+                if (font_info.fallback) |cp| {
+                    // Only use fallback glyph if it comes from the run font.
+                    if (font_info.idx == current_font) {
+                        try self.addCodepoint(&hasher, cp, cluster);
+                        continue;
+                    }
+                }
+
+                // If we're a Kitty unicode placeholder then we add a blank.
+                if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
+                    try self.addCodepoint(&hasher, ' ', cluster);
+                    continue;
+                }
+
+                // Add all the codepoints for our grapheme.
+                try self.addCodepoint(
+                    &hasher,
+                    if (cell.codepoint() == 0) ' ' else cell.codepoint(),
+                    cluster,
+                );
+                if (cell.hasGrapheme()) {
+                    for (graphemes[logical_j]) |cp| {
+                        // Do not send presentation modifiers.
+                        if (cp == 0xFE0E or cp == 0xFE0F) continue;
+                        try self.addCodepoint(&hasher, cp, cluster);
+                    }
+                }
+            }
+
+            // Add our length to the hash as an additional mechanism to avoid collisions.
+            autoHash(&hasher, j - self.i);
+            autoHash(&hasher, current_font);
+            autoHash(&hasher, rtl);
+
+            const run_offset = self.i;
+            self.i = j;
+
+            return .{
+                .hash = hasher.final(),
+                .offset = @intCast(run_offset),
+                .cells = @intCast(j - run_offset),
+                .grid = self.opts.grid,
+                .font_index = current_font,
+                .rtl = rtl,
+            };
         }
 
-        // Finalize our buffer
-        self.hooks.finalize();
+        return null;
+    }
 
-        // Add our length to the hash as an additional mechanism to avoid collisions
-        autoHash(&hasher, j - self.i);
+    fn resolveRowLayout(
+        self: *RunIterator,
+        alloc: Allocator,
+        cells: []const terminal.page.Cell,
+    ) !void {
+        self.layout_ready = true;
 
-        // Add our font index
-        autoHash(&hasher, current_font);
+        if (self.max == 0) {
+            self.visual_runs = &.{};
+            return;
+        }
 
-        // Move our cursor. Must defer since we use self.i below.
-        defer self.i = j;
+        const scratch = self.hooks.scratch();
+        if (!needsBidi(cells[0..self.max])) {
+            scratch.ltr_run = .{.{
+                .visual_start = 0,
+                .logical_start = 0,
+                .len = @intCast(self.max),
+                .is_rtl = false,
+            }};
+            self.visual_runs = &scratch.ltr_run;
+            return;
+        }
 
-        return .{
-            .hash = hasher.final(),
-            .offset = @intCast(self.i),
-            .cells = @intCast(j - self.i),
-            .grid = self.opts.grid,
-            .font_index = current_font,
-        };
+        // Build bidi inputs from logical cells and derive visual runs in a
+        // paragraph that is always anchored LTR (terminal line model).
+        var bidi_codepoints = try alloc.alloc(u21, self.max);
+        defer alloc.free(bidi_codepoints);
+        for (cells[0..self.max], 0..) |cell, i| {
+            bidi_codepoints[i] = bidiCodepoint(cell);
+        }
+
+        const layout = try itijah.resolveVisualLayoutScratch(
+            alloc,
+            &scratch.layout,
+            bidi_codepoints,
+            .{ .base_dir = .ltr },
+        );
+        self.visual_runs = layout.runs;
     }
 
     fn addCodepoint(self: *RunIterator, hasher: anytype, cp: u32, cluster: u32) !void {
@@ -411,7 +486,101 @@ pub const RunIterator = struct {
             continue :search;
         }
     }
+
+    pub const FontInfo = struct {
+        idx: font.Collection.Index,
+        fallback: ?u32 = null,
+    };
+
+    /// Resolve which font to use for a cell, falling back to the replacement
+    /// character or space if the cell's glyph is unavailable.
+    fn resolveFontInfo(
+        self: *RunIterator,
+        alloc: Allocator,
+        cell: *const terminal.Cell,
+        graphemes: []const u21,
+        style: font.Style,
+        presentation: ?font.Presentation,
+    ) !FontInfo {
+        if (try self.indexForCell(alloc, cell, graphemes, style, presentation)) |idx|
+            return .{ .idx = idx };
+
+        // Prefer the official replacement character.
+        if (try self.opts.grid.getIndex(alloc, 0xFFFD, style, presentation)) |idx|
+            return .{ .idx = idx, .fallback = 0xFFFD };
+
+        // Fallback to space.
+        if (try self.opts.grid.getIndex(alloc, ' ', style, presentation)) |idx|
+            return .{ .idx = idx, .fallback = ' ' };
+
+        // We can't render at all. This is a bug, we should always
+        // have a font that can render a space.
+        unreachable;
+    }
 };
+
+/// The bidi classes that can lift a cell above level 0 in an LTR paragraph
+/// (strong RTL, Arabic numbers, explicit embeddings, overrides and
+/// isolates) never occur below the Hebrew block.
+const first_rtl_capable_codepoint = 0x0590;
+
+fn needsBidi(cells: []const terminal.page.Cell) bool {
+    for (cells) |cell| {
+        const cp = bidiCodepoint(cell);
+        if (cp < first_rtl_capable_codepoint) continue;
+        switch (uucode.get(.bidi_class, cp)) {
+            .right_to_left,
+            .right_to_left_arabic,
+            .arabic_number,
+            .left_to_right_embedding,
+            .right_to_left_embedding,
+            .left_to_right_override,
+            .right_to_left_override,
+            .left_to_right_isolate,
+            .right_to_left_isolate,
+            .first_strong_isolate,
+            => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn bidiCodepoint(cell: terminal.page.Cell) u21 {
+    const cp = cell.codepoint();
+    return @intCast(if (cp == 0) ' ' else cp);
+}
+
+fn fontStyleForStyle(style: terminal.Style) font.Style {
+    if (style.flags.bold and style.flags.italic) return .bold_italic;
+    if (style.flags.bold) return .bold;
+    if (style.flags.italic) return .italic;
+    return .regular;
+}
+
+fn presentationForCell(cell: *const terminal.page.Cell, grapheme: []const u21) ?font.Presentation {
+    if (!cell.hasGrapheme() or grapheme.len == 0) return null;
+
+    // Presentation modifiers apply only when directly adjacent to the base.
+    return switch (grapheme[0]) {
+        0xFE0E => .text,
+        0xFE0F => .emoji,
+        // A skin tone modifier implies emoji presentation for its
+        // base (UTS #51, section 2.4).
+        0x1F3FB...0x1F3FF => .emoji,
+        else => null,
+    };
+}
+
+fn findVisualRun(visual_runs: []const VisualRun, visual_index: usize) ?VisualRun {
+    for (visual_runs) |run| {
+        const start: usize = @intCast(run.visual_start);
+        const end: usize = @intCast(run.visualEnd());
+        if (visual_index >= start and visual_index < end) return run;
+    }
+
+    return null;
+}
 
 /// Returns a style that when compared must be identical for a run to
 /// continue.
@@ -424,6 +593,61 @@ fn comparableStyle(style: terminal.Style) terminal.Style {
     s.bg_color = .none;
 
     return s;
+}
+
+fn testCells(comptime str: []const u8) [std.unicode.utf8CountCodepoints(str) catch unreachable]terminal.page.Cell {
+    @setEvalBranchQuota(10_000);
+    var cells: [std.unicode.utf8CountCodepoints(str) catch unreachable]terminal.page.Cell = undefined;
+    var it = (std.unicode.Utf8View.init(str) catch unreachable).iterator();
+    var i: usize = 0;
+    while (it.nextCodepoint()) |cp| : (i += 1) cells[i] = .init(cp);
+    return cells;
+}
+
+test "needsBidi agrees with UAX #9 for rows without RTL content" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var scratch: itijah.VisualLayoutScratch = .{};
+    defer scratch.deinit(alloc);
+
+    // Rows that reach past U+0590 without any RTL content must still
+    // resolve to a single LTR run covering the whole row.
+    inline for (.{
+        "plain ASCII: git log --oneline -5",
+        "╭─ box drawing ─╮ │ ✻ Claude Code │",
+        "漢字かなカナ 한국어 français ẞ",
+        "emoji 🌍👍🏽 and symbols ← → ✓ ★",
+    }) |str| {
+        const cells = testCells(str);
+        try testing.expect(!needsBidi(&cells));
+
+        var cps: [cells.len]u21 = undefined;
+        for (cells, &cps) |cell, *cp| cp.* = bidiCodepoint(cell);
+        const layout = try itijah.resolveVisualLayoutScratch(alloc, &scratch, &cps, .{ .base_dir = .ltr });
+        try testing.expectEqual(@as(usize, 1), layout.runs.len);
+        try testing.expect(!layout.runs[0].is_rtl);
+        try testing.expectEqual(@as(u32, cells.len), layout.runs[0].len);
+    }
+}
+
+test "needsBidi detects RTL content" {
+    const testing = std.testing;
+
+    inline for (.{
+        "Persian: سلام دنیا",
+        "Hebrew: שלום",
+        "Arabic-Indic digits: ١٢٣",
+        "RLI isolate: \u{2067}x\u{2069}",
+        "RLM mark: a\u{200F}b",
+    }) |str| {
+        const cells = testCells(str);
+        try testing.expect(needsBidi(&cells));
+    }
+
+    // Persian digits are European numbers (EN), so alone they stay LTR.
+    const digits = testCells("order ۱۴۰۵");
+    try testing.expect(!needsBidi(&digits));
 }
 
 test "run iterator: row erased with background" {

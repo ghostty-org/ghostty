@@ -34,6 +34,10 @@ pub const tables = [_]config.Table{
         .fields = &.{
             "is_emoji_presentation",
             "case_folding_full",
+            "bidi_class",
+            "bidi_paired_bracket",
+            "joining_type",
+            "is_bidi_mirrored",
         },
     },
     .{

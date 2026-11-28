@@ -546,6 +546,7 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
+    self.addItijah(b, step.root_module, target, optimize, self.uucode_mod);
     if (b.lazyDependency("zf", .{
         .target = target,
         .optimize = optimize,
@@ -1202,6 +1203,25 @@ fn gtkDistResourcesUncached(b: *std.Build) GtkResources {
             ),
         },
     };
+}
+
+pub fn addItijah(
+    _: *const SharedDeps,
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    uucode_mod: *std.Build.Module,
+) void {
+    // Vendored from DiaaEddin/itijah v0.2.1 (MIT); its build.zig
+    // predates Zig 0.17, so we only use its sources.
+    const itijah_mod = b.createModule(.{
+        .root_source_file = b.path("pkg/itijah/src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    itijah_mod.addImport("uucode", uucode_mod);
+    module.addImport("itijah", itijah_mod);
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by

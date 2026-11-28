@@ -195,6 +195,7 @@ fn initVt(
             vt.addImport("wuffs", dep.module("wuffs"));
         }
     }
+    deps.addItijah(b, vt, cfg.target, cfg.optimize, deps.uucode_mod);
 
     // If SIMD is enabled, add all our SIMD dependencies.
     if (cfg.simd) {
