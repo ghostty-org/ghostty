@@ -18,11 +18,20 @@ const log = std.log.scoped(.queue_drain);
 /// While a drain runs it's a second consumer of the queue. That's safe
 /// because `pop` holds the queue's lock, but values the drain takes are
 /// gone from the queue: `handle` decides what happens to them.
+///
+/// `name` is the name given to the drain's thread, which is what shows up
+/// in a debugger or `top`.
 pub fn QueueDrain(
     comptime Queue: type,
     comptime Context: type,
     comptime handle: fn (Context, Value(Queue)) void,
+    comptime name: []const u8,
 ) type {
+    // Linux and FreeBSD allow at most 15 bytes, and `setName` fails
+    // rather than truncating, so a longer name would be silently lost.
+    if (name.len > 15) @compileError("queue drain thread name \"" ++
+        name ++ "\" is longer than 15 bytes");
+
     return struct {
         const Self = @This();
 
@@ -40,7 +49,7 @@ pub fn QueueDrain(
                     log.warn("queue drain thread spawn failed, may stall err={}", .{err});
                     break :thread null;
                 };
-                thread.setName(io, @typeName(Queue) ++ " drain thread") catch {};
+                thread.setName(io, name) catch {};
                 break :thread thread;
             };
         }
@@ -105,8 +114,20 @@ test "QueueDrain releases a producer blocked on a full queue" {
     };
     const producer = try std.Thread.spawn(.{}, S.producer, .{q});
 
-    var drain: QueueDrain(Q, *Seen, Seen.handle) = .{ .queue = q, .context = &seen };
+    var drain: QueueDrain(Q, *Seen, Seen.handle, "test-drain") = .{
+        .queue = q,
+        .context = &seen,
+    };
     drain.start(io);
+
+    // `setName` fails rather than truncating a name that's too long, and
+    // the failure is ignored, so check that the name actually took.
+    if (builtin.os.tag == .linux) {
+        var buf: [std.Thread.max_name_len:0]u8 = undefined;
+        const thread_name = try drain.thread.?.getName(&buf);
+        try testing.expectEqualStrings("test-drain", thread_name.?);
+    }
+
     producer.join();
     drain.finish();
 

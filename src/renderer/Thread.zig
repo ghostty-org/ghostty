@@ -29,7 +29,7 @@ pub const Mailbox = BlockingQueue(rendererpkg.Message, 64);
 
 /// Throws away messages sent to a renderer thread that has been joined,
 /// so that threads still sending to it don't block on a full mailbox.
-pub const MailboxDrain = QueueDrain(Mailbox, void, discard);
+pub const MailboxDrain = QueueDrain(Mailbox, void, discard, "renderer-drain");
 
 fn discard(_: void, message: rendererpkg.Message) void {
     message.deinit();

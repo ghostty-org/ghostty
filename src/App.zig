@@ -646,7 +646,12 @@ pub const Mailbox = struct {
 ///
 /// Messages for the surface being torn down are dropped instead: by the
 /// next tick another surface may have been allocated at the same address.
-pub const TeardownDrain = QueueDrain(Mailbox.Queue, Teardown, Teardown.keep);
+pub const TeardownDrain = QueueDrain(
+    Mailbox.Queue,
+    Teardown,
+    Teardown.keep,
+    "app-drain",
+);
 
 /// Return a `TeardownDrain` for the given surface. It isn't started.
 pub fn teardownDrain(self: *App, surface: *const Surface) TeardownDrain {
