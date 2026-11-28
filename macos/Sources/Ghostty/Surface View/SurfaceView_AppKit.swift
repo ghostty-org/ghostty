@@ -859,9 +859,7 @@ extension Ghostty {
 
         override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
-            if result {
-                focusDidChange(true)
-            }
+            if result { focusDidChange(true) }
             return result
         }
 
@@ -870,9 +868,7 @@ extension Ghostty {
 
             // We sometimes call this manually (see SplitView) as a way to force us to
             // yield our focus state.
-            if result {
-                focusDidChange(false)
-            }
+            if result { focusDidChange(false) }
 
             return result
         }
