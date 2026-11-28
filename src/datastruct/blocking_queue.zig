@@ -26,6 +26,9 @@ const compat_thread = @import("../lib/compat/thread.zig");
 /// in the future. At the time of writing this, the blocking queue implementation
 /// is purposely naive to build something quickly, but we should benchmark
 /// and make this more optimized as necessary.
+///
+/// Every call on a given queue must pass the same `std.Io`, because it's
+/// used to lock and wait on the queue's shared mutex and condition.
 pub fn BlockingQueue(
     comptime T: type,
     comptime capacity: usize,
