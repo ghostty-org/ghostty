@@ -210,7 +210,7 @@ msgstr "Avslutt"
 
 #: src/apprt/gtk/ui/1.4/window.blp:346
 msgid "Change Tab Color…"
-msgstr ""
+msgstr "Endre fanefarge…"
 
 #: src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp:11
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:388
@@ -271,7 +271,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/tab-color-dialog.blp:5
 msgid "Tab Color"
-msgstr ""
+msgstr "Fanefarge"
 
 #: src/apprt/gtk/class/application.zig:1766
 msgid "The keybind was revoked by the system."
@@ -359,11 +359,11 @@ msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
 #: src/apprt/gtk/class/command_palette.zig:693
 msgid "Untitled"
-msgstr ""
+msgstr "Uten tittel"
 
 #: src/apprt/gtk/class/command_palette.zig:697
 msgid "Focus"
-msgstr ""
+msgstr "Fokus"
 
 #: src/apprt/gtk/class/surface.zig:1206
 msgid "Command Finished"
@@ -381,43 +381,43 @@ msgstr "Kommandoen mislyktes"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:54
 msgid "None"
-msgstr ""
+msgstr "Ingen"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:55
 msgid "Blue"
-msgstr ""
+msgstr "Blå"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:56
 msgid "Teal"
-msgstr ""
+msgstr "Mørketurkis"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:57
 msgid "Green"
-msgstr ""
+msgstr "Grønn"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:58
 msgid "Yellow"
-msgstr ""
+msgstr "Gul"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:59
 msgid "Orange"
-msgstr ""
+msgstr "Oransje"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:60
 msgid "Red"
-msgstr ""
+msgstr "Rød"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:61
 msgid "Pink"
-msgstr ""
+msgstr "Rosa"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:62
 msgid "Purple"
-msgstr ""
+msgstr "Lilla"
 
 #: src/apprt/gtk/class/tab_color_dialog.zig:63
 msgid "Slate"
-msgstr ""
+msgstr "Skifergrå"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Terminal Title"
@@ -1067,35 +1067,35 @@ msgstr "Last konfigurasjonsfilen på nytt."
 
 #: src/input/command.zig:607
 msgid "Switch to Configured Appearance"
-msgstr ""
+msgstr "Bytt til konfigurert utseende"
 
 #: src/input/command.zig:608
 msgid "Use the application appearance from the configuration."
-msgstr ""
+msgstr "Bruk applikasjonsutseende fra konfugurasjonen"
 
 #: src/input/command.zig:612
 msgid "Switch to System Appearance"
-msgstr ""
+msgstr "Bytt til systemutseende"
 
 #: src/input/command.zig:613
 msgid "Use the system application appearance for this session."
-msgstr ""
+msgstr "Bruk systemutseende for denne sesjonen."
 
 #: src/input/command.zig:617
 msgid "Switch to Light Appearance"
-msgstr ""
+msgstr "Bytt til lyst utseende"
 
 #: src/input/command.zig:618
 msgid "Use a light application appearance for this session."
-msgstr ""
+msgstr "Bruk lyst utseende for denne sesjonen."
 
 #: src/input/command.zig:622
 msgid "Switch to Dark Appearance"
-msgstr ""
+msgstr "Bytt til mørkt utseende"
 
 #: src/input/command.zig:623
 msgid "Use a dark application appearance for this session."
-msgstr ""
+msgstr "Brukt mørkt utseende for denne sesjonen."
 
 #: src/input/command.zig:629
 msgid "Close Terminal"
